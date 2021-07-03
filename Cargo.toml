@@ -1,0 +1,13 @@
+[package]
+name = "modalkit"
+version = "0.0.1"
+authors = ["Ulyssa <git@ulyssa.dev>"]
+repository = "https://github.com/ulyssa/modalkit"
+homepage = "https://github.com/ulyssa/modalkit"
+readme = "README.md"
+description = "A library for building applications that use modal editing"
+license = "Apache-2.0"
+edition = "2018"
+exclude = [".github", "CONTRIBUTING.md"]
+
+[dependencies]
