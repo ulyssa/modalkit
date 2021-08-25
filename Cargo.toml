@@ -11,3 +11,4 @@ edition = "2018"
 exclude = [".github", "CONTRIBUTING.md"]
 
 [dependencies]
+crossterm = "0.17"
