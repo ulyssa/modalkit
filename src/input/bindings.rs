@@ -442,10 +442,7 @@ impl<Key: InputKey, S: Step<Key>> Graph<Key, S> {
     }
 
     fn add_edge(&mut self, from: NodeId, to: NodeId, ev: EdgeEvent<Key, S::Class>) {
-        let e = Edge {
-            evt: ev.clone(),
-            end: to,
-        };
+        let e = Edge { evt: ev.clone(), end: to };
 
         if let Some(m) = self.edges.get_mut(&from) {
             m.insert(ev, e);
@@ -1310,34 +1307,16 @@ mod tests {
             machine.add_mapping(
                 TestMode::Normal,
                 &keys!('d'),
-                &op!(
-                    move |ctx| ctx.temp.operation = Some(TestOperation::Delete),
-                    TestMode::Suffix
-                ),
+                &op!(move |ctx| ctx.temp.operation = Some(TestOperation::Delete), TestMode::Suffix),
             );
             machine.add_mapping(
                 TestMode::Normal,
                 &keys!('y'),
-                &op!(
-                    move |ctx| ctx.temp.operation = Some(TestOperation::Yank),
-                    TestMode::Suffix
-                ),
+                &op!(move |ctx| ctx.temp.operation = Some(TestOperation::Yank), TestMode::Suffix),
             );
-            machine.add_mapping(
-                TestMode::Normal,
-                &keys!('d', 'd'),
-                &action!(TestAction::EditLine),
-            );
-            machine.add_mapping(
-                TestMode::Normal,
-                &keys!('y', 'y'),
-                &action!(TestAction::EditLine),
-            );
-            machine.add_mapping(
-                TestMode::Normal,
-                &keys!(KeyCode::Esc),
-                &goto!(TestMode::Insert),
-            );
+            machine.add_mapping(TestMode::Normal, &keys!('d', 'd'), &action!(TestAction::EditLine));
+            machine.add_mapping(TestMode::Normal, &keys!('y', 'y'), &action!(TestAction::EditLine));
+            machine.add_mapping(TestMode::Normal, &keys!(KeyCode::Esc), &goto!(TestMode::Insert));
 
             // Normal mode prefixes
             machine.add_prefix(
@@ -1347,11 +1326,7 @@ mod tests {
             );
 
             // Suffix mode mappings
-            machine.add_mapping(
-                TestMode::Suffix,
-                &keys!('w'),
-                &action!(TestAction::EditWord),
-            );
+            machine.add_mapping(TestMode::Suffix, &keys!('w'), &action!(TestAction::EditWord));
             machine.add_mapping(
                 TestMode::Suffix,
                 &vec![
@@ -1360,11 +1335,7 @@ mod tests {
                 ],
                 &action!(TestAction::EditTillChar),
             );
-            machine.add_mapping(
-                TestMode::Suffix,
-                &keys!(';'),
-                &action!(TestAction::EditTillChar),
-            );
+            machine.add_mapping(TestMode::Suffix, &keys!(';'), &action!(TestAction::EditTillChar));
         }
     }
 
@@ -1555,16 +1526,12 @@ mod tests {
         assert_eq!(tm.mode(), TestMode::Insert);
 
         // Add an explicit, unmapped step for "?" to Normal mode.
-        tm.add_mapping(
-            TestMode::Normal,
-            &keys!('?'),
-            &TestStep {
-                run: None,
-                action: None,
-                fall_mode: None,
-                goto_mode: None,
-            },
-        );
+        tm.add_mapping(TestMode::Normal, &keys!('?'), &TestStep {
+            run: None,
+            action: None,
+            fall_mode: None,
+            goto_mode: None,
+        });
 
         // Access the explicitly unmapped "?" via ^O?
         tm.input_key(ctl!('o'));
@@ -1642,11 +1609,7 @@ mod tests {
         assert_eq!(tm.mode(), TestMode::Normal);
 
         // We can map "y?" in Normal mode to prevent using the Suffix mode action.
-        tm.add_mapping(
-            TestMode::Normal,
-            &keys!('y', '?'),
-            &action!(TestAction::Inveigle),
-        );
+        tm.add_mapping(TestMode::Normal, &keys!('y', '?'), &action!(TestAction::Inveigle));
 
         // "y?" now produces the override action.
         ctx.temp.operation = Some(TestOperation::Yank);
@@ -1786,11 +1749,7 @@ mod tests {
         let mut ctx = TestContext::default();
 
         // Update the existing "yy" mapping.
-        tm.add_mapping(
-            TestMode::Normal,
-            &keys!('y', 'y'),
-            &action!(TestAction::Palaver),
-        );
+        tm.add_mapping(TestMode::Normal, &keys!('y', 'y'), &action!(TestAction::Palaver));
 
         // Go to Normal mode.
         tm.input_key(ctl!('l'));

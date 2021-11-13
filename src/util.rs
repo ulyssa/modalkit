@@ -12,26 +12,17 @@ macro_rules! key {
         }
     };
     ($kc: expr) => {
-        KeyEvent {
-            code: $kc,
-            modifiers: KeyModifiers::NONE,
-        }
+        KeyEvent { code: $kc, modifiers: KeyModifiers::NONE }
     };
     ($kc: expr, $km: expr) => {
-        KeyEvent {
-            code: $kc,
-            modifiers: $km,
-        }
+        KeyEvent { code: $kc, modifiers: $km }
     };
 }
 
 #[allow(unused_macros)]
 macro_rules! ctl {
     ($ch: literal) => {
-        key!(
-            KeyCode::Char($ch.to_ascii_lowercase()),
-            KeyModifiers::CONTROL
-        )
+        key!(KeyCode::Char($ch.to_ascii_lowercase()), KeyModifiers::CONTROL)
     };
 }
 
