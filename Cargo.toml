@@ -11,4 +11,7 @@ edition = "2018"
 exclude = [".github", "CONTRIBUTING.md"]
 
 [dependencies]
+thiserror = "1.0.30"
 crossterm = "0.17"
+bitflags = "1.2"
+regex = "1.5.4"

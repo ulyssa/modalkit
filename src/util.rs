@@ -87,3 +87,15 @@ pub fn keycode_to_num(ke: &KeyEvent, radix: u32) -> Option<u32> {
         None
     }
 }
+
+#[inline]
+pub fn sort2<T>(a: T, b: T) -> (T, T)
+where
+    T: Ord,
+{
+    if a < b {
+        (a, b)
+    } else {
+        (b, a)
+    }
+}
