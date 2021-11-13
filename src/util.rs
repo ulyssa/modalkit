@@ -1,4 +1,3 @@
-#[cfg(test)]
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 macro_rules! key {
@@ -66,7 +65,6 @@ impl Default for IdGenerator {
     }
 }
 
-#[cfg(test)]
 #[inline]
 pub fn get_char(ke: &KeyEvent) -> Option<char> {
     if let KeyCode::Char(c) = ke.code {
@@ -78,7 +76,46 @@ pub fn get_char(ke: &KeyEvent) -> Option<char> {
     None
 }
 
-#[cfg(test)]
+pub fn get_literal_char(ke: &KeyEvent) -> Option<char> {
+    match ke.code {
+        KeyCode::Char(c) => {
+            if (ke.modifiers - KeyModifiers::SHIFT).is_empty() {
+                return Some(c);
+            }
+
+            if ke.modifiers == KeyModifiers::CONTROL {
+                let cp = match c {
+                    'a'..='z' => c as u32 - b'a' as u32 + 0x01,
+                    ' ' | '@' => 0x0,
+                    '4'..='7' => c as u32 - b'4' as u32 + 0x1C,
+                    _ => {
+                        panic!("unknown control key")
+                    },
+                };
+
+                return char::from_u32(cp);
+            }
+
+            return None;
+        },
+        KeyCode::Tab if ke.modifiers.is_empty() => {
+            return Some('\u{09}');
+        },
+        KeyCode::Enter => {
+            return Some('\u{0D}');
+        },
+        KeyCode::Esc => {
+            return Some('\u{1B}');
+        },
+        KeyCode::Backspace => {
+            return Some('\u{7F}');
+        },
+        _ => {
+            return None;
+        },
+    }
+}
+
 #[inline]
 pub fn keycode_to_num(ke: &KeyEvent, radix: u32) -> Option<u32> {
     if let Some(c) = get_char(ke) {
@@ -86,6 +123,16 @@ pub fn keycode_to_num(ke: &KeyEvent, radix: u32) -> Option<u32> {
     } else {
         None
     }
+}
+
+#[inline]
+pub fn option_muladd_u32(opt: &Option<u32>, mul: u32, add: u32) -> u32 {
+    opt.unwrap_or(0).saturating_mul(mul).saturating_add(add)
+}
+
+#[inline]
+pub fn option_muladd_usize(opt: &Option<usize>, mul: usize, add: usize) -> usize {
+    opt.unwrap_or(0).saturating_mul(mul).saturating_add(add)
 }
 
 #[inline]

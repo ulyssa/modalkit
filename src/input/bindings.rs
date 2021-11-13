@@ -68,19 +68,19 @@
 //! impl Mode<ProgAction, EmptyKeyContext> for ProgMode { }
 //!
 //! impl ModeKeys<KeyEvent, ProgAction, EmptyKeyContext> for ProgMode {
-//!     fn unmapped(&self, key: &KeyEvent, _: &mut EmptyKeyContext) -> (Option<ProgAction>, Option<ProgMode>) {
+//!     fn unmapped(&self, key: &KeyEvent, _: &mut EmptyKeyContext) -> (Vec<ProgAction>, Option<ProgMode>) {
 //!         match self {
 //!             ProgMode::Normal => {
-//!                 return (None, None);
+//!                 return (vec![], None);
 //!             },
 //!             ProgMode::Insert => {
 //!                 if let KeyCode::Char(c) = key.code {
 //!                     if (key.modifiers - KeyModifiers::SHIFT).is_empty() {
-//!                         return (Some(ProgAction::Type(c)), None);
+//!                         return (vec![ProgAction::Type(c)], None);
 //!                     }
 //!                 }
 //!
-//!                 return (None, None);
+//!                 return (vec![], None);
 //!             },
 //!         }
 //!     }
@@ -192,8 +192,8 @@ pub trait Mode<A, C>: Copy + Clone + Debug + Default + Hash + Eq + PartialEq {
     ///
     /// This method is only called when a mode has been fully entered. Modes entered
     /// via [Fallthrough](EdgeEvent::Fallthrough) do not result in this method being called.
-    fn enter(&self, previous_mode: Self, context: &mut C) -> Option<A> {
-        None
+    fn enter(&self, previous_mode: Self, context: &mut C) -> Vec<A> {
+        vec![]
     }
 
     /// Return a string to show on-screen that describes the current mode.
@@ -205,8 +205,8 @@ pub trait Mode<A, C>: Copy + Clone + Debug + Default + Hash + Eq + PartialEq {
 #[allow(unused_variables)]
 pub trait ModeKeys<Key, A, C>: Mode<A, C> {
     /// Return the default behaviour for the current mode when the given key is unmapped.
-    fn unmapped(&self, key: &Key, context: &mut C) -> (Option<A>, Option<Self>) {
-        (None, None)
+    fn unmapped(&self, key: &Key, context: &mut C) -> (Vec<A>, Option<Self>) {
+        (vec![], None)
     }
 }
 
@@ -850,19 +850,24 @@ impl<Key: InputKey, S: Step<Key>> ModalMachine<Key, S> {
     }
 
     fn unmapped(&mut self, ke: Key) {
-        match self.im.mode().unmapped(&ke, &mut self.ctx) {
-            (None, None) => {
+        let (acts, ms) = self.im.mode().unmapped(&ke, &mut self.ctx);
+
+        match (acts.len(), ms) {
+            (0, None) => {
                 self.ctx.reset();
                 self.goto_mode(self.state);
             },
-            (None, Some(mode)) => {
+            (0, Some(mode)) => {
                 self.ctx.reset();
                 self.goto_mode(mode);
             },
-            (Some(act), ms) => {
+            (_, ms) => {
                 let res = self.ctx.take();
 
-                self.push((act, res));
+                for act in acts.into_iter() {
+                    self.push((act, res.clone()));
+                }
+
                 self.goto_mode(ms.unwrap_or(self.state));
             },
         }
@@ -912,10 +917,11 @@ impl<Key: InputKey, S: Step<Key>> ModalMachine<Key, S> {
         self.im.goto_mode(mode);
         self.state = mode;
 
-        if let Some(act) = self.state.enter(prev, &mut self.ctx) {
-            let res = self.ctx.take();
+        let acts = self.state.enter(prev, &mut self.ctx);
+        let res = self.ctx.take();
 
-            self.push((act, res));
+        for act in acts.into_iter() {
+            self.push((act, res.clone()));
         }
     }
 
@@ -1145,21 +1151,17 @@ mod tests {
     }
 
     impl ModeKeys<KeyEvent, TestAction, TestContext> for TestMode {
-        fn unmapped(
-            &self,
-            ke: &KeyEvent,
-            _: &mut TestContext,
-        ) -> (Option<TestAction>, Option<Self>) {
+        fn unmapped(&self, ke: &KeyEvent, _: &mut TestContext) -> (Vec<TestAction>, Option<Self>) {
             match self {
                 TestMode::Insert => {
                     if let Some(c) = get_char(ke) {
-                        (Some(TestAction::Type(c)), None)
+                        (vec![TestAction::Type(c)], None)
                     } else {
-                        (None, None)
+                        (vec![], None)
                     }
                 },
-                TestMode::Normal => (None, None),
-                TestMode::Suffix => (None, None),
+                TestMode::Normal => (vec![], None),
+                TestMode::Suffix => (vec![], None),
             }
         }
     }
