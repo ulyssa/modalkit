@@ -575,7 +575,7 @@ pub enum Action {
     Mark(Specifier<Mark>),
 
     /// Open [*n*](Count) new lines before or after the current line.
-    OpenLine(MoveDir1D, Count),
+    OpenLine(MoveDir1D),
 
     /// Paste before or after the current cursor position [*n*](Count) times.
     Paste(MoveDir1D, Count),

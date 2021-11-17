@@ -11,6 +11,7 @@ edition = "2018"
 exclude = [".github", "CONTRIBUTING.md"]
 
 [dependencies]
+derive_more = "0.99.16"
 thiserror = "1.0.30"
 crossterm = "0.17"
 xi-rope = "0.3.0"
