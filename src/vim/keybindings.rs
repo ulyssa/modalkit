@@ -511,13 +511,13 @@ macro_rules! scrollcpv {
                     EditTarget::Motion(MoveType::FirstWord(MoveDir1D::Next), Count::Exact(0))
                 )),
                 ExternalAction::CountAlters(
-                    vec![Action::Scroll(ScrollStyle::CursorPos(Axis::Vertical, $p))],
+                    vec![Action::Scroll(ScrollStyle::CursorPos($p, Axis::Vertical))],
                     vec![Action::Scroll(ScrollStyle::LinePos($p, Count::Contextual))],
                 ),
             ])
         } else {
             count_alters!(
-                Action::Scroll(ScrollStyle::CursorPos(Axis::Vertical, $p)),
+                Action::Scroll(ScrollStyle::CursorPos($p, Axis::Vertical)),
                 Action::Scroll(ScrollStyle::LinePos($p, Count::Contextual))
             )
         }
@@ -526,7 +526,7 @@ macro_rules! scrollcpv {
 
 macro_rules! scrollcph {
     ($p: expr) => {
-        scroll!(ScrollStyle::CursorPos(Axis::Horizontal, $p))
+        scroll!(ScrollStyle::CursorPos($p, Axis::Horizontal))
     };
 }
 
@@ -3644,7 +3644,7 @@ mod tests {
         let mut ctx = VimContext::default();
 
         // Place cursored line at the top of the screen with "zt".
-        let act = Action::Scroll(ScrollStyle::CursorPos(Axis::Vertical, MovePosition::Beginning));
+        let act = Action::Scroll(ScrollStyle::CursorPos(MovePosition::Beginning, Axis::Vertical));
         vm.input_key(key!('z'));
         vm.input_key(key!('t'));
         assert_pop2!(vm, act, ctx);
@@ -3664,7 +3664,7 @@ mod tests {
 
         // "z<Enter>" works like "zt", but it also goes to the first word on the line.
         let actfw = mvop!(EditAction::Motion, MoveType::FirstWord(MoveDir1D::Next), 0);
-        let actcp = Action::Scroll(ScrollStyle::CursorPos(Axis::Vertical, MovePosition::Beginning));
+        let actcp = Action::Scroll(ScrollStyle::CursorPos(MovePosition::Beginning, Axis::Vertical));
         ctx.action.count = None;
         vm.input_key(key!('z'));
         vm.input_key(key!(KeyCode::Enter));

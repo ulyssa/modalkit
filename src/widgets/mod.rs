@@ -23,6 +23,7 @@ use crate::editing::base::{
     WindowAction,
 };
 
+pub mod textbox;
 pub mod windows;
 
 mod util;

@@ -333,13 +333,13 @@ pub enum ScrollSize {
 /// This represents the way in which the viewport should be scrolled.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ScrollStyle {
-    /// Scroll the viewport in MoveDir2D direction by ScrollSize units, Count times.
+    /// Scroll the viewport in [MoveDir2D] direction by [ScrollSize] units, [*n* times](Count).
     Direction2D(MoveDir2D, ScrollSize, Count),
 
-    /// Scroll the viewport so that the cursor is placed at MovePosition relative to Axis.
-    CursorPos(Axis, MovePosition),
+    /// Scroll the viewport so that the cursor is placed at [MovePosition] relative to [Axis].
+    CursorPos(MovePosition, Axis),
 
-    /// Scroll the viewport so that the Count specified line is at MovePosition on the screen.
+    /// Scroll the viewport so that the [*n*<sup>th</sup> line](Count) is at [MovePosition] on the screen.
     LinePos(MovePosition, Count),
 }
 
@@ -975,6 +975,16 @@ impl<Cursor: Default> ViewportContext<Cursor> {
 impl<Cursor: Default> Default for ViewportContext<Cursor> {
     fn default() -> Self {
         ViewportContext::new()
+    }
+}
+
+impl<Cursor: Clone> Clone for ViewportContext<Cursor> {
+    fn clone(&self) -> Self {
+        ViewportContext {
+            corner: self.corner.clone(),
+            dimensions: self.dimensions.clone(),
+            wrap: self.wrap.clone(),
+        }
     }
 }
 

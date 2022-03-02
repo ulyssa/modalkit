@@ -12,7 +12,7 @@ exclude = [".github", "CONTRIBUTING.md"]
 
 [features]
 default = ["widgets"]
-widgets = ["tui"]
+widgets = ["tui", "intervaltree"]
 
 [dependencies]
 derive_more = "0.99.16"
@@ -20,6 +20,7 @@ thiserror = "1.0.30"
 crossterm = "0.17"
 tui = { version = "0.17", optional = true }
 xi-rope = "0.3.0"
+intervaltree = { version = "0.2.6", optional = true }
 bitflags = "1.2"
 lazy_static = "1.4.0"
 nom = "7.0.0"

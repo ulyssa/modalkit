@@ -5,7 +5,7 @@ use crate::{
     editing::cursor::{Cursor, CursorAdjustment},
     editing::histlist::HistoryList,
     editing::rope::{ByteOff, CursorContext, EditRope, PrivateCursorOps},
-    editing::store::{BufferId, CursorStore, RegisterCell, SharedStore},
+    editing::store::{BufferId, CursorStore, RegisterCell, SharedBuffer, SharedStore},
     util::{sort2, IdGenerator},
 };
 
@@ -60,8 +60,10 @@ pub struct CursorGroupId(u64);
 pub type CursorRange = EditRange<Cursor>;
 
 pub struct EditBuffer<C: EditContext> {
+    /// A unique identifier for this buffer.
     id: BufferId,
 
+    /// The current contents of the buffer.
     text: EditRope,
 
     /// Allocates new CursorIds.
@@ -86,7 +88,7 @@ pub struct EditBuffer<C: EditContext> {
     members: HashMap<CursorGroupId, Vec<CursorId>>,
 
     history: HistoryList<EditRope>,
-    store: SharedStore,
+    store: SharedStore<C>,
 
     _pc: PhantomData<C>,
 }
@@ -120,10 +122,9 @@ type Selections = Vec<Selection>;
 type CursorGroupIdContext<'a, 'b, T> = (CursorGroupId, &'a ViewportContext<Cursor>, &'b T);
 
 impl<C: EditContext> EditBuffer<C> {
-    pub fn new(store: SharedStore) -> EditBuffer<C> {
+    pub fn new(id: BufferId, store: SharedStore<C>) -> EditBuffer<C> {
         let text = EditRope::from("\n");
         let history = HistoryList::new(text.clone(), 100);
-        let id = store.write().unwrap().next_buffer_id();
 
         EditBuffer {
             id,
@@ -143,6 +144,10 @@ impl<C: EditContext> EditBuffer<C> {
 
             _pc: PhantomData,
         }
+    }
+
+    pub fn buffer_id(&self) -> BufferId {
+        self.id
     }
 
     fn _char<'a, 'b, 'c>(&self, c: Char, cursor: &Cursor) -> EditResult<char> {
@@ -575,6 +580,13 @@ impl<C: EditContext> EditBuffer<C> {
         self.anchors.zero_all();
 
         self.store.write().unwrap().marks.zero_all(self.id);
+    }
+
+    pub fn append_text<T: Into<String>>(&mut self, t: T) {
+        let s: String = t.into();
+
+        self.text += EditRope::from(s);
+        self.text.trailing_newline();
     }
 
     pub fn reset_text(&mut self) -> String {
@@ -1483,6 +1495,70 @@ impl<'a, 'b, C: EditContext> Editable<CursorGroupIdContext<'a, 'b, C>> for EditB
     }
 }
 
+impl<'a, 'b, C: EditContext> Editable<CursorGroupIdContext<'a, 'b, C>> for SharedBuffer<C> {
+    fn edit(
+        &mut self,
+        operation: &EditAction,
+        motion: &EditTarget,
+        ctx: &CursorGroupIdContext<'a, 'b, C>,
+    ) -> EditResult {
+        self.try_write().unwrap().edit(operation, motion, ctx)
+    }
+
+    fn type_char(&mut self, ch: Char, ctx: &CursorGroupIdContext<'a, 'b, C>) -> EditResult {
+        self.try_write().unwrap().type_char(ch, ctx)
+    }
+
+    fn selcursor_set(
+        &mut self,
+        change: &SelectionCursorChange,
+        ctx: &CursorGroupIdContext<'a, 'b, C>,
+    ) -> EditResult {
+        self.try_write().unwrap().selcursor_set(change, ctx)
+    }
+
+    fn selection_split_lines(
+        &mut self,
+        filter: TargetShapeFilter,
+        ctx: &CursorGroupIdContext<'a, 'b, C>,
+    ) -> EditResult {
+        self.try_write().unwrap().selection_split_lines(filter, ctx)
+    }
+
+    fn paste(
+        &mut self,
+        dir: MoveDir1D,
+        count: Count,
+        ctx: &CursorGroupIdContext<'a, 'b, C>,
+    ) -> EditResult {
+        self.try_write().unwrap().paste(dir, count, ctx)
+    }
+
+    fn open_line(&mut self, dir: MoveDir1D, ctx: &CursorGroupIdContext<'a, 'b, C>) -> EditResult {
+        self.try_write().unwrap().open_line(dir, ctx)
+    }
+
+    fn mark(&mut self, name: Mark, ctx: &CursorGroupIdContext<'a, 'b, C>) -> EditResult {
+        self.try_write().unwrap().mark(name, ctx)
+    }
+
+    fn cursor_command(
+        &mut self,
+        act: CursorAction,
+        ctx: &CursorGroupIdContext<'a, 'b, C>,
+    ) -> EditResult {
+        self.try_write().unwrap().cursor_command(act, ctx)
+    }
+
+    fn history_command(
+        &mut self,
+        act: HistoryAction,
+        ctx: &CursorGroupIdContext<'a, 'b, C>,
+    ) -> EditResult {
+        self.try_write().unwrap().history_command(act, ctx)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1627,7 +1703,7 @@ mod tests {
     }
 
     fn mkbuf() -> EditBuffer<VimContext> {
-        EditBuffer::new(Store::new())
+        EditBuffer::new(BufferId(0), Store::new())
     }
 
     fn mkbufstr(s: &str) -> EditBuffer<VimContext> {

@@ -20,6 +20,10 @@ impl<T> HistoryList<T> {
         let old = std::mem::replace(&mut self.current, item);
         self.past.push_back(old);
         self.future.clear();
+
+        while self.past.len() > self.maxlen {
+            let _ = self.past.pop_front();
+        }
     }
 
     pub fn current(&self) -> &T {
