@@ -1,3 +1,4 @@
+use crate::editing::base::MoveDir1D;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 macro_rules! key {
@@ -62,6 +63,49 @@ impl IdGenerator {
 impl Default for IdGenerator {
     fn default() -> IdGenerator {
         IdGenerator { next_id: 0 }
+    }
+}
+
+pub fn idx_offset(
+    index: usize,
+    offset: usize,
+    dir: &MoveDir1D,
+    modulus: usize,
+    wrap: bool,
+) -> Option<usize> {
+    if modulus == 0 {
+        return None;
+    }
+
+    match (dir, wrap) {
+        (MoveDir1D::Next, true) => {
+            let offset = offset % modulus;
+            let new = (index + offset) % modulus;
+
+            Some(new)
+        },
+        (MoveDir1D::Previous, true) => {
+            let offset = offset % modulus;
+            let new = (modulus + index - offset) % modulus;
+
+            Some(new)
+        },
+        (MoveDir1D::Next, false) => {
+            let new = index.saturating_add(offset);
+
+            if new >= modulus {
+                None
+            } else {
+                Some(new)
+            }
+        },
+        (MoveDir1D::Previous, false) => {
+            if offset > index {
+                None
+            } else {
+                Some(index - offset)
+            }
+        },
     }
 }
 

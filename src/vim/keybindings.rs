@@ -55,9 +55,11 @@ use crate::editing::base::{
     CloseTarget,
     CommandType,
     Count,
+    CursorAction,
     EditAction,
     EditTarget,
     FocusChange,
+    HistoryAction,
     IndentChange,
     InsertStyle,
     MoveDir1D,
@@ -74,8 +76,10 @@ use crate::editing::base::{
     SelectionCursorChange,
     SizeChange,
     Specifier,
+    TabAction,
     TargetShape,
     TargetShapeFilter,
+    WindowAction,
     WordStyle,
 };
 
@@ -878,9 +882,9 @@ macro_rules! insert {
     ($style: expr) => {
         isv!(
             vec![InternalAction::SetInsertStyle($style)],
-            vec![ExternalAction::Something(Action::CursorSplit(
-                Count::Contextual
-            ))],
+            vec![ExternalAction::Something(
+                CursorAction::Split(Count::Contextual).into()
+            )],
             VimMode::Insert
         )
     };
@@ -892,7 +896,7 @@ macro_rules! insert {
                     Specifier::Exact(EditAction::Motion),
                     EditTarget::Motion($mt, Count::Exact(1))
                 )),
-                ExternalAction::Something(Action::CursorSplit(Count::Contextual)),
+                ExternalAction::Something(CursorAction::Split(Count::Contextual).into()),
             ],
             VimMode::Insert
         )
@@ -905,7 +909,7 @@ macro_rules! insert {
                     Specifier::Exact(EditAction::Motion),
                     EditTarget::Motion($mt, Count::Exact($c))
                 )),
-                ExternalAction::Something(Action::CursorSplit(Count::Contextual)),
+                ExternalAction::Something(CursorAction::Split(Count::Contextual).into()),
             ],
             VimMode::Insert
         )
@@ -952,7 +956,7 @@ macro_rules! change_selection_nochar {
                 ExternalAction::Something(Action::SelectionSplitLines(TargetShapeFilter::ALL)),
                 ExternalAction::Something(Action::SelectionCursorSet($cursor)),
                 ExternalAction::Something(Action::Edit(EditAction::Delete.into(), $et)),
-                ExternalAction::Something(Action::CursorSplit(Count::Contextual)),
+                ExternalAction::Something(CursorAction::Split(Count::Contextual).into()),
             ],
             VimMode::Insert
         )
@@ -966,7 +970,7 @@ macro_rules! insert_visual {
             vec![
                 ExternalAction::Something(Action::SelectionSplitLines(TargetShapeFilter::BLOCK)),
                 ExternalAction::Something(Action::SelectionCursorSet($cursor)),
-                ExternalAction::Something(Action::CursorSplit(Count::Contextual)),
+                ExternalAction::Something(CursorAction::Split(Count::Contextual).into()),
             ],
             VimMode::Insert
         )
@@ -978,7 +982,7 @@ macro_rules! insert_visual {
                 ExternalAction::Something(Action::SelectionSplitLines(TargetShapeFilter::BLOCK)),
                 ExternalAction::Something(Action::SelectionCursorSet($cursor)),
                 ExternalAction::Something(Action::Edit(EditAction::Delete.into(), $et)),
-                ExternalAction::Something(Action::CursorSplit(Count::Contextual)),
+                ExternalAction::Something(CursorAction::Split(Count::Contextual).into()),
             ],
             VimMode::Insert
         )
@@ -1025,77 +1029,84 @@ macro_rules! select {
     };
 }
 
+macro_rules! history {
+    ($act: expr) => {
+        act!(Action::History($act), VimMode::Normal)
+    };
+}
+
 macro_rules! tab {
     ($act: expr) => {
-        act!($act, VimMode::Normal)
+        act!(Action::Tab($act), VimMode::Normal)
     };
     ($act1: expr, $act2: expr) => {
-        count_alters!($act1, $act2, VimMode::Normal)
+        count_alters!(Action::Tab($act1), Action::Tab($act2), VimMode::Normal)
     };
 }
 
 macro_rules! tab_focus {
     ($fc: expr) => {
-        tab!(Action::TabFocus($fc))
+        tab!(TabAction::Focus($fc))
     };
     ($fc1: expr, $fc2: expr) => {
-        tab!(Action::TabFocus($fc1), Action::TabFocus($fc2))
+        tab!(TabAction::Focus($fc1), TabAction::Focus($fc2))
     };
 }
 
 macro_rules! window {
     ($act: expr) => {
-        act!($act, VimMode::Normal)
+        act!(Action::Window($act), VimMode::Normal)
     };
     ($act1: expr, $act2: expr) => {
-        count_alters!($act1, $act2, VimMode::Normal)
+        count_alters!(Action::Window($act1), Action::Window($act2), VimMode::Normal)
     };
 }
 
 macro_rules! window_resize {
     ($axis: expr, $change: expr) => {
-        window!(Action::WindowResize($axis, $change, Count::Contextual))
+        window!(WindowAction::Resize($axis, $change))
+    };
+}
+
+macro_rules! window_clear_size {
+    () => {
+        window!(WindowAction::ClearSizes)
     };
 }
 
 macro_rules! window_exchange {
     ($fc: expr) => {
-        window!(Action::WindowExchange($fc))
+        window!(WindowAction::Exchange($fc))
     };
     ($fc1: expr, $fc2: expr) => {
-        window!(Action::WindowExchange($fc1), Action::WindowExchange($fc2))
+        window!(WindowAction::Exchange($fc1), WindowAction::Exchange($fc2))
     };
 }
 
 macro_rules! window_focus {
     ($fc: expr) => {
-        window!(Action::WindowFocus($fc))
+        window!(WindowAction::Focus($fc))
     };
     ($fc1: expr, $fc2: expr) => {
-        window!(Action::WindowFocus($fc1), Action::WindowFocus($fc2))
+        window!(WindowAction::Focus($fc1), WindowAction::Focus($fc2))
     };
 }
 
 macro_rules! window_close_one {
     ($style: expr, $fc: expr, $flags: expr) => {
-        act!(Action::WindowClose($style($fc), $flags))
+        window!(WindowAction::Close($style($fc), $flags))
     };
 }
 
 macro_rules! window_close {
     ($style: expr, $f1: expr, $f2: expr) => {
-        count_alters!(
-            Action::WindowClose($style($f1), CloseFlags::NONE),
-            Action::WindowClose($style($f2), CloseFlags::NONE),
-            VimMode::Normal
+        window!(
+            WindowAction::Close($style($f1), CloseFlags::NONE),
+            WindowAction::Close($style($f2), CloseFlags::NONE)
         )
     };
     ($style: expr, $f1: expr, $f2: expr, $flags: expr) => {
-        count_alters!(
-            Action::WindowClose($style($f1), $flags),
-            Action::WindowClose($style($f2), $flags),
-            VimMode::Normal
-        )
+        window!(WindowAction::Close($style($f1), $flags), WindowAction::Close($style($f2), $flags))
     };
 }
 
@@ -1110,14 +1121,10 @@ macro_rules! window_split {
         isv!(
             vec![],
             vec![ExternalAction::CountAlters(
-                vec![Action::WindowSplit(
-                    $axis,
-                    MoveDir1D::Previous,
-                    Count::Contextual
-                )],
+                vec![WindowAction::Split($axis, MoveDir1D::Previous, Count::Contextual).into()],
                 vec![
-                    Action::WindowSplit($axis, MoveDir1D::Previous, Count::Exact(1)),
-                    Action::WindowResize($axis, SizeChange::Exact, Count::Contextual),
+                    WindowAction::Split($axis, MoveDir1D::Previous, Count::Exact(1)).into(),
+                    WindowAction::Resize($axis, SizeChange::Exact(Count::Contextual)).into(),
                 ],
             )],
             VimMode::Normal
@@ -1249,18 +1256,18 @@ fn default_keys<P: ApplicationAction>() -> Vec<(MappedModes, &'static str, Input
         ( NVMAP, "<C-W>c", window_close!(CloseTarget::Single, FocusChange::Current, FocusChange::Offset(Count::Contextual, true)) ),
         ( NVMAP, "<C-W>g<Tab>", tab_focus!(FocusChange::PreviouslyFocused) ),
         ( NVMAP, "<C-W>h", window_focus!(FocusChange::Direction2D(MoveDir2D::Left, Count::Contextual)) ),
-        ( NVMAP, "<C-W>H", window!(Action::WindowMoveSide(MoveDir2D::Left)) ),
+        ( NVMAP, "<C-W>H", window!(WindowAction::MoveSide(MoveDir2D::Left)) ),
         ( NVMAP, "<C-W>j", window_focus!(FocusChange::Direction2D(MoveDir2D::Down, Count::Contextual)) ),
-        ( NVMAP, "<C-W>J", window!(Action::WindowMoveSide(MoveDir2D::Down)) ),
+        ( NVMAP, "<C-W>J", window!(WindowAction::MoveSide(MoveDir2D::Down)) ),
         ( NVMAP, "<C-W>k", window_focus!(FocusChange::Direction2D(MoveDir2D::Up, Count::Contextual)) ),
-        ( NVMAP, "<C-W>K", window!(Action::WindowMoveSide(MoveDir2D::Up)) ),
+        ( NVMAP, "<C-W>K", window!(WindowAction::MoveSide(MoveDir2D::Up)) ),
         ( NVMAP, "<C-W>l", window_focus!(FocusChange::Direction2D(MoveDir2D::Right, Count::Contextual)) ),
-        ( NVMAP, "<C-W>L", window!(Action::WindowMoveSide(MoveDir2D::Right)) ),
+        ( NVMAP, "<C-W>L", window!(WindowAction::MoveSide(MoveDir2D::Right)) ),
         ( NVMAP, "<C-W>o", window_quit!(CloseTarget::AllBut, FocusChange::Current, FocusChange::Offset(Count::Contextual, true)) ),
         ( NVMAP, "<C-W>p", window_focus!(FocusChange::PreviouslyFocused) ),
         ( NVMAP, "<C-W>q", window_quit!(CloseTarget::Single, FocusChange::Current, FocusChange::Offset(Count::Contextual, true)) ),
-        ( NVMAP, "<C-W>r", window!(Action::WindowRotate(MoveDir1D::Next)) ),
-        ( NVMAP, "<C-W>R", window!(Action::WindowRotate(MoveDir1D::Previous)) ),
+        ( NVMAP, "<C-W>r", window!(WindowAction::Rotate(MoveDir1D::Next)) ),
+        ( NVMAP, "<C-W>R", window!(WindowAction::Rotate(MoveDir1D::Previous)) ),
         ( NVMAP, "<C-W>s", window_split!(Axis::Horizontal) ),
         ( NVMAP, "<C-W>S", window_split!(Axis::Horizontal) ),
         ( NVMAP, "<C-W>t", window_focus!(FocusChange::Position(MovePosition::Beginning)) ),
@@ -1269,13 +1276,13 @@ fn default_keys<P: ApplicationAction>() -> Vec<(MappedModes, &'static str, Input
         ( NVMAP, "<C-W>w", window_focus!(FocusChange::Direction1D(MoveDir1D::Next, Count::Exact(1), true), FocusChange::Offset(Count::Contextual, true)) ),
         ( NVMAP, "<C-W>W", window_focus!(FocusChange::Direction1D(MoveDir1D::Previous, Count::Exact(1), true), FocusChange::Offset(Count::Contextual, true)) ),
         ( NVMAP, "<C-W>x", window_exchange!(FocusChange::Direction1D(MoveDir1D::Next, Count::Exact(1), false), FocusChange::Offset(Count::Contextual, false)) ),
-        ( NVMAP, "<C-W>=", window_resize!(Axis::Horizontal, SizeChange::Equal) ),
-        ( NVMAP, "<C-W>-", window_resize!(Axis::Horizontal, SizeChange::Decrease) ),
-        ( NVMAP, "<C-W>+", window_resize!(Axis::Horizontal, SizeChange::Increase) ),
-        ( NVMAP, "<C-W>_", window_resize!(Axis::Horizontal, SizeChange::Exact) ),
-        ( NVMAP, "<C-W><", window_resize!(Axis::Vertical, SizeChange::Decrease) ),
-        ( NVMAP, "<C-W>>", window_resize!(Axis::Vertical, SizeChange::Increase) ),
-        ( NVMAP, "<C-W>|", window_resize!(Axis::Vertical, SizeChange::Exact) ),
+        ( NVMAP, "<C-W>=", window_clear_size!() ),
+        ( NVMAP, "<C-W>-", window_resize!(Axis::Horizontal, SizeChange::Decrease(Count::Contextual)) ),
+        ( NVMAP, "<C-W>+", window_resize!(Axis::Horizontal, SizeChange::Increase(Count::Contextual)) ),
+        ( NVMAP, "<C-W>_", window_resize!(Axis::Horizontal, SizeChange::Exact(Count::Contextual)) ),
+        ( NVMAP, "<C-W><", window_resize!(Axis::Vertical, SizeChange::Decrease(Count::Contextual)) ),
+        ( NVMAP, "<C-W>>", window_resize!(Axis::Vertical, SizeChange::Increase(Count::Contextual)) ),
+        ( NVMAP, "<C-W>|", window_resize!(Axis::Vertical, SizeChange::Exact(Count::Contextual)) ),
         ( NVMAP, "<C-W><C-B>", window_focus!(FocusChange::Position(MovePosition::End)) ),
         ( NVMAP, "<C-W><C-C>", normal!() ),
         ( NVMAP, "<C-W><C-H>", window_focus!(FocusChange::Direction2D(MoveDir2D::Left, Count::Contextual)) ),
@@ -1284,7 +1291,7 @@ fn default_keys<P: ApplicationAction>() -> Vec<(MappedModes, &'static str, Input
         ( NVMAP, "<C-W><C-L>", window_focus!(FocusChange::Direction2D(MoveDir2D::Right, Count::Contextual)) ),
         ( NVMAP, "<C-W><C-O>", window_quit!(CloseTarget::AllBut, FocusChange::Current, FocusChange::Offset(Count::Contextual, true)) ),
         ( NVMAP, "<C-W><C-Q>", window_quit!(CloseTarget::Single, FocusChange::Current, FocusChange::Offset(Count::Contextual, true)) ),
-        ( NVMAP, "<C-W><C-R>", window!(Action::WindowRotate(MoveDir1D::Next)) ),
+        ( NVMAP, "<C-W><C-R>", window!(WindowAction::Rotate(MoveDir1D::Next)) ),
         ( NVMAP, "<C-W><C-S>", window_split!(Axis::Horizontal) ),
         ( NVMAP, "<C-W><C-T>", window_focus!(FocusChange::Position(MovePosition::Beginning)) ),
         ( NVMAP, "<C-W><C-V>", window_split!(Axis::Vertical) ),
@@ -1339,7 +1346,7 @@ fn default_keys<P: ApplicationAction>() -> Vec<(MappedModes, &'static str, Input
         ( NXMAP, "z<Left>", scroll2d!(MoveDir2D::Left, ScrollSize::Cell) ),
         ( NXMAP, "z<Right>", scroll2d!(MoveDir2D::Right, ScrollSize::Cell) ),
         ( NXMAP, "z<Enter>", scrollcpv!(MovePosition::Beginning, true) ),
-        ( NXMAP, "z{count}<Enter>", window_resize!(Axis::Horizontal, SizeChange::Exact) ),
+        ( NXMAP, "z{count}<Enter>", window_resize!(Axis::Horizontal, SizeChange::Exact(Count::Contextual)) ),
 
         // Visual, Operator Pending mode keys
         ( VOMAP, "aw", edit_range_end!(RangeType::Word(WordStyle::Little)) ),
@@ -1429,7 +1436,7 @@ fn default_keys<P: ApplicationAction>() -> Vec<(MappedModes, &'static str, Input
         ( NMAP, "R", insert!(InsertStyle::Replace) ),
         ( NMAP, "s", change!(MoveType::Column(MoveDir1D::Next, false)) ),
         ( NMAP, "S", change_range!(RangeType::Line) ),
-        ( NMAP, "u", act!(Action::Undo(Count::Contextual)) ),
+        ( NMAP, "u", history!(HistoryAction::Undo(Count::Contextual)) ),
         ( NMAP, "x", edit!(EditAction::Delete, MoveType::Column(MoveDir1D::Next, false)) ),
         ( NMAP, "X", edit!(EditAction::Delete, MoveType::Column(MoveDir1D::Previous, false)) ),
         ( NMAP, "y", edit_motion!(EditAction::Yank) ),
@@ -1455,7 +1462,7 @@ fn default_keys<P: ApplicationAction>() -> Vec<(MappedModes, &'static str, Input
         ( NMAP, "<C-G>", unmapped!() ),
         ( NMAP, "<C-L>", act!(Action::RedrawScreen) ),
         ( NMAP, "<C-O>", jump!(PositionList::ChangeList, MoveDir1D::Previous) ),
-        ( NMAP, "<C-R>", act!(Action::Redo(Count::Contextual)) ),
+        ( NMAP, "<C-R>", history!(HistoryAction::Redo(Count::Contextual)) ),
         ( NMAP, "<C-T>", unmapped!() ),
         ( NMAP, "<C-X>", edit!(EditAction::ChangeNumber(NumberChange::DecreaseOne), MoveType::LinePos(MovePosition::End)) ),
         ( NMAP, "<C-Z>", act!(Action::Suspend) ),
@@ -1794,8 +1801,8 @@ mod tests {
         Specifier::Contextual,
         EditTarget::Search(SearchType::Char(false), MoveDirMod::Flip, Count::Contextual),
     );
-    const CURSOR_CLOSE: Action = Action::CursorClose(CursorCloseTarget::Followers);
-    const CURSOR_SPLIT: Action = Action::CursorSplit(Count::Contextual);
+    const CURSOR_CLOSE: Action = Action::Cursor(CursorAction::Close(CursorCloseTarget::Followers));
+    const CURSOR_SPLIT: Action = Action::Cursor(CursorAction::Split(Count::Contextual));
     const SEL_SPLIT: Action = Action::SelectionSplitLines(TargetShapeFilter::ALL);
     const BLOCK_SPLIT: Action = Action::SelectionSplitLines(TargetShapeFilter::BLOCK);
     const BLOCK_BEG: Action = Action::SelectionCursorSet(SelectionCursorChange::Beginning);
@@ -3575,7 +3582,7 @@ mod tests {
 
         // Without a count, ^Wo closes all windows besides the currently focused one.
         let target = CloseTarget::AllBut(FocusChange::Current);
-        let act = Action::WindowClose(target, CloseFlags::QUIT);
+        let act: Action = WindowAction::Close(target, CloseFlags::QUIT).into();
 
         ctx.action.count = None;
         vm.input_key(ctl!('w'));
@@ -3591,7 +3598,7 @@ mod tests {
 
         // With a count ^Wo closes all but the specified window.
         let target = CloseTarget::AllBut(FocusChange::Offset(Count::Contextual, true));
-        let act = Action::WindowClose(target, CloseFlags::QUIT);
+        let act: Action = WindowAction::Close(target, CloseFlags::QUIT).into();
 
         ctx.action.count = Some(5);
         vm.input_key(key!('5'));
@@ -3608,7 +3615,8 @@ mod tests {
         assert_eq!(vm.mode(), VimMode::Normal);
 
         // Without a count ^Wv splits the window.
-        let act = Action::WindowSplit(Axis::Vertical, MoveDir1D::Previous, Count::Contextual);
+        let act: Action =
+            WindowAction::Split(Axis::Vertical, MoveDir1D::Previous, Count::Contextual).into();
         ctx.action.count = None;
         vm.input_key(ctl!('w'));
         vm.input_key(key!('v'));
@@ -3616,8 +3624,10 @@ mod tests {
         assert_eq!(vm.mode(), VimMode::Normal);
 
         // With a count ^Wv splits the window and resizes it.
-        let acts = Action::WindowSplit(Axis::Vertical, MoveDir1D::Previous, Count::Exact(1));
-        let actr = Action::WindowResize(Axis::Vertical, SizeChange::Exact, Count::Contextual);
+        let acts: Action =
+            WindowAction::Split(Axis::Vertical, MoveDir1D::Previous, Count::Exact(1)).into();
+        let actr: Action =
+            WindowAction::Resize(Axis::Vertical, SizeChange::Exact(Count::Contextual)).into();
         ctx.action.count = Some(10);
         vm.input_key(key!('1'));
         vm.input_key(key!('0'));

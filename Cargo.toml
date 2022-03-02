@@ -10,12 +10,20 @@ license = "Apache-2.0"
 edition = "2018"
 exclude = [".github", "CONTRIBUTING.md"]
 
+[features]
+default = ["widgets"]
+widgets = ["tui"]
+
 [dependencies]
 derive_more = "0.99.16"
 thiserror = "1.0.30"
 crossterm = "0.17"
+tui = { version = "0.17", optional = true }
 xi-rope = "0.3.0"
 bitflags = "1.2"
 lazy_static = "1.4.0"
 nom = "7.0.0"
 regex = "1.5.4"
+
+[dev-dependencies]
+rand = "0.8.4"

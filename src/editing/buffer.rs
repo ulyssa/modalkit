@@ -13,6 +13,7 @@ use super::base::{
     Case,
     Char,
     Count,
+    CursorAction,
     CursorCloseTarget,
     CursorMovements,
     CursorMovementsContext,
@@ -23,6 +24,7 @@ use super::base::{
     EditRange,
     EditResult,
     EditTarget,
+    HistoryAction,
     IndentChange,
     InsertStyle,
     Mark,
@@ -89,19 +91,28 @@ pub struct EditBuffer<C: EditContext> {
     _pc: PhantomData<C>,
 }
 
+trait HistoryActions<C> {
+    fn redo(&mut self, count: Count, ctx: &C) -> EditResult;
+    fn undo(&mut self, count: Count, ctx: &C) -> EditResult;
+    fn checkpoint(&mut self) -> EditResult;
+}
+
+trait CursorActions<C> {
+    fn cursor_split(&mut self, count: Count, ctx: &C) -> EditResult;
+    fn cursor_close(&mut self, target: &CursorCloseTarget, ctx: &C) -> EditResult;
+}
+
 pub trait Editable<C> {
     fn edit(&mut self, action: &EditAction, target: &EditTarget, ctx: &C) -> EditResult;
     fn type_char(&mut self, ch: Char, ctx: &C) -> EditResult;
     fn selcursor_set(&mut self, side: &SelectionCursorChange, ctx: &C) -> EditResult;
     fn selection_split_lines(&mut self, filter: TargetShapeFilter, ctx: &C) -> EditResult;
-    fn cursor_split(&mut self, count: Count, ctx: &C) -> EditResult;
-    fn cursor_close(&mut self, target: &CursorCloseTarget, ctx: &C) -> EditResult;
     fn paste(&mut self, dir: MoveDir1D, count: Count, ctx: &C) -> EditResult;
     fn open_line(&mut self, dir: MoveDir1D, ctx: &C) -> EditResult;
     fn mark(&mut self, name: Mark, ctx: &C) -> EditResult;
-    fn redo(&mut self, count: Count, ctx: &C) -> EditResult;
-    fn undo(&mut self, count: Count, ctx: &C) -> EditResult;
-    fn checkpoint(&mut self) -> EditResult;
+
+    fn cursor_command(&mut self, act: CursorAction, ctx: &C) -> EditResult;
+    fn history_command(&mut self, act: HistoryAction, ctx: &C) -> EditResult;
 }
 
 type Selection = (Cursor, Cursor, TargetShape);
@@ -1057,6 +1068,96 @@ impl<'a, 'b, 'c, C: EditContext> EditString<&CursorMovementsContext<'a, 'b, 'c, 
     }
 }
 
+impl<'a, 'b, C: EditContext> CursorActions<CursorGroupIdContext<'a, 'b, C>> for EditBuffer<C> {
+    fn cursor_close(
+        &mut self,
+        target: &CursorCloseTarget,
+        ctx: &CursorGroupIdContext<'a, 'b, C>,
+    ) -> EditResult {
+        let gid = ctx.0;
+
+        match target {
+            CursorCloseTarget::Leader => {
+                if let Some(members) = self.members.get_mut(&gid) {
+                    if members.len() == 0 {
+                        return Ok(None);
+                    }
+
+                    let members_new = members.split_off(1);
+                    let leader_new = members.pop().unwrap();
+                    let leader_old = *self.leaders.get(&gid).expect("no current group leader");
+
+                    self.delete_cursor(leader_old);
+                    self.leaders.insert(gid, leader_new);
+                    self.members.insert(gid, members_new);
+                }
+            },
+            CursorCloseTarget::Followers => {
+                if let Some(members) = self.members.get_mut(&ctx.0) {
+                    let closed = members.split_off(0);
+
+                    for member in closed.into_iter() {
+                        self.delete_cursor(member);
+                    }
+                }
+            },
+        }
+
+        Ok(None)
+    }
+
+    fn cursor_split(&mut self, count: Count, ctx: &CursorGroupIdContext<'a, 'b, C>) -> EditResult {
+        let count = ctx.2.resolve(&count);
+        let group = ctx.0;
+
+        if count == 1 {
+            return Ok(None);
+        }
+
+        for (_, cursor) in self.get_group_cursors(group) {
+            for _ in 1..count {
+                let id = self.create_cursor_from(&cursor);
+
+                self.add_follower(group, id);
+            }
+        }
+
+        Ok(None)
+    }
+}
+
+impl<'a, 'b, C: EditContext> HistoryActions<CursorGroupIdContext<'a, 'b, C>> for EditBuffer<C> {
+    fn undo(&mut self, count: Count, ctx: &CursorGroupIdContext<'a, 'b, C>) -> EditResult {
+        let count = ctx.2.resolve(&count);
+        let older = self.history.prev(count);
+
+        let adjs = self.text.diff(older);
+        self.text = older.clone();
+        self._adjust_all(adjs);
+
+        Ok(None)
+    }
+
+    fn redo(&mut self, count: Count, ctx: &CursorGroupIdContext<'a, 'b, C>) -> EditResult {
+        let count = ctx.2.resolve(&count);
+        let newer = self.history.next(count);
+
+        let adjs = self.text.diff(newer);
+        self.text = newer.clone();
+        self._adjust_all(adjs);
+
+        Ok(None)
+    }
+
+    fn checkpoint(&mut self) -> EditResult {
+        if self.text != self.history.current {
+            self.history.append(self.text.clone());
+        }
+
+        Ok(None)
+    }
+}
+
 impl<'a, 'b, C: EditContext> Editable<CursorGroupIdContext<'a, 'b, C>> for EditBuffer<C> {
     fn edit(
         &mut self,
@@ -1121,62 +1222,6 @@ impl<'a, 'b, C: EditContext> Editable<CursorGroupIdContext<'a, 'b, C>> for EditB
 
             self._adjust_all(adjs);
             self.set_cursor(member, cursor);
-        }
-
-        Ok(None)
-    }
-
-    fn cursor_close(
-        &mut self,
-        target: &CursorCloseTarget,
-        ctx: &CursorGroupIdContext<'a, 'b, C>,
-    ) -> EditResult {
-        let gid = ctx.0;
-
-        match target {
-            CursorCloseTarget::Leader => {
-                if let Some(members) = self.members.get_mut(&gid) {
-                    if members.len() == 0 {
-                        return Ok(None);
-                    }
-
-                    let members_new = members.split_off(1);
-                    let leader_new = members.pop().unwrap();
-                    let leader_old = *self.leaders.get(&gid).expect("no current group leader");
-
-                    self.delete_cursor(leader_old);
-                    self.leaders.insert(gid, leader_new);
-                    self.members.insert(gid, members_new);
-                }
-            },
-            CursorCloseTarget::Followers => {
-                if let Some(members) = self.members.get_mut(&ctx.0) {
-                    let closed = members.split_off(0);
-
-                    for member in closed.into_iter() {
-                        self.delete_cursor(member);
-                    }
-                }
-            },
-        }
-
-        Ok(None)
-    }
-
-    fn cursor_split(&mut self, count: Count, ctx: &CursorGroupIdContext<'a, 'b, C>) -> EditResult {
-        let count = ctx.2.resolve(&count);
-        let group = ctx.0;
-
-        if count == 1 {
-            return Ok(None);
-        }
-
-        for (_, cursor) in self.get_group_cursors(group) {
-            for _ in 1..count {
-                let id = self.create_cursor_from(&cursor);
-
-                self.add_follower(group, id);
-            }
         }
 
         Ok(None)
@@ -1406,42 +1451,35 @@ impl<'a, 'b, C: EditContext> Editable<CursorGroupIdContext<'a, 'b, C>> for EditB
         Ok(None)
     }
 
-    fn undo(&mut self, count: Count, ctx: &CursorGroupIdContext<'a, 'b, C>) -> EditResult {
-        let count = ctx.2.resolve(&count);
-        let older = self.history.prev(count);
-
-        let adjs = self.text.diff(older);
-        self.text = older.clone();
-        self._adjust_all(adjs);
-
-        Ok(None)
-    }
-
-    fn redo(&mut self, count: Count, ctx: &CursorGroupIdContext<'a, 'b, C>) -> EditResult {
-        let count = ctx.2.resolve(&count);
-        let newer = self.history.next(count);
-
-        let adjs = self.text.diff(newer);
-        self.text = newer.clone();
-        self._adjust_all(adjs);
-
-        Ok(None)
-    }
-
-    fn checkpoint(&mut self) -> EditResult {
-        if self.text != self.history.current {
-            self.history.append(self.text.clone());
-        }
-
-        Ok(None)
-    }
-
     fn mark(&mut self, name: Mark, ctx: &CursorGroupIdContext<'a, 'b, C>) -> EditResult {
         let leader = self.get_leader(ctx.0);
 
         self.set_mark(name, leader);
 
         Ok(None)
+    }
+
+    fn cursor_command(
+        &mut self,
+        act: CursorAction,
+        ctx: &CursorGroupIdContext<'a, 'b, C>,
+    ) -> EditResult {
+        match act {
+            CursorAction::Close(target) => self.cursor_close(&target, ctx),
+            CursorAction::Split(count) => self.cursor_split(count, ctx),
+        }
+    }
+
+    fn history_command(
+        &mut self,
+        act: HistoryAction,
+        ctx: &CursorGroupIdContext<'a, 'b, C>,
+    ) -> EditResult {
+        match act {
+            HistoryAction::Checkpoint => self.checkpoint(),
+            HistoryAction::Undo(count) => self.undo(count, ctx),
+            HistoryAction::Redo(count) => self.redo(count, ctx),
+        }
     }
 }
 

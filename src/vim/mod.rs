@@ -26,6 +26,7 @@ use crate::editing::base::{
     ApplicationAction,
     Char,
     Count,
+    CursorAction,
     CursorCloseTarget,
     EditAction,
     EditContext,
@@ -112,7 +113,7 @@ impl<P: ApplicationAction> Mode<Action<P>, VimContext<P>> for VimMode {
                         );
 
                         return vec![
-                            Action::CursorClose(CursorCloseTarget::Followers),
+                            CursorAction::Close(CursorCloseTarget::Followers).into(),
                             Action::Edit(action, target),
                         ];
                     },
@@ -126,7 +127,7 @@ impl<P: ApplicationAction> Mode<Action<P>, VimContext<P>> for VimMode {
                         let target = EditTarget::CurrentPosition;
 
                         return vec![
-                            Action::CursorClose(CursorCloseTarget::Followers),
+                            CursorAction::Close(CursorCloseTarget::Followers).into(),
                             Action::Edit(action, target),
                         ];
                     },

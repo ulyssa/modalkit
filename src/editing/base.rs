@@ -313,6 +313,15 @@ pub enum Axis {
     Vertical,
 }
 
+impl Axis {
+    pub fn rotate(&self) -> Axis {
+        match self {
+            Axis::Horizontal => Axis::Vertical,
+            Axis::Vertical => Axis::Horizontal,
+        }
+    }
+}
+
 /// This represents the units used when scrolling.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ScrollSize {
@@ -378,19 +387,19 @@ pub enum FocusChange {
 
 /// This represents how to change the size of a window.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub enum SizeChange {
+pub enum SizeChange<I = Count> {
     Equal,
-    Exact,
-    Decrease,
-    Increase,
+    Exact(I),
+    Decrease(I),
+    Increase(I),
 }
 
 /// This represents how to change the indentation of a range.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub enum IndentChange {
+pub enum IndentChange<I = Count> {
     Auto,
-    Decrease(Count),
-    Increase(Count),
+    Decrease(I),
+    Increase(I),
 }
 
 /// This represents how to change a number in text.
@@ -550,6 +559,69 @@ bitflags! {
     }
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[non_exhaustive]
+pub enum HistoryAction {
+    /// Create a new editing history checkpoint.
+    Checkpoint,
+
+    /// Redo [*n*](Count) edits.
+    Redo(Count),
+
+    /// Undo [*n*](Count) edits.
+    Undo(Count),
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[non_exhaustive]
+pub enum CursorAction {
+    /// Close the [targeted cursors](CursorCloseTarget) in the current cursor group.
+    Close(CursorCloseTarget),
+
+    /// Convert a cursor into [*n*](Count) cursors.
+    Split(Count),
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[non_exhaustive]
+pub enum TabAction {
+    /// Close the [CloseTarget] tabs with [CloseFlags] options.
+    Close(CloseTarget, CloseFlags),
+
+    /// Change the currently focus to the tab targeted by [FocusChange].
+    Focus(FocusChange),
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[non_exhaustive]
+pub enum WindowAction {
+    /// Close the [CloseTarget] windows with [CloseFlags] options.
+    Close(CloseTarget, CloseFlags),
+
+    /// Exchange the currently focused window with the window targeted by [FocusChange].
+    Exchange(FocusChange),
+
+    /// Change the current focus to the window targeted by [FocusChange].
+    Focus(FocusChange),
+
+    /// Move the currently focused window to the [MoveDir2D] side of the screen.
+    MoveSide(MoveDir2D),
+
+    /// Visually rotate the windows in [MoveDir2D] direction.
+    Rotate(MoveDir1D),
+
+    /// Split the currently focused window along [*n* times](Count) along [an axis](Axis), moving
+    /// the focus in [MoveDir1D] direction after performing the split.
+    Split(Axis, MoveDir1D, Count),
+
+    /// Clear all of the explicitly set window sizes, and instead try to equally distribute
+    /// available rows and columns.
+    ClearSizes,
+
+    /// Resize the currently focused window according to [SizeChange].
+    Resize(Axis, SizeChange),
+}
+
 pub trait ApplicationAction: Clone + Debug + Eq + PartialEq {}
 
 impl ApplicationAction for () {}
@@ -561,8 +633,8 @@ pub enum Action<P: ApplicationAction = ()> {
     /// Do nothing.
     NoOp,
 
-    /// Create a new editing history checkpoint.
-    Checkpoint,
+    /// Perform a history operation.
+    History(HistoryAction),
 
     /// Complete the rest of the word typed thus far.
     Complete(MoveDir1D, bool),
@@ -585,24 +657,14 @@ pub enum Action<P: ApplicationAction = ()> {
     /// Paste before or after the current cursor position [*n*](Count) times.
     Paste(MoveDir1D, Count),
 
-    Redo(Count),
-
-    Undo(Count),
-
     /// Scroll the viewport in [the specified manner](ScrollStyle).
     Scroll(ScrollStyle),
 
     /// Change the placement of the cursor and anchor of a visual selection.
     SelectionCursorSet(SelectionCursorChange),
 
-    /// Close the [targeted cursors](CursorCloseTarget) in the current cursor group.
-    CursorClose(CursorCloseTarget),
-
-    /// Rotate which cursor in the cursor group is the current leader .
-    CursorRotate(MoveDir1D, Count),
-
-    /// Convert a cursor into [*n*](Count) cursors.
-    CursorSplit(Count),
+    /// Modify the current cursor group.
+    Cursor(CursorAction),
 
     /// Split [matching selections](TargetShapeFilter) into multiple selections, each on their own
     /// line.
@@ -640,36 +702,36 @@ pub enum Action<P: ApplicationAction = ()> {
 
     CommandUnfocus,
 
-    /// Close the [CloseTarget] tabs with [CloseFlags] options.
-    TabClose(CloseTarget, CloseFlags),
+    Tab(TabAction),
 
-    /// Change the currently focus to the tab targeted by [FocusChange].
-    TabFocus(FocusChange),
-
-    /// Close the [CloseTarget] windows with [CloseFlags] options.
-    WindowClose(CloseTarget, CloseFlags),
-
-    /// Exchange the currently focused window with the window targeted by [FocusChange].
-    WindowExchange(FocusChange),
-
-    /// Change the current focus to the window targeted by [FocusChange].
-    WindowFocus(FocusChange),
-
-    /// Move the currently focused window to the [MoveDir2D] side of the screen.
-    WindowMoveSide(MoveDir2D),
-
-    /// Visually rotate the windows in [MoveDir2D] direction.
-    WindowRotate(MoveDir1D),
-
-    /// Split the currently focused window along [*n* times](Count) along [an axis](Axis), moving
-    /// the focus in [MoveDir1D] direction after performing the split.
-    WindowSplit(Axis, MoveDir1D, Count),
-
-    /// Resize the currently focused window according to [SizeChange].
-    WindowResize(Axis, SizeChange, Count),
+    Window(WindowAction),
 
     /// Application specific command.
     Application(P),
+}
+
+impl<P: ApplicationAction> From<HistoryAction> for Action<P> {
+    fn from(act: HistoryAction) -> Self {
+        Action::History(act)
+    }
+}
+
+impl<P: ApplicationAction> From<CursorAction> for Action<P> {
+    fn from(act: CursorAction) -> Self {
+        Action::Cursor(act)
+    }
+}
+
+impl<P: ApplicationAction> From<WindowAction> for Action<P> {
+    fn from(act: WindowAction) -> Self {
+        Action::Window(act)
+    }
+}
+
+impl<P: ApplicationAction> From<TabAction> for Action<P> {
+    fn from(act: TabAction) -> Self {
+        Action::Tab(act)
+    }
 }
 
 /// When focusing on the command bar, this is the type of command that should be submitted.
@@ -1148,6 +1210,8 @@ pub enum EditError {
     InvalidDigraph(char, char),
     #[error("Mark not set")]
     MarkNotSet(Mark),
+    #[error("Integer conversion error: {0}")]
+    IntConversionError(#[from] std::num::TryFromIntError),
     #[error("Input/Output Error: {0}")]
     IOError(#[from] std::io::Error),
     #[error("Input/Output Error: {0}")]
