@@ -23,6 +23,7 @@ use crate::{
 
 use crate::editing::base::{
     Action,
+    ApplicationAction,
     Char,
     Count,
     CursorCloseTarget,
@@ -87,8 +88,8 @@ impl Default for VimMode {
     }
 }
 
-impl Mode<Action, VimContext> for VimMode {
-    fn enter(&self, prev: VimMode, ctx: &mut VimContext) -> Vec<Action> {
+impl<P: ApplicationAction> Mode<Action<P>, VimContext<P>> for VimMode {
+    fn enter(&self, prev: VimMode, ctx: &mut VimContext<P>) -> Vec<Action<P>> {
         match self {
             VimMode::Normal => {
                 ctx.persist.shape = None;
@@ -174,7 +175,7 @@ impl Mode<Action, VimContext> for VimMode {
         }
     }
 
-    fn show(&self, ctx: &VimContext) -> Option<String> {
+    fn show(&self, ctx: &VimContext<P>) -> Option<String> {
         match self {
             VimMode::Normal => {
                 return None;
@@ -224,8 +225,8 @@ impl Mode<Action, VimContext> for VimMode {
     }
 }
 
-impl ModeKeys<KeyEvent, Action, VimContext> for VimMode {
-    fn unmapped(&self, ke: &KeyEvent, ctx: &mut VimContext) -> (Vec<Action>, Option<Self>) {
+impl<P: ApplicationAction> ModeKeys<KeyEvent, Action<P>, VimContext<P>> for VimMode {
+    fn unmapped(&self, ke: &KeyEvent, ctx: &mut VimContext<P>) -> (Vec<Action<P>>, Option<Self>) {
         match self {
             VimMode::Normal => {
                 return (vec![], None);
@@ -331,8 +332,8 @@ impl InputKeyClass<KeyEvent> for VimKeyClass {
 
 /// This is the context specific to an action, and gets reset every time a full sequence of
 /// keybindings is pressed.
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub(crate) struct ActionContext {
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct ActionContext<P: ApplicationAction> {
     // Fields for managing entered counts.
     pub(crate) count: Option<usize>,
     pub(crate) counting: Option<usize>,
@@ -358,7 +359,7 @@ pub(crate) struct ActionContext {
     pub(crate) charsearch_params: Option<(MoveDir1D, bool)>,
 
     // Delayed actions and mode transitions.
-    pub(crate) postaction: Option<Action>,
+    pub(crate) postaction: Option<Action<P>>,
     pub(crate) postmode: Option<VimMode>,
 
     // Cursor indicator to show on-screen.
@@ -377,17 +378,17 @@ pub(crate) struct PersistentContext {
 
 /// This wraps both action specific context, and persistent context.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct VimContext {
-    pub(crate) action: ActionContext,
+pub struct VimContext<P: ApplicationAction = ()> {
+    pub(crate) action: ActionContext<P>,
     pub(crate) persist: PersistentContext,
 }
 
-impl InputContext for VimContext {
+impl<P: ApplicationAction> InputContext for VimContext<P> {
     fn reset(&mut self) {
         self.action = ActionContext::default();
     }
 
-    fn take(&mut self) -> VimContext {
+    fn take(&mut self) -> Self {
         VimContext {
             persist: self.persist.clone(),
             action: std::mem::take(&mut self.action),
@@ -395,7 +396,7 @@ impl InputContext for VimContext {
     }
 }
 
-impl VimContext {
+impl<P: ApplicationAction> VimContext<P> {
     fn get_typed(&self) -> Option<Char> {
         if let Some((d1, d2)) = self.get_digraph() {
             let c = Char::Digraph(d1, d2);
@@ -440,7 +441,7 @@ impl VimContext {
     }
 }
 
-impl InputKeyContext<KeyEvent, VimKeyClass> for VimContext {
+impl<P: ApplicationAction> InputKeyContext<KeyEvent, VimKeyClass> for VimContext<P> {
     fn event(&mut self, ev: &EdgeEvent<KeyEvent, VimKeyClass>, ke: &KeyEvent) {
         match ev {
             EdgeEvent::Key(_) | EdgeEvent::Fallthrough => {
@@ -506,7 +507,7 @@ impl InputKeyContext<KeyEvent, VimKeyClass> for VimContext {
     }
 }
 
-impl EditContext for VimContext {
+impl<P: ApplicationAction> EditContext for VimContext<P> {
     fn get_replace_char(&self) -> Option<Char> {
         self.action.replace.clone()
     }
@@ -542,8 +543,38 @@ impl EditContext for VimContext {
     }
 }
 
+impl<P: ApplicationAction> Default for ActionContext<P> {
+    fn default() -> Self {
+        ActionContext {
+            count: None,
+            counting: None,
+
+            dec: None,
+            oct: None,
+            hex: None,
+            any: None,
+            digraph1: None,
+            digraph2: None,
+
+            replace: None,
+            register: None,
+            register_append: false,
+            mark: None,
+
+            operation: EditAction::default(),
+
+            charsearch_params: None,
+
+            postaction: None,
+            postmode: None,
+
+            cursor: None,
+        }
+    }
+}
+
 impl Default for PersistentContext {
-    fn default() -> PersistentContext {
+    fn default() -> Self {
         PersistentContext {
             charsearch_params: (MoveDir1D::Next, false),
             charsearch: None,
@@ -553,8 +584,8 @@ impl Default for PersistentContext {
     }
 }
 
-impl Default for VimContext {
-    fn default() -> VimContext {
+impl<P: ApplicationAction> Default for VimContext<P> {
+    fn default() -> Self {
         VimContext {
             action: ActionContext::default(),
             persist: PersistentContext::default(),
@@ -562,7 +593,7 @@ impl Default for VimContext {
     }
 }
 
-impl Resolve<Count, usize> for VimContext {
+impl<P: ApplicationAction> Resolve<Count, usize> for VimContext<P> {
     fn resolve(&self, count: &Count) -> usize {
         match count {
             Count::Contextual => self.action.count.unwrap_or(1),
@@ -572,7 +603,7 @@ impl Resolve<Count, usize> for VimContext {
     }
 }
 
-impl Resolve<Specifier<Char>, Option<Char>> for VimContext {
+impl<P: ApplicationAction> Resolve<Specifier<Char>, Option<Char>> for VimContext<P> {
     fn resolve(&self, c: &Specifier<Char>) -> Option<Char> {
         match c {
             Specifier::Contextual => self.get_typed(),
@@ -581,7 +612,7 @@ impl Resolve<Specifier<Char>, Option<Char>> for VimContext {
     }
 }
 
-impl Resolve<Specifier<Mark>, Mark> for VimContext {
+impl<P: ApplicationAction> Resolve<Specifier<Mark>, Mark> for VimContext<P> {
     fn resolve(&self, mark: &Specifier<Mark>) -> Mark {
         match mark {
             Specifier::Contextual => self.action.mark.unwrap_or(Mark::LastJump),
@@ -590,7 +621,7 @@ impl Resolve<Specifier<Mark>, Mark> for VimContext {
     }
 }
 
-impl Resolve<Specifier<EditAction>, EditAction> for VimContext {
+impl<P: ApplicationAction> Resolve<Specifier<EditAction>, EditAction> for VimContext<P> {
     fn resolve(&self, mark: &Specifier<EditAction>) -> EditAction {
         match mark {
             Specifier::Contextual => self.action.operation.clone(),
@@ -716,7 +747,7 @@ mod tests {
 
     #[test]
     fn test_show_mode() {
-        let mut ctx = VimContext::default();
+        let mut ctx = VimContext::<()>::default();
 
         let normal = VimMode::Normal;
         let visual = VimMode::Visual;

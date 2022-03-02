@@ -24,7 +24,7 @@
 //! }
 //!
 //! fn main() {
-//!     let mut keybindings = VimMachine::default();
+//!     let mut keybindings: VimMachine<KeyEvent> = Default::default();
 //!
 //!     // Begins in Normal mode.
 //!     assert_eq!(keybindings.mode(), VimMode::Normal);
@@ -44,10 +44,10 @@
 //! ```
 use bitflags::bitflags;
 use crossterm::event::KeyEvent;
-use lazy_static::lazy_static;
 
 use crate::editing::base::{
     Action,
+    ApplicationAction,
     Axis,
     Case,
     Char,
@@ -172,8 +172,8 @@ impl MappedModes {
 }
 
 #[derive(Clone, Debug)]
-enum InternalAction {
-    SetPostAction(Action),
+enum InternalAction<P: ApplicationAction> {
+    SetPostAction(Action<P>),
     SetSearchCharParams(MoveDir1D, bool),
     SetSearchChar,
     SetReplaceChar(Option<Char>),
@@ -186,8 +186,8 @@ enum InternalAction {
     SetPostMode(VimMode),
 }
 
-impl InternalAction {
-    pub fn run(&self, ctx: &mut VimContext) {
+impl<P: ApplicationAction> InternalAction<P> {
+    pub fn run(&self, ctx: &mut VimContext<P>) {
         match self {
             InternalAction::SetSearchCharParams(dir, inclusive) => {
                 ctx.action.charsearch_params = Some((*dir, *inclusive));
@@ -266,15 +266,15 @@ impl InternalAction {
 }
 
 #[derive(Clone, Debug)]
-enum ExternalAction {
-    Something(Action),
-    CountAlters(Vec<Action>, Vec<Action>),
-    MacroRecording(Action),
+enum ExternalAction<P: ApplicationAction> {
+    Something(Action<P>),
+    CountAlters(Vec<Action<P>>, Vec<Action<P>>),
+    MacroRecording(Action<P>),
     PostAction,
 }
 
-impl ExternalAction {
-    fn resolve(&self, context: &mut VimContext) -> Vec<Action> {
+impl<P: ApplicationAction> ExternalAction<P> {
+    fn resolve(&self, context: &mut VimContext<P>) -> Vec<Action<P>> {
         match self {
             ExternalAction::Something(act) => vec![act.clone()],
             ExternalAction::CountAlters(acts1, acts2) => {
@@ -303,16 +303,32 @@ impl ExternalAction {
 }
 
 #[derive(Clone, Debug)]
-pub struct InputStep {
-    internal: Vec<InternalAction>,
-    external: Vec<ExternalAction>,
+pub struct InputStep<P: ApplicationAction> {
+    internal: Vec<InternalAction<P>>,
+    external: Vec<ExternalAction<P>>,
     fallthrough_mode: Option<VimMode>,
     nextm: Option<VimMode>,
 }
 
-impl Step<KeyEvent> for InputStep {
-    type A = Action;
-    type C = VimContext;
+impl<P: ApplicationAction> InputStep<P> {
+    pub fn new() -> Self {
+        InputStep {
+            internal: vec![],
+            external: vec![],
+            fallthrough_mode: None,
+            nextm: None,
+        }
+    }
+
+    pub fn actions(mut self, acts: Vec<Action<P>>) -> Self {
+        self.external = acts.into_iter().map(ExternalAction::Something).collect();
+        self
+    }
+}
+
+impl<P: ApplicationAction> Step<KeyEvent> for InputStep<P> {
+    type A = Action<P>;
+    type C = VimContext<P>;
     type Class = VimKeyClass;
     type M = VimMode;
 
@@ -332,7 +348,7 @@ impl Step<KeyEvent> for InputStep {
         self.fallthrough_mode
     }
 
-    fn step(&self, ctx: &mut VimContext) -> (Vec<Action>, Option<Self::M>) {
+    fn step(&self, ctx: &mut VimContext<P>) -> (Vec<Action<P>>, Option<Self::M>) {
         match (self.nextm, self.internal.as_slice(), ctx.persist.shape) {
             (Some(VimMode::Visual), [InternalAction::SetTargetShape(f, s1)], Some(ref s2))
                 if f.matches(s2) && s1 == s2 =>
@@ -349,7 +365,7 @@ impl Step<KeyEvent> for InputStep {
                     iact.run(ctx);
                 }
 
-                let external: Vec<Action> =
+                let external: Vec<Action<P>> =
                     self.external.iter().flat_map(|act| act.resolve(ctx)).collect();
 
                 if external.len() > 0 {
@@ -1121,8 +1137,9 @@ macro_rules! command_unfocus {
     };
 }
 
-lazy_static! {
-    static ref DEFAULT_KEYS: [(MappedModes, &'static str, InputStep);  470] = [
+#[rustfmt::skip]
+fn default_keys<P: ApplicationAction>() -> Vec<(MappedModes, &'static str, InputStep<P>)> {
+    [
         // Normal, Visual, Select, Insert mode keys
         ( NVIMAP, "<C-\\><C-N>", normal!() ),
 
@@ -1622,9 +1639,12 @@ lazy_static! {
         ( SUFFIX_CHARREPL, "<Esc>", act!(Action::NoOp) ),
         ( SUFFIX_CHARREPL, "<C-E>", charreplace_suffix!(Char::CopyLine(MoveDir1D::Previous)) ),
         ( SUFFIX_CHARREPL, "<C-Y>", charreplace_suffix!(Char::CopyLine(MoveDir1D::Next)) ),
-    ];
+    ].to_vec()
+}
 
-    static ref DEFAULT_PFXS: [(MappedModes, &'static str, Option<InputStep>); 5] = [
+#[rustfmt::skip]
+fn default_pfxs<P: ApplicationAction>() -> Vec<(MappedModes, &'static str, Option<InputStep<P>>)> {
+    [
         // Normal, Visual and Operator-Pending mode commands can be prefixed w/ a count.
         ( NXOMAP, "{count}", Some(iact!(InternalAction::SaveCounting)) ),
 
@@ -1635,15 +1655,15 @@ lazy_static! {
         ( OMAP, "v", Some(shape!(TargetShape::CharWise)) ),
         ( OMAP, "V", Some(shape!(TargetShape::LineWise)) ),
         ( OMAP, "<C-V>", Some(shape!(TargetShape::BlockWise)) ),
-    ];
+    ].to_vec()
 }
 
 #[inline]
-fn add_prefix(
-    machine: &mut VimMachine<KeyEvent>,
+fn add_prefix<P: ApplicationAction>(
+    machine: &mut VimMachine<KeyEvent, P>,
     modes: &MappedModes,
     keys: &str,
-    action: &Option<InputStep>,
+    action: &Option<InputStep<P>>,
 ) {
     let (_, evs) = parse(keys).expect(&format!("invalid vim keybinding: {}", keys));
     let modes = modes.split();
@@ -1654,11 +1674,11 @@ fn add_prefix(
 }
 
 #[inline]
-fn add_mapping(
-    machine: &mut VimMachine<KeyEvent>,
+fn add_mapping<P: ApplicationAction>(
+    machine: &mut VimMachine<KeyEvent, P>,
     modes: &MappedModes,
     keys: &str,
-    action: &InputStep,
+    action: &InputStep<P>,
 ) {
     let (_, evs) = parse(keys).expect(&format!("invalid vim keybinding: {}", keys));
     let modes = modes.split();
@@ -1669,22 +1689,19 @@ fn add_mapping(
 }
 
 #[derive(Debug)]
-pub struct VimBindings {
-    prefixes: Vec<(MappedModes, &'static str, Option<InputStep>)>,
-    mappings: Vec<(MappedModes, &'static str, InputStep)>,
+pub struct VimBindings<P: ApplicationAction> {
+    prefixes: Vec<(MappedModes, &'static str, Option<InputStep<P>>)>,
+    mappings: Vec<(MappedModes, &'static str, InputStep<P>)>,
 }
 
-impl Default for VimBindings {
+impl<P: ApplicationAction> Default for VimBindings<P> {
     fn default() -> Self {
-        VimBindings {
-            prefixes: DEFAULT_PFXS.to_vec(),
-            mappings: DEFAULT_KEYS.to_vec(),
-        }
+        VimBindings { prefixes: default_pfxs(), mappings: default_keys() }
     }
 }
 
-impl InputBindings<KeyEvent, InputStep> for VimBindings {
-    fn setup(&self, machine: &mut VimMachine<KeyEvent>) {
+impl<P: ApplicationAction> InputBindings<KeyEvent, InputStep<P>> for VimBindings<P> {
+    fn setup(&self, machine: &mut VimMachine<KeyEvent, P>) {
         for (modes, keys, action) in self.prefixes.iter() {
             add_prefix(machine, modes, keys, action);
         }
@@ -1695,11 +1712,11 @@ impl InputBindings<KeyEvent, InputStep> for VimBindings {
     }
 }
 
-pub type VimMachine<Key> = ModalMachine<Key, InputStep>;
+pub type VimMachine<Key, T = ()> = ModalMachine<Key, InputStep<T>>;
 
-impl Default for VimMachine<KeyEvent> {
+impl<P: ApplicationAction> Default for VimMachine<KeyEvent, P> {
     fn default() -> Self {
-        ModalMachine::from_bindings::<VimBindings>()
+        ModalMachine::from_bindings::<VimBindings<P>>()
     }
 }
 
@@ -1786,7 +1803,7 @@ mod tests {
 
     #[test]
     fn test_transitions_normal() {
-        let mut vm = VimMachine::default();
+        let mut vm: VimMachine<KeyEvent> = VimMachine::default();
         let mut ctx = VimContext::default();
 
         let op = EditAction::Motion;
@@ -1928,7 +1945,7 @@ mod tests {
 
     #[test]
     fn test_transitions_command() {
-        let mut vm = VimMachine::default();
+        let mut vm: VimMachine<KeyEvent> = VimMachine::default();
         let mut ctx = VimContext::default();
 
         // Starts in Normal mode
@@ -2007,7 +2024,7 @@ mod tests {
 
     #[test]
     fn test_transitions_visual() {
-        let mut vm = VimMachine::default();
+        let mut vm: VimMachine<KeyEvent> = VimMachine::default();
         let mut ctx = VimContext::default();
 
         // Move to Visual mode (charwise) and back using "v".
@@ -2081,7 +2098,7 @@ mod tests {
 
     #[test]
     fn test_transitions_visual_select() {
-        let mut vm = VimMachine::default();
+        let mut vm: VimMachine<KeyEvent> = VimMachine::default();
         let mut ctx = VimContext::default();
 
         // Test charwise shapes.
@@ -2149,7 +2166,7 @@ mod tests {
 
     #[test]
     fn test_transitions_select() {
-        let mut vm = VimMachine::default();
+        let mut vm: VimMachine<KeyEvent> = VimMachine::default();
         let mut ctx = VimContext::default();
 
         // Enter Select mode (charwise) via "gh".
@@ -2234,7 +2251,7 @@ mod tests {
 
     #[test]
     fn test_count() {
-        let mut vm = VimMachine::default();
+        let mut vm: VimMachine<KeyEvent> = VimMachine::default();
         let mut ctx = VimContext::default();
 
         let mov = mv!(MoveType::WordBegin(WordStyle::Little, MoveDir1D::Next));
@@ -2322,7 +2339,7 @@ mod tests {
 
     #[test]
     fn test_register() {
-        let mut vm = VimMachine::default();
+        let mut vm: VimMachine<KeyEvent> = VimMachine::default();
         let mut ctx = VimContext::default();
 
         let op = EditAction::Yank;
@@ -2389,7 +2406,7 @@ mod tests {
 
     #[test]
     fn test_mark() {
-        let mut vm = VimMachine::default();
+        let mut vm: VimMachine<KeyEvent> = VimMachine::default();
         let mut ctx = VimContext::default();
 
         // Create local mark 'c.
@@ -2427,7 +2444,7 @@ mod tests {
 
     #[test]
     fn test_normal_ops() {
-        let mut vm = VimMachine::default();
+        let mut vm: VimMachine<KeyEvent> = VimMachine::default();
         let mut ctx = VimContext::default();
 
         let mov = mv!(MoveType::WordBegin(WordStyle::Little, MoveDir1D::Next));
@@ -2541,7 +2558,7 @@ mod tests {
 
     #[test]
     fn test_delete_ops() {
-        let mut vm = VimMachine::default();
+        let mut vm: VimMachine<KeyEvent> = VimMachine::default();
         let mut ctx = VimContext::default();
 
         let op = EditAction::Delete;
@@ -2578,7 +2595,7 @@ mod tests {
 
     #[test]
     fn test_change_ops() {
-        let mut vm = VimMachine::default();
+        let mut vm: VimMachine<KeyEvent> = VimMachine::default();
         let mut ctx = VimContext::default();
 
         // Change a word around the cursor with "caw".
@@ -2695,7 +2712,7 @@ mod tests {
 
     #[test]
     fn test_normal_motion_charsearch() {
-        let mut vm = VimMachine::default();
+        let mut vm: VimMachine<KeyEvent> = VimMachine::default();
         let mut ctx = VimContext::default();
 
         // "fa" should update search params, and then continue character search.
@@ -2778,7 +2795,7 @@ mod tests {
 
     #[test]
     fn test_normal_motion_special_key() {
-        let mut vm = VimMachine::default();
+        let mut vm: VimMachine<KeyEvent> = VimMachine::default();
         let mut ctx = VimContext::default();
 
         // <C-H>
@@ -2887,7 +2904,7 @@ mod tests {
 
     #[test]
     fn test_visual_ops() {
-        let mut vm = VimMachine::default();
+        let mut vm: VimMachine<KeyEvent> = VimMachine::default();
         let mut ctx = VimContext::default();
 
         // Move into Visual mode (charwise)
@@ -3120,7 +3137,7 @@ mod tests {
 
     #[test]
     fn test_visual_block_insert() {
-        let mut vm = VimMachine::default();
+        let mut vm: VimMachine<KeyEvent> = VimMachine::default();
         let mut ctx = VimContext::default();
 
         // Move into Visual mode (blockwise)
@@ -3207,7 +3224,7 @@ mod tests {
 
     #[test]
     fn test_visual_motion() {
-        let mut vm = VimMachine::default();
+        let mut vm: VimMachine<KeyEvent> = VimMachine::default();
         let mut ctx = VimContext::default();
 
         ctx.persist.shape = Some(TargetShape::CharWise);
@@ -3284,7 +3301,7 @@ mod tests {
 
     #[test]
     fn test_force_motion() {
-        let mut vm = VimMachine::default();
+        let mut vm: VimMachine<KeyEvent> = VimMachine::default();
         let mut ctx = VimContext::default();
 
         let mov = mv!(MoveType::WordBegin(WordStyle::Little, MoveDir1D::Next));
@@ -3339,7 +3356,7 @@ mod tests {
 
     #[test]
     fn test_insert_mode() {
-        let mut vm = VimMachine::default();
+        let mut vm: VimMachine<KeyEvent> = VimMachine::default();
         let mut ctx = VimContext::default();
 
         ctx.persist.insert = Some(InsertStyle::Insert);
@@ -3456,7 +3473,7 @@ mod tests {
 
     #[test]
     fn test_override() {
-        let mut vm = VimMachine::default();
+        let mut vm: VimMachine<KeyEvent> = VimMachine::default();
         let mut ctx = VimContext::default();
 
         // Check the original Normal mode mapping.
@@ -3505,7 +3522,7 @@ mod tests {
 
     #[test]
     fn test_count_alters_motion() {
-        let mut vm = VimMachine::default();
+        let mut vm: VimMachine<KeyEvent> = VimMachine::default();
         let mut ctx = VimContext::default();
 
         // Without a count, "%" is ItemMatch.
@@ -3553,7 +3570,7 @@ mod tests {
 
     #[test]
     fn test_count_alters_window() {
-        let mut vm = VimMachine::default();
+        let mut vm: VimMachine<KeyEvent> = VimMachine::default();
         let mut ctx = VimContext::default();
 
         // Without a count, ^Wo closes all windows besides the currently focused one.
@@ -3613,7 +3630,7 @@ mod tests {
 
     #[test]
     fn test_scrollcp() {
-        let mut vm = VimMachine::default();
+        let mut vm: VimMachine<KeyEvent> = VimMachine::default();
         let mut ctx = VimContext::default();
 
         // Place cursored line at the top of the screen with "zt".
@@ -3663,7 +3680,7 @@ mod tests {
 
     #[test]
     fn test_literal() {
-        let mut vm = VimMachine::default();
+        let mut vm: VimMachine<KeyEvent> = VimMachine::default();
         let mut ctx = VimContext::default();
 
         ctx.persist.insert = Some(InsertStyle::Insert);
@@ -3795,7 +3812,7 @@ mod tests {
 
     #[test]
     fn test_unmapped_reset() {
-        let mut vm = VimMachine::default();
+        let mut vm: VimMachine<KeyEvent> = VimMachine::default();
         let mut ctx = VimContext::default();
 
         /*
@@ -3813,7 +3830,7 @@ mod tests {
 
     #[test]
     fn test_count_nullifies() {
-        let mut vm = VimMachine::default();
+        let mut vm: VimMachine<KeyEvent> = VimMachine::default();
         let mut ctx = VimContext::default();
 
         // Without a count, Delete deletes one character.

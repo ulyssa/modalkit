@@ -2080,7 +2080,7 @@ mod tests {
     fn test_motion_char_line() {
         let rope = EditRope::from("hello\nworld\na b c d e\n");
         let vwctx = ViewportContext::<Cursor>::default();
-        let mut vctx = VimContext::default();
+        let mut vctx: VimContext = VimContext::default();
         let mut cursor = rope.first();
         let count = Count::Contextual;
 
@@ -2173,7 +2173,7 @@ mod tests {
     fn test_motion_column_wrap() {
         let rope = EditRope::from("hello\nworld\na b c d e\n");
         let vwctx = ViewportContext::<Cursor>::default();
-        let mut vctx = VimContext::default();
+        let mut vctx: VimContext = VimContext::default();
         let mut cursor = rope.first();
         let count = Count::Contextual;
 
@@ -2217,7 +2217,7 @@ mod tests {
     fn test_motion_word() {
         let rope = EditRope::from("hello world\na,b,c,d e,f,g,h\n");
         let vwctx = ViewportContext::<Cursor>::default();
-        let vctx = VimContext::default();
+        let vctx: VimContext = VimContext::default();
         let mut cursor = rope.first();
         let count = Count::Contextual;
 
@@ -2347,7 +2347,7 @@ mod tests {
     fn test_first_word() {
         let rope = EditRope::from("       hello world\n  a b c d e\n    first\n");
         let vwctx = ViewportContext::<Cursor>::default();
-        let vctx = VimContext::default();
+        let vctx: VimContext = VimContext::default();
         let mut cursor = rope.first();
 
         assert_eq!(cursor, Cursor::new(0, 0));
@@ -2380,7 +2380,7 @@ mod tests {
     fn test_motion_line_pos() {
         let rope = EditRope::from("1234567890\nabcde\n");
         let vwctx = ViewportContext::<Cursor>::default();
-        let mut vctx = VimContext::default();
+        let mut vctx: VimContext = VimContext::default();
         let mut cursor = rope.first();
 
         assert_eq!(cursor, Cursor::new(0, 0));
@@ -2426,7 +2426,7 @@ mod tests {
             klmnopqrst\n",
         );
         let vwctx = ViewportContext::<Cursor>::default();
-        let vctx = VimContext::default();
+        let vctx: VimContext = VimContext::default();
         let mut cursor = rope.first();
 
         let mov = MoveType::LineColumnOffset;
@@ -2461,7 +2461,7 @@ mod tests {
     fn test_motion_line_percent() {
         let rope = EditRope::from("abcdefghijklmnopqrstuvwxyz\n");
         let vwctx = ViewportContext::<Cursor>::default();
-        let vctx = VimContext::default();
+        let vctx: VimContext = VimContext::default();
         let mut cursor = rope.first();
 
         let mov = MoveType::LinePercent;
@@ -2496,7 +2496,7 @@ mod tests {
             klmnopqrst\n",
         );
         let vwctx = ViewportContext::<Cursor>::default();
-        let vctx = VimContext::default();
+        let vctx: VimContext = VimContext::default();
         let mut cursor = rope.first();
 
         let mov = MoveType::BufferByteOffset;
@@ -2544,7 +2544,7 @@ mod tests {
             1234567890\n",
         );
         let vwctx = ViewportContext::<Cursor>::default();
-        let vctx = VimContext::default();
+        let vctx: VimContext = VimContext::default();
         let mut cursor = rope.first();
 
         // Move to end of buffer ("8G")
@@ -2585,7 +2585,7 @@ mod tests {
             abcdefghij\n",
         );
         let vwctx = ViewportContext::<Cursor>::default();
-        let vctx = VimContext::default();
+        let vctx: VimContext = VimContext::default();
         let mut cursor = rope.first();
 
         // Move to end of buffer ("100%")
@@ -2629,7 +2629,7 @@ mod tests {
             1234567890\n",
         );
         let vwctx = ViewportContext::<Cursor>::default();
-        let vctx = VimContext::default();
+        let vctx: VimContext = VimContext::default();
         let mut cursor = rope.first();
         let count = Count::Contextual;
 
@@ -2665,7 +2665,7 @@ mod tests {
             KLMNO\n",
         );
         let mut vwctx = ViewportContext::<Cursor>::default();
-        let mut vctx = VimContext::default();
+        let mut vctx: VimContext = VimContext::default();
         let count = Count::Contextual;
 
         /*
@@ -2737,7 +2737,7 @@ mod tests {
     fn test_motion_screen_wrap() {
         let rope = EditRope::from("abcdefghij\nklmnopqrstuvwxyz\n");
         let mut vwctx = ViewportContext::<Cursor>::default();
-        let vctx = VimContext::default();
+        let vctx: VimContext = VimContext::default();
 
         vwctx.corner = Cursor::new(0, 0);
         vwctx.set_wrap(true);
@@ -2796,7 +2796,7 @@ mod tests {
     fn test_motion_screen_nowrap() {
         let rope = EditRope::from("abcdefghij\nklmnopqrstuvwxyz\n");
         let mut vwctx = ViewportContext::<Cursor>::default();
-        let vctx = VimContext::default();
+        let vctx: VimContext = VimContext::default();
 
         vwctx.corner = Cursor::new(0, 5);
         vwctx.set_wrap(false);
@@ -2849,7 +2849,7 @@ mod tests {
     fn test_motion_screen_first_word_wrap() {
         let rope = EditRope::from("abcde  f g  hij\n  klm  nop\n");
         let mut vwctx = ViewportContext::<Cursor>::default();
-        let vctx = VimContext::default();
+        let vctx: VimContext = VimContext::default();
 
         vwctx.set_wrap(true);
         vwctx.corner = Cursor::new(0, 5);
@@ -2881,7 +2881,7 @@ mod tests {
     fn test_motion_screen_first_word_nowrap() {
         let rope = EditRope::from("abcde  f g  hij\n  klm  nop\n");
         let mut vwctx = ViewportContext::<Cursor>::default();
-        let vctx = VimContext::default();
+        let vctx: VimContext = VimContext::default();
 
         vwctx.set_wrap(false);
         vwctx.corner = Cursor::new(0, 5);
@@ -2906,7 +2906,7 @@ mod tests {
     fn test_range_line() {
         let rope = EditRope::from("1 2 3\nhello world\n    foo bar\na b c d e f\n");
         let vwctx = ViewportContext::<Cursor>::default();
-        let mut vctx = VimContext::default();
+        let mut vctx: VimContext = VimContext::default();
         let cw = TargetShape::LineWise;
         let count = Count::Contextual;
         let rt = RangeType::Line;
@@ -2937,7 +2937,7 @@ mod tests {
     fn test_range_bracketed_start_at_paren() {
         let rope = EditRope::from("foo (1 ( (a) \")\" (b) ')' (c) ) 2 3) bar");
         let vwctx = ViewportContext::<Cursor>::default();
-        let mut vctx = VimContext::default();
+        let mut vctx: VimContext = VimContext::default();
         let cw = TargetShape::CharWise;
         let count = Count::Contextual;
         let rt = RangeType::Bracketed('(', ')', true);
@@ -2988,7 +2988,7 @@ mod tests {
     fn test_range_bracketed_forward() {
         let rope = EditRope::from("foo (1 ( (a) \")\" (b) ')' (c) ) 2 3) bar");
         let vwctx = ViewportContext::<Cursor>::default();
-        let mut vctx = VimContext::default();
+        let mut vctx: VimContext = VimContext::default();
         let cw = TargetShape::CharWise;
         let count = Count::Contextual;
         let rt = RangeType::Bracketed('(', ')', true);
@@ -3027,7 +3027,7 @@ mod tests {
     fn test_range_bracketed_backward() {
         let rope = EditRope::from("foo (1 ( (a) \")\" (b) ')' (c) ) 2 3) bar");
         let vwctx = ViewportContext::<Cursor>::default();
-        let mut vctx = VimContext::default();
+        let mut vctx: VimContext = VimContext::default();
         let cw = TargetShape::CharWise;
         let count = Count::Contextual;
         let rt = RangeType::Bracketed('(', ')', true);
@@ -3066,7 +3066,7 @@ mod tests {
     fn test_range_bracketed_no_surrounding_parens() {
         let rope = EditRope::from("foo (1 ( (a) \")\" (b) ')' (c) ) 2 3) bar");
         let vwctx = ViewportContext::<Cursor>::default();
-        let vctx = VimContext::default();
+        let vctx: VimContext = VimContext::default();
         let count = Count::Contextual;
         let rt = RangeType::Bracketed('(', ')', true);
 
@@ -3085,7 +3085,7 @@ mod tests {
     fn test_range_quoted() {
         let rope = EditRope::from("a b c 'd e f \\'g h i\\' j k' l m n 'o p' q");
         let vwctx = ViewportContext::<Cursor>::default();
-        let vctx = VimContext::default();
+        let vctx: VimContext = VimContext::default();
         let count = Count::Contextual;
         let rt = RangeType::Quote('\'', true);
         let cw = TargetShape::CharWise;

@@ -11,17 +11,17 @@
 //! use modalkit::editing::base::{Action, EditAction, EditTarget};
 //!
 //! // Delete the current text selection.
-//! let _ = Action::Edit(EditAction::Delete.into(), EditTarget::Selection);
+//! let _: Action = Action::Edit(EditAction::Delete.into(), EditTarget::Selection);
 //!
 //! // Copy the next three lines.
 //! use modalkit::editing::base::{RangeType};
 //!
-//! let _ = Action::Edit(EditAction::Yank.into(), EditTarget::Range(RangeType::Line, 3.into()));
+//! let _: Action = Action::Edit(EditAction::Yank.into(), EditTarget::Range(RangeType::Line, 3.into()));
 //!
 //! // Make some contextually specified number of words lowercase.
 //! use modalkit::editing::base::{Case, Count, MoveDir1D, MoveType, WordStyle};
 //!
-//! let _ = Action::Edit(
+//! let _: Action = Action::Edit(
 //!     EditAction::ChangeCase(Case::Lower).into(),
 //!     EditTarget::Motion(MoveType::WordBegin(WordStyle::Big, MoveDir1D::Next), Count::Contextual)
 //! );
@@ -29,8 +29,9 @@
 //! // Scroll the viewport so that line 10 is at the top of the screen.
 //! use modalkit::editing::base::{MovePosition, ScrollStyle};
 //!
-//! let _ = Action::Scroll(ScrollStyle::LinePos(MovePosition::Beginning, 10.into()));
+//! let _: Action = Action::Scroll(ScrollStyle::LinePos(MovePosition::Beginning, 10.into()));
 //! ```
+use std::fmt::Debug;
 
 use bitflags::bitflags;
 use regex::Regex;
@@ -549,10 +550,14 @@ bitflags! {
     }
 }
 
+pub trait ApplicationAction: Clone + Debug + Eq + PartialEq {}
+
+impl ApplicationAction for () {}
+
 /// The result of either pressing a complete keybinding sequence, or parsing a command.
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[non_exhaustive]
-pub enum Action {
+pub enum Action<P: ApplicationAction = ()> {
     /// Do nothing.
     NoOp,
 
@@ -662,6 +667,9 @@ pub enum Action {
 
     /// Resize the currently focused window according to [SizeChange].
     WindowResize(Axis, SizeChange, Count),
+
+    /// Application specific command.
+    Application(P),
 }
 
 /// When focusing on the command bar, this is the type of command that should be submitted.
