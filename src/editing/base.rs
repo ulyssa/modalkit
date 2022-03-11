@@ -620,6 +620,10 @@ pub enum WindowAction {
 
     /// Resize the currently focused window according to [SizeChange].
     Resize(Axis, SizeChange),
+
+    /// Zoom in on the currently focused window so that it takes up the whole screen. If there is
+    /// already a zoomed-in window, then return to showing all windows.
+    ZoomToggle,
 }
 
 pub trait ApplicationAction: Clone + Debug + Eq + PartialEq {}

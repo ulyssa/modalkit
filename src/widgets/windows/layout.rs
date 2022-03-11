@@ -8,6 +8,7 @@
 use std::cmp::Ordering;
 use std::convert::TryInto;
 use std::marker::PhantomData;
+use std::ops::Not;
 
 use tui::{buffer::Buffer, layout::Rect, widgets::StatefulWidget};
 
@@ -63,6 +64,10 @@ trait WindowActions<W: Window, C> {
     /// Split the currently focused [Window] [*n* times](Count), with each new [Window] showing the
     /// same content.
     fn window_split(&mut self, axis: Axis, rel: MoveDir1D, count: Count, ctx: &C) -> EditResult;
+
+    /// Zoom in on the currently focused window. If we're already zoomed in on a window, return to
+    /// showing all windows.
+    fn window_zoom_toggle(&mut self, ctx: &C) -> EditResult;
 }
 
 fn windex<C: EditContext>(count: &Count, ctx: &C) -> usize {
@@ -1063,6 +1068,7 @@ impl<W: Window, X: AxisT, Y: AxisT> LayoutOps<W, X, Y> for AxisTree<W, X, Y> {
 pub struct WindowLayoutState<W: Window> {
     root: HorizontalTree<W>,
     info: TreeInfo,
+    zoom: bool,
     focused: usize,
     focused_last: usize,
 }
@@ -1073,6 +1079,7 @@ impl<W: Window> WindowLayoutState<W> {
         WindowLayoutState {
             root: AxisTree::singleton(window),
             info: TreeInfo::default(),
+            zoom: false,
             focused: 0,
             focused_last: 0,
         }
@@ -1236,6 +1243,7 @@ impl<W: Window> WindowLayoutState<W> {
 impl<W: Window, C: EditContext> WindowActions<W, C> for WindowLayoutState<W> {
     fn window_focus(&mut self, change: &FocusChange, ctx: &C) -> EditResult {
         if let Some(target) = self._target(change, ctx) {
+            self.zoom = false;
             self._focus(target);
         }
 
@@ -1244,6 +1252,7 @@ impl<W: Window, C: EditContext> WindowActions<W, C> for WindowLayoutState<W> {
 
     fn window_exchange(&mut self, change: &FocusChange, ctx: &C) -> EditResult {
         if let Some(target) = self._target(change, ctx) {
+            self.zoom = false;
             self.root.swap(self.focused, target);
         }
 
@@ -1251,6 +1260,7 @@ impl<W: Window, C: EditContext> WindowActions<W, C> for WindowLayoutState<W> {
     }
 
     fn window_move_side(&mut self, dir: MoveDir2D, _: &C) -> EditResult {
+        self.zoom = false;
         self.move_side(self.focused, dir);
 
         return Ok(None);
@@ -1264,6 +1274,8 @@ impl<W: Window, C: EditContext> WindowActions<W, C> for WindowLayoutState<W> {
 
     fn window_split(&mut self, axis: Axis, rel: MoveDir1D, count: Count, ctx: &C) -> EditResult {
         let count = ctx.resolve(&count);
+
+        self.zoom = false;
 
         for _ in 0..count {
             self.split(axis, rel);
@@ -1286,6 +1298,7 @@ impl<W: Window, C: EditContext> WindowActions<W, C> for WindowLayoutState<W> {
             SizeChange::Decrease(count) => SizeChange::Decrease(ctx.resolve(count).try_into()?),
         };
 
+        self.zoom = false;
         self.resize(axis, change);
 
         return Ok(None);
@@ -1300,6 +1313,8 @@ impl<W: Window, C: EditContext> WindowActions<W, C> for WindowLayoutState<W> {
              */
             return Ok(None);
         }
+
+        self.zoom = false;
 
         match target {
             CloseTarget::Single(focus) => {
@@ -1322,6 +1337,12 @@ impl<W: Window, C: EditContext> WindowActions<W, C> for WindowLayoutState<W> {
                 return Ok(None);
             },
         }
+    }
+
+    fn window_zoom_toggle(&mut self, _: &C) -> EditResult {
+        self.zoom = self.zoom.not();
+
+        Ok(None)
     }
 }
 
@@ -1355,6 +1376,7 @@ impl<W: Window, C: EditContext> WindowContainer<W, C> for WindowLayoutState<W> {
             WindowAction::ClearSizes => self.window_clear_sizes(ctx),
             WindowAction::Resize(axis, size) => self.window_resize(axis, size, ctx),
             WindowAction::Close(target, flags) => self.window_close(target, flags, ctx),
+            WindowAction::ZoomToggle => self.window_zoom_toggle(ctx),
         }
     }
 }
@@ -1386,6 +1408,14 @@ impl<W: Window> StatefulWidget for WindowLayout<W> {
     type State = WindowLayoutState<W>;
 
     fn render(self, area: Rect, buf: &mut Buffer, state: &mut Self::State) {
+        if state.zoom {
+            if let Some(window) = state.get_mut() {
+                window.draw(area, buf);
+            }
+
+            return;
+        }
+
         state.info.area = area;
         state.root.set_area(area, &state.info.resized);
         state.root.draw(buf);
