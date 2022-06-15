@@ -9,6 +9,7 @@
 use tui::buffer::Buffer;
 use tui::layout::Rect;
 
+use crate::input::commands::{Command, CommandError};
 use crate::input::InputContext;
 
 use crate::editing::buffer::Editable;
@@ -17,6 +18,7 @@ use crate::editing::base::{
     Axis,
     CloseFlags,
     Count,
+    EditError,
     EditResult,
     MoveDir1D,
     ScrollStyle,
@@ -79,4 +81,17 @@ pub trait WindowContainer<W: Window, C> {
     ) -> EditResult;
 
     fn window_command(&mut self, action: WindowAction, ctx: &C) -> EditResult;
+}
+
+#[derive(thiserror::Error, Debug)]
+#[non_exhaustive]
+pub enum UIError<C: Command> {
+    #[error("Input/Output Error: {0}")]
+    IOError(#[from] std::io::Error),
+    #[error("Input/Output Error: {0}")]
+    TerminalError(#[from] crossterm::ErrorKind),
+    #[error("Editing error: {0}")]
+    EditingFailure(#[from] EditError),
+    #[error("Failed command: {0}")]
+    CommandFailure(#[from] CommandError<C>),
 }

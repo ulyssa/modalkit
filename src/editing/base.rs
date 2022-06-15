@@ -1240,10 +1240,6 @@ pub enum EditError {
     MarkNotSet(Mark),
     #[error("Integer conversion error: {0}")]
     IntConversionError(#[from] std::num::TryFromIntError),
-    #[error("Input/Output Error: {0}")]
-    IOError(#[from] std::io::Error),
-    #[error("Input/Output Error: {0}")]
-    TerminalError(#[from] crossterm::ErrorKind),
     #[error("Error: {0}")]
     Failure(String),
 }
