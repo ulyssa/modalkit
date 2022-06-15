@@ -1,9 +1,11 @@
 use std::collections::HashMap;
 use std::marker::PhantomData;
+use std::ops::Range;
 
 use crate::{
     editing::cursor::{Cursor, CursorAdjustment},
     editing::histlist::HistoryList,
+    editing::lineinfo::LineInfoStore,
     editing::rope::{ByteOff, CursorContext, EditRope, PrivateCursorOps},
     editing::store::{BufferId, CursorStore, RegisterCell, SharedBuffer, SharedStore},
     util::{sort2, IdGenerator},
@@ -88,6 +90,7 @@ pub struct EditBuffer<C: EditContext> {
     members: HashMap<CursorGroupId, Vec<CursorId>>,
 
     history: HistoryList<EditRope>,
+    lineinfo: LineInfoStore<usize>,
     store: SharedStore<C>,
 
     _pc: PhantomData<C>,
@@ -125,6 +128,7 @@ impl<C: EditContext> EditBuffer<C> {
     pub fn new(id: BufferId, store: SharedStore<C>) -> EditBuffer<C> {
         let text = EditRope::from("\n");
         let history = HistoryList::new(text.clone(), 100);
+        let lineinfo = LineInfoStore::new();
 
         EditBuffer {
             id,
@@ -140,6 +144,7 @@ impl<C: EditContext> EditBuffer<C> {
             members: HashMap::new(),
 
             history,
+            lineinfo,
             store,
 
             _pc: PhantomData,
@@ -582,11 +587,15 @@ impl<C: EditContext> EditBuffer<C> {
         self.store.write().unwrap().marks.zero_all(self.id);
     }
 
-    pub fn append_text<T: Into<String>>(&mut self, t: T) {
+    pub fn append_text<T: Into<String>>(&mut self, t: T) -> Range<usize> {
         let s: String = t.into();
 
+        let start = self.get_lines();
         self.text += EditRope::from(s);
         self.text.trailing_newline();
+        let end = self.get_lines();
+
+        Range { start, end }
     }
 
     pub fn reset_text(&mut self) -> String {
@@ -747,6 +756,18 @@ impl<C: EditContext> EditBuffer<C> {
 
     pub fn get_columns(&self, y: usize) -> usize {
         self.text.get_columns(y)
+    }
+
+    pub fn get_line_info<T: Send + Sync + 'static>(&self, line: usize) -> Option<&T> {
+        self.lineinfo.get(&line)
+    }
+
+    pub fn get_line_info_mut<T: Send + Sync + 'static>(&mut self, line: usize) -> Option<&mut T> {
+        self.lineinfo.get_mut(&line)
+    }
+
+    pub fn set_line_info<T: Send + Sync + 'static>(&mut self, line: usize, info: T) {
+        self.lineinfo.set(line, info);
     }
 
     pub fn clamp<'a, 'b>(&self, cursor: &mut Cursor, ctx: &CursorGroupIdContext<'a, 'b, C>) {

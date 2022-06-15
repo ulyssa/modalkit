@@ -43,6 +43,36 @@ use crate::editing::{
 
 use super::{Focusable, TerminalCursor, Window};
 
+pub struct LeftGutterInfo {
+    text: String,
+    style: Style,
+}
+
+impl LeftGutterInfo {
+    pub fn new(text: String, style: Style) -> Self {
+        LeftGutterInfo { text, style }
+    }
+
+    fn render(&self, area: Rect, buf: &mut Buffer) {
+        let _ = buf.set_stringn(area.x, area.y, &self.text, area.width as usize, self.style);
+    }
+}
+
+pub struct RightGutterInfo {
+    text: String,
+    style: Style,
+}
+
+impl RightGutterInfo {
+    pub fn new(text: String, style: Style) -> Self {
+        RightGutterInfo { text, style }
+    }
+
+    fn render(&self, area: Rect, buf: &mut Buffer) {
+        let _ = buf.set_stringn(area.x, area.y, &self.text, area.width as usize, self.style);
+    }
+}
+
 pub struct TextBoxState<C: EditContext> {
     buffer: SharedBuffer<C>,
     group_id: CursorGroupId,
@@ -55,6 +85,9 @@ pub struct TextBoxState<C: EditContext> {
 pub struct TextBox<'a, C: EditContext> {
     block: Option<Block<'a>>,
     prompt: &'a str,
+
+    lgutter_width: u16,
+    rgutter_width: u16,
 
     _pc: PhantomData<C>,
 }
@@ -150,6 +183,20 @@ impl<C: EditContext> TextBoxState<C> {
 
     pub fn reset_text(&mut self) -> String {
         self.buffer.try_write().unwrap().reset_text()
+    }
+
+    pub fn set_left_gutter<'a>(&mut self, line: usize, s: String, style: Option<Style>) {
+        let style = style.unwrap_or_default();
+        let info = LeftGutterInfo::new(s, style);
+
+        self.buffer.write().unwrap().set_line_info(line, info);
+    }
+
+    pub fn set_right_gutter<'a>(&mut self, line: usize, s: String, style: Option<Style>) {
+        let style = style.unwrap_or_default();
+        let info = RightGutterInfo::new(s, style);
+
+        self.buffer.write().unwrap().set_line_info(line, info);
     }
 
     pub fn set_wrap(&mut self, wrap: bool) {
@@ -415,7 +462,15 @@ impl<C: EditContext> Window for TextBoxState<C> {
 
 impl<'a, C: EditContext> TextBox<'a, C> {
     pub fn new() -> Self {
-        TextBox { block: None, prompt: "", _pc: PhantomData }
+        TextBox {
+            block: None,
+            prompt: "",
+
+            lgutter_width: 0,
+            rgutter_width: 0,
+
+            _pc: PhantomData,
+        }
     }
 
     pub fn block(mut self, block: Block<'a>) -> Self {
@@ -425,6 +480,16 @@ impl<'a, C: EditContext> TextBox<'a, C> {
 
     pub fn prompt(mut self, prompt: &'a str) -> Self {
         self.prompt = prompt;
+        self
+    }
+
+    pub fn left_gutter(mut self, lw: u16) -> Self {
+        self.lgutter_width = lw;
+        self
+    }
+
+    pub fn right_gutter(mut self, rw: u16) -> Self {
+        self.rgutter_width = rw;
         self
     }
 
@@ -513,6 +578,7 @@ impl<'a, C: EditContext> TextBox<'a, C> {
     fn _render_lines_wrap(
         &mut self,
         area: Rect,
+        gutters: (Rect, Rect),
         buf: &mut Buffer,
         hinfo: HighlightInfo,
         finfo: FollowersInfo,
@@ -551,6 +617,7 @@ impl<'a, C: EditContext> TextBox<'a, C> {
                 break;
             }
 
+            let mut first = true;
             let mut off = 0;
             let slen = s.len();
 
@@ -561,17 +628,18 @@ impl<'a, C: EditContext> TextBox<'a, C> {
 
                 let cursor_line = line == cursor.y && (start..=end).contains(&cursor.x);
 
-                wrapped.push((line, start, end, swrapped, cursor_line));
+                wrapped.push((line, start, end, swrapped, cursor_line, first));
 
                 if cursor_line {
                     sawcursor = true;
                 }
 
                 off = end;
+                first = false;
             }
 
             if slen == 0 {
-                wrapped.push((line, 0, 0, s.to_string(), line == cursor.y));
+                wrapped.push((line, 0, 0, s.to_string(), line == cursor.y, true));
             }
 
             line += 1;
@@ -580,14 +648,29 @@ impl<'a, C: EditContext> TextBox<'a, C> {
         if wrapped.len() > height {
             let n = wrapped.len() - height;
             let _ = wrapped.drain(..n);
-            let (line, start, _, _, _) = wrapped.first().unwrap();
+            let (line, start, _, _, _, _) = wrapped.first().unwrap();
             state.viewctx.corner.set_y(*line);
             state.viewctx.corner.set_x(*start);
         }
 
-        for (line, start, end, s, cursor_line) in wrapped.into_iter() {
+        for (line, start, end, s, cursor_line, first) in wrapped.into_iter() {
             if y >= bot {
                 break;
+            }
+
+            if first {
+                let lgutter = text.get_line_info::<LeftGutterInfo>(line);
+                let rgutter = text.get_line_info::<RightGutterInfo>(line);
+
+                if let Some(ref lgi) = lgutter {
+                    let lga = Rect::new(gutters.0.x, y, gutters.0.width, 0);
+                    lgi.render(lga, buf);
+                }
+
+                if let Some(ref rgi) = rgutter {
+                    let rga = Rect::new(gutters.1.x, y, gutters.1.width, 0);
+                    rgi.render(rga, buf);
+                }
             }
 
             let _ = buf.set_stringn(x, y, s, width, unstyled);
@@ -607,6 +690,7 @@ impl<'a, C: EditContext> TextBox<'a, C> {
     fn _render_lines_nowrap(
         &mut self,
         area: Rect,
+        gutters: (Rect, Rect),
         buf: &mut Buffer,
         hinfo: HighlightInfo,
         finfo: FollowersInfo,
@@ -634,12 +718,25 @@ impl<'a, C: EditContext> TextBox<'a, C> {
 
         while y < bot {
             if let Some(s) = lines.next() {
+                let lgutter = text.get_line_info::<LeftGutterInfo>(line);
+                let rgutter = text.get_line_info::<RightGutterInfo>(line);
+
                 let slen = s.len();
                 let start = cbx;
                 let end = slen;
 
+                if let Some(ref lgi) = lgutter {
+                    let lga = Rect::new(gutters.0.x, y, gutters.0.width, 0);
+                    lgi.render(lga, buf);
+                }
+
                 if cbx < slen {
                     let _ = buf.set_stringn(x, y, &s[start..end], width, unstyled);
+                }
+
+                if let Some(ref rgi) = rgutter {
+                    let rga = Rect::new(gutters.1.x, y, gutters.1.width, 0);
+                    rgi.render(rga, buf);
                 }
 
                 if line == cursor.y && (start..=end).contains(&cursor.x) {
@@ -687,12 +784,23 @@ impl<'a, C: EditContext> TextBox<'a, C> {
         let hinfo = self._selection_intervals(state);
         let finfo = self._follower_intervals(state);
 
+        let (lgw, rgw) = if area.width <= self.lgutter_width + self.rgutter_width {
+            (0, 0)
+        } else {
+            (self.lgutter_width, self.rgutter_width)
+        };
+        let textw = area.width - lgw - rgw;
+        let lga = Rect::new(area.x, area.y, lgw, area.height);
+        let texta = Rect::new(area.x + lgw, area.y, textw, area.height);
+        let rga = Rect::new(area.x + lgw + textw, area.y, rgw, area.height);
+        let gutters = (lga, rga);
+
         state.set_term_info(area);
 
         if state.viewctx.wrap {
-            self._render_lines_wrap(area, buf, hinfo, finfo, state);
+            self._render_lines_wrap(texta, gutters, buf, hinfo, finfo, state);
         } else {
-            self._render_lines_nowrap(area, buf, hinfo, finfo, state);
+            self._render_lines_nowrap(texta, gutters, buf, hinfo, finfo, state);
         }
     }
 }

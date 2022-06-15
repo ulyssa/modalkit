@@ -15,6 +15,7 @@ default = ["widgets"]
 widgets = ["tui", "intervaltree"]
 
 [dependencies]
+anymap2 = "0.13.0"
 derive_more = "0.99.16"
 thiserror = "1.0.30"
 crossterm = "0.17"
