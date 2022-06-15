@@ -712,6 +712,9 @@ pub enum Action<P: Application = ()> {
     /// Type a [character](Char).
     Type(Specifier<Char>),
 
+    /// Run a command.
+    CommandRun(String),
+
     /// Repeat the last executed command [*n* times](Count).
     CommandRepeat(Count),
 

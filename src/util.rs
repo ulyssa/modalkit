@@ -41,6 +41,12 @@ macro_rules! assert_pop2 {
     };
 }
 
+macro_rules! strs {
+    ( $( $ss: expr ),* ) => {
+        vec![ $( $ss.into(), )* ]
+    };
+}
+
 #[derive(Debug)]
 pub(crate) struct IdGenerator {
     next_id: u64,

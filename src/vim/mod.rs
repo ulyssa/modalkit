@@ -49,6 +49,7 @@ use crate::util::{
     option_muladd_usize,
 };
 
+pub mod command;
 pub mod keybindings;
 mod keyparse;
 
