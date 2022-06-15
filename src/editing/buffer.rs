@@ -12,6 +12,7 @@ use crate::{
 };
 
 use super::base::{
+    Application,
     Case,
     Char,
     Count,
@@ -61,7 +62,7 @@ pub struct CursorGroupId(u64);
 
 pub type CursorRange = EditRange<Cursor>;
 
-pub struct EditBuffer<C: EditContext> {
+pub struct EditBuffer<C: EditContext, P: Application> {
     /// A unique identifier for this buffer.
     id: BufferId,
 
@@ -91,7 +92,7 @@ pub struct EditBuffer<C: EditContext> {
 
     history: HistoryList<EditRope>,
     lineinfo: LineInfoStore<usize>,
-    store: SharedStore<C>,
+    store: SharedStore<C, P>,
 
     _pc: PhantomData<C>,
 }
@@ -124,8 +125,12 @@ type Selection = (Cursor, Cursor, TargetShape);
 type Selections = Vec<Selection>;
 type CursorGroupIdContext<'a, 'b, T> = (CursorGroupId, &'a ViewportContext<Cursor>, &'b T);
 
-impl<C: EditContext> EditBuffer<C> {
-    pub fn new(id: BufferId, store: SharedStore<C>) -> EditBuffer<C> {
+impl<C, P> EditBuffer<C, P>
+where
+    C: EditContext,
+    P: Application,
+{
+    pub fn new(id: BufferId, store: SharedStore<C, P>) -> Self {
         let text = EditRope::from("\n");
         let history = HistoryList::new(text.clone(), 100);
         let lineinfo = LineInfoStore::new();
@@ -803,8 +808,11 @@ impl<C: EditContext> EditBuffer<C> {
     }
 }
 
-impl<'a, 'b, 'c, C: EditContext> EditString<&CursorMovementsContext<'a, 'b, 'c, Cursor, C>>
-    for EditBuffer<C>
+impl<'a, 'b, 'c, C, P> EditString<&CursorMovementsContext<'a, 'b, 'c, Cursor, C>>
+    for EditBuffer<C, P>
+where
+    C: EditContext,
+    P: Application,
 {
     fn delete(
         &mut self,
@@ -1101,7 +1109,11 @@ impl<'a, 'b, 'c, C: EditContext> EditString<&CursorMovementsContext<'a, 'b, 'c, 
     }
 }
 
-impl<'a, 'b, C: EditContext> CursorActions<CursorGroupIdContext<'a, 'b, C>> for EditBuffer<C> {
+impl<'a, 'b, C, P> CursorActions<CursorGroupIdContext<'a, 'b, C>> for EditBuffer<C, P>
+where
+    C: EditContext,
+    P: Application,
+{
     fn cursor_close(
         &mut self,
         target: &CursorCloseTarget,
@@ -1159,7 +1171,11 @@ impl<'a, 'b, C: EditContext> CursorActions<CursorGroupIdContext<'a, 'b, C>> for 
     }
 }
 
-impl<'a, 'b, C: EditContext> HistoryActions<CursorGroupIdContext<'a, 'b, C>> for EditBuffer<C> {
+impl<'a, 'b, C, P> HistoryActions<CursorGroupIdContext<'a, 'b, C>> for EditBuffer<C, P>
+where
+    C: EditContext,
+    P: Application,
+{
     fn undo(&mut self, count: Count, ctx: &CursorGroupIdContext<'a, 'b, C>) -> EditResult {
         let count = ctx.2.resolve(&count);
         let older = self.history.prev(count);
@@ -1191,7 +1207,11 @@ impl<'a, 'b, C: EditContext> HistoryActions<CursorGroupIdContext<'a, 'b, C>> for
     }
 }
 
-impl<'a, 'b, C: EditContext> Editable<CursorGroupIdContext<'a, 'b, C>> for EditBuffer<C> {
+impl<'a, 'b, C, P> Editable<CursorGroupIdContext<'a, 'b, C>> for EditBuffer<C, P>
+where
+    C: EditContext,
+    P: Application,
+{
     fn edit(
         &mut self,
         action: &EditAction,
@@ -1516,7 +1536,11 @@ impl<'a, 'b, C: EditContext> Editable<CursorGroupIdContext<'a, 'b, C>> for EditB
     }
 }
 
-impl<'a, 'b, C: EditContext> Editable<CursorGroupIdContext<'a, 'b, C>> for SharedBuffer<C> {
+impl<'a, 'b, C, P> Editable<CursorGroupIdContext<'a, 'b, C>> for SharedBuffer<C, P>
+where
+    C: EditContext,
+    P: Application,
+{
     fn edit(
         &mut self,
         operation: &EditAction,
@@ -1723,11 +1747,11 @@ mod tests {
         };
     }
 
-    fn mkbuf() -> EditBuffer<VimContext> {
+    fn mkbuf() -> EditBuffer<VimContext, ()> {
         EditBuffer::new(BufferId(0), Store::new())
     }
 
-    fn mkbufstr(s: &str) -> EditBuffer<VimContext> {
+    fn mkbufstr(s: &str) -> EditBuffer<VimContext, ()> {
         let mut buf = mkbuf();
         buf.set_text(s);
         buf.checkpoint().unwrap();

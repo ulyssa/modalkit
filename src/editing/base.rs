@@ -630,10 +630,24 @@ pub trait ApplicationAction: Clone + Debug + Eq + PartialEq {}
 
 impl ApplicationAction for () {}
 
+pub trait ApplicationStore: Default {}
+
+impl ApplicationStore for () {}
+
+pub trait Application: Clone + Debug + Eq + PartialEq {
+    type Action: ApplicationAction;
+    type Store: ApplicationStore;
+}
+
+impl Application for () {
+    type Action = ();
+    type Store = ();
+}
+
 /// The result of either pressing a complete keybinding sequence, or parsing a command.
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[non_exhaustive]
-pub enum Action<P: ApplicationAction = ()> {
+pub enum Action<P: Application = ()> {
     /// Do nothing.
     NoOp,
 
@@ -711,28 +725,28 @@ pub enum Action<P: ApplicationAction = ()> {
     Window(WindowAction),
 
     /// Application specific command.
-    Application(P),
+    Application(P::Action),
 }
 
-impl<P: ApplicationAction> From<HistoryAction> for Action<P> {
+impl<P: Application> From<HistoryAction> for Action<P> {
     fn from(act: HistoryAction) -> Self {
         Action::History(act)
     }
 }
 
-impl<P: ApplicationAction> From<CursorAction> for Action<P> {
+impl<P: Application> From<CursorAction> for Action<P> {
     fn from(act: CursorAction) -> Self {
         Action::Cursor(act)
     }
 }
 
-impl<P: ApplicationAction> From<WindowAction> for Action<P> {
+impl<P: Application> From<WindowAction> for Action<P> {
     fn from(act: WindowAction) -> Self {
         Action::Window(act)
     }
 }
 
-impl<P: ApplicationAction> From<TabAction> for Action<P> {
+impl<P: Application> From<TabAction> for Action<P> {
     fn from(act: TabAction) -> Self {
         Action::Tab(act)
     }

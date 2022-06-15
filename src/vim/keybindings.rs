@@ -47,7 +47,7 @@ use crossterm::event::KeyEvent;
 
 use crate::editing::base::{
     Action,
-    ApplicationAction,
+    Application,
     Axis,
     Case,
     Char,
@@ -176,7 +176,7 @@ impl MappedModes {
 }
 
 #[derive(Clone, Debug)]
-enum InternalAction<P: ApplicationAction> {
+enum InternalAction<P: Application> {
     SetPostAction(Action<P>),
     SetSearchCharParams(MoveDir1D, bool),
     SetSearchChar,
@@ -190,7 +190,7 @@ enum InternalAction<P: ApplicationAction> {
     SetPostMode(VimMode),
 }
 
-impl<P: ApplicationAction> InternalAction<P> {
+impl<P: Application> InternalAction<P> {
     pub fn run(&self, ctx: &mut VimContext<P>) {
         match self {
             InternalAction::SetSearchCharParams(dir, inclusive) => {
@@ -270,14 +270,14 @@ impl<P: ApplicationAction> InternalAction<P> {
 }
 
 #[derive(Clone, Debug)]
-enum ExternalAction<P: ApplicationAction> {
+enum ExternalAction<P: Application> {
     Something(Action<P>),
     CountAlters(Vec<Action<P>>, Vec<Action<P>>),
     MacroRecording(Action<P>),
     PostAction,
 }
 
-impl<P: ApplicationAction> ExternalAction<P> {
+impl<P: Application> ExternalAction<P> {
     fn resolve(&self, context: &mut VimContext<P>) -> Vec<Action<P>> {
         match self {
             ExternalAction::Something(act) => vec![act.clone()],
@@ -307,14 +307,14 @@ impl<P: ApplicationAction> ExternalAction<P> {
 }
 
 #[derive(Clone, Debug)]
-pub struct InputStep<P: ApplicationAction> {
+pub struct InputStep<P: Application> {
     internal: Vec<InternalAction<P>>,
     external: Vec<ExternalAction<P>>,
     fallthrough_mode: Option<VimMode>,
     nextm: Option<VimMode>,
 }
 
-impl<P: ApplicationAction> InputStep<P> {
+impl<P: Application> InputStep<P> {
     pub fn new() -> Self {
         InputStep {
             internal: vec![],
@@ -330,7 +330,7 @@ impl<P: ApplicationAction> InputStep<P> {
     }
 }
 
-impl<P: ApplicationAction> Step<KeyEvent> for InputStep<P> {
+impl<P: Application> Step<KeyEvent> for InputStep<P> {
     type A = Action<P>;
     type C = VimContext<P>;
     type Class = VimKeyClass;
@@ -1145,7 +1145,7 @@ macro_rules! command_unfocus {
 }
 
 #[rustfmt::skip]
-fn default_keys<P: ApplicationAction>() -> Vec<(MappedModes, &'static str, InputStep<P>)> {
+fn default_keys<P: Application>() -> Vec<(MappedModes, &'static str, InputStep<P>)> {
     [
         // Normal, Visual, Select, Insert mode keys
         ( NVIMAP, "<C-\\><C-N>", normal!() ),
@@ -1650,7 +1650,7 @@ fn default_keys<P: ApplicationAction>() -> Vec<(MappedModes, &'static str, Input
 }
 
 #[rustfmt::skip]
-fn default_pfxs<P: ApplicationAction>() -> Vec<(MappedModes, &'static str, Option<InputStep<P>>)> {
+fn default_pfxs<P: Application>() -> Vec<(MappedModes, &'static str, Option<InputStep<P>>)> {
     [
         // Normal, Visual and Operator-Pending mode commands can be prefixed w/ a count.
         ( NXOMAP, "{count}", Some(iact!(InternalAction::SaveCounting)) ),
@@ -1666,7 +1666,7 @@ fn default_pfxs<P: ApplicationAction>() -> Vec<(MappedModes, &'static str, Optio
 }
 
 #[inline]
-fn add_prefix<P: ApplicationAction>(
+fn add_prefix<P: Application>(
     machine: &mut VimMachine<KeyEvent, P>,
     modes: &MappedModes,
     keys: &str,
@@ -1681,7 +1681,7 @@ fn add_prefix<P: ApplicationAction>(
 }
 
 #[inline]
-fn add_mapping<P: ApplicationAction>(
+fn add_mapping<P: Application>(
     machine: &mut VimMachine<KeyEvent, P>,
     modes: &MappedModes,
     keys: &str,
@@ -1696,18 +1696,18 @@ fn add_mapping<P: ApplicationAction>(
 }
 
 #[derive(Debug)]
-pub struct VimBindings<P: ApplicationAction> {
+pub struct VimBindings<P: Application> {
     prefixes: Vec<(MappedModes, &'static str, Option<InputStep<P>>)>,
     mappings: Vec<(MappedModes, &'static str, InputStep<P>)>,
 }
 
-impl<P: ApplicationAction> Default for VimBindings<P> {
+impl<P: Application> Default for VimBindings<P> {
     fn default() -> Self {
         VimBindings { prefixes: default_pfxs(), mappings: default_keys() }
     }
 }
 
-impl<P: ApplicationAction> InputBindings<KeyEvent, InputStep<P>> for VimBindings<P> {
+impl<P: Application> InputBindings<KeyEvent, InputStep<P>> for VimBindings<P> {
     fn setup(&self, machine: &mut VimMachine<KeyEvent, P>) {
         for (modes, keys, action) in self.prefixes.iter() {
             add_prefix(machine, modes, keys, action);
@@ -1721,7 +1721,7 @@ impl<P: ApplicationAction> InputBindings<KeyEvent, InputStep<P>> for VimBindings
 
 pub type VimMachine<Key, T = ()> = ModalMachine<Key, InputStep<T>>;
 
-impl<P: ApplicationAction> Default for VimMachine<KeyEvent, P> {
+impl<P: Application> Default for VimMachine<KeyEvent, P> {
     fn default() -> Self {
         ModalMachine::from_bindings::<VimBindings<P>>()
     }

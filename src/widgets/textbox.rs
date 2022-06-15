@@ -12,6 +12,7 @@ use tui::{
 };
 
 use crate::editing::base::{
+    Application,
     Axis,
     Char,
     CloseFlags,
@@ -73,8 +74,8 @@ impl RightGutterInfo {
     }
 }
 
-pub struct TextBoxState<C: EditContext> {
-    buffer: SharedBuffer<C>,
+pub struct TextBoxState<C: EditContext, P: Application> {
+    buffer: SharedBuffer<C, P>,
     group_id: CursorGroupId,
 
     viewctx: ViewportContext<Cursor>,
@@ -82,14 +83,14 @@ pub struct TextBoxState<C: EditContext> {
     term_cursor: (u16, u16),
 }
 
-pub struct TextBox<'a, C: EditContext> {
+pub struct TextBox<'a, C: EditContext, P: Application> {
     block: Option<Block<'a>>,
     prompt: &'a str,
 
     lgutter_width: u16,
     rgutter_width: u16,
 
-    _pc: PhantomData<C>,
+    _pc: PhantomData<(C, P)>,
 }
 
 type HighlightInfo = IntervalTree<usize, (Cursor, Cursor, TargetShape)>;
@@ -156,8 +157,12 @@ fn shift_cursor(cursor: &mut Cursor, corner: &Cursor, width: usize, height: usiz
     }
 }
 
-impl<C: EditContext> TextBoxState<C> {
-    pub fn new(buffer: SharedBuffer<C>) -> TextBoxState<C> {
+impl<C, P> TextBoxState<C, P>
+where
+    C: EditContext,
+    P: Application,
+{
+    pub fn new(buffer: SharedBuffer<C, P>) -> Self {
         let group_id = buffer.try_write().unwrap().create_group();
         let mut viewctx = ViewportContext::default();
 
@@ -358,7 +363,11 @@ impl<C: EditContext> TextBoxState<C> {
     }
 }
 
-impl<C: EditContext> Editable<C> for TextBoxState<C> {
+impl<C, P> Editable<C> for TextBoxState<C, P>
+where
+    C: EditContext,
+    P: Application,
+{
     fn edit(&mut self, operation: &EditAction, motion: &EditTarget, ctx: &C) -> EditResult {
         let ctx = (self.group_id, &self.viewctx, ctx);
 
@@ -414,7 +423,11 @@ impl<C: EditContext> Editable<C> for TextBoxState<C> {
     }
 }
 
-impl<C: EditContext> Focusable<C> for TextBoxState<C> {
+impl<C, P> Focusable<C> for TextBoxState<C, P>
+where
+    C: EditContext,
+    P: Application,
+{
     fn scroll(&mut self, style: &ScrollStyle, ctx: &C) -> EditResult {
         match style {
             ScrollStyle::Direction2D(dir, size, count) => {
@@ -430,13 +443,21 @@ impl<C: EditContext> Focusable<C> for TextBoxState<C> {
     }
 }
 
-impl<C: EditContext> TerminalCursor for TextBoxState<C> {
+impl<C, P> TerminalCursor for TextBoxState<C, P>
+where
+    C: EditContext,
+    P: Application,
+{
     fn get_term_cursor(&self) -> (u16, u16) {
         self.term_cursor
     }
 }
 
-impl<C: EditContext> Window for TextBoxState<C> {
+impl<C, P> Window for TextBoxState<C, P>
+where
+    C: EditContext,
+    P: Application,
+{
     fn draw(&mut self, area: Rect, buf: &mut Buffer) {
         TextBox::new().render(area, buf, self);
     }
@@ -460,7 +481,11 @@ impl<C: EditContext> Window for TextBoxState<C> {
     }
 }
 
-impl<'a, C: EditContext> TextBox<'a, C> {
+impl<'a, C, P> TextBox<'a, C, P>
+where
+    C: EditContext,
+    P: Application,
+{
     pub fn new() -> Self {
         TextBox {
             block: None,
@@ -582,7 +607,7 @@ impl<'a, C: EditContext> TextBox<'a, C> {
         buf: &mut Buffer,
         hinfo: HighlightInfo,
         finfo: FollowersInfo,
-        state: &mut TextBoxState<C>,
+        state: &mut TextBoxState<C, P>,
     ) {
         let bot = area.bottom();
         let x = area.left();
@@ -694,7 +719,7 @@ impl<'a, C: EditContext> TextBox<'a, C> {
         buf: &mut Buffer,
         hinfo: HighlightInfo,
         finfo: FollowersInfo,
-        state: &mut TextBoxState<C>,
+        state: &mut TextBoxState<C, P>,
     ) {
         let bot = area.bottom();
         let x = area.left();
@@ -756,7 +781,7 @@ impl<'a, C: EditContext> TextBox<'a, C> {
     }
 
     #[inline]
-    fn _selection_intervals(&self, state: &mut TextBoxState<C>) -> HighlightInfo {
+    fn _selection_intervals(&self, state: &mut TextBoxState<C, P>) -> HighlightInfo {
         state
             .buffer
             .try_read()
@@ -769,7 +794,7 @@ impl<'a, C: EditContext> TextBox<'a, C> {
     }
 
     #[inline]
-    fn _follower_intervals(&self, state: &mut TextBoxState<C>) -> FollowersInfo {
+    fn _follower_intervals(&self, state: &mut TextBoxState<C, P>) -> FollowersInfo {
         state
             .buffer
             .try_read()
@@ -780,7 +805,7 @@ impl<'a, C: EditContext> TextBox<'a, C> {
             .collect()
     }
 
-    fn _render_lines(&mut self, area: Rect, buf: &mut Buffer, state: &mut TextBoxState<C>) {
+    fn _render_lines(&mut self, area: Rect, buf: &mut Buffer, state: &mut TextBoxState<C, P>) {
         let hinfo = self._selection_intervals(state);
         let finfo = self._follower_intervals(state);
 
@@ -805,8 +830,12 @@ impl<'a, C: EditContext> TextBox<'a, C> {
     }
 }
 
-impl<'a, C: EditContext> StatefulWidget for TextBox<'a, C> {
-    type State = TextBoxState<C>;
+impl<'a, C, P> StatefulWidget for TextBox<'a, C, P>
+where
+    C: EditContext,
+    P: Application,
+{
+    type State = TextBoxState<C, P>;
 
     fn render(mut self, area: Rect, buf: &mut Buffer, state: &mut Self::State) {
         let area = match self.block.take() {
@@ -876,14 +905,14 @@ mod tests {
         };
     }
 
-    fn mkbox() -> TextBoxState<VimContext> {
+    fn mkbox() -> TextBoxState<VimContext, ()> {
         let store = Store::new();
         let buffer = Store::new_buffer(&store);
 
         TextBoxState::new(buffer)
     }
 
-    fn mkboxstr(s: &str) -> (TextBoxState<VimContext>, VimContext) {
+    fn mkboxstr(s: &str) -> (TextBoxState<VimContext, ()>, VimContext) {
         let mut b = mkbox();
         let ctx = VimContext::default();
 
