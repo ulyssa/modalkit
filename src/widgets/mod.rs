@@ -22,9 +22,12 @@ use crate::editing::base::{
     EditResult,
     MoveDir1D,
     ScrollStyle,
+    TabAction,
     WindowAction,
 };
 
+pub mod cmdbar;
+pub mod screen;
 pub mod textbox;
 pub mod windows;
 
@@ -49,6 +52,12 @@ pub trait Submitable<A, C: InputContext> {
 pub trait Focusable<C>: Editable<C> + TerminalCursor {
     /// Scroll the viewable content in this widget.
     fn scroll(&mut self, style: &ScrollStyle, ctx: &C) -> EditResult;
+}
+
+/// A widget that contains tabbed content.
+pub trait TabContainer<C> {
+    fn tabs(&self) -> usize;
+    fn tab_command(&mut self, act: TabAction, ctx: &C) -> EditResult;
 }
 
 /// A widget that the user can open and close on the screen.

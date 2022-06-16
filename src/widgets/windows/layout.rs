@@ -17,7 +17,17 @@ use crate::widgets::{TermOffset, Window, WindowContainer};
 
 use super::size::{ResizeInfo, ResizeInfoTrail, MIN_WIN_LEN};
 use super::tree::{SubtreeOps, TreeOps};
-use super::{winnr_cmp, AxisT, AxisTree, AxisTreeNode, HorizontalT, TreeInfo, Value, VerticalT};
+use super::{
+    winnr_cmp,
+    AxisT,
+    AxisTree,
+    AxisTreeNode,
+    HorizontalT,
+    TreeInfo,
+    Value,
+    VerticalT,
+    WindowActions,
+};
 
 use crate::util::idx_offset;
 
@@ -37,38 +47,6 @@ use crate::editing::base::{
     SizeChange,
     WindowAction,
 };
-
-trait WindowActions<W: Window, C> {
-    /// Close one or more [Windows](Window).
-    fn window_close(&mut self, target: CloseTarget, flags: CloseFlags, ctx: &C) -> EditResult;
-
-    /// Swap the placement of the currently focused [Window] with another.
-    fn window_exchange(&mut self, change: &FocusChange, ctx: &C) -> EditResult;
-
-    /// Switch focus to a different [Window].
-    fn window_focus(&mut self, change: &FocusChange, ctx: &C) -> EditResult;
-
-    /// Move the currently focused [Window] to occupy a whole side of the screen.
-    fn window_move_side(&mut self, dir: MoveDir2D, ctx: &C) -> EditResult;
-
-    /// Change the size of the currently focused [Window].
-    fn window_clear_sizes(&mut self, ctx: &C) -> EditResult;
-
-    /// Change the size of the currently focused [Window].
-    fn window_resize(&mut self, axis: Axis, size: SizeChange<Count>, ctx: &C) -> EditResult;
-
-    /// Rotate the placement of the windows in either the row or column of the currently focused
-    /// [Window].
-    fn window_rotate(&mut self, dir: MoveDir1D, ctx: &C) -> EditResult;
-
-    /// Split the currently focused [Window] [*n* times](Count), with each new [Window] showing the
-    /// same content.
-    fn window_split(&mut self, axis: Axis, rel: MoveDir1D, count: Count, ctx: &C) -> EditResult;
-
-    /// Zoom in on the currently focused window. If we're already zoomed in on a window, return to
-    /// showing all windows.
-    fn window_zoom_toggle(&mut self, ctx: &C) -> EditResult;
-}
 
 fn windex<C: EditContext>(count: &Count, ctx: &C) -> usize {
     ctx.resolve(count).saturating_sub(1)
