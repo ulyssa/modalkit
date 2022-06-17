@@ -61,7 +61,7 @@ pub trait TabContainer<C> {
 /// A widget that the user can open and close on the screen.
 pub trait Window: TerminalCursor {
     /// Draw this window into the buffer for the prescribed area.
-    fn draw(&mut self, area: Rect, buf: &mut Buffer);
+    fn draw(&mut self, area: Rect, buf: &mut Buffer, focused: bool);
 
     /// Create a copy of this window during a window split.
     fn dup(&self) -> Self;

@@ -228,7 +228,7 @@ where
     fn set_area(&mut self, area: Rect, info: &ResizeInfo);
 
     /// Draw the [Windows](Window) that this tree contains.
-    fn draw(&mut self, buf: &mut Buffer);
+    fn draw(&mut self, buf: &mut Buffer, focus: Option<usize>);
 
     fn _neighbor_walk(
         &self,
@@ -392,13 +392,13 @@ impl<W: Window, X: AxisT, Y: AxisT> LayoutOps<W, X, Y> for Value<W, X, Y> {
         }
     }
 
-    fn draw(&mut self, buf: &mut Buffer) {
+    fn draw(&mut self, buf: &mut Buffer, focus: Option<usize>) {
         match self {
             Value::Window(window, ref mut info) => {
-                window.draw(info.area, buf);
+                window.draw(info.area, buf, matches!(focus, Some(0)));
             },
             Value::Tree(tree, _) => {
-                tree.draw(buf);
+                tree.draw(buf, focus);
             },
         }
     }
@@ -715,9 +715,12 @@ impl<W: Window, X: AxisT, Y: AxisT> LayoutOps<W, X, Y> for AxisTreeNode<W, X, Y>
         }
     }
 
-    fn draw(&mut self, buf: &mut Buffer) {
+    fn draw(&mut self, buf: &mut Buffer, focus: Option<usize>) {
+        let mut base = 0;
         let mut f = |value: &mut Value<W, X, Y>| {
-            value.draw(buf);
+            value.draw(buf, focus.and_then(|n| n.checked_sub(base)));
+
+            base += value.size();
         };
 
         self.for_each_value(&mut f);
@@ -1031,9 +1034,9 @@ impl<W: Window, X: AxisT, Y: AxisT> LayoutOps<W, X, Y> for AxisTree<W, X, Y> {
         }
     }
 
-    fn draw(&mut self, buf: &mut Buffer) {
+    fn draw(&mut self, buf: &mut Buffer, focus: Option<usize>) {
         if let Some(node) = self {
-            node.draw(buf);
+            node.draw(buf, focus);
         }
     }
 
@@ -1388,7 +1391,7 @@ impl<W: Window> StatefulWidget for WindowLayout<W> {
     fn render(self, area: Rect, buf: &mut Buffer, state: &mut Self::State) {
         if state.zoom {
             if let Some(window) = state.get_mut() {
-                window.draw(area, buf);
+                window.draw(area, buf, true);
             }
 
             return;
@@ -1396,7 +1399,7 @@ impl<W: Window> StatefulWidget for WindowLayout<W> {
 
         state.info.area = area;
         state.root.set_area(area, &state.info.resized);
-        state.root.draw(buf);
+        state.root.draw(buf, state.focused.into());
     }
 }
 
@@ -1495,7 +1498,7 @@ mod tests {
     }
 
     impl Window for TestWindow {
-        fn draw(&mut self, area: Rect, _: &mut Buffer) {
+        fn draw(&mut self, area: Rect, _: &mut Buffer, _: bool) {
             self.term_area = area;
         }
 

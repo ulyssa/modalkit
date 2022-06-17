@@ -519,7 +519,7 @@ where
     C: EditContext,
     P: Application,
 {
-    fn draw(&mut self, area: Rect, buf: &mut Buffer) {
+    fn draw(&mut self, area: Rect, buf: &mut Buffer, _: bool) {
         TextBox::new().render(area, buf, self);
     }
 
