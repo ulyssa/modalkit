@@ -91,7 +91,9 @@ pub struct ScreenState<W: Window, C: EditContext + InputContext, P: Application>
     tabs: Vec<WindowLayoutState<W>>,
     tabidx: usize,
     tabidx_last: usize,
-    last_message: Option<(String, Style)>,
+
+    messages: Vec<(String, Style)>,
+    last_message: bool,
 }
 
 impl<W, C, P> ScreenState<W, C, P>
@@ -111,12 +113,19 @@ where
             tabs: vec![tab],
             tabidx: 0,
             tabidx_last: 0,
-            last_message: None,
+
+            messages: vec![],
+            last_message: false,
         }
     }
 
-    pub fn set_last_message(&mut self, msg: Option<(String, Style)>) {
-        self.last_message = msg;
+    pub fn push_message<T: Into<String>>(&mut self, msg: T, style: Style) {
+        self.messages.push((msg.into(), style));
+        self.last_message = true;
+    }
+
+    pub fn clear_message(&mut self) {
+        self.last_message = false;
     }
 
     pub fn focus_command(&mut self, ct: CommandType) -> EditResult {
@@ -609,10 +618,10 @@ where
             state.current_tab_mut(),
         );
 
-        let status = if self.showmode.is_some() {
-            state.last_message = None;
+        let status = if self.showmode.is_some() || !state.last_message {
+            state.last_message = false;
             self.showmode
-        } else if let Some((s, style)) = &state.last_message {
+        } else if let Some((s, style)) = state.messages.last() {
             Some(Span::styled(s, *style))
         } else {
             None
