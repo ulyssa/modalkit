@@ -31,6 +31,7 @@ use crate::editing::base::{
     EditAction,
     EditContext,
     EditTarget,
+    HistoryAction,
     InsertStyle,
     Mark,
     MoveDir1D,
@@ -99,7 +100,7 @@ impl<P: Application> Mode<Action<P>, VimContext<P>> for VimMode {
 
                 match prev {
                     VimMode::Normal => {
-                        return vec![];
+                        return vec![HistoryAction::Checkpoint.into()];
                     },
                     VimMode::Insert => {
                         /*
@@ -116,6 +117,7 @@ impl<P: Application> Mode<Action<P>, VimContext<P>> for VimMode {
                         return vec![
                             CursorAction::Close(CursorCloseTarget::Followers).into(),
                             Action::Edit(action, target),
+                            HistoryAction::Checkpoint.into(),
                         ];
                     },
                     _ => {
@@ -130,6 +132,7 @@ impl<P: Application> Mode<Action<P>, VimContext<P>> for VimMode {
                         return vec![
                             CursorAction::Close(CursorCloseTarget::Followers).into(),
                             Action::Edit(action, target),
+                            HistoryAction::Checkpoint.into(),
                         ];
                     },
                 }
