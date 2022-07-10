@@ -19,6 +19,7 @@ anymap2 = "0.13.0"
 derive_more = "0.99.16"
 thiserror = "1.0.30"
 crossterm = "0.17"
+libc = "0.2"
 tui = { version = "0.17", optional = true }
 xi-rope = "0.3.0"
 intervaltree = { version = "0.2.6", optional = true }

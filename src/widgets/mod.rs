@@ -6,8 +6,17 @@
 //!
 //! [tui]: https://docs.rs/tui/latest/tui/
 //!
-use tui::buffer::Buffer;
-use tui::layout::Rect;
+use std::io::{stdout, Stdout, Write};
+use std::process;
+
+use libc;
+
+use tui::{backend::CrosstermBackend, buffer::Buffer, layout::Rect, Terminal};
+
+use crossterm::{
+    execute,
+    terminal::{EnterAlternateScreen, LeaveAlternateScreen},
+};
 
 use crate::input::InputContext;
 
@@ -17,6 +26,7 @@ use crate::editing::base::{
     Axis,
     CloseFlags,
     Count,
+    EditInfo,
     EditResult,
     MoveDir1D,
     ScrollStyle,
@@ -88,4 +98,37 @@ pub trait WindowContainer<W: Window, C> {
     ) -> EditResult;
 
     fn window_command(&mut self, action: WindowAction, ctx: &C) -> EditResult;
+}
+
+pub trait TerminalExtOps {
+    type Result;
+
+    fn program_suspend(&mut self) -> Self::Result;
+}
+
+impl TerminalExtOps for Terminal<CrosstermBackend<Stdout>> {
+    type Result = crossterm::Result<Option<EditInfo>>;
+
+    fn program_suspend(&mut self) -> Self::Result {
+        let mut stdout = stdout();
+
+        // Restore old terminal state.
+        crossterm::terminal::disable_raw_mode()?;
+        execute!(self.backend_mut(), LeaveAlternateScreen)?;
+        self.show_cursor()?;
+
+        // Send SIGTSTP to process.
+        let pid = process::id();
+
+        unsafe {
+            libc::kill(pid as i32, libc::SIGTSTP);
+        }
+
+        // Restore application terminal state.
+        crossterm::terminal::enable_raw_mode()?;
+        crossterm::execute!(stdout, EnterAlternateScreen)?;
+        self.clear()?;
+
+        Ok(None)
+    }
 }
