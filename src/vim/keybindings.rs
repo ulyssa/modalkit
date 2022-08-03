@@ -920,6 +920,16 @@ macro_rules! insert {
     };
 }
 
+macro_rules! open_lines {
+    ($dir: expr) => {
+        isv!(
+            vec![InternalAction::SetInsertStyle(InsertStyle::Insert)],
+            vec![ExternalAction::Something(Action::OpenLine($dir))],
+            VimMode::Insert
+        )
+    };
+}
+
 macro_rules! edit_selection_nochar {
     ($ea: expr) => {
         edit_target_shaped!(
@@ -1431,8 +1441,8 @@ fn default_keys<P: Application>() -> Vec<(MappedModes, &'static str, InputStep<P
         ( NMAP, "I", insert!(InsertStyle::Insert, MoveType::FirstWord(MoveDir1D::Next), 0) ),
         ( NMAP, "J", edit_lines!(EditAction::Join(true)) ),
         ( NMAP, "K", act!(Action::KeywordLookup) ),
-        ( NMAP, "o", act!(Action::OpenLine(MoveDir1D::Next), VimMode::Insert) ),
-        ( NMAP, "O", act!(Action::OpenLine(MoveDir1D::Previous), VimMode::Insert) ),
+        ( NMAP, "o", open_lines!(MoveDir1D::Next) ),
+        ( NMAP, "O", open_lines!(MoveDir1D::Previous) ),
         ( NMAP, "p", act!(Action::Paste(MoveDir1D::Next, Count::Contextual)) ),
         ( NMAP, "P", act!(Action::Paste(MoveDir1D::Previous, Count::Contextual)) ),
         ( NMAP, "Q", unmapped!() ),
