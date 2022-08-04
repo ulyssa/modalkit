@@ -6,7 +6,7 @@
 //!
 //! [tui]: https://docs.rs/tui/latest/tui/
 //!
-use std::io::{stdout, Stdout, Write};
+use std::io::{stdout, Stdout};
 use std::process;
 
 use libc;
@@ -120,6 +120,7 @@ impl TerminalExtOps for Terminal<CrosstermBackend<Stdout>> {
         // Send SIGTSTP to process.
         let pid = process::id();
 
+        #[cfg(unix)]
         unsafe {
             libc::kill(pid as i32, libc::SIGTSTP);
         }

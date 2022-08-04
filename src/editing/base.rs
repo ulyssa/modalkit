@@ -1312,3 +1312,6 @@ pub enum UIError<C: Command> {
 
 /// Common result type for editing operations.
 pub type EditResult<V = Option<EditInfo>> = Result<V, EditError>;
+
+/// Common result type for rendering and application functions.
+pub type UIResult<C, V = Option<EditInfo>> = Result<V, UIError<C>>;

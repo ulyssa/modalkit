@@ -11,16 +11,17 @@ edition = "2018"
 exclude = [".github", "CONTRIBUTING.md"]
 
 [features]
-default = ["widgets"]
+default = ["readline", "widgets"]
+readline = ["intervaltree"]
 widgets = ["tui", "intervaltree"]
 
 [dependencies]
 anymap2 = "0.13.0"
 derive_more = "0.99.16"
 thiserror = "1.0.30"
-crossterm = "0.17"
+crossterm = "0.24"
 libc = "0.2"
-tui = { version = "0.17", optional = true }
+tui = { version = "0.18", optional = true }
 xi-rope = "0.3.0"
 intervaltree = { version = "0.2.6", optional = true }
 bitflags = "1.2"

@@ -1179,7 +1179,6 @@ fn default_keys<P: Application>() -> Vec<(MappedModes, &'static str, InputStep<P
         ( MAP, "<C-Right>", edit_end!(MoveType::WordBegin(WordStyle::Big, MoveDir1D::Next)) ),
         ( MAP, "<BS>", edit_end!(MoveType::Column(MoveDir1D::Previous, true)) ),
         ( MAP, "<End>", edit_end!(MoveType::LinePos(MovePosition::End), Count::MinusOne) ),
-        ( MAP, "<Enter>", edit_end!(MoveType::FirstWord(MoveDir1D::Next)) ),
         ( MAP, "<Home>", edit_end!(MoveType::LinePos(MovePosition::Beginning), 0) ),
 
         // Normal, Visual, Operation Pending mode keys
@@ -1599,7 +1598,6 @@ fn default_keys<P: Application>() -> Vec<(MappedModes, &'static str, InputStep<P
         ( IMAP, "<Tab>", chartype!(Char::Single('\t')) ),
         ( IMAP, "<C-Home>", edit!(EditAction::Motion, MoveType::BufferPos(MovePosition::Beginning)) ),
         ( IMAP, "<C-End>", edit!(EditAction::Motion, MoveType::BufferPos(MovePosition::End)) ),
-        ( IMAP, "<Enter>", chartype!(Char::Single('\n')) ),
         ( IMAP, "<Insert>", insert!(InsertStyle::Replace) ),
         ( IMAP, "<PageDown>", scroll2d!(MoveDir2D::Down, ScrollSize::Page) ),
         ( IMAP, "<PageUp>", scroll2d!(MoveDir2D::Up, ScrollSize::Page) ),
@@ -1617,7 +1615,6 @@ fn default_keys<P: Application>() -> Vec<(MappedModes, &'static str, InputStep<P
         ( CMAP, "<C-N>", unmapped!() ),
         ( CMAP, "<C-P>", unmapped!() ),
         ( CMAP, "<C-\\><C-N>", command_unfocus!() ),
-        ( CMAP, "<Enter>", act!(Action::Submit, VimMode::Normal) ),
         ( CMAP, "<Esc>", command_unfocus!() ),
         ( CMAP, "<Tab>", act!(Action::Complete(MoveDir1D::Next, false)) ),
         ( CMAP, "<S-Tab>", act!(Action::Complete(MoveDir1D::Previous, false)) ),
@@ -1679,6 +1676,37 @@ fn default_pfxs<P: Application>() -> Vec<(MappedModes, &'static str, Option<Inpu
     ].to_vec()
 }
 
+#[rustfmt::skip]
+fn default_enter<P: Application>() -> Vec<(MappedModes, &'static str, InputStep<P>)> {
+    [
+        // <Enter> in Normal, Visual, and Operator-Pending mode moves to next line.
+        ( MAP, "<Enter>", edit_end!(MoveType::FirstWord(MoveDir1D::Next)) ),
+
+        // <Enter> in Insert mode types a newlines.
+        ( IMAP, "<Enter>", chartype!(Char::Single('\n')) ),
+
+        // <Enter> in Command mode submits the command.
+        ( CMAP, "<Enter>", act!(Action::Submit, VimMode::Normal) ),
+    ].to_vec()
+}
+
+#[rustfmt::skip]
+fn submit_on_enter<P: Application>() -> Vec<(MappedModes, &'static str, InputStep<P>)> {
+    [
+        // <Enter> in Normal and Visual mode submits contents.
+        ( NVMAP, "<Enter>", act!(Action::Submit, VimMode::Normal) ),
+
+        // <Enter> in Insert mode submits contents and stays in Insert mode.
+        ( IMAP, "<Enter>", act!(Action::Submit, VimMode::Insert) ),
+
+        // <Enter> in Command mode submits the command.
+        ( CMAP, "<Enter>", act!(Action::Submit, VimMode::Normal) ),
+
+        // <Enter> in Operator-Pending mode moves to the next line.
+        ( OMAP, "<Enter>", edit_end!(MoveType::FirstWord(MoveDir1D::Next)) ),
+    ].to_vec()
+}
+
 #[inline]
 fn add_prefix<P: Application>(
     machine: &mut VimMachine<KeyEvent, P>,
@@ -1713,11 +1741,25 @@ fn add_mapping<P: Application>(
 pub struct VimBindings<P: Application> {
     prefixes: Vec<(MappedModes, &'static str, Option<InputStep<P>>)>,
     mappings: Vec<(MappedModes, &'static str, InputStep<P>)>,
+    enter: Vec<(MappedModes, &'static str, InputStep<P>)>,
+}
+
+impl<P: Application> VimBindings<P> {
+    /// Remap the Enter key in Normal, Visual, Select, and Insert mode to
+    /// [Action::Submit] instead.
+    pub fn submit_on_enter(mut self) -> Self {
+        self.enter = submit_on_enter();
+        self
+    }
 }
 
 impl<P: Application> Default for VimBindings<P> {
     fn default() -> Self {
-        VimBindings { prefixes: default_pfxs(), mappings: default_keys() }
+        VimBindings {
+            prefixes: default_pfxs(),
+            mappings: default_keys(),
+            enter: default_enter(),
+        }
     }
 }
 
@@ -1728,6 +1770,10 @@ impl<P: Application> InputBindings<KeyEvent, InputStep<P>> for VimBindings<P> {
         }
 
         for (modes, keys, action) in self.mappings.iter() {
+            add_mapping(machine, modes, keys, action);
+        }
+
+        for (modes, keys, action) in self.enter.iter() {
             add_mapping(machine, modes, keys, action);
         }
     }

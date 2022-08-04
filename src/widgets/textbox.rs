@@ -41,8 +41,6 @@ use std::convert::TryInto;
 use std::iter::Iterator;
 use std::marker::PhantomData;
 
-use intervaltree::IntervalTree;
-
 use tui::{
     buffer::Buffer,
     layout::Rect,
@@ -76,7 +74,7 @@ use crate::editing::base::{
 };
 
 use crate::editing::{
-    buffer::{CursorGroupId, Editable},
+    buffer::{CursorGroupId, Editable, FollowersInfo, HighlightInfo},
     cursor::Cursor,
     store::SharedBuffer,
 };
@@ -135,9 +133,6 @@ pub struct TextBox<'a, C: EditContext, P: Application> {
 
     _pc: PhantomData<(C, P)>,
 }
-
-type HighlightInfo = IntervalTree<usize, (Cursor, Cursor, TargetShape)>;
-type FollowersInfo = IntervalTree<(usize, usize), Cursor>;
 
 /*
  * If the cursor has moved outside of the viewport, update the corner of the viewport so that the
@@ -605,6 +600,17 @@ where
     }
 
     #[inline]
+    fn _set_style(&self, start: usize, h1: usize, h2: usize, (x, y): (u16, u16), buf: &mut Buffer) {
+        let tx: u16 = x + (h1 - start) as u16;
+        let selwidth: u16 = (h2 - h1 + 1).try_into().unwrap();
+
+        let hlstyled = Style::default().add_modifier(Modifier::REVERSED);
+        let selarea = Rect::new(tx, y, selwidth, 1);
+
+        buf.set_style(selarea, hlstyled);
+    }
+
+    #[inline]
     fn _highlight_line(
         &self,
         line: usize,
@@ -617,7 +623,6 @@ where
         for selection in hls.query_point(line) {
             let (sb, se, shape) = &selection.value;
 
-            let hlstyled = Style::default().add_modifier(Modifier::REVERSED);
             let maxcol = end.saturating_sub(1);
             let range = start..end;
 
@@ -631,15 +636,11 @@ where
                     };
 
                     if range.contains(&x1) && range.contains(&x2) {
-                        let tx: u16 = x + (x1 - start) as u16;
-                        let selwidth: u16 = (x2 - x1 + 1).try_into().unwrap();
-
-                        let selarea = Rect::new(tx, y, selwidth, 1);
-
-                        buf.set_style(selarea, hlstyled);
+                        self._set_style(start, x1, x2, (x, y), buf);
                     }
                 },
                 TargetShape::LineWise => {
+                    let hlstyled = Style::default().add_modifier(Modifier::REVERSED);
                     let selwidth: u16 = (end - start).try_into().unwrap();
                     let selarea = Rect::new(x, y, selwidth, 1);
 
@@ -653,12 +654,7 @@ where
                     let x2 = rx.min(maxcol);
 
                     if range.contains(&x1) && range.contains(&x2) {
-                        let tx: u16 = x + (x1 - start) as u16;
-                        let selwidth: u16 = (x2 - x1 + 1).try_into().unwrap();
-
-                        let selarea = Rect::new(tx, y, selwidth, 1);
-
-                        buf.set_style(selarea, hlstyled);
+                        self._set_style(start, x1, x2, (x, y), buf);
                     }
                 },
             }
@@ -711,7 +707,7 @@ where
             let mut off = 0;
             let slen = s.len();
 
-            while off < slen && y < bot && (wrapped.len() < height || !sawcursor) {
+            while off < slen && (wrapped.len() < height || !sawcursor) {
                 let start = off;
                 let end = (start + width).min(slen);
                 let swrapped = s[start..end].to_string();
@@ -847,27 +843,12 @@ where
 
     #[inline]
     fn _selection_intervals(&self, state: &mut TextBoxState<C, P>) -> HighlightInfo {
-        state
-            .buffer
-            .try_read()
-            .unwrap()
-            .get_group_selections(state.group_id)
-            .into_iter()
-            .flatten()
-            .map(|s| (s.0.y..s.1.y.saturating_add(1), s))
-            .collect()
+        state.buffer.try_read().unwrap()._selection_intervals(state.group_id)
     }
 
     #[inline]
     fn _follower_intervals(&self, state: &mut TextBoxState<C, P>) -> FollowersInfo {
-        state
-            .buffer
-            .try_read()
-            .unwrap()
-            .get_followers(state.group_id)
-            .into_iter()
-            .map(|c| ((c.y, c.x)..(c.y, c.x + 1), c))
-            .collect()
+        state.buffer.try_read().unwrap()._follower_intervals(state.group_id)
     }
 
     fn _render_lines(&mut self, area: Rect, buf: &mut Buffer, state: &mut TextBoxState<C, P>) {

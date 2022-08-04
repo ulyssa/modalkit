@@ -5,8 +5,9 @@
 //! This module contains the types and code needed to help build user interfaces and process text
 //! input independent of specific keybindings, and UI environment.
 //!
-//! The [widgets] module builds upon this module's contents.
+//! The [readline] and [widgets] modules build upon this module's contents.
 //!
+//! [readline]: crate::readline
 //! [widgets]: crate::widgets
 //!
 pub mod base;

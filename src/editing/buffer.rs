@@ -57,6 +57,9 @@ use super::base::{
     ViewportContext,
 };
 
+#[cfg(feature = "intervaltree")]
+use intervaltree::IntervalTree;
+
 trait EditString<C> {
     fn delete(&mut self, range: &CursorRange, ctx: C) -> Option<Cursor>;
     fn yank(&mut self, range: &CursorRange, ctx: C) -> Option<Cursor>;
@@ -159,6 +162,12 @@ pub trait Editable<C> {
 type Selection = (Cursor, Cursor, TargetShape);
 type Selections = Vec<Selection>;
 type CursorGroupIdContext<'a, 'b, T> = (CursorGroupId, &'a ViewportContext<Cursor>, &'b T);
+
+#[cfg(feature = "intervaltree")]
+pub(crate) type HighlightInfo = IntervalTree<usize, (Cursor, Cursor, TargetShape)>;
+
+#[cfg(feature = "intervaltree")]
+pub(crate) type FollowersInfo = IntervalTree<(usize, usize), Cursor>;
 
 impl<C, P> EditBuffer<C, P>
 where
@@ -850,6 +859,23 @@ where
         let width = ctx.view.get_width();
 
         (&self.text, width, lastcol)
+    }
+
+    #[cfg(feature = "intervaltree")]
+    pub(crate) fn _selection_intervals(&self, gid: CursorGroupId) -> HighlightInfo {
+        self.get_group_selections(gid)
+            .into_iter()
+            .flatten()
+            .map(|s| (s.0.y..s.1.y.saturating_add(1), s))
+            .collect()
+    }
+
+    #[cfg(feature = "intervaltree")]
+    pub(crate) fn _follower_intervals(&self, gid: CursorGroupId) -> FollowersInfo {
+        self.get_followers(gid)
+            .into_iter()
+            .map(|c| ((c.y, c.x)..(c.y, c.x + 1), c))
+            .collect()
     }
 }
 

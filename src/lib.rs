@@ -13,5 +13,13 @@ pub mod editing;
 pub mod input;
 pub mod vim;
 
+#[cfg(feature = "readline")]
+pub mod readline;
+
+pub use crossterm;
+
+#[cfg(feature = "tui")]
+pub use tui;
+
 #[cfg(feature = "widgets")]
 pub mod widgets;
