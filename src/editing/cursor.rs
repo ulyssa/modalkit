@@ -1,3 +1,10 @@
+//! # Buffer cursors
+//!
+//! ## Overview
+//!
+//! This module contains the types and logic for representing cursors and their manipulations
+//! within a buffer.
+//!
 use std::cmp::{Ord, Ordering, PartialOrd};
 
 use super::base::Wrappable;
@@ -25,39 +32,47 @@ pub enum CursorAdjustment {
 }
 
 impl Cursor {
-    pub fn new(line: usize, column: usize) -> Cursor {
+    /// Create a new cursor.
+    pub fn new(line: usize, column: usize) -> Self {
         Cursor { xgoal: column, x: column, y: line }
     }
 
+    /// Zero out this cursor's line and column.
     pub fn zero(&mut self) {
         self.xgoal = 0;
         self.x = 0;
         self.y = 0;
     }
 
+    /// Set the column for this cursor.
     pub fn set_x(&mut self, x: usize) {
         self.x = x;
         self.xgoal = x;
     }
 
+    /// Set the line for this cursor.
     pub fn set_y(&mut self, y: usize) {
         self.y = y;
     }
 
+    /// Move this cursor to the left by offset columns.
     pub fn left(&mut self, off: usize) {
         self.x = self.x.saturating_sub(off);
         self.xgoal = self.x;
     }
 
+    /// Move this cursor to the right by offset columns.
     pub fn right(&mut self, off: usize) {
         self.x = self.x.saturating_add(off);
         self.xgoal = self.x;
     }
 
+    /// Move this cursor down by offset lines.
     pub fn down(&mut self, off: usize) {
         self.y = self.y.saturating_add(off);
     }
 
+    /// Move this cursor up by offset lines.
     pub fn up(&mut self, off: usize) {
         self.y = self.y.saturating_sub(off);
     }
@@ -82,6 +97,7 @@ impl Cursor {
         }
     }
 
+    /// Apply a [CursorAdjustment] to this cursor.
     pub fn adjust(&mut self, adj: &CursorAdjustment) {
         match adj {
             CursorAdjustment::Line { line_start, line_end, amount, amount_after } => {

@@ -1,3 +1,12 @@
+//! # High-level rope manipulation
+//!
+//! ## Overview
+//!
+//! This module provides a wrapper around a rope implementation that works with the types from
+//! [editing::base], and provides a number of convenience functions and trait implementations to support
+//! [EditBuffer](crate::editing::buffer::EditBuffer).
+//!
+//! [editing::base]: crate::editing::base
 use std::cmp::{Ord, Ordering, PartialOrd};
 use std::fmt::Debug;
 use std::ops::Add;
@@ -30,6 +39,7 @@ use crate::editing::base::{
     WordStyle,
 };
 
+/// Byte offset into an [EditRope].
 #[derive(
     Clone,
     Copy,
@@ -438,16 +448,19 @@ fn is_word_end(rc: &RopeCursor<'_, RopeInfo>, _: &MoveDir1D, _: bool) -> bool {
     }
 }
 
+/// Iterator over a rope's characters.
 pub struct CharacterIterator<'a> {
     rc: RopeCursor<'a, RopeInfo>,
     position: usize,
 }
 
+/// Iterator over a rope's newlines.
 pub struct NewlineIterator<'a> {
     rc: RopeCursor<'a, RopeInfo>,
 }
 
 impl<'a> CharacterIterator<'a> {
+    /// Current byte offset into the underlying rope.
     pub fn pos(&self) -> ByteOff {
         ByteOff(self.position)
     }
@@ -542,6 +555,7 @@ fn togglecase(s: String) -> String {
     s.chars().map(togglecase_char).collect()
 }
 
+/// A rope with context-aware movements and high-level operations.
 #[derive(Clone, Debug)]
 pub struct EditRope {
     rope: Rope,
@@ -638,6 +652,7 @@ impl EditRope {
         }
     }
 
+    /// Split the rope into three different parts.
     pub fn split(
         &self,
         ByteOff(start): ByteOff,
@@ -663,6 +678,7 @@ impl EditRope {
         }
     }
 
+    /// Returns a slice of a range within the rope.
     pub fn slice(
         &self,
         ByteOff(start): ByteOff,
@@ -682,6 +698,7 @@ impl EditRope {
         EditRope { rope }
     }
 
+    /// Replace a range within the rope with some new text.
     pub fn replace(
         &mut self,
         ByteOff(start): ByteOff,
@@ -696,10 +713,12 @@ impl EditRope {
         }
     }
 
+    /// Return the rope repeated *n* times.
     pub fn repeat(&self, shape: TargetShape, times: usize) -> EditRope {
         EditRope { rope: roperepeat(&self.rope, shape, times) }
     }
 
+    /// Transform a range within the rope with function *f*, and return the updated version.
     pub fn transform(
         &self,
         start: ByteOff,
@@ -712,6 +731,7 @@ impl EditRope {
         return prefix + f(middle) + suffix;
     }
 
+    /// Change the case of this rope.
     pub fn changecase(&self, case: &Case) -> EditRope {
         let s = self.rope.to_string();
         let s = match case {
@@ -901,6 +921,7 @@ impl EditRope {
         return (self.offset_to_cursor(noff), adjs);
     }
 
+    /// Insert or replace text before or after a given cursor position.
     pub fn insert(
         &mut self,
         cursor: &Cursor,
@@ -918,6 +939,7 @@ impl EditRope {
         }
     }
 
+    /// Paste text at a given cursor position.
     pub fn paste(
         &mut self,
         cursor: &Cursor,
@@ -947,6 +969,7 @@ impl EditRope {
         }
     }
 
+    /// Mutably force this rope to contain a trailing newline if it doesn't already.
     pub fn trailing_newline(&mut self) {
         let len = self.rope.len();
         let end = len.saturating_sub(1);
@@ -959,6 +982,7 @@ impl EditRope {
         }
     }
 
+    /// Returns the character (if it exists) at a given cursor position.
     pub fn get_char_at(&self, cursor: &Cursor) -> Option<char> {
         let lmax = self.max_line_idx();
 
@@ -977,18 +1001,22 @@ impl EditRope {
         self.chars(off).next()
     }
 
+    /// Return the length in bytes as a [ByteOff].
     pub fn len_offset(&self) -> ByteOff {
         ByteOff(self.len())
     }
 
+    /// Return the length in bytes.
     pub fn len(&self) -> usize {
         self.rope.len()
     }
 
+    /// Return the number of lines in this rope.
     pub fn get_lines(&self) -> usize {
         self.rope.measure::<LinesMetric>()
     }
 
+    /// Return the number of columns on the given line.
     pub fn get_columns(&self, line: usize) -> usize {
         let lbeg_off = self.offset_of_line(line);
         let lbeg_u16 = self.offset_to_u16(lbeg_off);
@@ -1011,26 +1039,29 @@ impl EditRope {
         }
     }
 
-    pub fn lines(&self, line: usize) -> xi_rope::rope::Lines {
+    pub(crate) fn lines(&self, line: usize) -> xi_rope::rope::Lines {
         let off = self.offset_of_line(line).0;
 
         self.rope.lines(off..)
     }
 
-    pub fn lines_at(&self, line: usize, column: usize) -> xi_rope::rope::Lines {
+    pub(crate) fn lines_at(&self, line: usize, column: usize) -> xi_rope::rope::Lines {
         let off = self.lincol_to_offset(line, column).0;
 
         self.rope.lines(off..)
     }
 
+    /// Return the line number of the given byte offset.
     pub fn line_of_offset(&self, off: ByteOff) -> usize {
         self.rope.line_of_offset(off.0)
     }
 
+    /// Return the byte offset of the start of a given line.
     pub fn offset_of_line(&self, line: usize) -> ByteOff {
         ByteOff(self.rope.offset_of_line(line))
     }
 
+    /// Convert a byte offset to a [Cursor].
     pub fn offset_to_cursor<'a>(&self, off: ByteOff) -> Cursor {
         let off = off.min(self.last_offset());
 
@@ -1064,22 +1095,28 @@ impl EditRope {
         self.u16_to_offset(self.lincol_to_u16(line, col))
     }
 
+    /// Convert a cursor to a byte offset.
     pub fn cursor_to_offset(&self, cursor: &Cursor) -> ByteOff {
         self.lincol_to_offset(cursor.y, cursor.x)
     }
 
+    /// Return a cursor located at the first character in the rope.
     pub fn first(&self) -> Cursor {
         Cursor::new(0, 0)
     }
 
+    /// Return the last byte offset in the rope.
     pub fn last_offset(&self) -> ByteOff {
         ByteOff(self.rope.len().saturating_sub(1))
     }
 
+    /// Return a cursor located at the last character in the rope.
     pub fn last(&self) -> Cursor {
         self.offset_to_cursor(self.last_offset())
     }
 
+    /// Compare this rope with a new version, and return a vector of adjustments needed to fix
+    /// cursors and marks when moving to the new version.
     pub fn diff(&self, other: &EditRope) -> Vec<CursorAdjustment> {
         let delta = LineHashDiff::compute_delta(&self.rope, &other.rope);
         let mut adjs = Vec::new();
@@ -1408,12 +1445,14 @@ impl EditRope {
         Some(range)
     }
 
+    /// Returns an iterator over the newlines within this rope following `offset`.
     pub fn newlines(&self, offset: ByteOff) -> NewlineIterator {
         let rc = self.offset_to_rc(offset);
 
         NewlineIterator { rc }
     }
 
+    /// Returns an iterator over the characters within this rope following `position`.
     pub fn chars(&self, ByteOff(position): ByteOff) -> CharacterIterator {
         let rc = RopeCursor::new(&self.rope, position);
 

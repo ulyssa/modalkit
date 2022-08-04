@@ -1,3 +1,9 @@
+//! # Command processing
+//!
+//! ## Overview
+//!
+//! This module contains components to help consumers map commands into actions.
+//!
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::str::FromStr;

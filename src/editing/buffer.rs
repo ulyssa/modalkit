@@ -1,10 +1,24 @@
+//! # Text buffer
+//!
+//! ## Overview
+//!
+//! The [EditBuffer] is capable of performing many different types of operations and rich
+//! movements. For example:
+//!
+//! - Performing edit operations like text deletion or case changes using content-aware movements
+//! (e.g., by word, up to a specific character or to the start of the line, etc.)
+//! - Copying and pasting text between registers and the buffer
+//! - Visual selections
+//! - Cursor groups
+//!
+//! See [Editable], [EditAction], and [EditTarget] for more on what can be done.
 use std::collections::HashMap;
 use std::marker::PhantomData;
 use std::ops::Range;
 
 use crate::{
     editing::cursor::{Cursor, CursorAdjustment},
-    editing::histlist::HistoryList,
+    editing::history::HistoryList,
     editing::lineinfo::LineInfoStore,
     editing::rope::{ByteOff, CursorContext, EditRope, PrivateCursorOps},
     editing::store::{BufferId, CursorStore, RegisterCell, SharedBuffer, SharedStore},
@@ -54,14 +68,18 @@ trait EditString<C> {
     fn indent(&mut self, change: &IndentChange, range: &CursorRange, ctx: C) -> Option<Cursor>;
 }
 
+/// Identifier for a specific cursor.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
 pub struct CursorId(u64);
 
+/// Identifier for a specific cursor group.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
 pub struct CursorGroupId(u64);
 
+#[doc(hidden)]
 pub type CursorRange = EditRange<Cursor>;
 
+/// A text buffer.
 pub struct EditBuffer<C: EditContext, P: Application> {
     /// A unique identifier for this buffer.
     id: BufferId,
@@ -108,16 +126,33 @@ trait CursorActions<C> {
     fn cursor_close(&mut self, target: &CursorCloseTarget, ctx: &C) -> EditResult;
 }
 
+/// An object capable of performing editing operations.
 pub trait Editable<C> {
+    /// Perform an editing operation over the targeted text.
     fn edit(&mut self, action: &EditAction, target: &EditTarget, ctx: &C) -> EditResult;
+
+    /// Enter a new character at the cursor position.
     fn type_char(&mut self, ch: Char, ctx: &C) -> EditResult;
+
+    /// Move where the cursor is located in a selection.
     fn selcursor_set(&mut self, side: &SelectionCursorChange, ctx: &C) -> EditResult;
+
+    /// Split a multiline selection into multiple single-line selections.
     fn selection_split_lines(&mut self, filter: TargetShapeFilter, ctx: &C) -> EditResult;
+
+    /// Paste text into the buffer.
     fn paste(&mut self, dir: MoveDir1D, count: Count, ctx: &C) -> EditResult;
+
+    /// Open a new blank line before or after the cursor.
     fn open_line(&mut self, dir: MoveDir1D, ctx: &C) -> EditResult;
+
+    /// Create or update a cursor mark.
     fn mark(&mut self, name: Mark, ctx: &C) -> EditResult;
 
+    /// Perform an action over a cursor group.
     fn cursor_command(&mut self, act: CursorAction, ctx: &C) -> EditResult;
+
+    /// Move to a different point in the buffer's editing history.
     fn history_command(&mut self, act: HistoryAction, ctx: &C) -> EditResult;
 }
 
@@ -130,6 +165,7 @@ where
     C: EditContext,
     P: Application,
 {
+    /// Create a new buffer.
     pub fn new(id: BufferId, store: SharedStore<C, P>) -> Self {
         let text = EditRope::from("\n");
         let history = HistoryList::new(text.clone(), 100);
@@ -156,6 +192,7 @@ where
         }
     }
 
+    /// Get this buffer's ID.
     pub fn buffer_id(&self) -> BufferId {
         self.id
     }
@@ -547,7 +584,8 @@ where
         Ok(None)
     }
 
-    pub fn get_mark(&self, mark: Mark) -> EditResult<Cursor> {
+    /// Look up the location of a [Mark].
+    fn get_mark(&self, mark: Mark) -> EditResult<Cursor> {
         self.store
             .read()
             .unwrap()
@@ -556,15 +594,18 @@ where
             .ok_or(EditError::MarkNotSet(mark))
     }
 
-    pub fn set_mark(&mut self, mark: Mark, cursor: Cursor) {
+    /// Set the location of a [Mark].
+    fn set_mark(&mut self, mark: Mark, cursor: Cursor) {
         self.store.write().unwrap().marks.put(self.id, mark, cursor);
     }
 
-    pub fn get_register(&self, register: &Option<Register>) -> RegisterCell {
+    /// Get the contents of a register.
+    fn get_register(&self, register: &Option<Register>) -> RegisterCell {
         self.store.read().unwrap().registers.get(register)
     }
 
-    pub fn set_register(
+    /// Set the contents of a register.
+    fn set_register(
         &mut self,
         register: &Option<Register>,
         cell: RegisterCell,
@@ -576,10 +617,12 @@ where
         store.registers.put(register, cell, append, del)
     }
 
+    /// Return the contents of this buffer as a [String].
     pub fn get_text(&self) -> String {
         self.text.to_string()
     }
 
+    /// Replace the contents of this buffer with `t`.
     pub fn set_text<T: Into<String>>(&mut self, t: T) {
         let s: String = t.into();
 
@@ -592,6 +635,7 @@ where
         self.store.write().unwrap().marks.zero_all(self.id);
     }
 
+    /// Append text to this buffer.
     pub fn append_text<T: Into<String>>(&mut self, t: T) -> Range<usize> {
         let s: String = t.into();
 
@@ -603,6 +647,7 @@ where
         Range { start, end }
     }
 
+    /// Clear the buffer of its current content, and return it as a [String].
     pub fn reset_text(&mut self) -> String {
         let text = self.text.to_string();
 

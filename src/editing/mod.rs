@@ -1,7 +1,18 @@
+//! # Editing support
+//!
+//! ## Overview
+//!
+//! This module contains the types and code needed to help build user interfaces and process text
+//! input independent of specific keybindings, and UI environment.
+//!
+//! The [widgets] module builds upon this module's contents.
+//!
+//! [widgets]: crate::widgets
+//!
 pub mod base;
 pub mod buffer;
 pub mod cursor;
-pub mod histlist;
+pub mod history;
 pub mod lineinfo;
 pub mod rope;
 pub mod store;

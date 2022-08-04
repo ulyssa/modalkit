@@ -1,3 +1,10 @@
+//! # Tabbed window layout
+//!
+//! ## Overview
+//!
+//! This widget can be used by consumers to create a tabbed window layout containing horizontal and
+//! vertical splits. It builds on top of [CommandBarState] and [WindowLayoutState] to accomplish
+//! this, both of which can also be used on their own if something different is needed.
 use std::marker::PhantomData;
 
 use tui::{
@@ -67,12 +74,17 @@ fn bold<'a>(s: String) -> Span<'a> {
     Span::styled(s, Style::default().add_modifier(StyleModifier::BOLD))
 }
 
+/// Controls which part of the [ScreenState] is currently receiving user input.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum CurrentFocus {
+    /// Focus on the [CommandBarState].
     Command,
+
+    /// Focus on the [WindowLayoutState].
     Window,
 }
 
+/// Persistent state for [Screen].
 pub struct ScreenState<W: Window, C: EditContext + InputContext, P: Application> {
     focused: CurrentFocus,
     cmdbar: CommandBarState<C, P>,
@@ -88,6 +100,7 @@ where
     C: EditContext + InputContext,
     P: Application,
 {
+    /// Create a new instance.
     pub fn new(win: W, store: SharedStore<C, P>) -> Self {
         let cmdbar = CommandBarState::new(store.clone());
         let tab = WindowLayoutState::new(win);
@@ -127,18 +140,22 @@ where
         }
     }
 
+    /// Get a reference to the window layout for the current tab.
     pub fn current_tab(&self) -> &WindowLayoutState<W> {
         self.tabs.get(self.tabidx).unwrap()
     }
 
+    /// Get a mutable reference to the window layout for the current tab.
     pub fn current_tab_mut(&mut self) -> &mut WindowLayoutState<W> {
         self.tabs.get_mut(self.tabidx).unwrap()
     }
 
+    /// Get a reference to the currently focused window.
     pub fn current_window(&self) -> Option<&W> {
         self.current_tab().get()
     }
 
+    /// Get a mutable reference to the currently focused window.
     pub fn current_window_mut(&mut self) -> Option<&mut W> {
         self.current_tab_mut().get_mut()
     }
@@ -514,6 +531,7 @@ where
     }
 }
 
+/// Widget for displaying a tabbed window layout with a command bar.
 pub struct Screen<'a, W: Window, C: EditContext + InputContext, P: Application> {
     showmode: Option<Span<'a>>,
     _p: PhantomData<(W, C, P)>,

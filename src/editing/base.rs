@@ -36,7 +36,10 @@ use std::fmt::Debug;
 use bitflags::bitflags;
 use regex::Regex;
 
-use crate::util::sort2;
+use crate::{
+    input::commands::{Command, CommandError},
+    util::sort2,
+};
 
 /// Specify how to change the case of a string.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -119,6 +122,7 @@ pub enum EditTarget {
     Selection,
 }
 
+/// Description of a textual range within a buffer.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct EditRange<Cursor> {
     /// The start of the range.
@@ -559,6 +563,7 @@ bitflags! {
     }
 }
 
+/// Editing history actions
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[non_exhaustive]
 pub enum HistoryAction {
@@ -572,6 +577,7 @@ pub enum HistoryAction {
     Undo(Count),
 }
 
+/// Cursor group actions
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[non_exhaustive]
 pub enum CursorAction {
@@ -582,6 +588,7 @@ pub enum CursorAction {
     Split(Count),
 }
 
+/// Tab actions
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[non_exhaustive]
 pub enum TabAction {
@@ -592,6 +599,7 @@ pub enum TabAction {
     Focus(FocusChange),
 }
 
+/// Window actions
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[non_exhaustive]
 pub enum WindowAction {
@@ -626,14 +634,23 @@ pub enum WindowAction {
     ZoomToggle,
 }
 
+/// Trait for objects that describe application-specific actions.
+///
+/// Implementors of this trait can be used with [Action::Application]. This can then be used to
+/// create additional keybindings and commands on top of the defaults provided by modules like
+/// [modalkit::vim](crate::vim).
 pub trait ApplicationAction: Clone + Debug + Eq + PartialEq {}
 
 impl ApplicationAction for () {}
 
+/// Trait for objects that hold application-specific information.
+///
+/// Implementors of this trait can be embedded in [Store](super::store::Store).
 pub trait ApplicationStore: Default {}
 
 impl ApplicationStore for () {}
 
+/// Trait for objects that describe application-specific behaviour and types.
 pub trait Application: Clone + Debug + Eq + PartialEq {
     type Action: ApplicationAction;
     type Store: ApplicationStore;
@@ -877,6 +894,7 @@ pub enum TargetShape {
 }
 
 bitflags! {
+    /// Bitmask that specifies what shapes are targeted by an action.
     pub struct TargetShapeFilter: u32 {
         const NONE = 0b00000000;
         const ALL = 0b00000111;
@@ -888,6 +906,7 @@ bitflags! {
 }
 
 impl TargetShapeFilter {
+    /// Check whether this filter applies to a given [TargetShape].
     pub fn matches(&self, shape: &TargetShape) -> bool {
         match shape {
             TargetShape::CharWise => self.contains(TargetShapeFilter::CHAR),
@@ -930,6 +949,7 @@ pub enum RangeSpec {
     Double(RangeEnding, RangeEnding, RangeSearchInit),
 }
 
+/// Trait for context objects used during editing operations.
 pub trait EditContext:
     Resolve<Specifier<Char>, Option<Char>>
     + Resolve<Specifier<Mark>, Mark>
@@ -965,13 +985,22 @@ pub trait Resolve<T, R> {
     fn resolve(&self, t: &T) -> R;
 }
 
+/// Trait for objects that allow toggling line wrapping.
 pub trait Wrappable {
+    /// Set whether or not displayed lines should be wrapped.
     fn set_wrap(&mut self, wrap: bool);
 }
 
+/// Information about what portion of a buffer is being displayed in a window.
 pub struct ViewportContext<Cursor> {
+    /// The line and column offset into the buffer shown at the upper-left hand corner of the
+    /// window.
     pub corner: Cursor,
+
+    /// Dimensions of the window.
     pub dimensions: (usize, usize),
+
+    /// Whether or not displayed lines are being wrapped.
     pub wrap: bool,
 }
 
@@ -1016,20 +1045,34 @@ impl<Cursor: Wrappable> Wrappable for ViewportContext<Cursor> {
     }
 }
 
+/// This context object wraps information used when calculating what text covered by cursor
+/// movements.
 #[non_exhaustive]
 pub struct CursorMovementsContext<'a, 'b, 'c, Cursor, C: EditContext> {
+    /// What operation this movement is being done as part of.
+    ///
+    /// Certain movements, like [MoveType::WordBegin], behave different depending on the action.
     pub action: &'a EditAction,
+
+    /// Information about the user's view of the text, since this impacts movements that rely on
+    /// how the text is displayed, such as [MoveType::ScreenLine].
     pub view: &'b ViewportContext<Cursor>,
+
+    /// The editing context contains information about the current [InsertStyle], as well as the
+    /// user-supplied [Count].
     pub context: &'c C,
 }
 
+/// Trait for objects capable of calculating contextual offsets from a cursor.
 pub trait CursorMovements<Cursor, Context: EditContext> {
+    /// Calculate the position of the first word on the line of the provided cursor.
     fn first_word<'a, 'b, 'c>(
         &self,
         cursor: &Cursor,
         ctx: &CursorMovementsContext<'a, 'b, 'c, Cursor, Context>,
     ) -> Cursor;
 
+    /// Calculate the position of the cursor after performing a movement.
     fn movement<'a, 'b, 'c>(
         &self,
         cursor: &Cursor,
@@ -1038,6 +1081,8 @@ pub trait CursorMovements<Cursor, Context: EditContext> {
         ctx: &CursorMovementsContext<'a, 'b, 'c, Cursor, Context>,
     ) -> Option<Cursor>;
 
+    /// Calculate a cursor range from the given cursor to the location after performing the
+    /// given movement.
     fn range_of_movement<'a, 'b, 'c>(
         &self,
         cursor: &Cursor,
@@ -1046,6 +1091,7 @@ pub trait CursorMovements<Cursor, Context: EditContext> {
         ctx: &CursorMovementsContext<'a, 'b, 'c, Cursor, Context>,
     ) -> Option<EditRange<Cursor>>;
 
+    /// Calculate a cursor range based on a given cursor position and a [RangeType].
     fn range<'a, 'b, 'c>(
         &self,
         cursor: &Cursor,
@@ -1055,7 +1101,9 @@ pub trait CursorMovements<Cursor, Context: EditContext> {
     ) -> Option<EditRange<Cursor>>;
 }
 
+/// Trait for objects capable of searching text.
 pub trait CursorSearch<Cursor> {
+    /// Search for a specific character.
     fn find_char(
         &self,
         cursor: &Cursor,
@@ -1066,6 +1114,7 @@ pub trait CursorSearch<Cursor> {
         count: usize,
     ) -> Option<Cursor>;
 
+    /// Search for a regular expression.
     fn find_regex(
         &self,
         cursor: &Cursor,
@@ -1218,6 +1267,7 @@ impl MoveDirMod {
     }
 }
 
+/// Additional information returned after an editing operation.
 pub struct EditInfo {
     msg: String,
 }
@@ -1228,6 +1278,7 @@ impl std::fmt::Display for EditInfo {
     }
 }
 
+/// Errors returned from editing operation.
 #[derive(thiserror::Error, Debug)]
 #[non_exhaustive]
 pub enum EditError {
@@ -1247,4 +1298,17 @@ pub enum EditError {
     Failure(String),
 }
 
+/// Wrapper for various Errors that consumers may want to combine.
+#[derive(thiserror::Error, Debug)]
+#[non_exhaustive]
+pub enum UIError<C: Command> {
+    #[error("Input/Output Error: {0}")]
+    IOError(#[from] std::io::Error),
+    #[error("Editing error: {0}")]
+    EditingFailure(#[from] EditError),
+    #[error("Failed command: {0}")]
+    CommandFailure(#[from] CommandError<C>),
+}
+
+/// Common result type for editing operations.
 pub type EditResult<V = Option<EditInfo>> = Result<V, EditError>;

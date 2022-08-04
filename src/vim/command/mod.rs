@@ -1,3 +1,9 @@
+//! # Vim Commands
+//!
+//! ## Overview
+//!
+//! These components allow parsing Vim commands and turning them into
+//! [actions](crate::editing::base::Action).
 use std::cmp::Ordering;
 use std::fmt;
 

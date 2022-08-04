@@ -1,3 +1,42 @@
+//! # Text box
+//!
+//! ## Overview
+//!
+//! This text box provides a view of a shared editing buffer, and, on top of passing operations
+//! through to an [EditBuffer], is capable of doing the following:
+//!
+//! - Toggling wrapped and non-wrapped views of the buffer's
+//! - Scrolling through the buffer's contents
+//! - Rendering line annotations in left and right gutters
+//!
+//! [EditBuffer]: crate::editing::buffer::EditBuffer
+//!
+//! ## Example
+//!
+//! ```
+//! use modalkit::{
+//!     editing::store::{SharedStore, Store},
+//!     vim::VimContext,
+//!     widgets::textbox::TextBoxState,
+//! };
+//!
+//! use tui::layout::Rect;
+//!
+//! fn main() {
+//!     let store: SharedStore<VimContext, ()> = Store::new();
+//!     let buffer = Store::new_buffer(&store);
+//!     let mut tbox = TextBoxState::new(buffer);
+//!
+//!     tbox.set_term_info(Rect::new(0, 0, 6, 4));
+//!
+//!     tbox.set_text("a\nb\nc\nd\ne\nf\n");
+//!     assert_eq!(tbox.get_text(), "a\nb\nc\nd\ne\nf\n");
+//!     assert_eq!(tbox.get_lines(), 6);
+//!     assert_eq!(tbox.has_lines(4), 4);
+//!     assert_eq!(tbox.has_lines(6), 6);
+//!     assert_eq!(tbox.has_lines(8), 6);
+//! }
+//! ```
 use std::convert::TryInto;
 use std::iter::Iterator;
 use std::marker::PhantomData;
@@ -44,6 +83,7 @@ use crate::editing::{
 
 use super::{Focusable, TerminalCursor, Window};
 
+/// Line annotation shown in the left gutter.
 pub struct LeftGutterInfo {
     text: String,
     style: Style,
@@ -59,6 +99,7 @@ impl LeftGutterInfo {
     }
 }
 
+/// Line annotation shown in the right gutter.
 pub struct RightGutterInfo {
     text: String,
     style: Style,
@@ -74,6 +115,7 @@ impl RightGutterInfo {
     }
 }
 
+/// Persistent state for [TextBox].
 pub struct TextBoxState<C: EditContext, P: Application> {
     buffer: SharedBuffer<C, P>,
     group_id: CursorGroupId,
@@ -83,6 +125,7 @@ pub struct TextBoxState<C: EditContext, P: Application> {
     term_cursor: (u16, u16),
 }
 
+/// Widget for rendering a multi-line text box.
 pub struct TextBox<'a, C: EditContext, P: Application> {
     block: Option<Block<'a>>,
     prompt: &'a str,
@@ -162,6 +205,7 @@ where
     C: EditContext,
     P: Application,
 {
+    /// Create state for a new text box.
     pub fn new(buffer: SharedBuffer<C, P>) -> Self {
         let group_id = buffer.try_write().unwrap().create_group();
         let mut viewctx = ViewportContext::default();
@@ -178,18 +222,22 @@ where
         }
     }
 
+    /// Get the contents of the underlying buffer as a [String].
     pub fn get_text(&self) -> String {
         self.buffer.try_read().unwrap().get_text()
     }
 
+    /// Replace the contents of the text box's underlying buffer.
     pub fn set_text<T: Into<String>>(&mut self, t: T) {
         self.buffer.try_write().unwrap().set_text(t)
     }
 
+    /// Clear the text box's underlying buffer of its content, and return it.
     pub fn reset_text(&mut self) -> String {
         self.buffer.try_write().unwrap().reset_text()
     }
 
+    /// Create or update a line annotation for the left gutter.
     pub fn set_left_gutter<'a>(&mut self, line: usize, s: String, style: Option<Style>) {
         let style = style.unwrap_or_default();
         let info = LeftGutterInfo::new(s, style);
@@ -197,6 +245,7 @@ where
         self.buffer.write().unwrap().set_line_info(line, info);
     }
 
+    /// Create or update a line annotation for the right gutter.
     pub fn set_right_gutter<'a>(&mut self, line: usize, s: String, style: Option<Style>) {
         let style = style.unwrap_or_default();
         let info = RightGutterInfo::new(s, style);
@@ -204,23 +253,35 @@ where
         self.buffer.write().unwrap().set_line_info(line, info);
     }
 
+    /// Control whether the text box should wrap long lines when displaying them.
     pub fn set_wrap(&mut self, wrap: bool) {
         self.viewctx.set_wrap(wrap);
     }
 
+    /// Inform the text box what its dimensions and placement on the terminal window is.
     pub fn set_term_info(&mut self, area: Rect) {
         self.viewctx.dimensions = (area.width as usize, area.height as usize);
         self.term_area = area;
     }
 
+    /// Get the leader cursor for this text box's cursor group.
     pub fn get_cursor(&self) -> Cursor {
         self.buffer.try_read().unwrap().get_leader(self.group_id)
     }
 
+    /// Calculate how many lines are in this text box.
     pub fn get_lines(&self) -> usize {
         self.buffer.try_read().unwrap().get_lines()
     }
 
+    /// Check whether this text box is capable of displaying `max` lines.
+    ///
+    /// If there are fewer lines available than `max`, this returns the same value as
+    /// [get_lines()](TextBoxState::get_lines).
+    /// Otherwise, this returns `max`.
+    ///
+    /// This method is useful for building additional widgets that want to create a [TextBox] with a
+    /// flexible height up to `max` lines.
     pub fn has_lines(&self, max: usize) -> usize {
         if self.viewctx.wrap {
             let width = self.viewctx.get_width();
@@ -498,21 +559,25 @@ where
         }
     }
 
+    /// Wrap this text box in a [Block].
     pub fn block(mut self, block: Block<'a>) -> Self {
         self.block = Some(block);
         self
     }
 
+    /// Display a prompt in the top left of the text box when focused.
     pub fn prompt(mut self, prompt: &'a str) -> Self {
         self.prompt = prompt;
         self
     }
 
+    /// Set the width of the left gutter.
     pub fn left_gutter(mut self, lw: u16) -> Self {
         self.lgutter_width = lw;
         self
     }
 
+    /// Set the width of the right gutter.
     pub fn right_gutter(mut self, rw: u16) -> Self {
         self.rgutter_width = rw;
         self

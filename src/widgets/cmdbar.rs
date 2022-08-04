@@ -1,3 +1,13 @@
+//! # Command bar
+//!
+//! ## Overview
+//!
+//! These components allow creating a bar for entering searches and commands.
+
+//! Typically, this widget is used indirectly by consumers through [Screen], which places this at
+//! the bottom of the terminal window.
+//!
+//! [Screen]: super::screen::Screen
 use std::marker::PhantomData;
 use std::ops::{Deref, DerefMut};
 
@@ -25,6 +35,7 @@ use super::{
     Submitable,
 };
 
+/// Persistent state for rendering [CommandBar].
 pub struct CommandBarState<C: EditContext + InputContext, P: Application> {
     pub cmdtype: CommandType,
     pub tbox: TextBoxState<C, P>,
@@ -98,6 +109,7 @@ where
     }
 }
 
+/// Widget for rendering a command bar.
 pub struct CommandBar<'a, C: EditContext + InputContext, P: Application> {
     focused: bool,
     message: Option<Span<'a>>,

@@ -29,7 +29,7 @@ pub struct RegisterStore {
 }
 
 impl RegisterCell {
-    pub fn new(shape: TargetShape, value: EditRope) -> RegisterCell {
+    pub fn new(shape: TargetShape, value: EditRope) -> Self {
         RegisterCell { shape, value }
     }
 
@@ -103,7 +103,7 @@ impl From<(TargetShape, &str)> for RegisterCell {
 }
 
 impl RegisterStore {
-    fn new() -> RegisterStore {
+    fn new() -> Self {
         RegisterStore {
             altbufname: RegisterCell::default(),
             curbufname: RegisterCell::default(),

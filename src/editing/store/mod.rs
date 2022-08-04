@@ -1,3 +1,26 @@
+//! # Intra-buffer communication
+//!
+//! ## Overview
+//!
+//! These components support sharing information between multiple buffers, such as
+//! [registers](RegisterStore). Most of the time, you will only need to create a [SharedStore]
+//! which contains all of the common components.
+//!
+//! ## Example
+//!
+//! ```
+//! use modalkit::{
+//!     editing::store::{SharedStore, Store},
+//!     vim::VimContext,
+//! };
+//!
+//! fn main() {
+//!     let store: SharedStore<VimContext, ()> = Store::new();
+//!     let locked = store.try_read().unwrap();
+//!
+//!     assert_eq!(locked.digraphs.get(('>', '>')), Some('\u{00BB}'));
+//! }
+//! ```
 use std::sync::{Arc, RwLock};
 
 use crate::editing::base::{Application, EditContext};

@@ -1,3 +1,11 @@
+//! # modalkit
+//!
+//! ## Overview
+//!
+//! This crate allows building terminal applications that support modal input, such as
+//! the Vim text editor.
+//!
+
 #[macro_use]
 mod util;
 

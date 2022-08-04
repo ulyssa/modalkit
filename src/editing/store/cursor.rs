@@ -18,7 +18,7 @@ impl<M: Copy + Eq + Hash> Default for CursorStore<M> {
 }
 
 impl<M: Copy + Eq + Hash> CursorStore<M> {
-    pub fn new() -> CursorStore<M> {
+    pub fn new() -> Self {
         CursorStore { map: HashMap::new() }
     }
 
@@ -57,7 +57,7 @@ pub struct MarkStore {
 }
 
 impl MarkStore {
-    pub fn new() -> MarkStore {
+    pub fn new() -> Self {
         MarkStore { global: HashMap::new(), buffer: HashMap::new() }
     }
 
