@@ -122,6 +122,18 @@ pub enum EditTarget {
     Selection,
 }
 
+impl From<MoveType> for EditTarget {
+    fn from(mt: MoveType) -> Self {
+        EditTarget::Motion(mt, Count::Contextual)
+    }
+}
+
+impl From<RangeType> for EditTarget {
+    fn from(mt: RangeType) -> Self {
+        EditTarget::Range(mt, Count::Contextual)
+    }
+}
+
 /// Description of a textual range within a buffer.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct EditRange<Cursor> {
@@ -253,6 +265,9 @@ pub enum MoveType {
 
     /// Move to the end of a word [*n* times](Count) in [MoveDir1D] direction.
     WordEnd(WordStyle, MoveDir1D),
+
+    /// Move to the column just after the end of a word [*n* times](Count) in [MoveDir1D] direction.
+    WordAfter(WordStyle, MoveDir1D),
 
     /// Move to the beginning of a paragraph [*n* times](Count) in [MoveDir1D] direction.
     ParagraphBegin(MoveDir1D),
@@ -1196,6 +1211,7 @@ impl MoveType {
             MoveType::SectionBegin(_) => false,
             MoveType::SectionEnd(_) => false,
             MoveType::SentenceBegin(_) => false,
+            MoveType::WordAfter(_, _) => false,
             MoveType::WordBegin(_, _) => false,
         }
     }
@@ -1224,6 +1240,7 @@ impl MoveType {
             MoveType::ScreenLine(_) => false,
             MoveType::ScreenLinePos(_) => false,
             MoveType::SectionEnd(_) => false,
+            MoveType::WordAfter(_, _) => false,
             MoveType::WordBegin(_, _) => false,
             MoveType::WordEnd(_, _) => false,
         }
@@ -1252,6 +1269,7 @@ impl MoveType {
             MoveType::ScreenLinePos(_) => TargetShape::CharWise,
             MoveType::ScreenLine(_) => TargetShape::CharWise,
             MoveType::SentenceBegin(_) => TargetShape::CharWise,
+            MoveType::WordAfter(_, _) => TargetShape::CharWise,
             MoveType::WordBegin(_, _) => TargetShape::CharWise,
             MoveType::WordEnd(_, _) => TargetShape::CharWise,
         }

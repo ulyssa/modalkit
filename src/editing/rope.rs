@@ -321,6 +321,7 @@ fn is_newline(c: char) -> bool {
 fn is_big_word_begin(rc: &RopeCursor<'_, RopeInfo>, dir: &MoveDir1D, last: bool) -> bool {
     let off = rc.pos();
     let tlen = rc.total_len();
+    let maxi = tlen.saturating_sub(1);
 
     if off == 0 {
         /*
@@ -329,7 +330,7 @@ fn is_big_word_begin(rc: &RopeCursor<'_, RopeInfo>, dir: &MoveDir1D, last: bool)
         return true;
     }
 
-    if off >= tlen {
+    if off >= maxi {
         /*
          * If we're moving towards the end of the document, the last
          * character counts as a word beginning.
@@ -356,11 +357,16 @@ fn is_big_word_begin(rc: &RopeCursor<'_, RopeInfo>, dir: &MoveDir1D, last: bool)
     }
 }
 
-fn is_big_word_end(rc: &RopeCursor<'_, RopeInfo>, _: &MoveDir1D, _: bool) -> bool {
+fn is_big_word_end(rc: &RopeCursor<'_, RopeInfo>, dir: &MoveDir1D, _: bool) -> bool {
     let off = rc.pos();
     let tlen = rc.total_len();
+    let maxi = tlen.saturating_sub(1);
 
-    if off == 0 || off >= tlen - 1 {
+    if dir == &MoveDir1D::Previous && off == 0 {
+        return true;
+    }
+
+    if off >= maxi {
         return true;
     }
 
@@ -381,9 +387,36 @@ fn is_big_word_end(rc: &RopeCursor<'_, RopeInfo>, _: &MoveDir1D, _: bool) -> boo
     }
 }
 
+fn is_big_word_after(rc: &RopeCursor<'_, RopeInfo>, _: &MoveDir1D, _: bool) -> bool {
+    let off = rc.pos();
+    let tlen = rc.total_len();
+    let maxi = tlen.saturating_sub(1);
+
+    if off == 0 || off >= maxi {
+        return true;
+    }
+
+    let s = rc.root().slice(off - 1..=off).to_string();
+
+    let mut chars = s.chars();
+    let oa = chars.next();
+    let ob = chars.next();
+
+    match (oa, ob) {
+        (Some(a), Some(b)) => {
+            let aws = is_space_char(a);
+            let bws = is_space_char(b);
+
+            return !aws && bws;
+        },
+        _ => false,
+    }
+}
+
 fn is_word_begin(rc: &RopeCursor<'_, RopeInfo>, dir: &MoveDir1D, last: bool) -> bool {
     let off = rc.pos();
     let tlen = rc.total_len();
+    let maxi = tlen.saturating_sub(1);
 
     if off == 0 {
         /*
@@ -392,7 +425,7 @@ fn is_word_begin(rc: &RopeCursor<'_, RopeInfo>, dir: &MoveDir1D, last: bool) -> 
         return true;
     }
 
-    if off >= tlen {
+    if off >= maxi {
         /*
          * If we're moving towards the end of the document, the index after
          * the last character counts as a word beginning.
@@ -421,11 +454,16 @@ fn is_word_begin(rc: &RopeCursor<'_, RopeInfo>, dir: &MoveDir1D, last: bool) -> 
     }
 }
 
-fn is_word_end(rc: &RopeCursor<'_, RopeInfo>, _: &MoveDir1D, _: bool) -> bool {
+fn is_word_end(rc: &RopeCursor<'_, RopeInfo>, dir: &MoveDir1D, _: bool) -> bool {
     let off = rc.pos();
     let tlen = rc.total_len();
+    let maxi = tlen.saturating_sub(1);
 
-    if off == 0 || off >= tlen - 1 {
+    if dir == &MoveDir1D::Previous && off == 0 {
+        return true;
+    }
+
+    if off >= maxi {
         return true;
     }
 
@@ -443,6 +481,32 @@ fn is_word_end(rc: &RopeCursor<'_, RopeInfo>, _: &MoveDir1D, _: bool) -> bool {
             let bkw = is_keyword(b);
 
             return (awc && bkw) || (akw && bwc) || (awc && !bwc) || (akw && !bkw);
+        },
+        _ => false,
+    }
+}
+
+fn is_word_after(rc: &RopeCursor<'_, RopeInfo>, _: &MoveDir1D, _: bool) -> bool {
+    let off = rc.pos();
+    let tlen = rc.total_len();
+    let maxi = tlen.saturating_sub(1);
+
+    if off == 0 || off >= maxi {
+        return true;
+    }
+
+    let s = rc.root().slice(off - 1..=off).to_string();
+
+    let mut chars = s.chars();
+    let oa = chars.next();
+    let ob = chars.next();
+
+    match (oa, ob) {
+        (Some(a), Some(b)) => {
+            let awc = is_word_char(a);
+            let bwc = is_word_char(b);
+
+            return awc && !bwc;
         },
         _ => false,
     }
@@ -493,8 +557,11 @@ impl<'a> Iterator for NewlineIterator<'a> {
 type MatchFn = fn(&RopeCursor<'_, RopeInfo>, &MoveDir1D, bool) -> bool;
 
 fn cursor_from_rc(rc: &RopeCursor<'_, RopeInfo>) -> Cursor {
-    let off = rc.pos();
     let rope = rc.root();
+    let tlen = rc.total_len();
+    let maxi = tlen.saturating_sub(1);
+
+    let off = rc.pos().min(maxi);
     let line = rope.line_of_offset(off);
     let col = off - rope.offset_of_line(line);
 
@@ -1211,6 +1278,7 @@ impl EditRope {
         matches: MatchFn,
         mut count: usize,
         lastcount: bool,
+        lastcol: bool,
     ) -> Option<Cursor> {
         let off = self.cursor_to_offset(&nc);
         let mut rc = self.offset_to_rc(off);
@@ -1238,7 +1306,15 @@ impl EditRope {
         /*
          * Word movements always move, even if they can't do a full count.
          */
-        Some(cursor_from_rc(&rc))
+        let mut cursor = cursor_from_rc(&rc);
+
+        if !lastcount && !lastcol {
+            let x = self.max_column_idx(cursor.y, lastcol).min(cursor.x);
+
+            cursor.set_x(x);
+        }
+
+        Some(cursor)
     }
 
     fn find_quote_start<'a>(&self, rc: &mut RopeCursor<'_, RopeInfo>, quote: char) -> Option<()> {
@@ -1599,10 +1675,34 @@ impl<C: EditContext> CursorMovements<Cursor, C> for EditRope {
                 nc.first_word(cctx);
             },
             (MoveType::WordBegin(WordStyle::Little, dir), count) => {
-                return self.find_word(&nc, *dir, is_word_begin, count, !ctx.action.is_motion());
+                return self.find_word(
+                    &nc,
+                    *dir,
+                    is_word_begin,
+                    count,
+                    !ctx.action.is_motion(),
+                    lastcol,
+                );
             },
             (MoveType::WordEnd(WordStyle::Little, dir), count) => {
-                return self.find_word(&nc, *dir, is_word_end, count, !ctx.action.is_motion());
+                return self.find_word(
+                    &nc,
+                    *dir,
+                    is_word_end,
+                    count,
+                    !ctx.action.is_motion(),
+                    lastcol,
+                );
+            },
+            (MoveType::WordAfter(WordStyle::Little, dir), count) => {
+                return self.find_word(
+                    &nc,
+                    *dir,
+                    is_word_after,
+                    count,
+                    !ctx.action.is_motion(),
+                    lastcol,
+                );
             },
             (MoveType::WordBegin(WordStyle::Big, dir), count) => {
                 return self.find_word(
@@ -1611,10 +1711,28 @@ impl<C: EditContext> CursorMovements<Cursor, C> for EditRope {
                     is_big_word_begin,
                     count,
                     !ctx.action.is_motion(),
+                    lastcol,
                 );
             },
             (MoveType::WordEnd(WordStyle::Big, dir), count) => {
-                return self.find_word(&nc, *dir, is_big_word_end, count, !ctx.action.is_motion());
+                return self.find_word(
+                    &nc,
+                    *dir,
+                    is_big_word_end,
+                    count,
+                    !ctx.action.is_motion(),
+                    lastcol,
+                );
+            },
+            (MoveType::WordAfter(WordStyle::Big, dir), count) => {
+                return self.find_word(
+                    &nc,
+                    *dir,
+                    is_big_word_after,
+                    count,
+                    !ctx.action.is_motion(),
+                    lastcol,
+                );
             },
 
             // charwise movement
@@ -1949,6 +2067,59 @@ mod tests {
     }
 
     #[test]
+    fn test_offset_to_cursor() {
+        let rope = EditRope::from("a b c\nd e f\ng h i\n");
+
+        assert_eq!(rope.offset_to_cursor(ByteOff(0)), Cursor::new(0, 0));
+        assert_eq!(rope.offset_to_cursor(ByteOff(2)), Cursor::new(0, 2));
+        assert_eq!(rope.offset_to_cursor(ByteOff(5)), Cursor::new(0, 5));
+
+        assert_eq!(rope.offset_to_cursor(ByteOff(6)), Cursor::new(1, 0));
+        assert_eq!(rope.offset_to_cursor(ByteOff(8)), Cursor::new(1, 2));
+        assert_eq!(rope.offset_to_cursor(ByteOff(11)), Cursor::new(1, 5));
+
+        assert_eq!(rope.offset_to_cursor(ByteOff(12)), Cursor::new(2, 0));
+        assert_eq!(rope.offset_to_cursor(ByteOff(14)), Cursor::new(2, 2));
+        assert_eq!(rope.offset_to_cursor(ByteOff(17)), Cursor::new(2, 5));
+    }
+
+    #[test]
+    fn test_line_of_offset() {
+        let rope = EditRope::from("a b c\nd e f\ng h i\n");
+
+        // All characters in first line are on line 0.
+        assert_eq!(rope.line_of_offset(ByteOff(0)), 0);
+        assert_eq!(rope.line_of_offset(ByteOff(1)), 0);
+        assert_eq!(rope.line_of_offset(ByteOff(2)), 0);
+        assert_eq!(rope.line_of_offset(ByteOff(3)), 0);
+        assert_eq!(rope.line_of_offset(ByteOff(4)), 0);
+
+        // Newline character is counted as the line that it ends.
+        assert_eq!(rope.line_of_offset(ByteOff(5)), 0);
+
+        // First character after newline is on the next line (line 1).
+        assert_eq!(rope.line_of_offset(ByteOff(6)), 1);
+    }
+
+    #[test]
+    fn test_offset_of_line_nl_end() {
+        let rope = EditRope::from("a b c\nd e f\ng h i\n");
+
+        assert_eq!(rope.offset_of_line(0), 0.into());
+        assert_eq!(rope.offset_of_line(1), 6.into());
+        assert_eq!(rope.offset_of_line(2), 12.into());
+    }
+
+    #[test]
+    fn test_offset_of_line_no_nl_end() {
+        let rope = EditRope::from("a b c\nd e f\ng h i");
+
+        assert_eq!(rope.offset_of_line(0), 0.into());
+        assert_eq!(rope.offset_of_line(1), 6.into());
+        assert_eq!(rope.offset_of_line(2), 12.into());
+    }
+
+    #[test]
     fn test_rope_repeat() {
         let rope1 = EditRope::from("a b c");
         let rep = rope1.repeat(TargetShape::CharWise, 4);
@@ -2274,8 +2445,20 @@ mod tests {
         cursor = rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(cursor, Cursor::new(1, 8));
 
+        for x in 9..14 {
+            cursor = rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)).unwrap();
+            assert_eq!(cursor, Cursor::new(1, x));
+        }
+
+        // Cannot move any further.
+        cursor = rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)).unwrap();
+        assert_eq!(cursor, Cursor::new(1, 14));
+
         // "B"
         let mov = MoveType::WordBegin(WordStyle::Big, MoveDir1D::Previous);
+
+        cursor = rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)).unwrap();
+        assert_eq!(cursor, Cursor::new(1, 8));
 
         cursor = rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(cursor, Cursor::new(1, 0));
@@ -2283,6 +2466,10 @@ mod tests {
         cursor = rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(cursor, Cursor::new(0, 6));
 
+        cursor = rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)).unwrap();
+        assert_eq!(cursor, Cursor::new(0, 0));
+
+        // Cannot move back any further.
         cursor = rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(cursor, Cursor::new(0, 0));
 
@@ -2298,8 +2485,17 @@ mod tests {
         cursor = rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(cursor, Cursor::new(1, 8));
 
+        cursor = rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)).unwrap();
+        assert_eq!(cursor, Cursor::new(1, 14));
+
+        // Cannot move any further.
+        cursor = rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)).unwrap();
+        assert_eq!(cursor, Cursor::new(1, 14));
+
         // "b"
         let mov = MoveType::WordBegin(WordStyle::Little, MoveDir1D::Previous);
+
+        cursor = Cursor::new(1, 8);
 
         for x in 0..=6 {
             cursor = rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)).unwrap();
@@ -2309,6 +2505,10 @@ mod tests {
         cursor = rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(cursor, Cursor::new(0, 6));
 
+        cursor = rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)).unwrap();
+        assert_eq!(cursor, Cursor::new(0, 0));
+
+        // Cannot move any further.
         cursor = rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(cursor, Cursor::new(0, 0));
 
@@ -2331,6 +2531,10 @@ mod tests {
             assert_eq!(cursor, Cursor::new(1, x));
         }
 
+        // Cannot move any further.
+        cursor = rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)).unwrap();
+        assert_eq!(cursor, Cursor::new(1, 14));
+
         // "gE"
         let mov = MoveType::WordEnd(WordStyle::Big, MoveDir1D::Previous);
 
@@ -2347,6 +2551,10 @@ mod tests {
         cursor = rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(cursor, Cursor::new(0, 0));
 
+        // Cannot move back any further.
+        cursor = rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)).unwrap();
+        assert_eq!(cursor, Cursor::new(0, 0));
+
         // "E"
         let mov = MoveType::WordEnd(WordStyle::Big, MoveDir1D::Next);
 
@@ -2359,6 +2567,10 @@ mod tests {
         cursor = rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(cursor, Cursor::new(1, 6));
 
+        cursor = rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)).unwrap();
+        assert_eq!(cursor, Cursor::new(1, 14));
+
+        // Cannot move any further.
         cursor = rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(cursor, Cursor::new(1, 14));
 
@@ -2380,6 +2592,105 @@ mod tests {
 
         cursor = rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(cursor, Cursor::new(0, 4));
+
+        cursor = rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)).unwrap();
+        assert_eq!(cursor, Cursor::new(0, 0));
+
+        // Cannot move back any further.
+        cursor = rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)).unwrap();
+        assert_eq!(cursor, Cursor::new(0, 0));
+    }
+
+    #[test]
+    fn test_motion_word_after() {
+        let rope = EditRope::from("hello   world  \nhow,are you,doing\n today\n");
+        let vwctx = ViewportContext::<Cursor>::default();
+        let mut vctx: VimContext = VimContext::default();
+        let mut cursor = rope.first();
+        let count = Count::Contextual;
+
+        vctx.persist.insert = Some(InsertStyle::Insert);
+
+        // Emacs' <M-f> movement.
+        let mov = MoveType::WordAfter(WordStyle::Little, MoveDir1D::Next);
+
+        cursor = rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)).unwrap();
+        assert_eq!(cursor, Cursor::new(0, 5));
+
+        cursor = rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)).unwrap();
+        assert_eq!(cursor, Cursor::new(0, 13));
+
+        cursor = rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)).unwrap();
+        assert_eq!(cursor, Cursor::new(1, 3));
+
+        cursor = rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)).unwrap();
+        assert_eq!(cursor, Cursor::new(1, 7));
+
+        cursor = rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)).unwrap();
+        assert_eq!(cursor, Cursor::new(1, 11));
+
+        cursor = rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)).unwrap();
+        assert_eq!(cursor, Cursor::new(1, 17));
+
+        cursor = rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)).unwrap();
+        assert_eq!(cursor, Cursor::new(2, 6));
+
+        // Now move backwards!
+        let mov = MoveType::WordAfter(WordStyle::Little, MoveDir1D::Previous);
+
+        cursor = rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)).unwrap();
+        assert_eq!(cursor, Cursor::new(1, 17));
+
+        cursor = rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)).unwrap();
+        assert_eq!(cursor, Cursor::new(1, 11));
+
+        cursor = rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)).unwrap();
+        assert_eq!(cursor, Cursor::new(1, 7));
+
+        cursor = rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)).unwrap();
+        assert_eq!(cursor, Cursor::new(1, 3));
+
+        cursor = rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)).unwrap();
+        assert_eq!(cursor, Cursor::new(0, 13));
+
+        cursor = rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)).unwrap();
+        assert_eq!(cursor, Cursor::new(0, 5));
+
+        cursor = rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)).unwrap();
+        assert_eq!(cursor, Cursor::new(0, 0));
+
+        // Forwards again, but with WordStyle::Big this time.
+        let mov = MoveType::WordAfter(WordStyle::Big, MoveDir1D::Next);
+
+        cursor = rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)).unwrap();
+        assert_eq!(cursor, Cursor::new(0, 5));
+
+        cursor = rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)).unwrap();
+        assert_eq!(cursor, Cursor::new(0, 13));
+
+        cursor = rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)).unwrap();
+        assert_eq!(cursor, Cursor::new(1, 7));
+
+        cursor = rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)).unwrap();
+        assert_eq!(cursor, Cursor::new(1, 17));
+
+        cursor = rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)).unwrap();
+        assert_eq!(cursor, Cursor::new(2, 6));
+
+        // And backwards with WordStyle::Big.
+        let mov = MoveType::WordAfter(WordStyle::Big, MoveDir1D::Previous);
+
+        cursor = rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)).unwrap();
+        assert_eq!(cursor, Cursor::new(1, 17));
+
+        cursor = rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)).unwrap();
+        assert_eq!(cursor, Cursor::new(1, 7));
+
+        cursor = rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)).unwrap();
+        assert_eq!(cursor, Cursor::new(0, 13));
+
+        cursor = rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)).unwrap();
+        assert_eq!(cursor, Cursor::new(0, 5));
     }
 
     #[test]
