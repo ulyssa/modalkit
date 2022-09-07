@@ -8,11 +8,14 @@ use crate::util::IdGenerator;
 
 use super::SharedStore;
 
+/// Identifier for an [EditBuffer].
 #[derive(Clone, Copy, Debug, Hash, Eq, PartialEq)]
 pub struct BufferId(pub(crate) u64);
 
+/// A shared reference to an [EditBuffer].
 pub type SharedBuffer<C, P> = Arc<RwLock<EditBuffer<C, P>>>;
 
+/// Globally track allocated buffers.
 pub struct BufferStore<C: EditContext, P: Application> {
     buffers: HashMap<BufferId, SharedBuffer<C, P>>,
 
@@ -24,6 +27,7 @@ where
     C: EditContext,
     P: Application,
 {
+    /// Create a new buffer store.
     pub fn new() -> Self {
         BufferStore {
             buffers: HashMap::new(),
@@ -32,6 +36,7 @@ where
         }
     }
 
+    /// Allocate a new buffer.
     pub fn new_buffer(&mut self, store: SharedStore<C, P>) -> SharedBuffer<C, P> {
         let id = BufferId(self.idgen.next());
         let buffer = EditBuffer::new(id, store);
@@ -42,6 +47,7 @@ where
         return buffer;
     }
 
+    /// Get a shared reference to a buffer given its identifier.
     pub fn get_buffer(&self, id: &BufferId) -> SharedBuffer<C, P> {
         self.buffers.get(id).unwrap().clone()
     }

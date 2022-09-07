@@ -121,10 +121,12 @@ impl<T> HistoryList<T> {
         &self.current
     }
 
+    /// Returns the number of historical items preceding the current value.
     pub fn past_len(&self) -> usize {
         self.past.len()
     }
 
+    /// Returns the number of historical items following the current value.
     pub fn future_len(&self) -> usize {
         self.future.len()
     }

@@ -170,8 +170,12 @@ pub trait Editable<C> {
     fn history_command(&mut self, act: HistoryAction, ctx: &C) -> EditResult;
 }
 
-type Selection = (Cursor, Cursor, TargetShape);
-type Selections = Vec<Selection>;
+/// A selection is an extendable range of text within a buffer.
+pub type Selection = (Cursor, Cursor, TargetShape);
+
+/// Multiple extendable ranges within a buffer.
+pub type Selections = Vec<Selection>;
+
 type CursorGroupIdContext<'a, 'b, T> = (CursorGroupId, &'a ViewportContext<Cursor>, &'b T);
 
 #[cfg(feature = "intervaltree")]
@@ -772,6 +776,7 @@ where
         }
     }
 
+    /// Get the identifiers of cursors within a cursor group.
     pub fn get_group(&self, id: CursorGroupId) -> Vec<CursorId> {
         let leader = self.leaders.get(&id).unwrap();
         let mut group = vec![*leader];
@@ -783,6 +788,7 @@ where
         group
     }
 
+    /// Get the cursor identifiers and their current values within a cursor group.
     pub fn get_group_cursors(&self, id: CursorGroupId) -> Vec<(CursorId, Cursor)> {
         self.get_group(id)
             .into_iter()
@@ -790,18 +796,21 @@ where
             .collect()
     }
 
+    /// Move the [Cursor] for the leader of a cursor group.
     pub fn set_leader(&mut self, id: CursorGroupId, cursor: Cursor) {
         let leader = *self.leaders.get(&id).unwrap();
 
         self.set_cursor(leader, cursor);
     }
 
+    /// Get the [Cursor] for the leader of a cursor group.
     pub fn get_leader(&self, id: CursorGroupId) -> Cursor {
         let leader = self.leaders.get(&id).unwrap();
 
         self.get_cursor(*leader)
     }
 
+    /// Get the cursors of the followers within a cursor group.
     pub fn get_followers(&self, id: CursorGroupId) -> Vec<Cursor> {
         if let Some(followers) = self.members.get(&id) {
             followers.into_iter().map(|cid| self.get_cursor(*cid)).collect()
@@ -810,6 +819,7 @@ where
         }
     }
 
+    /// Get the [Selections] for the followers within a cursor group.
     pub fn get_follower_selections(&self, id: CursorGroupId) -> Option<Selections> {
         let followers = self.members.get(&id)?;
         let selections = followers
@@ -820,12 +830,14 @@ where
         Some(selections)
     }
 
+    /// Get the [Selection] for the leader of a cursor group.
     pub fn get_leader_selection(&self, id: CursorGroupId) -> Option<Selection> {
         let leader = self.leaders.get(&id)?;
 
         self.get_selection(*leader)
     }
 
+    /// Get the [Selections] for everyone within a cursor group.
     pub fn get_group_selections(&self, id: CursorGroupId) -> Option<Selections> {
         let lsel = self.get_leader_selection(id)?;
 
@@ -838,6 +850,7 @@ where
         }
     }
 
+    /// Create a new cursor group.
     pub fn create_group(&mut self) -> CursorGroupId {
         let id = CursorGroupId(self.cgidgen.next());
         let cursor = self.create_cursor();
@@ -847,6 +860,7 @@ where
         id
     }
 
+    /// Create a new cursor.
     pub fn create_cursor(&mut self) -> CursorId {
         self.create_cursor_at(0, 0)
     }
@@ -874,11 +888,13 @@ where
         self.anchors.del(id);
     }
 
+    /// End the [Selection] for the given cursor identifier if one exists.
     pub fn clear_selection(&mut self, id: CursorId) {
         let _ = self.vshapes.remove(&id);
         self.anchors.del(id);
     }
 
+    /// Return the [Selection] for the given cursor identifier if one exists.
     pub fn get_selection(&self, id: CursorId) -> Option<Selection> {
         let anchor = self.anchors.get(id)?;
         let cursor = self.cursors.get(id)?;
@@ -891,42 +907,50 @@ where
         }
     }
 
+    /// Get the current value of a given cursor identifier.
     pub fn get_cursor(&self, id: CursorId) -> Cursor {
         self.cursors.get(id).unwrap()
     }
 
+    /// Move the point represented by the given cursor identifier.
     pub fn set_cursor(&mut self, id: CursorId, cursor: Cursor) {
         self.cursors.put(id, cursor)
     }
 
-    pub fn lines(&self, line: usize) -> xi_rope::rope::Lines {
+    pub(crate) fn lines(&self, line: usize) -> xi_rope::rope::Lines {
         self.text.lines(line)
     }
 
-    pub fn lines_at(&self, line: usize, column: usize) -> xi_rope::rope::Lines {
+    pub(crate) fn lines_at(&self, line: usize, column: usize) -> xi_rope::rope::Lines {
         self.text.lines_at(line, column)
     }
 
+    /// Returns how many lines are within this buffer.
     pub fn get_lines(&self) -> usize {
         self.text.get_lines()
     }
 
+    /// Returns how many columns are on a given line.
     pub fn get_columns(&self, y: usize) -> usize {
         self.text.get_columns(y)
     }
 
+    /// Fetch a reference to the information of type `T` on a given line.
     pub fn get_line_info<T: Send + Sync + 'static>(&self, line: usize) -> Option<&T> {
         self.lineinfo.get(&line)
     }
 
+    /// Fetch a mutable reference to the information of type `T` on a given line.
     pub fn get_line_info_mut<T: Send + Sync + 'static>(&mut self, line: usize) -> Option<&mut T> {
         self.lineinfo.get_mut(&line)
     }
 
+    /// Update the information of type `T` on a given line.
     pub fn set_line_info<T: Send + Sync + 'static>(&mut self, line: usize, info: T) {
         self.lineinfo.set(line, info);
     }
 
+    /// Clamp the line and column of a cursor so that it refers to a valid point within the buffer.
     pub fn clamp<'a, 'b>(&self, cursor: &mut Cursor, ctx: &CursorGroupIdContext<'a, 'b, C>) {
         PrivateCursorOps::clamp(cursor, &self._ctx_cgi2c(ctx));
     }

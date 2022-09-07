@@ -10,6 +10,7 @@
 //! [readline]: crate::readline
 //! [widgets]: crate::widgets
 //!
+
 pub mod base;
 pub mod buffer;
 pub mod cursor;

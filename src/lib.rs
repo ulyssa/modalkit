@@ -9,6 +9,7 @@
 #[macro_use]
 mod util;
 
+#[deny(missing_docs)]
 pub mod editing;
 pub mod input;
 pub mod vim;

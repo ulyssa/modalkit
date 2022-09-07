@@ -9,6 +9,7 @@ use std::cmp::{Ord, Ordering, PartialOrd};
 
 use super::base::Wrappable;
 
+/// Represents a movable point within a document.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Cursor {
     pub(crate) xgoal: usize,
@@ -16,17 +17,35 @@ pub struct Cursor {
     pub(crate) y: usize,
 }
 
+/// Represents changes to make to cursors after a document modification.
 pub enum CursorAdjustment {
+    /// Adjust cursors located on a specific line.
     Column {
+        /// The line whose cursors are being modified.
         line: usize,
+
+        /// The starting column within the line.
         column_start: usize,
+
+        /// The amount to adjust the line of cursors by.
         amt_line: isize,
+
+        /// The amount to adjust the column of cursors by.
         amt_col: isize,
     },
+
+    /// Adjust cursors starting at a given line.
     Line {
+        /// The line at which to begin adjusting cursors.
         line_start: usize,
+
+        /// The line at which to stop adjusting cursors.
         line_end: usize,
+
+        /// The amount by which to adjust the line of cursors within the range.
         amount: isize,
+
+        /// The amount by which to adjust the line of cursors after `line_end`.
         amount_after: isize,
     },
 }

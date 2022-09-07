@@ -11,11 +11,18 @@ const RFC1345_DIGRAPHS: [((char, char), char); 1300] = include!("rfc1345.digraph
 
 const VIM_DIGRAPHS: [((char, char), char); 62] = include!("vim.digraphs");
 
+/// Storage for mapping [digraphs] onto their characters.
+///
+/// Digraphs are convenient shorthand for entering characters usually not found on keyboards using
+/// two-character combinations of the characters found on QWERTY keyboard layouts.
+///
+/// [digraphs]: https://en.wikipedia.org/wiki/Digraph_(orthography)
 pub struct DigraphStore {
     mappings: HashMap<(char, char), char>,
 }
 
 impl DigraphStore {
+    /// Create a new digraph store.
     pub fn new() -> Self {
         DigraphStore { mappings: HashMap::new() }
     }
@@ -39,10 +46,12 @@ impl DigraphStore {
         return store;
     }
 
+    /// Create a new mapping from a digraph to a character.
     pub fn put(&mut self, digraph: (char, char), c: char) {
         self.mappings.insert(digraph, c);
     }
 
+    /// Get the character, if it exists, that a digraph maps to.
     pub fn get(&self, digraph: (char, char)) -> Option<char> {
         self.mappings.get(&digraph).copied()
     }

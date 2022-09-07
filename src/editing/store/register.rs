@@ -6,12 +6,17 @@ use crate::{
     editing::rope::EditRope,
 };
 
+/// The current value mapped to by a [Register].
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RegisterCell {
+    /// The shape of the text within the [Register].
     pub shape: TargetShape,
+
+    /// The actual stored text.
     pub value: EditRope,
 }
 
+/// Storage for [Register] values.
 pub struct RegisterStore {
     altbufname: RegisterCell,
     curbufname: RegisterCell,
@@ -29,10 +34,12 @@ pub struct RegisterStore {
 }
 
 impl RegisterCell {
+    /// Create a new cell.
     pub fn new(shape: TargetShape, value: EditRope) -> Self {
         RegisterCell { shape, value }
     }
 
+    /// Merge the contents of two register cells, respecting their shapes.
     pub fn merge(&self, other: &RegisterCell) -> RegisterCell {
         match (self.shape, other.shape) {
             (CharWise, CharWise) | (LineWise, LineWise) | (CharWise, BlockWise) => {
@@ -136,6 +143,9 @@ impl RegisterStore {
         }
     }
 
+    /// Get the current value of a [Register].
+    ///
+    /// If none is specified, this returns the value of [Register::Unnamed].
     pub fn get(&self, reg: &Option<Register>) -> RegisterCell {
         let reg = reg.unwrap_or(Register::Unnamed);
 
@@ -184,6 +194,14 @@ impl RegisterStore {
         }
     }
 
+    /// Update the current value of a [Register] with `cell`. If none is specified, this updates
+    /// the value of [Register::Unnamed].
+    ///
+    /// The `append` flag controls whether this should wholly replace or append to the current
+    /// value.
+    ///
+    /// The `del` flag indicates whether this register update is being done as part of a text
+    /// deletion in a document.
     pub fn put(&mut self, reg: &Option<Register>, mut cell: RegisterCell, append: bool, del: bool) {
         let reg = reg.unwrap_or(Register::Unnamed);
 

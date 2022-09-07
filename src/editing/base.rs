@@ -88,6 +88,7 @@ pub enum EditAction {
 }
 
 impl EditAction {
+    /// Returns true if the value is [EditAction::Motion].
     pub fn is_motion(&self) -> bool {
         matches!(self, EditAction::Motion)
     }
@@ -235,9 +236,15 @@ pub enum RangeType {
     /// Select the current block specified by the start and end characters.
     Bracketed(char, char, bool), // start, end, inclusive
 
-    Quote(char, bool), // quote mark, inclusive
+    /// Select text quoted by [char] around the cursor.
+    ///
+    /// [bool] indicates whether the selection should include the quote characters.
+    Quote(char, bool),
 
-    XmlTag(bool), // inclusive
+    /// Select the XML block around the cursor.
+    ///
+    /// [bool] indicates whether to include the XML tags for the block.
+    XmlTag(bool),
 }
 
 /// Specify a movement away from the current cursor position.
@@ -318,43 +325,67 @@ pub enum MoveType {
 /// Represent movement along a 1-dimensional line.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum MoveDir1D {
+    /// Move backwards, or to a previous point.
     Previous,
+
+    /// Move forwards, or to a following point.
     Next,
 }
 
 /// Represent movement along the horizontal or vertical axes.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum MoveDir2D {
+    /// Move leftwards.
     Left,
+
+    /// Move rightwards.
     Right,
+
+    /// Move upwards.
     Up,
+
+    /// Move downwards.
     Down,
 }
 
 /// Represent movement to a position along a 1-dimensional line.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum MovePosition {
+    /// Move to the beginning of some range.
     Beginning,
+
+    /// Move to the middle of some range.
     Middle,
+
+    /// Move to the end of some range.
     End,
 }
 
-/// Represent a modification of a previous [MoveDir1D] movement.
+/// Represents a modification of a previous [MoveDir1D] movement.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum MoveDirMod {
+    /// Use the same movement previously used.
     Same,
+
+    /// Use the opposite of the movement previously used.
     Flip,
+
+    /// Ignore whatever value was previously used.
     Exact(MoveDir1D),
 }
 
-/// This represents a selection of an axis.
+/// This represents a selection of a 2-dimensional axis.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Axis {
+    /// The horizontal axis.
     Horizontal,
+
+    /// The vertical axis.
     Vertical,
 }
 
 impl Axis {
+    /// Rotate a 2-dimensional axis to its opposite.
     pub fn rotate(&self) -> Axis {
         match self {
             Axis::Horizontal => Axis::Vertical,
@@ -366,8 +397,13 @@ impl Axis {
 /// This represents the units used when scrolling.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ScrollSize {
+    /// Scroll by number of character cells.
     Cell,
+
+    /// Scroll by [*n*](Count) times half the page size.
     HalfPage,
+
+    /// Scroll by [*n*](Count) times the page size.
     Page,
 }
 
@@ -429,26 +465,47 @@ pub enum FocusChange {
 /// This represents how to change the size of a window.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum SizeChange<I = Count> {
+    /// Make the window and others along the specified axis the same size.
     Equal,
+
+    /// Make the window exactly a specific size along the axis.
     Exact(I),
+
+    /// Decrease the size of the window by a specific amount.
     Decrease(I),
+
+    /// Increase the size of the window by a specific amount.
     Increase(I),
 }
 
 /// This represents how to change the indentation of a range.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum IndentChange<I = Count> {
+    /// Automatically determine indentation level.
     Auto,
+
+    /// Decrease the indentation level of indentation.
     Decrease(I),
+
+    /// Increase the indentation level of indentation.
     Increase(I),
 }
 
 /// This represents how to change a number in text.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum NumberChange {
+    /// Decrease the first number in the targeted text by [*n*](Count).
     DecreaseOne,
+
+    /// Decrease the first number of each line in the targeted text by [*n*](Count) on the first
+    /// number seen, [*n*](Count) times two for the second number seen, etc..
     DecreaseAll,
+
+    /// Increase the first number in the targeted text by [*n*](Count).
     IncreaseOne,
+
+    /// Increase the first number of each line in the targeted text by [*n*](Count) on the first
+    /// number seen, [*n*](Count) times two for the second number seen, etc.
     IncreaseAll,
 }
 
@@ -552,6 +609,7 @@ pub enum Mark {
 }
 
 impl Mark {
+    /// Indicates whether this is a global mark.
     pub fn is_global(&self) -> bool {
         match self {
             Mark::GlobalNamed(_) => true,
@@ -589,13 +647,22 @@ impl<T> From<T> for Specifier<T> {
 bitflags! {
     /// These flags are used to specify the behaviour surrounding closing a window.
     pub struct CloseFlags: u32 {
+        /// No flags set.
         const NONE = 0b00000000;
 
+        /// Write while closing.
         const WRITE = 0b00000001;
+
+        /// Ignore any issues during closing.
         const FORCE = 0b00000010;
+
+        /// Quit if this is the last window.
         const QUIT  = 0b00000100;
 
+        /// Write out the window's contents and quit.
         const WQ = CloseFlags::WRITE.bits | CloseFlags::QUIT.bits;
+
+        /// Force quit the window.
         const FQ = CloseFlags::FORCE.bits | CloseFlags::QUIT.bits;
     }
 }
@@ -747,7 +814,10 @@ impl ApplicationStore for () {}
 
 /// Trait for objects that describe application-specific behaviour and types.
 pub trait Application: Clone + Debug + Eq + PartialEq {
+    /// The type for application-specific actions.
     type Action: ApplicationAction;
+
+    /// The type for application-specific storage.
     type Store: ApplicationStore;
 }
 
@@ -892,14 +962,23 @@ pub enum CommandType {
 /// This specifies which list of cursors to use when jumping, the change list or the jump list.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum PositionList {
+    /// The change list contains positions where changes were previously made.
     ChangeList,
+
+    /// The jump list contains positions where the cursor was placed before jumping to a new
+    /// location in the document.
     JumpList,
 }
 
 /// This specifies the behaviour of entering and backspacing over characters.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum InsertStyle {
+    /// This specifies that typed characters should leave existing ones as is, and backspacing
+    /// should remove characters.
     Insert,
+
+    /// This specifies that typed characters should replace existing ones, and backspacing should
+    /// restore any overwritten characters.
     Replace,
 }
 
@@ -999,19 +1078,38 @@ pub enum Register {
 /// This specifies either the shape of a visual selection, or a forced motion.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum TargetShape {
+    /// A series of characters.
+    ///
+    /// During a selection, the two points indicate the start and end columns.
     CharWise,
+
+    /// A series of lines.
+    ///
+    /// During a selection, the two points indicate the start and end lines.
     LineWise,
+
+    /// A block of characters.
+    ///
+    /// During a selection, the two points indicate opposite corners.
     BlockWise,
 }
 
 bitflags! {
     /// Bitmask that specifies what shapes are targeted by an action.
     pub struct TargetShapeFilter: u32 {
+        /// Match no shapes.
         const NONE = 0b00000000;
+
+        /// Match all shapes.
         const ALL = 0b00000111;
 
+        /// Match [TargetShape::CharWise].
         const CHAR = 0b00000001;
+
+        /// Match [TargetShape::LineWise].
         const LINE = 0b00000010;
+
+        /// Match [TargetShape::BlockWise].
         const BLOCK = 0b00000100;
     }
 }
@@ -1027,36 +1125,63 @@ impl TargetShapeFilter {
     }
 }
 
+/// Methods for determining the start and end of a [RangeSpec].
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum RangeEndingType {
+    /// A specific line number.
     Absolute(Count),
+
+    /// All lines.
     All,
+
+    /// The current line.
     Current,
+
+    /// The last line.
     Last,
+
+    /// The position of a given [Mark].
     Mark(Specifier<Mark>),
+
+    /// The line matching a search using the value of [Register::LastSearch].
     Search(MoveDir1D),
+
+    /// Perform a search using the last substitution pattern.
     SubPatSearch(MoveDir1D),
+
+    /// No line was specified.
     Unspecified,
 }
 
+/// Modifier to a range ending.
 #[non_exhaustive]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum RangeEndingModifier {
+    /// Offset the end of a range by [*n*](Count) lines.
     Offset(MoveDir1D, Count),
 }
 
+/// One of the sides of a range.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RangeEnding(pub RangeEndingType, pub Vec<RangeEndingModifier>);
 
+/// Position to begin a search in a range.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum RangeSearchInit {
+    /// Start from current cursor position.
     Cursor,
+
+    /// Start from the beginning of the range.
     Start,
 }
 
+/// A range specification.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum RangeSpec {
+    /// A range specification where only one end of the range was given.
     Single(RangeEnding),
+
+    /// A range specification where both ends of the range were given.
     Double(RangeEnding, RangeEnding, RangeSearchInit),
 }
 
@@ -1098,6 +1223,7 @@ pub trait EditContext:
 
 /// Trait for values that can be converted by the [EditContext].
 pub trait Resolve<T, R> {
+    /// Use contextual information to convert a `T` into an `R`.
     fn resolve(&self, t: &T) -> R;
 }
 
@@ -1121,6 +1247,7 @@ pub struct ViewportContext<Cursor> {
 }
 
 impl<Cursor: Default> ViewportContext<Cursor> {
+    /// Create a new context for describing a viewport.
     pub fn new() -> Self {
         ViewportContext {
             corner: Cursor::default(),
@@ -1129,10 +1256,12 @@ impl<Cursor: Default> ViewportContext<Cursor> {
         }
     }
 
+    /// Get the viewport height.
     pub fn get_height(&self) -> usize {
         self.dimensions.1
     }
 
+    /// Get the viewport width.
     pub fn get_width(&self) -> usize {
         self.dimensions.0
     }
@@ -1242,6 +1371,7 @@ pub trait CursorSearch<Cursor> {
 
 /// Trait for directions capable of being flipped.
 pub trait Flip {
+    /// Return the flipped representation of the value.
     fn flip(&self) -> Self;
 }
 
@@ -1266,6 +1396,7 @@ impl Flip for MoveDir2D {
 }
 
 impl MoveDir2D {
+    /// Returns the [Axis] that the direction moves along.
     pub fn axis(&self) -> Axis {
         match self {
             MoveDir2D::Left => Axis::Horizontal,
@@ -1378,6 +1509,7 @@ impl MoveType {
 }
 
 impl MoveDirMod {
+    /// Modify a given direction.
     pub fn resolve(&self, dir: &MoveDir1D) -> MoveDir1D {
         match self {
             MoveDirMod::Same => dir.clone(),
@@ -1402,24 +1534,43 @@ impl std::fmt::Display for EditInfo {
 #[derive(thiserror::Error, Debug)]
 #[non_exhaustive]
 pub enum EditError {
+    /// Failure to fetch a word at a cursor position.
     #[error("No word underneath cursor")]
     NoCursorWord,
+
+    /// Failure to determine a search expression to use.
     #[error("No current search specified")]
     NoSearch,
+
+    /// Failure due to lack of a current selection.
     #[error("No current selection")]
     NoSelection,
+
+    /// Failure due to an invalid cursor group.
     #[error("Invalid cursor group")]
     InvalidCursorGroup,
+
+    /// Failure due to an invalid cursor.
     #[error("Invalid cursor")]
     InvalidCursor,
+
+    /// Failure due to an umapped digraph.
     #[error("Invalid digraph: {0:?} {1:?}")]
     InvalidDigraph(char, char),
+
+    /// Failure due to a bad regular expression.
     #[error("Invalid regular expression: {0}")]
     InvalidRegex(#[from] regex::Error),
+
+    /// Failure due to an unset [Mark].
     #[error("Mark not set")]
     MarkNotSet(Mark),
+
+    /// Failure due to invalid input where an integer was expected.
     #[error("Integer conversion error: {0}")]
     IntConversionError(#[from] std::num::TryFromIntError),
+
+    /// Generic failure.
     #[error("Error: {0}")]
     Failure(String),
 }
@@ -1428,10 +1579,15 @@ pub enum EditError {
 #[derive(thiserror::Error, Debug)]
 #[non_exhaustive]
 pub enum UIError<C: Command> {
+    /// Failure during Input/Output.
     #[error("Input/Output Error: {0}")]
     IOError(#[from] std::io::Error),
+
+    /// Failure during editing.
     #[error("Editing error: {0}")]
     EditingFailure(#[from] EditError),
+
+    /// Failure while attempting to execute a command.
     #[error("Failed command: {0}")]
     CommandFailure(#[from] CommandError<C>),
 }

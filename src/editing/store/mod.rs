@@ -41,16 +41,29 @@ pub use self::register::{RegisterCell, RegisterStore};
 
 const SEARCH_HISTORY_LEN: usize = 50;
 
+/// Global editing context
 pub struct Store<C: EditContext, P: Application> {
+    /// Tracks what [buffers](crate::editing::buffer::EditBuffer) have been created.
     pub buffers: BufferStore<C, P>,
+
+    /// Tracks mapped digraphs.
     pub digraphs: DigraphStore,
+
+    /// Tracks the current value of each [Register](crate::editing::base::Register).
     pub registers: RegisterStore,
+
+    /// Tracks the buffer- and global-specific information of each
+    /// [Mark](crate::editing::base::Mark).
     pub marks: MarkStore,
+
+    /// Tracks previous search expressions.
     pub searches: HistoryList<EditRope>,
 
+    /// Application-specific storage.
     pub application: P::Store,
 }
 
+/// Shared reference to the global context.
 pub type SharedStore<C, P> = Arc<RwLock<Store<C, P>>>;
 
 impl<C, P> Store<C, P>
