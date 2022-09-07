@@ -463,8 +463,7 @@ where
             },
 
             // Simple delegations.
-            Action::OpenLine(dir) => self.buffer.open_line(dir, &ctx)?,
-            Action::Paste(dir, count) => self.buffer.paste(dir, count, &ctx)?,
+            Action::InsertText(act) => self.buffer.insert_text(act, &ctx)?,
             Action::Mark(mark) => self.buffer.mark(ctx.2.resolve(&mark), &ctx)?,
             Action::Cursor(act) => self.buffer.cursor_command(act, &ctx)?,
             Action::SelectionCursorSet(change) => self.buffer.selcursor_set(&change, &ctx)?,
@@ -478,13 +477,6 @@ where
                 let action = ctx.2.resolve(&action);
 
                 self.buffer.edit(&action, &mov, &ctx)?
-            },
-            Action::Type(c) => {
-                if let Some(c) = ctx.2.resolve(&c) {
-                    self.buffer.type_char(c, &ctx)?
-                } else {
-                    None
-                }
             },
             Action::Submit => {
                 let text = self.buffer.reset_text();

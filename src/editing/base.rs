@@ -591,6 +591,20 @@ bitflags! {
     }
 }
 
+/// Text insertion actions
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[non_exhaustive]
+pub enum InsertTextAction {
+    /// Insert a new line [shape-wise](TargetShape) before or after the current position.
+    OpenLine(TargetShape, MoveDir1D),
+
+    /// Paste before or after the current cursor position [*n*](Count) times.
+    Paste(MoveDir1D, Count),
+
+    /// Type a [character](Char) on [either side](MoveDir1D) of the cursor.
+    Type(Specifier<Char>, MoveDir1D),
+}
+
 /// Editing history actions
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[non_exhaustive]
@@ -705,6 +719,9 @@ pub enum Action<P: Application = ()> {
     /// Perform the specified [action](EditAction) on [a target](EditTarget).
     Edit(Specifier<EditAction>, EditTarget),
 
+    /// Insert text.
+    InsertText(InsertTextAction),
+
     /// Repeat the last editing action [*n*](Count) times.
     EditRepeat(Count),
 
@@ -713,12 +730,6 @@ pub enum Action<P: Application = ()> {
 
     /// Create a new [Mark] at the current cursor position.
     Mark(Specifier<Mark>),
-
-    /// Open [*n*](Count) new lines before or after the current line.
-    OpenLine(MoveDir1D),
-
-    /// Paste before or after the current cursor position [*n*](Count) times.
-    Paste(MoveDir1D, Count),
 
     /// Scroll the viewport in [the specified manner](ScrollStyle).
     Scroll(ScrollStyle),
@@ -754,9 +765,6 @@ pub enum Action<P: Application = ()> {
     /// Start or stop recording a macro.
     MacroRecordToggle,
 
-    /// Type a [character](Char).
-    Type(Specifier<Char>),
-
     /// Run a command.
     CommandRun(String),
 
@@ -774,6 +782,12 @@ pub enum Action<P: Application = ()> {
 
     /// Application specific command.
     Application(P::Action),
+}
+
+impl<P: Application> From<InsertTextAction> for Action<P> {
+    fn from(act: InsertTextAction) -> Self {
+        Action::InsertText(act)
+    }
 }
 
 impl<P: Application> From<HistoryAction> for Action<P> {

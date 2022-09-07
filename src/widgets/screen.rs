@@ -38,7 +38,6 @@ use crate::editing::base::{
     Action,
     Application,
     Axis,
-    Char,
     CloseFlags,
     CloseTarget,
     CommandType,
@@ -51,6 +50,7 @@ use crate::editing::base::{
     EditTarget,
     FocusChange,
     HistoryAction,
+    InsertTextAction,
     Mark,
     MoveDir1D,
     MoveDir2D,
@@ -373,25 +373,12 @@ where
         }
     }
 
-    fn type_char(&mut self, ch: Char, ctx: &C) -> EditResult {
+    fn insert_text(&mut self, act: InsertTextAction, ctx: &C) -> EditResult {
         match self.focused {
-            CurrentFocus::Command => self.cmdbar.type_char(ch, ctx),
+            CurrentFocus::Command => self.cmdbar.insert_text(act, ctx),
             CurrentFocus::Window => {
                 if let Some(w) = self.current_window_mut() {
-                    w.type_char(ch, ctx)
-                } else {
-                    Ok(None)
-                }
-            },
-        }
-    }
-
-    fn open_line(&mut self, dir: MoveDir1D, ctx: &C) -> EditResult {
-        match self.focused {
-            CurrentFocus::Command => self.cmdbar.open_line(dir, ctx),
-            CurrentFocus::Window => {
-                if let Some(w) = self.current_window_mut() {
-                    w.open_line(dir, ctx)
+                    w.insert_text(act, ctx)
                 } else {
                     Ok(None)
                 }
@@ -431,19 +418,6 @@ where
             CurrentFocus::Window => {
                 if let Some(w) = self.current_window_mut() {
                     w.selcursor_set(change, ctx)
-                } else {
-                    Ok(None)
-                }
-            },
-        }
-    }
-
-    fn paste(&mut self, dir: MoveDir1D, count: Count, ctx: &C) -> EditResult {
-        match self.focused {
-            CurrentFocus::Command => self.cmdbar.paste(dir, count, ctx),
-            CurrentFocus::Window => {
-                if let Some(w) = self.current_window_mut() {
-                    w.paste(dir, count, ctx)
                 } else {
                     Ok(None)
                 }

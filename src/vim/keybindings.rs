@@ -66,6 +66,7 @@ use crate::editing::base::{
     HistoryAction,
     IndentChange,
     InsertStyle,
+    InsertTextAction,
     MoveDir1D,
     MoveDir2D,
     MoveDirMod,
@@ -924,7 +925,9 @@ macro_rules! open_lines {
     ($dir: expr) => {
         isv!(
             vec![InternalAction::SetInsertStyle(InsertStyle::Insert)],
-            vec![ExternalAction::Something(Action::OpenLine($dir))],
+            vec![ExternalAction::Something(
+                InsertTextAction::OpenLine(TargetShape::LineWise, $dir).into()
+            )],
             VimMode::Insert
         )
     };
@@ -1003,12 +1006,21 @@ macro_rules! insert_visual {
     };
 }
 
+macro_rules! insert_text {
+    ($it: expr) => {
+        act!(Action::InsertText($it))
+    };
+    ($it: expr, $ns: expr) => {
+        act!(Action::InsertText($it), $ns)
+    };
+}
+
 macro_rules! chartype {
     () => {
-        act!(Action::Type(Specifier::Contextual))
+        insert_text!(InsertTextAction::Type(Specifier::Contextual, MoveDir1D::Previous))
     };
     ($c: expr) => {
-        act!(Action::Type(Specifier::Exact($c)))
+        insert_text!(InsertTextAction::Type(Specifier::Exact($c), MoveDir1D::Previous))
     };
 }
 
@@ -1442,8 +1454,8 @@ fn default_keys<P: Application>() -> Vec<(MappedModes, &'static str, InputStep<P
         ( NMAP, "K", act!(Action::KeywordLookup) ),
         ( NMAP, "o", open_lines!(MoveDir1D::Next) ),
         ( NMAP, "O", open_lines!(MoveDir1D::Previous) ),
-        ( NMAP, "p", act!(Action::Paste(MoveDir1D::Next, Count::Contextual)) ),
-        ( NMAP, "P", act!(Action::Paste(MoveDir1D::Previous, Count::Contextual)) ),
+        ( NMAP, "p", insert_text!(InsertTextAction::Paste(MoveDir1D::Next, Count::Contextual)) ),
+        ( NMAP, "P", insert_text!(InsertTextAction::Paste(MoveDir1D::Previous, Count::Contextual)) ),
         ( NMAP, "Q", unmapped!() ),
         ( NMAP, "r", charreplace!(false) ),
         ( NMAP, "R", insert!(InsertStyle::Replace) ),
@@ -1513,8 +1525,8 @@ fn default_keys<P: Application>() -> Vec<(MappedModes, &'static str, InputStep<P
         ( XMAP, "K", act!(Action::KeywordLookup) ),
         ( XMAP, "o", act!(Action::SelectionCursorSet(SelectionCursorChange::SwapAnchor(false))) ),
         ( XMAP, "O", act!(Action::SelectionCursorSet(SelectionCursorChange::SwapAnchor(true))) ),
-        ( XMAP, "p", act!(Action::Paste(MoveDir1D::Next, Count::Contextual), VimMode::Normal) ),
-        ( XMAP, "P", act!(Action::Paste(MoveDir1D::Previous, Count::Contextual), VimMode::Normal) ),
+        ( XMAP, "p", insert_text!(InsertTextAction::Paste(MoveDir1D::Next, Count::Contextual), VimMode::Normal) ),
+        ( XMAP, "P", insert_text!(InsertTextAction::Paste(MoveDir1D::Previous, Count::Contextual), VimMode::Normal) ),
         ( XMAP, "r", charreplace!(false, EditTarget::Selection) ),
         ( XMAP, "R", change_selection_lines!() ),
         ( XMAP, "S", change_selection_lines!() ),
@@ -1542,7 +1554,7 @@ fn default_keys<P: Application>() -> Vec<(MappedModes, &'static str, InputStep<P
         ( ICMAP, "<C-K>{digraph1}", iact!(InternalAction::SetCursorDigraph) ),
         ( ICMAP, "<C-K>{digraph1}{digraph2}", chartype!() ),
         ( ICMAP, "<C-R>", iact!(InternalAction::SetCursorChar('"')) ),
-        ( ICMAP, "<C-R>{register}", act!(Action::Paste(MoveDir1D::Previous, Count::Exact(1))) ),
+        ( ICMAP, "<C-R>{register}", insert_text!(InsertTextAction::Paste(MoveDir1D::Previous, Count::Exact(1))) ),
         ( ICMAP, "<C-R><C-C>", normal!() ),
         ( ICMAP, "<C-R><C-O>{register}", unmapped!() ),
         ( ICMAP, "<C-R><C-R>{register}", unmapped!() ),
@@ -1879,6 +1891,8 @@ mod tests {
     const BLOCK_SPLIT: Action = Action::SelectionSplitLines(TargetShapeFilter::BLOCK);
     const BLOCK_BEG: Action = Action::SelectionCursorSet(SelectionCursorChange::Beginning);
     const BLOCK_END: Action = Action::SelectionCursorSet(SelectionCursorChange::End);
+    const TYPE_CONTEXTUAL: Action =
+        Action::InsertText(InsertTextAction::Type(Specifier::Contextual, MoveDir1D::Previous));
 
     #[test]
     fn test_transitions_normal() {
@@ -2036,19 +2050,22 @@ mod tests {
         assert_eq!(vm.mode(), VimMode::Command);
 
         // Unmapped key types that character.
+        let it = InsertTextAction::Type(Char::Single(':').into(), MoveDir1D::Previous);
         ctx.persist.insert = Some(InsertStyle::Insert);
         vm.input_key(key!(':'));
-        assert_pop2!(vm, Action::Type(Char::Single(':').into()), ctx);
+        assert_pop2!(vm, Action::from(it), ctx);
         assert_eq!(vm.mode(), VimMode::Command);
 
         // Unmapped key types that character.
+        let it = InsertTextAction::Type(Char::Single('a').into(), MoveDir1D::Previous);
         vm.input_key(key!('a'));
-        assert_pop2!(vm, Action::Type(Char::Single('a').into()), ctx);
+        assert_pop2!(vm, Action::from(it), ctx);
         assert_eq!(vm.mode(), VimMode::Command);
 
         // Unmapped key types that character.
+        let it = InsertTextAction::Type(Char::Single('A').into(), MoveDir1D::Previous);
         vm.input_key(key!('A'));
-        assert_pop2!(vm, Action::Type(Char::Single('A').into()), ctx);
+        assert_pop2!(vm, Action::from(it), ctx);
         assert_eq!(vm.mode(), VimMode::Command);
 
         // Go back to Normal mode via Escape.
@@ -2066,9 +2083,10 @@ mod tests {
         assert_eq!(vm.mode(), VimMode::Command);
 
         // Unmapped key types that character.
+        let it = InsertTextAction::Type(Char::Single('1').into(), MoveDir1D::Previous);
         ctx.persist.insert = Some(InsertStyle::Insert);
         vm.input_key(key!('1'));
-        assert_pop2!(vm, Action::Type(Char::Single('1').into()), ctx);
+        assert_pop2!(vm, Action::from(it), ctx);
         assert_eq!(vm.mode(), VimMode::Command);
 
         // Go back to Normal mode via ^C.
@@ -2086,9 +2104,10 @@ mod tests {
         assert_eq!(vm.mode(), VimMode::Command);
 
         // Unmapped key types that character.
+        let it = InsertTextAction::Type(Char::Single('^').into(), MoveDir1D::Previous);
         ctx.persist.insert = Some(InsertStyle::Insert);
         vm.input_key(key!('^'));
-        assert_pop2!(vm, Action::Type(Char::Single('^').into()), ctx);
+        assert_pop2!(vm, Action::from(it), ctx);
         assert_eq!(vm.mode(), VimMode::Command);
 
         // Go back to Normal mode via ^C.
@@ -2278,16 +2297,18 @@ mod tests {
 
         ctx.persist.insert = Some(InsertStyle::Insert);
 
+        let it = InsertTextAction::Type(Char::Single('H').into(), MoveDir1D::Previous);
         vm.input_key(key!('H'));
         assert_pop1!(vm, Action::Edit(EditAction::Delete.into(), EditTarget::Selection), ctx);
-        assert_pop1!(vm, Action::Type(Char::Single('H').into()), ctx);
+        assert_pop1!(vm, Action::from(it), ctx);
 
         ctx.persist.shape = None;
         assert_pop2!(vm, CURRENT_POS, ctx);
         assert_eq!(vm.mode(), VimMode::Insert);
 
+        let it = InsertTextAction::Type(Char::Single('l').into(), MoveDir1D::Previous);
         vm.input_key(key!('l'));
-        assert_pop2!(vm, Action::Type(Char::Single('l').into()), ctx);
+        assert_pop2!(vm, Action::from(it), ctx);
         assert_eq!(vm.mode(), VimMode::Insert);
 
         // Back to Normal mode.
@@ -3443,24 +3464,29 @@ mod tests {
         assert_pop2!(vm, CURSOR_SPLIT, ctx);
         assert_eq!(vm.mode(), VimMode::Insert);
 
+        let it = InsertTextAction::Type(Char::Single('i').into(), MoveDir1D::Previous);
         vm.input_key(key!('i'));
-        assert_pop1!(vm, Action::Type(Char::Single('i').into()), ctx);
+        assert_pop1!(vm, Action::from(it), ctx);
         assert_eq!(vm.mode(), VimMode::Insert);
 
+        let it = InsertTextAction::Type(Char::Single('I').into(), MoveDir1D::Previous);
         vm.input_key(key!('I'));
-        assert_pop1!(vm, Action::Type(Char::Single('I').into()), ctx);
+        assert_pop1!(vm, Action::from(it), ctx);
         assert_eq!(vm.mode(), VimMode::Insert);
 
+        let it = InsertTextAction::Type(Char::Single('d').into(), MoveDir1D::Previous);
         vm.input_key(key!('d'));
-        assert_pop1!(vm, Action::Type(Char::Single('d').into()), ctx);
+        assert_pop1!(vm, Action::from(it), ctx);
         assert_eq!(vm.mode(), VimMode::Insert);
 
+        let it = InsertTextAction::Type(Char::Single('C').into(), MoveDir1D::Previous);
         vm.input_key(key!('C'));
-        assert_pop1!(vm, Action::Type(Char::Single('C').into()), ctx);
+        assert_pop1!(vm, Action::from(it), ctx);
         assert_eq!(vm.mode(), VimMode::Insert);
 
+        let it = InsertTextAction::Type(Char::Single('$').into(), MoveDir1D::Previous);
         vm.input_key(key!('$'));
-        assert_pop1!(vm, Action::Type(Char::Single('$').into()), ctx);
+        assert_pop1!(vm, Action::from(it), ctx);
         assert_eq!(vm.mode(), VimMode::Insert);
 
         // Type a digraph.
@@ -3474,7 +3500,7 @@ mod tests {
         ctx.action.digraph1 = Some('L');
         ctx.action.digraph2 = Some('i');
         vm.input_key(key!('i'));
-        assert_pop1!(vm, Action::Type(Specifier::Contextual), ctx);
+        assert_pop1!(vm, TYPE_CONTEXTUAL, ctx);
         assert_eq!(vm.mode(), VimMode::Insert);
 
         // Type a literal.
@@ -3486,7 +3512,7 @@ mod tests {
         ctx.action.digraph2 = None;
         ctx.action.any = Some(ctl!('g'));
         vm.input_key(ctl!('g'));
-        assert_pop1!(vm, Action::Type(Specifier::Contextual), ctx);
+        assert_pop1!(vm, TYPE_CONTEXTUAL, ctx);
         assert_eq!(vm.mode(), VimMode::Insert);
 
         // Type a codepoint.
@@ -3498,7 +3524,7 @@ mod tests {
         vm.input_key(key!('1'));
         vm.input_key(key!('4'));
         vm.input_key(key!('1'));
-        assert_pop1!(vm, Action::Type(Specifier::Contextual), ctx);
+        assert_pop1!(vm, TYPE_CONTEXTUAL, ctx);
         assert_eq!(vm.mode(), VimMode::Insert);
 
         ctx.action.cursor = None;
@@ -3510,8 +3536,9 @@ mod tests {
         assert_pop2!(vm, CURSOR_SPLIT, ctx);
         assert_eq!(vm.mode(), VimMode::Insert);
 
+        let it = InsertTextAction::Type(Char::Single('d').into(), MoveDir1D::Previous);
         vm.input_key(key!('d'));
-        assert_pop1!(vm, Action::Type(Char::Single('d').into()), ctx);
+        assert_pop1!(vm, Action::from(it), ctx);
         assert_eq!(vm.mode(), VimMode::Insert);
 
         let mov =
@@ -3528,13 +3555,14 @@ mod tests {
         assert_pop1!(vm, mov, ctx);
         assert_eq!(vm.mode(), VimMode::Insert);
 
+        let it = InsertTextAction::Paste(MoveDir1D::Previous, Count::Exact(1));
         ctx.action.cursor = Some('"');
         ctx.action.register = Some(Register::Named('z'));
         ctx.action.register_append = false;
         vm.input_key(ctl!('r'));
         assert_eq!(vm.pop(), None);
         vm.input_key(key!('z'));
-        assert_pop1!(vm, Action::Paste(MoveDir1D::Previous, Count::Exact(1)), ctx);
+        assert_pop1!(vm, Action::from(it), ctx);
         assert_eq!(vm.mode(), VimMode::Insert);
 
         // Pressing ^R^C should go back to Normal mode.
@@ -3779,7 +3807,7 @@ mod tests {
         ctx.action.cursor = Some('^');
         ctx.action.any = Some(key!(KeyCode::Esc));
         vm.input_key(key!(KeyCode::Esc));
-        assert_pop2!(vm, Action::Type(Specifier::Contextual), ctx);
+        assert_pop2!(vm, TYPE_CONTEXTUAL, ctx);
         assert_eq!(vm.mode(), VimMode::Insert);
         assert_eq!(vm.get_cursor_indicator(), None);
 
@@ -3792,14 +3820,15 @@ mod tests {
         vm.input_key(key!('1'));
         vm.input_key(key!('7'));
         vm.input_key(key!('7'));
-        assert_pop2!(vm, Action::Type(Specifier::Contextual), ctx);
+        assert_pop2!(vm, TYPE_CONTEXTUAL, ctx);
         assert_eq!(vm.mode(), VimMode::Insert);
 
         // Test that valid octal character types normally afterwards.
+        let it = InsertTextAction::Type(Char::Single('7').into(), MoveDir1D::Previous);
         ctx.action.cursor = None;
         ctx.action.oct = None;
         vm.input_key(key!('7'));
-        assert_pop2!(vm, Action::Type(Char::Single('7').into()), ctx);
+        assert_pop2!(vm, Action::from(it), ctx);
 
         // Test that typing in an incomplete octal sequence works.
         vm.input_key(ctl!('v'));
@@ -3809,11 +3838,12 @@ mod tests {
 
         ctx.action.cursor = Some('^');
         ctx.action.oct = Some(7);
-        assert_pop1!(vm, Action::Type(Specifier::Contextual), ctx);
+        assert_pop1!(vm, TYPE_CONTEXTUAL, ctx);
 
+        let it = InsertTextAction::Type(Char::Single('8').into(), MoveDir1D::Previous);
         ctx.action.cursor = None;
         ctx.action.oct = None;
-        assert_pop2!(vm, Action::Type(Char::Single('8').into()), ctx);
+        assert_pop2!(vm, Action::from(it), ctx);
         assert_eq!(vm.mode(), VimMode::Insert);
 
         // Test that typing in a decimal sequence works.
@@ -3825,11 +3855,12 @@ mod tests {
 
         ctx.action.cursor = Some('^');
         ctx.action.dec = Some(123);
-        assert_pop1!(vm, Action::Type(Specifier::Contextual), ctx);
+        assert_pop1!(vm, TYPE_CONTEXTUAL, ctx);
 
+        let it = InsertTextAction::Type(Char::Single('4').into(), MoveDir1D::Previous);
         ctx.action.cursor = None;
         ctx.action.dec = None;
-        assert_pop2!(vm, Action::Type(Char::Single('4').into()), ctx);
+        assert_pop2!(vm, Action::from(it), ctx);
         assert_eq!(vm.mode(), VimMode::Insert);
 
         // Test that typing in a hexadecimal sequence works.
@@ -3843,11 +3874,12 @@ mod tests {
 
         ctx.action.cursor = Some('^');
         ctx.action.hex = Some(9731);
-        assert_pop1!(vm, Action::Type(Specifier::Contextual), ctx);
+        assert_pop1!(vm, TYPE_CONTEXTUAL, ctx);
 
+        let it = InsertTextAction::Type(Char::Single('3').into(), MoveDir1D::Previous);
         ctx.action.cursor = None;
         ctx.action.hex = None;
-        assert_pop2!(vm, Action::Type(Char::Single('3').into()), ctx);
+        assert_pop2!(vm, Action::from(it), ctx);
         assert_eq!(vm.mode(), VimMode::Insert);
 
         // Test that typing in a full lowercase hexadecimal sequence works.
@@ -3865,11 +3897,12 @@ mod tests {
 
         ctx.action.cursor = Some('^');
         ctx.action.hex = Some(128862);
-        assert_pop1!(vm, Action::Type(Specifier::Contextual), ctx);
+        assert_pop1!(vm, TYPE_CONTEXTUAL, ctx);
 
+        let it = InsertTextAction::Type(Char::Single('a').into(), MoveDir1D::Previous);
         ctx.action.cursor = None;
         ctx.action.hex = None;
-        assert_pop2!(vm, Action::Type(Char::Single('a').into()), ctx);
+        assert_pop2!(vm, Action::from(it), ctx);
         assert_eq!(vm.mode(), VimMode::Insert);
 
         // Test that typing in an incomplete uppercase hexadecimal sequence works.
@@ -3884,11 +3917,12 @@ mod tests {
 
         ctx.action.cursor = Some('^');
         ctx.action.hex = Some(128109);
-        assert_pop1!(vm, Action::Type(Specifier::Contextual), ctx);
+        assert_pop1!(vm, TYPE_CONTEXTUAL, ctx);
 
+        let it = InsertTextAction::Type(Char::Single('G').into(), MoveDir1D::Previous);
         ctx.action.cursor = None;
         ctx.action.hex = None;
-        assert_pop2!(vm, Action::Type(Char::Single('G').into()), ctx);
+        assert_pop2!(vm, Action::from(it), ctx);
         assert_eq!(vm.mode(), VimMode::Insert);
     }
 

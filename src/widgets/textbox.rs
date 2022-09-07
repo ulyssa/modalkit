@@ -51,7 +51,6 @@ use tui::{
 use crate::editing::base::{
     Application,
     Axis,
-    Char,
     CloseFlags,
     Count,
     CursorAction,
@@ -60,8 +59,8 @@ use crate::editing::base::{
     EditResult,
     EditTarget,
     HistoryAction,
+    InsertTextAction,
     Mark,
-    MoveDir1D,
     MoveDir2D,
     MovePosition,
     ScrollSize,
@@ -430,12 +429,6 @@ where
         self.buffer.edit(operation, motion, &ctx)
     }
 
-    fn type_char(&mut self, ch: Char, ctx: &C) -> EditResult {
-        let ctx = (self.group_id, &self.viewctx, ctx);
-
-        self.buffer.type_char(ch, &ctx)
-    }
-
     fn selcursor_set(&mut self, change: &SelectionCursorChange, ctx: &C) -> EditResult {
         let ctx = (self.group_id, &self.viewctx, ctx);
 
@@ -448,22 +441,16 @@ where
         self.buffer.selection_split_lines(filter, &ctx)
     }
 
-    fn paste(&mut self, dir: MoveDir1D, count: Count, ctx: &C) -> EditResult {
-        let ctx = (self.group_id, &self.viewctx, ctx);
-
-        self.buffer.paste(dir, count, &ctx)
-    }
-
-    fn open_line(&mut self, dir: MoveDir1D, ctx: &C) -> EditResult {
-        let ctx = (self.group_id, &self.viewctx, ctx);
-
-        self.buffer.open_line(dir, &ctx)
-    }
-
     fn mark(&mut self, name: Mark, ctx: &C) -> EditResult {
         let ctx = (self.group_id, &self.viewctx, ctx);
 
         self.buffer.mark(name, &ctx)
+    }
+
+    fn insert_text(&mut self, act: InsertTextAction, ctx: &C) -> EditResult {
+        let ctx = (self.group_id, &self.viewctx, ctx);
+
+        self.buffer.insert_text(act, &ctx)
     }
 
     fn history_command(&mut self, act: HistoryAction, ctx: &C) -> EditResult {
@@ -920,7 +907,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::editing::base::MoveType;
+    use crate::editing::base::{MoveDir1D, MoveType};
     use crate::editing::store::Store;
     use crate::vim::VimContext;
 

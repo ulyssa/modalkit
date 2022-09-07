@@ -44,6 +44,7 @@ use super::base::{
     HistoryAction,
     IndentChange,
     InsertStyle,
+    InsertTextAction,
     Mark,
     MoveDir1D,
     MoveDirMod,
@@ -129,13 +130,21 @@ trait CursorActions<C> {
     fn cursor_close(&mut self, target: &CursorCloseTarget, ctx: &C) -> EditResult;
 }
 
+trait InsertTextActions<C> {
+    /// Open a new blank line before or after the cursor.
+    fn open_line(&mut self, shape: TargetShape, dir: MoveDir1D, ctx: &C) -> EditResult;
+
+    /// Paste text into the buffer.
+    fn paste(&mut self, dir: MoveDir1D, count: Count, ctx: &C) -> EditResult;
+
+    /// Enter a new character at the cursor position.
+    fn type_char(&mut self, ch: Char, dir: MoveDir1D, ctx: &C) -> EditResult;
+}
+
 /// An object capable of performing editing operations.
 pub trait Editable<C> {
     /// Perform an editing operation over the targeted text.
     fn edit(&mut self, action: &EditAction, target: &EditTarget, ctx: &C) -> EditResult;
-
-    /// Enter a new character at the cursor position.
-    fn type_char(&mut self, ch: Char, ctx: &C) -> EditResult;
 
     /// Move where the cursor is located in a selection.
     fn selcursor_set(&mut self, side: &SelectionCursorChange, ctx: &C) -> EditResult;
@@ -143,14 +152,11 @@ pub trait Editable<C> {
     /// Split a multiline selection into multiple single-line selections.
     fn selection_split_lines(&mut self, filter: TargetShapeFilter, ctx: &C) -> EditResult;
 
-    /// Paste text into the buffer.
-    fn paste(&mut self, dir: MoveDir1D, count: Count, ctx: &C) -> EditResult;
-
-    /// Open a new blank line before or after the cursor.
-    fn open_line(&mut self, dir: MoveDir1D, ctx: &C) -> EditResult;
-
     /// Create or update a cursor mark.
     fn mark(&mut self, name: Mark, ctx: &C) -> EditResult;
+
+    /// Insert text relative to the current cursor position.
+    fn insert_text(&mut self, act: InsertTextAction, ctx: &C) -> EditResult;
 
     /// Perform an action over a cursor group.
     fn cursor_command(&mut self, act: CursorAction, ctx: &C) -> EditResult;
@@ -1278,6 +1284,80 @@ where
     }
 }
 
+impl<'a, 'b, C, P> InsertTextActions<CursorGroupIdContext<'a, 'b, C>> for EditBuffer<C, P>
+where
+    C: EditContext,
+    P: Application,
+{
+    fn paste(
+        &mut self,
+        dir: MoveDir1D,
+        count: Count,
+        ctx: &CursorGroupIdContext<'a, 'b, C>,
+    ) -> EditResult {
+        let count = ctx.2.resolve(&count);
+        let style = ctx.2.get_insert_style();
+        let cell = self.get_register(&ctx.2.get_register());
+        let text = cell.value.repeat(cell.shape, count);
+
+        for member in self.get_group(ctx.0) {
+            let cursor = self.get_cursor(member);
+            let (mut cursor, adjs) = if let Some(style) = style {
+                self.text.insert(&cursor, dir, text.clone(), style)
+            } else {
+                self.text.paste(&cursor, dir, text.clone(), cell.shape)
+            };
+
+            // XXX: remove this and do it right in .paste()
+            self.clamp(&mut cursor, ctx);
+
+            self._adjust_all(adjs);
+            self.set_cursor(member, cursor);
+        }
+
+        Ok(None)
+    }
+
+    fn open_line(
+        &mut self,
+        shape: TargetShape,
+        dir: MoveDir1D,
+        ctx: &CursorGroupIdContext<'a, 'b, C>,
+    ) -> EditResult {
+        let text = EditRope::from("\n");
+
+        for member in self.get_group(ctx.0) {
+            let cursor = self.get_cursor(member);
+            let (mut cursor, adjs) = self.text.paste(&cursor, dir, text.clone(), shape);
+
+            self._adjust_all(adjs);
+            self.clamp(&mut cursor, ctx);
+            self.set_cursor(member, cursor);
+        }
+
+        Ok(None)
+    }
+
+    fn type_char(
+        &mut self,
+        ch: Char,
+        dir: MoveDir1D,
+        ctx: &CursorGroupIdContext<'a, 'b, C>,
+    ) -> EditResult {
+        let style = ctx.2.get_insert_style().unwrap_or(InsertStyle::Insert);
+
+        for (member, cursor) in self.get_group_cursors(ctx.0).into_iter().rev() {
+            let s = self._str(ch.clone(), &cursor)?;
+            let (cursor, adjs) = self.text.insert(&cursor, dir, EditRope::from(s.as_str()), style);
+
+            self._adjust_all(adjs);
+            self.set_cursor(member, cursor);
+        }
+
+        Ok(None)
+    }
+}
+
 impl<'a, 'b, C, P> Editable<CursorGroupIdContext<'a, 'b, C>> for EditBuffer<C, P>
 where
     C: EditContext,
@@ -1330,22 +1410,6 @@ where
                 self.clamp(&mut nc, ictx);
                 self.set_cursor(member, nc);
             }
-        }
-
-        Ok(None)
-    }
-
-    fn type_char(&mut self, ch: Char, ctx: &CursorGroupIdContext<'a, 'b, C>) -> EditResult {
-        let style = ctx.2.get_insert_style().unwrap_or(InsertStyle::Insert);
-
-        for (member, cursor) in self.get_group_cursors(ctx.0).into_iter().rev() {
-            let s = self._str(ch.clone(), &cursor)?;
-            let (cursor, adjs) =
-                self.text
-                    .insert(&cursor, MoveDir1D::Previous, EditRope::from(s.as_str()), style);
-
-            self._adjust_all(adjs);
-            self.set_cursor(member, cursor);
         }
 
         Ok(None)
@@ -1532,55 +1596,30 @@ where
         Ok(None)
     }
 
-    fn paste(
-        &mut self,
-        dir: MoveDir1D,
-        count: Count,
-        ctx: &CursorGroupIdContext<'a, 'b, C>,
-    ) -> EditResult {
-        let count = ctx.2.resolve(&count);
-        let style = ctx.2.get_insert_style();
-        let cell = self.get_register(&ctx.2.get_register());
-        let text = cell.value.repeat(cell.shape, count);
-
-        for member in self.get_group(ctx.0) {
-            let cursor = self.get_cursor(member);
-            let (mut cursor, adjs) = if let Some(style) = style {
-                self.text.insert(&cursor, dir, text.clone(), style)
-            } else {
-                self.text.paste(&cursor, dir, text.clone(), cell.shape)
-            };
-
-            // XXX: remove this and do it right in .paste()
-            self.clamp(&mut cursor, ctx);
-
-            self._adjust_all(adjs);
-            self.set_cursor(member, cursor);
-        }
-
-        Ok(None)
-    }
-
-    fn open_line(&mut self, dir: MoveDir1D, ctx: &CursorGroupIdContext<'a, 'b, C>) -> EditResult {
-        let text = EditRope::from("\n");
-
-        for member in self.get_group(ctx.0) {
-            let cursor = self.get_cursor(member);
-            let (cursor, adjs) = self.text.paste(&cursor, dir, text.clone(), TargetShape::LineWise);
-
-            self._adjust_all(adjs);
-            self.set_cursor(member, cursor);
-        }
-
-        Ok(None)
-    }
-
     fn mark(&mut self, name: Mark, ctx: &CursorGroupIdContext<'a, 'b, C>) -> EditResult {
         let leader = self.get_leader(ctx.0);
 
         self.set_mark(name, leader);
 
         Ok(None)
+    }
+
+    fn insert_text(
+        &mut self,
+        act: InsertTextAction,
+        ctx: &CursorGroupIdContext<'a, 'b, C>,
+    ) -> EditResult {
+        match act {
+            InsertTextAction::OpenLine(shape, dir) => self.open_line(shape, dir, ctx),
+            InsertTextAction::Paste(dir, count) => self.paste(dir, count, ctx),
+            InsertTextAction::Type(c, dir) => {
+                if let Some(c) = ctx.2.resolve(&c) {
+                    self.type_char(c, dir, &ctx)
+                } else {
+                    Ok(None)
+                }
+            },
+        }
     }
 
     fn cursor_command(
@@ -1618,11 +1657,7 @@ where
         motion: &EditTarget,
         ctx: &CursorGroupIdContext<'a, 'b, C>,
     ) -> EditResult {
-        self.try_write().unwrap().edit(operation, motion, ctx)
-    }
-
-    fn type_char(&mut self, ch: Char, ctx: &CursorGroupIdContext<'a, 'b, C>) -> EditResult {
-        self.try_write().unwrap().type_char(ch, ctx)
+        self.write().unwrap().edit(operation, motion, ctx)
     }
 
     fn selcursor_set(
@@ -1630,7 +1665,7 @@ where
         change: &SelectionCursorChange,
         ctx: &CursorGroupIdContext<'a, 'b, C>,
     ) -> EditResult {
-        self.try_write().unwrap().selcursor_set(change, ctx)
+        self.write().unwrap().selcursor_set(change, ctx)
     }
 
     fn selection_split_lines(
@@ -1638,24 +1673,19 @@ where
         filter: TargetShapeFilter,
         ctx: &CursorGroupIdContext<'a, 'b, C>,
     ) -> EditResult {
-        self.try_write().unwrap().selection_split_lines(filter, ctx)
-    }
-
-    fn paste(
-        &mut self,
-        dir: MoveDir1D,
-        count: Count,
-        ctx: &CursorGroupIdContext<'a, 'b, C>,
-    ) -> EditResult {
-        self.try_write().unwrap().paste(dir, count, ctx)
-    }
-
-    fn open_line(&mut self, dir: MoveDir1D, ctx: &CursorGroupIdContext<'a, 'b, C>) -> EditResult {
-        self.try_write().unwrap().open_line(dir, ctx)
+        self.write().unwrap().selection_split_lines(filter, ctx)
     }
 
     fn mark(&mut self, name: Mark, ctx: &CursorGroupIdContext<'a, 'b, C>) -> EditResult {
-        self.try_write().unwrap().mark(name, ctx)
+        self.write().unwrap().mark(name, ctx)
+    }
+
+    fn insert_text(
+        &mut self,
+        act: InsertTextAction,
+        ctx: &CursorGroupIdContext<'a, 'b, C>,
+    ) -> EditResult {
+        self.write().unwrap().insert_text(act, ctx)
     }
 
     fn cursor_command(
@@ -1663,7 +1693,7 @@ where
         act: CursorAction,
         ctx: &CursorGroupIdContext<'a, 'b, C>,
     ) -> EditResult {
-        self.try_write().unwrap().cursor_command(act, ctx)
+        self.write().unwrap().cursor_command(act, ctx)
     }
 
     fn history_command(
@@ -1671,7 +1701,7 @@ where
         act: HistoryAction,
         ctx: &CursorGroupIdContext<'a, 'b, C>,
     ) -> EditResult {
-        self.try_write().unwrap().history_command(act, ctx)
+        self.write().unwrap().history_command(act, ctx)
     }
 }
 
@@ -1716,6 +1746,12 @@ mod tests {
     macro_rules! edit {
         ($ebuf: expr, $act: expr, $target: expr, $ctx: expr) => {
             $ebuf.edit(&$act, &$target, $ctx).unwrap()
+        };
+    }
+
+    macro_rules! open_line {
+        ($ebuf: expr, $shape: expr, $dir: expr, $ctx: expr) => {
+            $ebuf.open_line($shape, $dir, $ctx).unwrap()
         };
     }
 
@@ -1767,7 +1803,11 @@ mod tests {
     macro_rules! type_char {
         ($ebuf: expr, $c: expr, $curid: expr, $vwctx: expr, $vctx: expr) => {
             $ebuf
-                .type_char(Char::Single($c).into(), ctx!($curid, $vwctx, $vctx))
+                .type_char(
+                    Char::Single($c).into(),
+                    MoveDir1D::Previous,
+                    ctx!($curid, $vwctx, $vctx),
+                )
                 .unwrap()
         };
     }
@@ -1775,7 +1815,11 @@ mod tests {
     macro_rules! type_digraph {
         ($ebuf: expr, $d1: expr, $d2: expr, $curid: expr, $vwctx: expr, $vctx: expr) => {
             $ebuf
-                .type_char(Char::Digraph($d1, $d2).into(), ctx!($curid, $vwctx, $vctx))
+                .type_char(
+                    Char::Digraph($d1, $d2).into(),
+                    MoveDir1D::Previous,
+                    ctx!($curid, $vwctx, $vctx),
+                )
                 .unwrap()
         };
     }
@@ -1783,7 +1827,11 @@ mod tests {
     macro_rules! type_copy_line {
         ($ebuf: expr, $dir: expr, $curid: expr, $vwctx: expr, $vctx: expr) => {
             $ebuf
-                .type_char(Char::CopyLine($dir).into(), ctx!($curid, $vwctx, $vctx))
+                .type_char(
+                    Char::CopyLine($dir).into(),
+                    MoveDir1D::Previous,
+                    ctx!($curid, $vwctx, $vctx),
+                )
                 .unwrap()
         };
     }
@@ -2224,7 +2272,8 @@ mod tests {
         assert_eq!(ebuf.get_text(), "abc\n_b3\n1234\n");
 
         // There are no more characters above the cursor to copy ("^Y").
-        let res = ebuf.type_char(Char::CopyLine(above), ctx!(curid, vwctx, vctx));
+        let res =
+            ebuf.type_char(Char::CopyLine(above), MoveDir1D::Previous, ctx!(curid, vwctx, vctx));
         assert!(res.is_err());
         assert_eq!(ebuf.get_leader(curid), Cursor::new(1, 3));
         assert_eq!(ebuf.get_text(), "abc\n_b3\n1234\n");
@@ -2235,7 +2284,8 @@ mod tests {
         assert_eq!(ebuf.get_text(), "abc\n_b34\n1234\n");
 
         // And now there's nothing below to copy ("^E").
-        let res = ebuf.type_char(Char::CopyLine(below), ctx!(curid, vwctx, vctx));
+        let res =
+            ebuf.type_char(Char::CopyLine(below), MoveDir1D::Previous, ctx!(curid, vwctx, vctx));
         assert!(res.is_err());
         assert_eq!(ebuf.get_leader(curid), Cursor::new(1, 4));
         assert_eq!(ebuf.get_text(), "abc\n_b34\n1234\n");
@@ -2370,6 +2420,40 @@ mod tests {
         );
         assert_eq!(get_named_reg!(ebuf, 'a'), cell!(LineWise, "world\na b \nhello world\n"));
         assert_eq!(get_reg!(ebuf, Register::Blackhole), cell!(CharWise, ""));
+    }
+
+    #[test]
+    fn test_open_line() {
+        let mut ebuf = mkbufstr("hello world\nhello world\n");
+        let curid = ebuf.create_group();
+        let vwctx = ViewportContext::default();
+        let mut vctx = VimContext::default();
+
+        // Start out at (0, 6).
+        ebuf.set_leader(curid, Cursor::new(0, 6));
+
+        // Insert newline before cursor.
+        open_line!(ebuf, TargetShape::CharWise, MoveDir1D::Previous, ctx!(curid, vwctx, vctx));
+        assert_eq!(ebuf.get_text(), "hello \nworld\nhello world\n");
+        assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 5));
+
+        // Move to (2, 6).
+        ebuf.set_leader(curid, Cursor::new(2, 6));
+
+        // If there's an InsertStyle, cursor is left on the newline.
+        vctx.persist.insert = Some(InsertStyle::Insert);
+        open_line!(ebuf, TargetShape::CharWise, MoveDir1D::Previous, ctx!(curid, vwctx, vctx));
+        assert_eq!(ebuf.get_text(), "hello \nworld\nhello \nworld\n");
+        assert_eq!(ebuf.get_leader(curid), Cursor::new(2, 6));
+
+        // Move to (1, 2).
+        ebuf.set_leader(curid, Cursor::new(1, 2));
+        vctx.persist.insert = None;
+
+        // Insert newline above this line.
+        open_line!(ebuf, TargetShape::LineWise, MoveDir1D::Previous, ctx!(curid, vwctx, vctx));
+        assert_eq!(ebuf.get_text(), "hello \n\nworld\nhello \nworld\n");
+        assert_eq!(ebuf.get_leader(curid), Cursor::new(1, 0));
     }
 
     #[test]

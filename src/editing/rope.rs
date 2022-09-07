@@ -1024,7 +1024,7 @@ impl EditRope {
                 return self._insert(cursor, 0, 1, text, style);
             },
             MoveDir1D::Next => {
-                return self._insert(cursor, 1, 1, text, style);
+                return self._insert(cursor, 1, 0, text, style);
             },
         }
     }
@@ -2176,6 +2176,39 @@ mod tests {
         assert_eq!(rope.offset_of_line(0), 0.into());
         assert_eq!(rope.offset_of_line(1), 6.into());
         assert_eq!(rope.offset_of_line(2), 12.into());
+    }
+
+    #[test]
+    fn test_rope_insert() {
+        let mut rope = EditRope::from("world");
+        let mut cursor = rope.first();
+        let style = InsertStyle::Insert;
+
+        cursor = rope.insert(&cursor, MoveDir1D::Previous, "h".into(), style).0;
+        assert_eq!(rope.to_string(), "hworld");
+        assert_eq!(cursor, Cursor::new(0, 1));
+
+        cursor = rope.insert(&cursor, MoveDir1D::Previous, "e".into(), style).0;
+        assert_eq!(rope.to_string(), "heworld");
+        assert_eq!(cursor, Cursor::new(0, 2));
+
+        cursor = rope.insert(&cursor, MoveDir1D::Previous, "l".into(), style).0;
+        assert_eq!(rope.to_string(), "helworld");
+        assert_eq!(cursor, Cursor::new(0, 3));
+
+        cursor = Cursor::new(0, 2);
+
+        cursor = rope.insert(&cursor, MoveDir1D::Next, " ".into(), style).0;
+        assert_eq!(rope.to_string(), "hel world");
+        assert_eq!(cursor, Cursor::new(0, 2));
+
+        cursor = rope.insert(&cursor, MoveDir1D::Next, "o".into(), style).0;
+        assert_eq!(rope.to_string(), "helo world");
+        assert_eq!(cursor, Cursor::new(0, 2));
+
+        cursor = rope.insert(&cursor, MoveDir1D::Next, "l".into(), style).0;
+        assert_eq!(rope.to_string(), "hello world");
+        assert_eq!(cursor, Cursor::new(0, 2));
     }
 
     #[test]

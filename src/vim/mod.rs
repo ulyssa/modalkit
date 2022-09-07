@@ -33,6 +33,7 @@ use crate::editing::base::{
     EditTarget,
     HistoryAction,
     InsertStyle,
+    InsertTextAction,
     Mark,
     MoveDir1D,
     MoveType,
@@ -244,16 +245,21 @@ impl<P: Application> ModeKeys<KeyEvent, Action<P>, VimContext<P>> for VimMode {
                     ctx.persist.insert = Some(InsertStyle::Insert);
 
                     let delete = Action::Edit(EditAction::Delete.into(), EditTarget::Selection);
-                    let typech = Action::Type(Char::Single(c).into());
 
-                    (vec![delete, typech], Some(VimMode::Insert))
+                    let ch = Char::Single(c).into();
+                    let it = InsertTextAction::Type(ch, MoveDir1D::Previous);
+
+                    (vec![delete, it.into()], Some(VimMode::Insert))
                 } else {
                     (vec![], None)
                 }
             },
             VimMode::Insert => {
                 if let Some(c) = get_char(ke) {
-                    (vec![Action::Type(Char::Single(c).into())], None)
+                    let ch = Char::Single(c).into();
+                    let it = InsertTextAction::Type(ch, MoveDir1D::Previous);
+
+                    (vec![it.into()], None)
                 } else {
                     (vec![], None)
                 }
@@ -266,7 +272,10 @@ impl<P: Application> ModeKeys<KeyEvent, Action<P>, VimContext<P>> for VimMode {
             },
             VimMode::Command => {
                 if let Some(c) = get_char(ke) {
-                    (vec![Action::Type(Char::Single(c).into())], None)
+                    let ch = Char::Single(c).into();
+                    let it = InsertTextAction::Type(ch, MoveDir1D::Previous);
+
+                    (vec![it.into()], None)
                 } else {
                     (vec![], None)
                 }
