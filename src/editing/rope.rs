@@ -2301,7 +2301,7 @@ impl CursorSearch<Cursor> for EditRope {
 mod tests {
     use super::*;
     use crate::editing::base::{EditAction, Wrappable};
-    use crate::vim::VimContext;
+    use crate::env::vim::VimContext;
 
     macro_rules! cmctx {
         ($vwctx: expr, $vctx: expr) => {

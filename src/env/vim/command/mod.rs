@@ -36,12 +36,19 @@ mod parse;
 
 pub use self::parse::CommandDescription;
 
+/// Result type for a processed command.
 pub type CommandResult<P, T = CommandStep<VimCommand<P>>> = Result<T, CommandError<VimCommand<P>>>;
+
+/// Handler for a mapped command.
 pub type CommandFunc<P> = fn(CommandDescription, &mut CommandContext<P>) -> CommandResult<P>;
 
+/// Description of a mapped Vim command.
 #[derive(Clone)]
 pub struct VimCommand<P: Application = ()> {
+    /// Aliases for this command.
     pub names: Vec<String>,
+
+    /// Function that handles command.
     pub f: CommandFunc<P>,
 }
 
@@ -68,9 +75,11 @@ impl<P: Application> Command for VimCommand<P> {
     }
 }
 
+/// Context object passed to each [CommandFunc].
 #[derive(Clone)]
 #[non_exhaustive]
 pub struct CommandContext<P: Application> {
+    /// Contextual information from user input.
     pub context: Box<VimContext<P>>,
 
     axis: Option<Axis>,
@@ -486,6 +495,7 @@ fn default_cmds<P: Application>() -> Vec<VimCommand<P>> {
     ]
 }
 
+/// Manage parsing and mapping Vim commands.
 pub type VimCommandMachine<P = ()> = CommandMachine<VimCommand<P>>;
 
 impl<P: Application> Default for VimCommandMachine<P> {
@@ -503,7 +513,6 @@ impl<P: Application> Default for VimCommandMachine<P> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::vim::VimContext;
 
     use crate::editing::base::Axis::{Horizontal, Vertical};
     use crate::editing::base::MoveDir1D::{Next, Previous};

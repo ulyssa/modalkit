@@ -1882,7 +1882,7 @@ mod tests {
     use crate::editing::base::TargetShape::{BlockWise, CharWise, LineWise};
     use crate::editing::base::{MovePosition, MoveType, RangeType, Specifier, WordStyle};
     use crate::editing::store::Store;
-    use crate::vim::VimContext;
+    use crate::env::vim::VimContext;
 
     macro_rules! mv {
         ($mt: expr) => {

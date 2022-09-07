@@ -41,22 +41,38 @@ impl CommandArgumentType {
     }
 }
 
+/// Argument text following a command name.
 #[derive(Debug, Eq, PartialEq)]
 pub struct CommandArgument {
+    /// Original text of the command argument.
     pub untrimmed: String,
+
+    /// Argument to the command with leading spaces stripped.
     pub text: String,
 }
 
+/// Result of parsing command text.
 #[derive(Debug, Eq, PartialEq)]
 #[non_exhaustive]
 pub struct CommandDescription {
+    /// An optionally specified range of lines before the command.
+    ///
+    /// Some Vim commands use this as a way not to specify lines, but to instead provide an integer
+    /// argument (e.g., `3q` to quit window 3).
     pub range: Option<RangeSpec>,
+
+    /// Name by which the command was invoked.
     pub command: String,
+
+    /// Whether the command name was followed by a `!` (bang).
     pub bang: bool,
+
+    /// Argument text to the command.
     pub arg: CommandArgument,
 }
 
 impl CommandArgument {
+    /// Interpret the argument text as a collection of filenames.
     pub fn filenames(&self) -> Vec<String> {
         let (_, args) = parse_arguments(self.text.as_str()).expect("invalid arguments");
 

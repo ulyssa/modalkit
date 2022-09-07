@@ -9,9 +9,9 @@
 //!
 //! ```no_run
 //! use modalkit::{
+//!     env::vim::keybindings::{VimBindings, VimMachine},
 //!     input::bindings::InputBindings,
 //!     readline::ReadLine,
-//!     vim::keybindings::{VimBindings, VimMachine},
 //! };
 //!
 //! use crossterm::event::KeyEvent;

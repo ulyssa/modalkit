@@ -8,8 +8,8 @@
 //! ## Example
 //!
 //! ```
-//! use modalkit::vim::VimMode;
-//! use modalkit::vim::keybindings::VimMachine;
+//! use modalkit::env::vim::VimMode;
+//! use modalkit::env::vim::keybindings::VimMachine;
 //!
 //! use modalkit::editing::base::{Count, Resolve};
 //! use modalkit::editing::base::{Action, EditAction, EditTarget, HistoryAction, RangeType};
@@ -92,7 +92,11 @@ use crate::editing::base::{
     WordStyle,
 };
 
-use super::{keyparse::parse, VimContext, VimKeyClass, VimMode};
+use super::{
+    super::{keyparse::parse, CommonKeyClass},
+    VimContext,
+    VimMode,
+};
 
 use crate::input::bindings::{InputBindings, ModalMachine, Step};
 
@@ -319,6 +323,7 @@ impl<P: Application> ExternalAction<P> {
     }
 }
 
+/// Description of actions to take after an input sequence.
 #[derive(Clone, Debug)]
 pub struct InputStep<P: Application> {
     internal: Vec<InternalAction<P>>,
@@ -328,6 +333,7 @@ pub struct InputStep<P: Application> {
 }
 
 impl<P: Application> InputStep<P> {
+    /// Create a new step that input keys can map to.
     pub fn new() -> Self {
         InputStep {
             internal: vec![],
@@ -337,6 +343,7 @@ impl<P: Application> InputStep<P> {
         }
     }
 
+    /// Set the [actions](Action) that this step produces.
     pub fn actions(mut self, acts: Vec<Action<P>>) -> Self {
         self.external = acts.into_iter().map(ExternalAction::Something).collect();
         self
@@ -346,7 +353,7 @@ impl<P: Application> InputStep<P> {
 impl<P: Application> Step<KeyEvent> for InputStep<P> {
     type A = Action<P>;
     type C = VimContext<P>;
-    type Class = VimKeyClass;
+    type Class = CommonKeyClass;
     type M = VimMode;
 
     fn is_unmapped(&self) -> bool {
@@ -467,12 +474,6 @@ macro_rules! is {
     };
 }
 
-macro_rules! goto {
-    ($mode: expr) => {
-        isv!(vec![], vec![], $mode)
-    };
-}
-
 macro_rules! fallthrough {
     ($mode: expr) => {
         InputStep {
@@ -497,21 +498,6 @@ macro_rules! fallthrough {
 macro_rules! jump {
     ($l: expr, $d: expr) => {
         act!(Action::Jump($l, $d, Count::Contextual))
-    };
-}
-
-macro_rules! scroll {
-    ($style: expr) => {
-        act!(Action::Scroll($style))
-    };
-}
-
-macro_rules! scroll2d {
-    ($d: expr, $t: expr) => {
-        scroll!(ScrollStyle::Direction2D($d, $t, Count::Contextual))
-    };
-    ($d: expr, $t: expr, $c: expr) => {
-        scroll!(ScrollStyle::Direction2D($d, $t, $c))
     };
 }
 
@@ -543,12 +529,6 @@ macro_rules! scrollcph {
     };
 }
 
-macro_rules! unmapped {
-    () => {
-        isv!()
-    };
-}
-
 macro_rules! edit_target_shaped {
     ($ea: expr, $f: expr, $shape: expr, $et: expr, $mode: expr) => {
         isv!(
@@ -571,39 +551,6 @@ macro_rules! edit_target_shaped {
                 $et
             ))]
         )
-    };
-}
-
-macro_rules! edit_target {
-    ($ea: expr, $et: expr, $mode: expr) => {
-        act!(Action::Edit(Specifier::Exact($ea), $et), $mode)
-    };
-    ($ea: expr, $et: expr) => {
-        act!(Action::Edit(Specifier::Exact($ea), $et))
-    };
-}
-
-macro_rules! edit_range {
-    ($ea: expr, $rt: expr, $c: expr, $mode: expr) => {
-        edit_target!($ea, EditTarget::Range($rt, $c), $mode)
-    };
-    ($ea: expr, $rt: expr, $c: expr) => {
-        edit_target!($ea, EditTarget::Range($rt, Count::Exact($c)))
-    };
-    ($ea: expr, $rt: expr) => {
-        edit_target!($ea, EditTarget::Range($rt, Count::Contextual))
-    };
-}
-
-macro_rules! edit {
-    ($ea: expr, $mt: expr, $c: expr, $mode: expr) => {
-        edit_target!($ea, EditTarget::Motion($mt, $c), $mode)
-    };
-    ($ea: expr, $mt: expr, $c: expr) => {
-        edit_target!($ea, EditTarget::Motion($mt, Count::Exact($c)))
-    };
-    ($ea: expr, $mt: expr) => {
-        edit_target!($ea, EditTarget::Motion($mt, Count::Contextual))
     };
 }
 
@@ -736,15 +683,6 @@ macro_rules! charreplace_suffix {
             vec![ExternalAction::PostAction],
             VimMode::Normal
         )
-    };
-}
-
-macro_rules! selection {
-    ($ea: expr) => {
-        act!(Action::Selection($ea))
-    };
-    ($ea: expr, $ns: expr) => {
-        act!(Action::Selection($ea), $ns)
     };
 }
 
@@ -1047,24 +985,6 @@ macro_rules! insert_visual {
     };
 }
 
-macro_rules! insert_text {
-    ($it: expr) => {
-        act!(Action::InsertText($it))
-    };
-    ($it: expr, $ns: expr) => {
-        act!(Action::InsertText($it), $ns)
-    };
-}
-
-macro_rules! chartype {
-    () => {
-        insert_text!(InsertTextAction::Type(Specifier::Contextual, MoveDir1D::Previous))
-    };
-    ($c: expr) => {
-        insert_text!(InsertTextAction::Type(Specifier::Exact($c), MoveDir1D::Previous))
-    };
-}
-
 macro_rules! shape {
     ($shape: expr) => {
         iact!(InternalAction::SetTargetShape(TargetShapeFilter::ALL, $shape))
@@ -1093,12 +1013,6 @@ macro_rules! visual {
 macro_rules! select {
     ($shape: expr) => {
         start_selection!($shape, VimMode::Select)
-    };
-}
-
-macro_rules! history {
-    ($act: expr) => {
-        act!(Action::History($act), VimMode::Normal)
     };
 }
 
@@ -1196,24 +1110,6 @@ macro_rules! window_split {
             )],
             VimMode::Normal
         )
-    };
-}
-
-macro_rules! cmdbar {
-    ($type: expr) => {
-        act!(Action::CommandBar($type))
-    };
-    ($type: expr, $ns: expr) => {
-        act!(Action::CommandBar($type), $ns)
-    };
-}
-
-macro_rules! command {
-    ($type: expr) => {
-        act!(Action::Command($type))
-    };
-    ($type: expr, $ns: expr) => {
-        act!(Action::Command($type), $ns)
     };
 }
 
@@ -1841,6 +1737,7 @@ fn add_mapping<P: Application>(
     }
 }
 
+/// A configurable collection of Vim bindings that can be added to a [ModalMachine].
 #[derive(Debug)]
 pub struct VimBindings<P: Application> {
     prefixes: Vec<(MappedModes, &'static str, Option<InputStep<P>>)>,
@@ -1895,6 +1792,7 @@ impl<P: Application> InputBindings<KeyEvent, InputStep<P>> for VimBindings<P> {
     }
 }
 
+/// Manage Vim keybindings and modes.
 pub type VimMachine<Key, T = ()> = ModalMachine<Key, InputStep<T>>;
 
 impl<P: Application> Default for VimMachine<KeyEvent, P> {

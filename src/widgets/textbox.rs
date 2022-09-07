@@ -16,7 +16,7 @@
 //! ```
 //! use modalkit::{
 //!     editing::store::{SharedStore, Store},
-//!     vim::VimContext,
+//!     env::vim::VimContext,
 //!     widgets::textbox::TextBoxState,
 //! };
 //!
@@ -908,7 +908,7 @@ mod tests {
     use super::*;
     use crate::editing::base::{MoveDir1D, MoveType};
     use crate::editing::store::Store;
-    use crate::vim::VimContext;
+    use crate::env::vim::VimContext;
 
     macro_rules! mv {
         ($mt: expr) => {

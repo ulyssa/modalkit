@@ -824,7 +824,7 @@ pub enum WindowAction {
 ///
 /// Implementors of this trait can be used with [Action::Application]. This can then be used to
 /// create additional keybindings and commands on top of the defaults provided by modules like
-/// [modalkit::vim](crate::vim).
+/// [modalkit::env::vim](crate::env::vim).
 pub trait ApplicationAction: Clone + Debug + Eq + PartialEq {}
 
 impl ApplicationAction for () {}

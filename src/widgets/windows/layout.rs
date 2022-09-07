@@ -1406,7 +1406,7 @@ impl<W: Window> StatefulWidget for WindowLayout<W> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::vim::VimContext;
+    use crate::env::vim::VimContext;
     use crate::widgets::TerminalCursor;
     use rand::Rng;
 

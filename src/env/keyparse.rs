@@ -5,13 +5,13 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use nom::{
     branch::alt,
     bytes::complete::tag,
-    character::complete::{anychar, char, digit1, satisfy},
+    character::complete::{anychar, char, digit1},
     combinator::{eof, map_res, opt, value},
     multi::{many0, many1},
     IResult,
 };
 
-use super::{VimEdgeEvent, VimEdgePath, VimEdgePathPart, VimKeyClass};
+use super::{CommonEdgeEvent, CommonEdgePath, CommonEdgePathPart, CommonKeyClass};
 
 use crate::input::bindings::{EdgeEvent, EdgeRepeat};
 
@@ -184,32 +184,25 @@ fn parse_function(input: &str) -> IResult<&str, KeyCode> {
     Ok((input, KeyCode::F(n)))
 }
 
-fn parse_control(input: &str) -> IResult<&str, KeyCode> {
-    let (input, c) = alt((
-        char('@'),
-        satisfy(|c| c.is_ascii_alphanumeric()),
-        char('['),
-        char('\\'),
-        char(']'),
-        char('^'),
-        char('_'),
-        char('?'),
-    ))(input)?;
+fn parse_anychar(input: &str) -> IResult<&str, KeyCode> {
+    let (input, c) = anychar(input)?;
 
     Ok((input, KeyCode::Char(c)))
 }
 
-fn parse_special(input: &str) -> IResult<&str, VimEdgePathPart> {
+fn parse_special(input: &str) -> IResult<&str, CommonEdgePathPart> {
     let (input, _) = char('<')(input)?;
     let (input, m) = many0(parse_modifier)(input)?;
-    let (input, mut k) = alt((parse_keyname, parse_function, parse_control))(input)?;
+    let (input, mut k) = alt((parse_keyname, parse_function, parse_anychar))(input)?;
     let (input, _) = char('>')(input)?;
 
     let mut m = m.into_iter().fold(KeyModifiers::NONE, BitOr::bitor);
     let rep = EdgeRepeat::Once;
 
     if let KeyCode::Char(c) = k {
-        if m == KeyModifiers::CONTROL {
+        if m.contains(KeyModifiers::CONTROL) {
+            m -= KeyModifiers::SHIFT;
+
             let k = match c.to_ascii_lowercase() {
                 'i' => key!(KeyCode::Tab),
                 'j' => key!(KeyCode::Char('\n')),
@@ -252,11 +245,11 @@ fn parse_special(input: &str) -> IResult<&str, VimEdgePathPart> {
     return Ok((input, ret));
 }
 
-fn parse_count(input: &str) -> IResult<&str, VimEdgePathPart> {
+fn parse_count(input: &str) -> IResult<&str, CommonEdgePathPart> {
     let (input, _) = tag("{count}")(input)?;
 
     let rep = EdgeRepeat::Min(1);
-    let evt = EdgeEvent::Class(VimKeyClass::Count);
+    let evt = EdgeEvent::Class(CommonKeyClass::Count);
 
     Ok((input, (rep, evt)))
 }
@@ -284,17 +277,17 @@ fn parse_repetition(input: &str) -> IResult<&str, EdgeRepeat> {
     ))(input)
 }
 
-fn parse_edgename(input: &str) -> IResult<&str, VimEdgePathPart> {
+fn parse_edgename(input: &str) -> IResult<&str, CommonEdgePathPart> {
     let (input, _) = char('{')(input)?;
     let (input, e) = alt((
         value(EdgeEvent::Any, tag("any")),
-        value(EdgeEvent::Class(VimKeyClass::Register), tag("register")),
-        value(EdgeEvent::Class(VimKeyClass::Mark), tag("mark")),
-        value(EdgeEvent::Class(VimKeyClass::Octal), tag("oct")),
-        value(EdgeEvent::Class(VimKeyClass::Decimal), tag("dec")),
-        value(EdgeEvent::Class(VimKeyClass::Hexadecimal), tag("hex")),
-        value(EdgeEvent::Class(VimKeyClass::Digraph1), tag("digraph1")),
-        value(EdgeEvent::Class(VimKeyClass::Digraph2), tag("digraph2")),
+        value(EdgeEvent::Class(CommonKeyClass::Register), tag("register")),
+        value(EdgeEvent::Class(CommonKeyClass::Mark), tag("mark")),
+        value(EdgeEvent::Class(CommonKeyClass::Octal), tag("oct")),
+        value(EdgeEvent::Class(CommonKeyClass::Decimal), tag("dec")),
+        value(EdgeEvent::Class(CommonKeyClass::Hexadecimal), tag("hex")),
+        value(EdgeEvent::Class(CommonKeyClass::Digraph1), tag("digraph1")),
+        value(EdgeEvent::Class(CommonKeyClass::Digraph2), tag("digraph2")),
     ))(input)?;
     let (input, rep) = opt(parse_repetition)(input)?;
     let (input, _) = char('}')(input)?;
@@ -304,7 +297,7 @@ fn parse_edgename(input: &str) -> IResult<&str, VimEdgePathPart> {
     Ok((input, (rep, e)))
 }
 
-fn parse_key_simple(input: &str) -> IResult<&str, VimEdgePathPart> {
+fn parse_key_simple(input: &str) -> IResult<&str, CommonEdgePathPart> {
     let (input, c) = anychar(input)?;
     let kc = KeyCode::Char(c);
     let km = if c.is_ascii_uppercase() {
@@ -319,11 +312,11 @@ fn parse_key_simple(input: &str) -> IResult<&str, VimEdgePathPart> {
     Ok((input, (rep, key)))
 }
 
-fn parse_key(input: &str) -> IResult<&str, (EdgeRepeat, VimEdgeEvent)> {
+fn parse_key(input: &str) -> IResult<&str, (EdgeRepeat, CommonEdgeEvent)> {
     alt((parse_special, parse_count, parse_edgename, parse_key_simple))(input)
 }
 
-pub fn parse(input: &str) -> IResult<&str, VimEdgePath> {
+pub fn parse(input: &str) -> IResult<&str, CommonEdgePath> {
     let (input, res) = many1(parse_key)(input)?;
     let (input, _) = eof(input)?;
 
@@ -349,6 +342,12 @@ mod tests {
         };
     }
 
+    macro_rules! evalt {
+        ($c: literal) => {
+            once!(EdgeEvent::Key(key!($c, KeyModifiers::ALT)))
+        };
+    }
+
     macro_rules! evctl {
         ($c: literal) => {
             once!(EdgeEvent::Key(ctl!($c)))
@@ -363,7 +362,7 @@ mod tests {
 
     macro_rules! count {
         () => {
-            (EdgeRepeat::Min(1), EdgeEvent::Class(VimKeyClass::Count))
+            (EdgeRepeat::Min(1), EdgeEvent::Class(CommonKeyClass::Count))
         };
     }
 
@@ -508,22 +507,35 @@ mod tests {
     fn test_edges() {
         assert_eq!(parse("{any}"), res![once!(EdgeEvent::Any)]);
         assert_eq!(parse("{count}"), res![count!()]);
-        assert_eq!(parse("{mark}"), res![evclass!(VimKeyClass::Mark)]);
-        assert_eq!(parse("{register}"), res![evclass!(VimKeyClass::Register)]);
-        assert_eq!(parse("{digraph1}"), res![evclass!(VimKeyClass::Digraph1)]);
-        assert_eq!(parse("{digraph2}"), res![evclass!(VimKeyClass::Digraph2)]);
+        assert_eq!(parse("{mark}"), res![evclass!(CommonKeyClass::Mark)]);
+        assert_eq!(parse("{register}"), res![evclass!(CommonKeyClass::Register)]);
+        assert_eq!(parse("{digraph1}"), res![evclass!(CommonKeyClass::Digraph1)]);
+        assert_eq!(parse("{digraph2}"), res![evclass!(CommonKeyClass::Digraph2)]);
     }
 
     #[test]
     fn test_sequence() {
-        assert_eq!(parse("\"{register}"), res![evkey!('"'), evclass!(VimKeyClass::Register)]);
-        assert_eq!(parse("<C-R>{register}"), res![evctl!('r'), evclass!(VimKeyClass::Register)]);
+        assert_eq!(parse("\"{register}"), res![evkey!('"'), evclass!(CommonKeyClass::Register)]);
+        assert_eq!(parse("<C-R>{register}"), res![evctl!('r'), evclass!(CommonKeyClass::Register)]);
         assert_eq!(parse("r{any}"), res![evkey!('r'), once!(EdgeEvent::Any)]);
         assert_eq!(parse("gwgw"), res![evkey!('g'), evkey!('w'), evkey!('g'), evkey!('w')]);
         assert_eq!(parse("<C-K>{digraph1}{digraph2}"), res![
             evctl!('k'),
-            evclass!(VimKeyClass::Digraph1),
-            evclass!(VimKeyClass::Digraph2)
+            evclass!(CommonKeyClass::Digraph1),
+            evclass!(CommonKeyClass::Digraph2)
         ]);
+    }
+
+    #[test]
+    fn test_multiple_modifiers() {
+        assert_eq!(parse("<C-M-X>"), res![evkey!('x', KeyModifiers::CONTROL | KeyModifiers::ALT)]);
+    }
+
+    #[test]
+    fn test_angle_bracket() {
+        assert_eq!(parse("<C-X>>"), res![evctl!('x'), evkey!('>')]);
+        assert_eq!(parse("<C-X><"), res![evctl!('x'), evkey!('<')]);
+        assert_eq!(parse("<M->>"), res![evalt!('>')]);
+        assert_eq!(parse("<M-<>"), res![evalt!('<')]);
     }
 }

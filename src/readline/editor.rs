@@ -463,7 +463,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{editing::store::Store, vim::VimContext};
+    use crate::{editing::store::Store, env::vim::VimContext};
 
     fn mked() -> Editor<VimContext, ()> {
         let store = Store::new();

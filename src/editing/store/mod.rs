@@ -11,7 +11,7 @@
 //! ```
 //! use modalkit::{
 //!     editing::store::{SharedStore, Store},
-//!     vim::VimContext,
+//!     env::vim::VimContext,
 //! };
 //!
 //! fn main() {

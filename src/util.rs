@@ -14,6 +14,9 @@ macro_rules! key {
     ($kc: expr) => {
         KeyEvent { code: $kc, modifiers: KeyModifiers::NONE }
     };
+    ($kc: literal, $km: expr) => {
+        KeyEvent { code: KeyCode::Char($kc), modifiers: $km }
+    };
     ($kc: expr, $km: expr) => {
         KeyEvent { code: $kc, modifiers: $km }
     };

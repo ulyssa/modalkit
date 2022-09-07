@@ -9,15 +9,7 @@ use crossterm::event::KeyEvent;
 use regex::Regex;
 
 use crate::{
-    input::bindings::{
-        EdgeEvent,
-        EdgePath,
-        EdgePathPart,
-        InputKeyClass,
-        InputKeyContext,
-        Mode,
-        ModeKeys,
-    },
+    input::bindings::{EdgeEvent, InputKeyContext, Mode, ModeKeys},
     input::InputContext,
 };
 
@@ -51,9 +43,10 @@ use crate::util::{
     option_muladd_usize,
 };
 
+use super::CommonKeyClass;
+
 pub mod command;
 pub mod keybindings;
-mod keyparse;
 
 /// Vim's input modes
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -93,7 +86,7 @@ impl Default for VimMode {
 }
 
 impl<P: Application> Mode<Action<P>, VimContext<P>> for VimMode {
-    fn enter(&self, prev: VimMode, ctx: &mut VimContext<P>) -> Vec<Action<P>> {
+    fn enter(&self, prev: Self, ctx: &mut VimContext<P>) -> Vec<Action<P>> {
         match self {
             VimMode::Normal => {
                 ctx.persist.shape = None;
@@ -291,59 +284,6 @@ impl<P: Application> ModeKeys<KeyEvent, Action<P>, VimContext<P>> for VimMode {
     }
 }
 
-pub(crate) type VimEdgeEvent = EdgeEvent<KeyEvent, VimKeyClass>;
-pub(crate) type VimEdgePathPart = EdgePathPart<KeyEvent, VimKeyClass>;
-pub(crate) type VimEdgePath = EdgePath<KeyEvent, VimKeyClass>;
-
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-pub enum VimKeyClass {
-    Count,
-    Register,
-    Mark,
-    Octal,
-    Decimal,
-    Hexadecimal,
-    Digraph1,
-    Digraph2,
-}
-
-impl InputKeyClass<KeyEvent> for VimKeyClass {
-    fn memberships(ke: &KeyEvent) -> Vec<Self> {
-        let mut classes = Vec::new();
-
-        if let Some(c) = get_char(ke) {
-            if let '0'..='9' = c {
-                classes.push(VimKeyClass::Count);
-            }
-
-            if is_register_char(c) {
-                classes.push(VimKeyClass::Register);
-            }
-
-            if is_mark_char(c) {
-                classes.push(VimKeyClass::Mark);
-            }
-
-            if let '0'..='7' = c {
-                classes.push(VimKeyClass::Octal);
-            }
-
-            if let '0'..='9' = c {
-                classes.push(VimKeyClass::Decimal);
-            }
-
-            if let '0'..='9' | 'a'..='f' | 'A'..='F' = c {
-                classes.push(VimKeyClass::Hexadecimal);
-            }
-
-            classes.push(VimKeyClass::Digraph1);
-            classes.push(VimKeyClass::Digraph2);
-        }
-
-        return classes;
-    }
-}
-
 /// This is the context specific to an action, and gets reset every time a full sequence of
 /// keybindings is pressed.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -404,7 +344,7 @@ impl<P: Application> InputContext for VimContext<P> {
     }
 
     fn take(&mut self) -> Self {
-        VimContext {
+        Self {
             persist: self.persist.clone(),
             action: std::mem::take(&mut self.action),
         }
@@ -456,8 +396,8 @@ impl<P: Application> VimContext<P> {
     }
 }
 
-impl<P: Application> InputKeyContext<KeyEvent, VimKeyClass> for VimContext<P> {
-    fn event(&mut self, ev: &EdgeEvent<KeyEvent, VimKeyClass>, ke: &KeyEvent) {
+impl<P: Application> InputKeyContext<KeyEvent, CommonKeyClass> for VimContext<P> {
+    fn event(&mut self, ev: &EdgeEvent<KeyEvent, CommonKeyClass>, ke: &KeyEvent) {
         match ev {
             EdgeEvent::Key(_) | EdgeEvent::Fallthrough => {
                 // Do nothing.
@@ -465,50 +405,50 @@ impl<P: Application> InputKeyContext<KeyEvent, VimKeyClass> for VimContext<P> {
             EdgeEvent::Any => {
                 self.action.any = Some(ke.clone());
             },
-            EdgeEvent::Class(VimKeyClass::Count) => {
+            EdgeEvent::Class(CommonKeyClass::Count) => {
                 if let Some(n) = keycode_to_num(ke, 10) {
                     let new = option_muladd_usize(&self.action.counting, 10, n as usize);
 
                     self.action.counting = Some(new);
                 }
             },
-            EdgeEvent::Class(VimKeyClass::Octal) => {
+            EdgeEvent::Class(CommonKeyClass::Octal) => {
                 if let Some(n) = keycode_to_num(ke, 8) {
                     let new = option_muladd_u32(&self.action.oct, 8, n);
 
                     self.action.oct = Some(new);
                 }
             },
-            EdgeEvent::Class(VimKeyClass::Decimal) => {
+            EdgeEvent::Class(CommonKeyClass::Decimal) => {
                 if let Some(n) = keycode_to_num(ke, 10) {
                     let new = option_muladd_u32(&self.action.dec, 10, n);
 
                     self.action.dec = Some(new);
                 }
             },
-            EdgeEvent::Class(VimKeyClass::Hexadecimal) => {
+            EdgeEvent::Class(CommonKeyClass::Hexadecimal) => {
                 if let Some(n) = keycode_to_num(ke, 16) {
                     let new = option_muladd_u32(&self.action.hex, 16, n);
 
                     self.action.hex = Some(new);
                 }
             },
-            EdgeEvent::Class(VimKeyClass::Digraph1) => {
+            EdgeEvent::Class(CommonKeyClass::Digraph1) => {
                 if let Some(c) = get_char(ke) {
                     self.action.digraph1 = Some(c);
                 }
             },
-            EdgeEvent::Class(VimKeyClass::Digraph2) => {
+            EdgeEvent::Class(CommonKeyClass::Digraph2) => {
                 if let Some(c) = get_char(ke) {
                     self.action.digraph2 = Some(c);
                 }
             },
-            EdgeEvent::Class(VimKeyClass::Mark) => {
+            EdgeEvent::Class(CommonKeyClass::Mark) => {
                 if let Some(c) = get_char(ke) {
                     self.action.mark = char_to_mark(c);
                 }
             },
-            EdgeEvent::Class(VimKeyClass::Register) => {
+            EdgeEvent::Class(CommonKeyClass::Register) => {
                 if let Some((reg, append)) = key_to_register(ke) {
                     self.action.register = Some(reg);
                     self.action.register_append = append;
@@ -722,43 +662,6 @@ fn char_to_mark(c: char) -> Option<Mark> {
     };
 
     return Some(m);
-}
-
-#[inline]
-fn is_register_char(c: char) -> bool {
-    match c {
-        'a'..='z' => true,
-        'A'..='Z' => true,
-        '0'..='9' => true,
-        '"' => true,
-        '-' => true,
-        '#' => true,
-        '_' => true,
-        '%' => true,
-        ':' => true,
-        '.' => true,
-        '/' => true,
-        '*' => true,
-        '+' => true,
-        _ => false,
-    }
-}
-
-#[inline]
-fn is_mark_char(c: char) -> bool {
-    match c {
-        'a'..='z' => true,
-        'A'..='Z' => true,
-        '0'..='9' => true,
-        '\'' | '`' => true,
-        '<' | '>' => true,
-        '[' | ']' => true,
-        '"' => true,
-        '^' => true,
-        '.' => true,
-
-        _ => false,
-    }
 }
 
 #[cfg(test)]

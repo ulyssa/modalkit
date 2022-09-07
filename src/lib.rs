@@ -11,8 +11,9 @@ mod util;
 
 #[deny(missing_docs)]
 pub mod editing;
+#[deny(missing_docs)]
+pub mod env;
 pub mod input;
-pub mod vim;
 
 #[cfg(feature = "readline")]
 #[deny(missing_docs)]
