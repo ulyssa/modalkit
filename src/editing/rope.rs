@@ -626,6 +626,24 @@ fn togglecase(s: String) -> String {
     s.chars().map(togglecase_char).collect()
 }
 
+fn titlecase(s: String) -> String {
+    let mut cap = true;
+
+    s.chars()
+        .map(|c| {
+            if c.is_ascii_whitespace() {
+                cap = true;
+                return c.to_string();
+            } else if cap {
+                cap = false;
+                return c.to_uppercase().to_string();
+            } else {
+                return c.to_lowercase().to_string();
+            }
+        })
+        .collect()
+}
+
 /// A rope with context-aware movements and high-level operations.
 #[derive(Clone, Debug)]
 pub struct EditRope {
@@ -808,6 +826,7 @@ impl EditRope {
         let s = match case {
             Case::Upper => s.to_uppercase(),
             Case::Lower => s.to_lowercase(),
+            Case::Title => titlecase(s),
             Case::Toggle => togglecase(s),
         };
 
@@ -2187,6 +2206,38 @@ mod tests {
         let rope = EditRope::from("a\nb\nc\n");
         assert_eq!(rope.first(), Cursor::new(0, 0));
         assert_eq!(rope.last(), Cursor::new(2, 1));
+    }
+
+    #[test]
+    fn test_rope_changecase() {
+        let rope = EditRope::from("HeLlO WoRlD");
+
+        let res = rope.changecase(&Case::Lower);
+        assert_eq!(res.to_string(), "hello world");
+
+        let res = rope.changecase(&Case::Upper);
+        assert_eq!(res.to_string(), "HELLO WORLD");
+
+        let res = rope.changecase(&Case::Title);
+        assert_eq!(res.to_string(), "Hello World");
+
+        let res = rope.changecase(&Case::Toggle);
+        assert_eq!(res.to_string(), "hElLo wOrLd");
+
+        // Some letters change into multiple characters when case changes.
+        let rope = EditRope::from("Reißen");
+
+        let res = rope.changecase(&Case::Lower);
+        assert_eq!(res.to_string(), "reißen");
+
+        let res = rope.changecase(&Case::Upper);
+        assert_eq!(res.to_string(), "REISSEN");
+
+        let res = rope.changecase(&Case::Title);
+        assert_eq!(res.to_string(), "Reißen");
+
+        let res = rope.changecase(&Case::Toggle);
+        assert_eq!(res.to_string(), "rEISSEN");
     }
 
     #[test]

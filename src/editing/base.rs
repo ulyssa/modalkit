@@ -46,8 +46,13 @@ use crate::{
 pub enum Case {
     /// Make the targeted text uppercase.
     Upper,
+
     /// Make the targeted text lowercase.
     Lower,
+
+    /// Make the first character of the targeted text uppercase, and the rest lowercase.
+    Title,
+
     /// Toggle the case of each character in the targeted text.
     Toggle,
 }
