@@ -555,12 +555,7 @@ where
             },
             Action::Mark(mark) => self.focused_mut().mark(ctx.resolve(&mark), &ctx)?,
             Action::Cursor(act) => self.focused_mut().cursor_command(act, &ctx)?,
-            Action::SelectionCursorSet(change) => {
-                self.focused_mut().selcursor_set(&change, &ctx)?
-            },
-            Action::SelectionSplitLines(filter) => {
-                self.focused_mut().selection_split_lines(filter, &ctx)?
-            },
+            Action::Selection(act) => self.focused_mut().selection_command(act, &ctx)?,
             Action::History(act) => self.focused_mut().history_command(act, &ctx)?,
             Action::Suspend => self.suspend()?,
             Action::Search(flip, count) => self.search(flip, count, ctx)?,

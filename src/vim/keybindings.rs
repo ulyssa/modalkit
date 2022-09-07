@@ -81,6 +81,7 @@ use crate::editing::base::{
     ScrollSize,
     ScrollStyle,
     SearchType,
+    SelectionAction,
     SelectionCursorChange,
     SizeChange,
     Specifier,
@@ -738,6 +739,15 @@ macro_rules! charreplace_suffix {
     };
 }
 
+macro_rules! selection {
+    ($ea: expr) => {
+        act!(Action::Selection($ea))
+    };
+    ($ea: expr, $ns: expr) => {
+        act!(Action::Selection($ea), $ns)
+    };
+}
+
 macro_rules! edit_selection {
     ($ea: expr) => {
         edit_target!($ea, EditTarget::Selection, VimMode::Normal)
@@ -976,8 +986,10 @@ macro_rules! delete_selection_nochar {
                 TargetShape::LineWise
             )],
             vec![
-                ExternalAction::Something(Action::SelectionSplitLines(TargetShapeFilter::ALL)),
-                ExternalAction::Something(Action::SelectionCursorSet($cursor)),
+                ExternalAction::Something(
+                    SelectionAction::SplitLines(TargetShapeFilter::ALL).into()
+                ),
+                ExternalAction::Something(SelectionAction::CursorSet($cursor).into()),
                 ExternalAction::Something(Action::Edit(EditAction::Delete.into(), $et)),
             ],
             VimMode::Normal
@@ -993,8 +1005,10 @@ macro_rules! change_selection_nochar {
                 InternalAction::SetInsertStyle(InsertStyle::Insert),
             ],
             vec![
-                ExternalAction::Something(Action::SelectionSplitLines(TargetShapeFilter::ALL)),
-                ExternalAction::Something(Action::SelectionCursorSet($cursor)),
+                ExternalAction::Something(
+                    SelectionAction::SplitLines(TargetShapeFilter::ALL).into()
+                ),
+                ExternalAction::Something(SelectionAction::CursorSet($cursor).into()),
                 ExternalAction::Something(Action::Edit(EditAction::Delete.into(), $et)),
                 ExternalAction::Something(CursorAction::Split(Count::Contextual).into()),
             ],
@@ -1008,8 +1022,10 @@ macro_rules! insert_visual {
         isv!(
             vec![InternalAction::SetInsertStyle(InsertStyle::Insert)],
             vec![
-                ExternalAction::Something(Action::SelectionSplitLines(TargetShapeFilter::BLOCK)),
-                ExternalAction::Something(Action::SelectionCursorSet($cursor)),
+                ExternalAction::Something(
+                    SelectionAction::SplitLines(TargetShapeFilter::BLOCK).into()
+                ),
+                ExternalAction::Something(SelectionAction::CursorSet($cursor).into()),
                 ExternalAction::Something(CursorAction::Split(Count::Contextual).into()),
             ],
             VimMode::Insert
@@ -1019,8 +1035,10 @@ macro_rules! insert_visual {
         isv!(
             vec![InternalAction::SetInsertStyle(InsertStyle::Insert)],
             vec![
-                ExternalAction::Something(Action::SelectionSplitLines(TargetShapeFilter::BLOCK)),
-                ExternalAction::Something(Action::SelectionCursorSet($cursor)),
+                ExternalAction::Something(
+                    SelectionAction::SplitLines(TargetShapeFilter::BLOCK).into()
+                ),
+                ExternalAction::Something(SelectionAction::CursorSet($cursor).into()),
                 ExternalAction::Something(Action::Edit(EditAction::Delete.into(), $et)),
                 ExternalAction::Something(CursorAction::Split(Count::Contextual).into()),
             ],
@@ -1572,8 +1590,8 @@ fn default_keys<P: Application>() -> Vec<(MappedModes, &'static str, InputStep<P
         ( XMAP, "I", insert_visual!(SelectionCursorChange::Beginning) ),
         ( XMAP, "J", edit_selection!(EditAction::Join(true)) ),
         ( XMAP, "K", act!(Action::KeywordLookup) ),
-        ( XMAP, "o", act!(Action::SelectionCursorSet(SelectionCursorChange::SwapAnchor(false))) ),
-        ( XMAP, "O", act!(Action::SelectionCursorSet(SelectionCursorChange::SwapAnchor(true))) ),
+        ( XMAP, "o", selection!(SelectionAction::CursorSet(SelectionCursorChange::SwapAnchor(false))) ),
+        ( XMAP, "O", selection!(SelectionAction::CursorSet(SelectionCursorChange::SwapAnchor(true))) ),
         ( XMAP, "p", insert_text!(InsertTextAction::Paste(MoveDir1D::Next, Count::Contextual), VimMode::Normal) ),
         ( XMAP, "P", insert_text!(InsertTextAction::Paste(MoveDir1D::Previous, Count::Contextual), VimMode::Normal) ),
         ( XMAP, "r", charreplace!(false, EditTarget::Selection) ),
@@ -1980,10 +1998,14 @@ mod tests {
     ));
     const CURSOR_CLOSE: Action = Action::Cursor(CursorAction::Close(CursorCloseTarget::Followers));
     const CURSOR_SPLIT: Action = Action::Cursor(CursorAction::Split(Count::Contextual));
-    const SEL_SPLIT: Action = Action::SelectionSplitLines(TargetShapeFilter::ALL);
-    const BLOCK_SPLIT: Action = Action::SelectionSplitLines(TargetShapeFilter::BLOCK);
-    const BLOCK_BEG: Action = Action::SelectionCursorSet(SelectionCursorChange::Beginning);
-    const BLOCK_END: Action = Action::SelectionCursorSet(SelectionCursorChange::End);
+    const SEL_SPLIT: Action =
+        Action::Selection(SelectionAction::SplitLines(TargetShapeFilter::ALL));
+    const BLOCK_SPLIT: Action =
+        Action::Selection(SelectionAction::SplitLines(TargetShapeFilter::BLOCK));
+    const BLOCK_BEG: Action =
+        Action::Selection(SelectionAction::CursorSet(SelectionCursorChange::Beginning));
+    const BLOCK_END: Action =
+        Action::Selection(SelectionAction::CursorSet(SelectionCursorChange::End));
     const TYPE_CONTEXTUAL: Action =
         Action::InsertText(InsertTextAction::Type(Specifier::Contextual, MoveDir1D::Previous));
 

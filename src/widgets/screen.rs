@@ -56,9 +56,8 @@ use crate::editing::base::{
     MoveDir2D,
     MovePosition,
     ScrollStyle,
-    SelectionCursorChange,
+    SelectionAction,
     TabAction,
-    TargetShapeFilter,
     WindowAction,
 };
 
@@ -399,25 +398,12 @@ where
         }
     }
 
-    fn selection_split_lines(&mut self, filter: TargetShapeFilter, ctx: &C) -> EditResult {
+    fn selection_command(&mut self, act: SelectionAction, ctx: &C) -> EditResult {
         match self.focused {
-            CurrentFocus::Command => self.cmdbar.selection_split_lines(filter, ctx),
+            CurrentFocus::Command => self.cmdbar.selection_command(act, ctx),
             CurrentFocus::Window => {
                 if let Some(w) = self.current_window_mut() {
-                    w.selection_split_lines(filter, ctx)
-                } else {
-                    Ok(None)
-                }
-            },
-        }
-    }
-
-    fn selcursor_set(&mut self, change: &SelectionCursorChange, ctx: &C) -> EditResult {
-        match self.focused {
-            CurrentFocus::Command => self.cmdbar.selcursor_set(change, ctx),
-            CurrentFocus::Window => {
-                if let Some(w) = self.current_window_mut() {
-                    w.selcursor_set(change, ctx)
+                    w.selection_command(act, ctx)
                 } else {
                     Ok(None)
                 }

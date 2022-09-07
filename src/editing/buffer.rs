@@ -53,6 +53,7 @@ use super::base::{
     NumberChange,
     Register,
     SearchType,
+    SelectionAction,
     SelectionCursorChange,
     Specifier,
     TargetShape,
@@ -135,6 +136,17 @@ trait CursorActions<C> {
     fn cursor_close(&mut self, target: &CursorCloseTarget, ctx: &C) -> EditResult;
 }
 
+trait SelectionActions<C> {
+    /// Move where the cursor is located in a selection.
+    fn selection_cursor_set(&mut self, side: &SelectionCursorChange, ctx: &C) -> EditResult;
+
+    /// Split a multiline selection into multiple single-line selections.
+    fn selection_resize(&mut self, target: EditTarget, ctx: &C) -> EditResult;
+
+    /// Split a multiline selection into multiple single-line selections.
+    fn selection_split_lines(&mut self, filter: TargetShapeFilter, ctx: &C) -> EditResult;
+}
+
 trait InsertTextActions<C> {
     /// Open a new blank line before or after the cursor.
     fn open_line(&mut self, shape: TargetShape, dir: MoveDir1D, ctx: &C) -> EditResult;
@@ -151,17 +163,14 @@ pub trait Editable<C> {
     /// Perform an editing operation over the targeted text.
     fn edit(&mut self, action: &EditAction, target: &EditTarget, ctx: &C) -> EditResult;
 
-    /// Move where the cursor is located in a selection.
-    fn selcursor_set(&mut self, side: &SelectionCursorChange, ctx: &C) -> EditResult;
-
-    /// Split a multiline selection into multiple single-line selections.
-    fn selection_split_lines(&mut self, filter: TargetShapeFilter, ctx: &C) -> EditResult;
-
     /// Create or update a cursor mark.
     fn mark(&mut self, name: Mark, ctx: &C) -> EditResult;
 
     /// Insert text relative to the current cursor position.
     fn insert_text(&mut self, act: InsertTextAction, ctx: &C) -> EditResult;
+
+    /// Modify the current selection.
+    fn selection_command(&mut self, act: SelectionAction, ctx: &C) -> EditResult;
 
     /// Perform an action over a cursor group.
     fn cursor_command(&mut self, act: CursorAction, ctx: &C) -> EditResult;
@@ -1474,64 +1483,12 @@ where
     }
 }
 
-impl<'a, 'b, C, P> Editable<CursorGroupIdContext<'a, 'b, C>> for EditBuffer<C, P>
+impl<'a, 'b, C, P> SelectionActions<CursorGroupIdContext<'a, 'b, C>> for EditBuffer<C, P>
 where
     C: EditContext,
     P: Application,
 {
-    fn edit(
-        &mut self,
-        action: &EditAction,
-        target: &EditTarget,
-        ictx: &CursorGroupIdContext<'a, 'b, C>,
-    ) -> EditResult {
-        if let EditAction::Motion = action {
-            return self.motion(target, ictx);
-        }
-
-        let ctx = &self._ctx_cgi2es(action, ictx);
-
-        for member in self.get_group(ictx.0) {
-            let nc = match (self._target(member, target, ctx)?, action) {
-                (Some(range), EditAction::Delete) => self.delete(&range, ctx),
-                (Some(range), EditAction::Yank) => self.yank(&range, ctx),
-                (Some(range), EditAction::Replace(v)) => {
-                    match ctx.context.get_replace_char() {
-                        Some(c) => {
-                            let cursor = self.get_cursor(member);
-                            let c = self._char(c, &cursor)?;
-
-                            self.replace(c, *v, &range, ctx)
-                        },
-                        None => {
-                            let msg = "No replacement character".to_string();
-                            let err = EditError::Failure(msg);
-
-                            return Err(err);
-                        },
-                    }
-                },
-                (Some(range), EditAction::Format) => self.format(&range, ctx),
-                (Some(range), EditAction::ChangeCase(case)) => self.changecase(case, &range, ctx),
-                (Some(range), EditAction::ChangeNumber(change)) => {
-                    self.changenum(change, &range, ctx)
-                },
-                (Some(range), EditAction::Join(spaces)) => self.join(*spaces, &range, ctx),
-                (Some(range), EditAction::Indent(change)) => self.indent(change, &range, ctx),
-                (Some(_), EditAction::Motion) => panic!("Unexpected EditAction::Motion!"),
-                (None, _) => None,
-            };
-
-            if let Some(mut nc) = nc {
-                self.clamp(&mut nc, ictx);
-                self.set_cursor(member, nc);
-            }
-        }
-
-        Ok(None)
-    }
-
-    fn selcursor_set(
+    fn selection_cursor_set(
         &mut self,
         side: &SelectionCursorChange,
         ctx: &CursorGroupIdContext<'a, 'b, C>,
@@ -1565,41 +1522,77 @@ where
                     self.cursors.put(id, cursor);
                 },
                 (TargetShape::CharWise, SelectionCursorChange::Beginning) => {
-                    if cursor < anchor {
-                        self.anchors.put(id, cursor);
-                        self.cursors.put(id, anchor);
-                    }
+                    let (begin, end) = sort2(anchor, cursor);
+
+                    self.anchors.put(id, end);
+                    self.cursors.put(id, begin);
                 },
                 (TargetShape::CharWise, SelectionCursorChange::End) => {
-                    if anchor < cursor {
-                        self.anchors.put(id, cursor);
-                        self.cursors.put(id, anchor);
-                    }
+                    let (begin, end) = sort2(anchor, cursor);
+
+                    self.anchors.put(id, begin);
+                    self.cursors.put(id, end);
                 },
                 (TargetShape::LineWise, SelectionCursorChange::Beginning) => {
-                    if cursor < anchor {
-                        self.anchors.put(id, cursor);
-                        self.cursors.put(id, anchor);
-                    }
+                    let (mut begin, mut end) = sort2(anchor, cursor);
+                    let maxcol = self.text.max_column_idx(end.y, false);
+
+                    begin.set_x(0);
+                    end.set_x(maxcol);
+
+                    self.anchors.put(id, end);
+                    self.cursors.put(id, begin);
                 },
                 (TargetShape::LineWise, SelectionCursorChange::End) => {
-                    if anchor < cursor {
-                        self.anchors.put(id, cursor);
-                        self.cursors.put(id, anchor);
-                    }
+                    let (mut begin, mut end) = sort2(anchor, cursor);
+                    let maxcol = self.text.max_column_idx(end.y, false);
+
+                    begin.set_x(0);
+                    end.set_x(maxcol);
+
+                    self.anchors.put(id, begin);
+                    self.cursors.put(id, end);
                 },
                 (TargetShape::BlockWise, SelectionCursorChange::Beginning) => {
-                    if cursor.x < anchor.x {
-                        self.anchors.put(id, cursor);
-                        self.cursors.put(id, anchor);
-                    }
+                    let (bx, ex) = sort2(anchor.x, cursor.x);
+                    let (by, ey) = sort2(anchor.y, cursor.y);
+
+                    let begin = Cursor::new(by, bx);
+                    let end = Cursor::new(ey, ex);
+
+                    self.anchors.put(id, end);
+                    self.cursors.put(id, begin);
                 },
                 (TargetShape::BlockWise, SelectionCursorChange::End) => {
-                    if anchor.x < cursor.x {
-                        self.anchors.put(id, cursor);
-                        self.cursors.put(id, anchor);
-                    }
+                    let (bx, ex) = sort2(anchor.x, cursor.x);
+                    let (by, ey) = sort2(anchor.y, cursor.y);
+
+                    let begin = Cursor::new(by, bx);
+                    let end = Cursor::new(ey, ex);
+
+                    self.anchors.put(id, begin);
+                    self.cursors.put(id, end);
                 },
+            }
+        }
+
+        Ok(None)
+    }
+
+    fn selection_resize(
+        &mut self,
+        target: EditTarget,
+        ctx: &CursorGroupIdContext<'a, 'b, C>,
+    ) -> EditResult {
+        let gid = ctx.0;
+        let shape = ctx.2.get_target_shape();
+
+        for (id, cursor) in self.get_group_cursors(gid) {
+            if shape.is_some() {
+                self.anchors.put(id, cursor);
+                self.motion(&target, ctx)?;
+            } else {
+                self.clear_selection(id);
             }
         }
 
@@ -1711,6 +1704,64 @@ where
 
         Ok(None)
     }
+}
+
+impl<'a, 'b, C, P> Editable<CursorGroupIdContext<'a, 'b, C>> for EditBuffer<C, P>
+where
+    C: EditContext,
+    P: Application,
+{
+    fn edit(
+        &mut self,
+        action: &EditAction,
+        target: &EditTarget,
+        ictx: &CursorGroupIdContext<'a, 'b, C>,
+    ) -> EditResult {
+        if let EditAction::Motion = action {
+            return self.motion(target, ictx);
+        }
+
+        let ctx = &self._ctx_cgi2es(action, ictx);
+
+        for member in self.get_group(ictx.0) {
+            let nc = match (self._target(member, target, ctx)?, action) {
+                (Some(range), EditAction::Delete) => self.delete(&range, ctx),
+                (Some(range), EditAction::Yank) => self.yank(&range, ctx),
+                (Some(range), EditAction::Replace(v)) => {
+                    match ctx.context.get_replace_char() {
+                        Some(c) => {
+                            let cursor = self.get_cursor(member);
+                            let c = self._char(c, &cursor)?;
+
+                            self.replace(c, *v, &range, ctx)
+                        },
+                        None => {
+                            let msg = "No replacement character".to_string();
+                            let err = EditError::Failure(msg);
+
+                            return Err(err);
+                        },
+                    }
+                },
+                (Some(range), EditAction::Format) => self.format(&range, ctx),
+                (Some(range), EditAction::ChangeCase(case)) => self.changecase(case, &range, ctx),
+                (Some(range), EditAction::ChangeNumber(change)) => {
+                    self.changenum(change, &range, ctx)
+                },
+                (Some(range), EditAction::Join(spaces)) => self.join(*spaces, &range, ctx),
+                (Some(range), EditAction::Indent(change)) => self.indent(change, &range, ctx),
+                (Some(_), EditAction::Motion) => panic!("Unexpected EditAction::Motion!"),
+                (None, _) => None,
+            };
+
+            if let Some(mut nc) = nc {
+                self.clamp(&mut nc, ictx);
+                self.set_cursor(member, nc);
+            }
+        }
+
+        Ok(None)
+    }
 
     fn mark(&mut self, name: Mark, ctx: &CursorGroupIdContext<'a, 'b, C>) -> EditResult {
         let leader = self.get_leader(ctx.0);
@@ -1735,6 +1786,18 @@ where
                     Ok(None)
                 }
             },
+        }
+    }
+
+    fn selection_command(
+        &mut self,
+        act: SelectionAction,
+        ctx: &CursorGroupIdContext<'a, 'b, C>,
+    ) -> EditResult {
+        match act {
+            SelectionAction::CursorSet(change) => self.selection_cursor_set(&change, ctx),
+            SelectionAction::Resize(target) => self.selection_resize(target, ctx),
+            SelectionAction::SplitLines(filter) => self.selection_split_lines(filter, ctx),
         }
     }
 
@@ -1776,22 +1839,6 @@ where
         self.write().unwrap().edit(operation, motion, ctx)
     }
 
-    fn selcursor_set(
-        &mut self,
-        change: &SelectionCursorChange,
-        ctx: &CursorGroupIdContext<'a, 'b, C>,
-    ) -> EditResult {
-        self.write().unwrap().selcursor_set(change, ctx)
-    }
-
-    fn selection_split_lines(
-        &mut self,
-        filter: TargetShapeFilter,
-        ctx: &CursorGroupIdContext<'a, 'b, C>,
-    ) -> EditResult {
-        self.write().unwrap().selection_split_lines(filter, ctx)
-    }
-
     fn mark(&mut self, name: Mark, ctx: &CursorGroupIdContext<'a, 'b, C>) -> EditResult {
         self.write().unwrap().mark(name, ctx)
     }
@@ -1802,6 +1849,14 @@ where
         ctx: &CursorGroupIdContext<'a, 'b, C>,
     ) -> EditResult {
         self.write().unwrap().insert_text(act, ctx)
+    }
+
+    fn selection_command(
+        &mut self,
+        act: SelectionAction,
+        ctx: &CursorGroupIdContext<'a, 'b, C>,
+    ) -> EditResult {
+        self.write().unwrap().selection_command(act, ctx)
     }
 
     fn cursor_command(
@@ -1862,6 +1917,18 @@ mod tests {
     macro_rules! edit {
         ($ebuf: expr, $act: expr, $target: expr, $ctx: expr) => {
             $ebuf.edit(&$act, &$target, $ctx).unwrap()
+        };
+    }
+
+    macro_rules! selection_cursor_set {
+        ($ebuf: expr, $change: expr, $ctx: expr) => {
+            $ebuf.selection_cursor_set($change, $ctx).unwrap()
+        };
+    }
+
+    macro_rules! selection_split_lines {
+        ($ebuf: expr, $filter: expr, $ctx: expr) => {
+            $ebuf.selection_split_lines($filter, $ctx).unwrap()
         };
     }
 
@@ -3603,5 +3670,305 @@ mod tests {
         assert_eq!(ebuf.reset_text(), "foo\nbar\nbaz\n");
         assert_eq!(ebuf.get_text(), "\n");
         assert_eq!(ebuf.get_lines(), 1);
+    }
+
+    #[test]
+    fn test_selection_split_lines_blockwise() {
+        let mut ebuf = mkbufstr("a b c d\ne f g\nh i j k l\nm n o p\nq r\n");
+        let curid = ebuf.create_group();
+        let vwctx = ViewportContext::default();
+        let mut vctx = VimContext::default();
+
+        // Start out at (2, 6).
+        ebuf.set_leader(curid, Cursor::new(2, 6));
+
+        vctx.persist.shape = Some(TargetShape::BlockWise);
+
+        // Create a charwise selection across the three lines.
+        let mov = MoveType::FirstWord(MoveDir1D::Next);
+        edit!(ebuf, EditAction::Motion, mv!(mov, 2), ctx!(curid, vwctx, vctx));
+
+        let selection = (Cursor::new(2, 6), Cursor::new(4, 0), TargetShape::BlockWise);
+        assert_eq!(ebuf.get_leader_selection(curid), Some(selection.clone()));
+        assert_eq!(ebuf.get_follower_selections(curid), None);
+        assert_eq!(ebuf.get_leader(curid), Cursor::new(4, 0));
+
+        // Filter doesn't match, nothing happens.
+        selection_split_lines!(ebuf, TargetShapeFilter::LINE, ctx!(curid, vwctx, vctx));
+        assert_eq!(ebuf.get_leader_selection(curid), Some(selection.clone()));
+        assert_eq!(ebuf.get_follower_selections(curid), None);
+        assert_eq!(ebuf.get_leader(curid), Cursor::new(4, 0));
+
+        // Filter matches, splits into multiple CharWise selections.
+        selection_split_lines!(ebuf, TargetShapeFilter::BLOCK, ctx!(curid, vwctx, vctx));
+
+        let selection1 = (Cursor::new(2, 0), Cursor::new(2, 6), TargetShape::BlockWise);
+        let selection2 = (Cursor::new(3, 0), Cursor::new(3, 6), TargetShape::BlockWise);
+        let selection3 = (Cursor::new(4, 0), Cursor::new(4, 2).goal(6), TargetShape::BlockWise);
+        let selections = vec![selection2, selection3];
+
+        assert_eq!(ebuf.get_leader_selection(curid), Some(selection1.clone()));
+        assert_eq!(ebuf.get_leader(curid), Cursor::new(2, 0));
+        assert_eq!(ebuf.get_follower_selections(curid), Some(selections));
+        assert_eq!(ebuf.get_followers(curid), vec![Cursor::new(3, 0), Cursor::new(4, 0)]);
+    }
+
+    #[test]
+    fn test_selection_split_lines_charwise() {
+        let mut ebuf = mkbufstr("a b c d\ne f g\nh i j k l\nm n o p\nq r s t\n");
+        let curid = ebuf.create_group();
+        let vwctx = ViewportContext::default();
+        let mut vctx = VimContext::default();
+
+        // Start out at (1, 2).
+        ebuf.set_leader(curid, Cursor::new(1, 2));
+
+        vctx.persist.shape = Some(TargetShape::CharWise);
+
+        // Create a charwise selection across the three lines.
+        let mov = MoveType::FirstWord(MoveDir1D::Next);
+        edit!(ebuf, EditAction::Motion, mv!(mov, 2), ctx!(curid, vwctx, vctx));
+
+        let selection = (Cursor::new(1, 2), Cursor::new(3, 0), TargetShape::CharWise);
+        assert_eq!(ebuf.get_leader_selection(curid), Some(selection.clone()));
+        assert_eq!(ebuf.get_follower_selections(curid), None);
+        assert_eq!(ebuf.get_leader(curid), Cursor::new(3, 0));
+
+        // Filter doesn't match, nothing happens.
+        selection_split_lines!(ebuf, TargetShapeFilter::LINE, ctx!(curid, vwctx, vctx));
+        assert_eq!(ebuf.get_leader_selection(curid), Some(selection.clone()));
+        assert_eq!(ebuf.get_follower_selections(curid), None);
+        assert_eq!(ebuf.get_leader(curid), Cursor::new(3, 0));
+
+        // Filter matches, splits into multiple CharWise selections.
+        selection_split_lines!(ebuf, TargetShapeFilter::CHAR, ctx!(curid, vwctx, vctx));
+
+        let selection1 = (Cursor::new(1, 2), Cursor::new(1, 4), TargetShape::CharWise);
+        let selection2 = (Cursor::new(2, 0), Cursor::new(2, 8), TargetShape::CharWise);
+        let selection3 = (Cursor::new(3, 0), Cursor::new(3, 0), TargetShape::CharWise);
+        let selections = vec![selection2, selection3];
+
+        assert_eq!(ebuf.get_leader_selection(curid), Some(selection1.clone()));
+        assert_eq!(ebuf.get_leader(curid), Cursor::new(1, 2));
+        assert_eq!(ebuf.get_follower_selections(curid), Some(selections));
+        assert_eq!(ebuf.get_followers(curid), vec![Cursor::new(2, 0), Cursor::new(3, 0)]);
+    }
+
+    #[test]
+    fn test_selection_split_lines_linewise() {
+        let mut ebuf = mkbufstr("a b c d\ne f g\nh i j k l\nm n o p\nq r s t\n");
+        let curid = ebuf.create_group();
+        let vwctx = ViewportContext::default();
+        let mut vctx = VimContext::default();
+
+        // Start out at (1, 0).
+        ebuf.set_leader(curid, Cursor::new(1, 0));
+
+        vctx.persist.shape = Some(TargetShape::LineWise);
+
+        // Create a linewise selection across three lines.
+        let mov = MoveType::FirstWord(MoveDir1D::Next);
+        edit!(ebuf, EditAction::Motion, mv!(mov, 2), ctx!(curid, vwctx, vctx));
+
+        let selection = (Cursor::new(1, 0), Cursor::new(3, 0), TargetShape::LineWise);
+        assert_eq!(ebuf.get_leader_selection(curid), Some(selection.clone()));
+        assert_eq!(ebuf.get_follower_selections(curid), None);
+        assert_eq!(ebuf.get_leader(curid), Cursor::new(3, 0));
+
+        // Filter doesn't match, nothing happens.
+        selection_split_lines!(ebuf, TargetShapeFilter::CHAR, ctx!(curid, vwctx, vctx));
+        assert_eq!(ebuf.get_leader_selection(curid), Some(selection.clone()));
+        assert_eq!(ebuf.get_follower_selections(curid), None);
+        assert_eq!(ebuf.get_leader(curid), Cursor::new(3, 0));
+
+        // Filter matches, splits into multiple LineWise selections.
+        selection_split_lines!(ebuf, TargetShapeFilter::LINE, ctx!(curid, vwctx, vctx));
+
+        let selection1 = (Cursor::new(1, 0), Cursor::new(1, 4), TargetShape::LineWise);
+        let selection2 = (Cursor::new(2, 0), Cursor::new(2, 8), TargetShape::LineWise);
+        let selection3 = (Cursor::new(3, 0), Cursor::new(3, 6), TargetShape::LineWise);
+        let selections = vec![selection2, selection3];
+
+        assert_eq!(ebuf.get_leader_selection(curid), Some(selection1.clone()));
+        assert_eq!(ebuf.get_leader(curid), Cursor::new(1, 0));
+        assert_eq!(ebuf.get_follower_selections(curid), Some(selections));
+        assert_eq!(ebuf.get_followers(curid), vec![Cursor::new(2, 0), Cursor::new(3, 0)]);
+    }
+
+    #[test]
+    fn test_selection_cursor_set_charwise() {
+        let mut ebuf = mkbufstr("hello world\na b c d\n");
+        let curid = ebuf.create_group();
+        let vwctx = ViewportContext::default();
+        let mut vctx = VimContext::default();
+
+        // Start out at (0, 6).
+        ebuf.set_leader(curid, Cursor::new(0, 6));
+
+        vctx.persist.shape = Some(TargetShape::CharWise);
+
+        // Create a selection to resize from here to next word beginning.
+        let mov = MoveType::FirstWord(MoveDir1D::Next);
+        edit!(ebuf, EditAction::Motion, mv!(mov), ctx!(curid, vwctx, vctx));
+
+        let selection = (Cursor::new(0, 6), Cursor::new(1, 0), TargetShape::CharWise);
+        assert_eq!(ebuf.get_leader_selection(curid), Some(selection.clone()));
+        assert_eq!(ebuf.get_leader(curid), Cursor::new(1, 0));
+
+        // We're already at the end so this shouldn't move.
+        selection_cursor_set!(ebuf, &SelectionCursorChange::End, ctx!(curid, vwctx, vctx));
+        assert_eq!(ebuf.get_leader_selection(curid), Some(selection.clone()));
+        assert_eq!(ebuf.get_leader(curid), Cursor::new(1, 0));
+
+        // Now swap which side is the anchor, and which side is mobile.
+        selection_cursor_set!(
+            ebuf,
+            &SelectionCursorChange::SwapAnchor(false),
+            ctx!(curid, vwctx, vctx)
+        );
+        assert_eq!(ebuf.get_leader_selection(curid), Some(selection.clone()));
+        assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 6));
+
+        // We're already at the beginning so this shouldn't move.
+        selection_cursor_set!(ebuf, &SelectionCursorChange::Beginning, ctx!(curid, vwctx, vctx));
+        assert_eq!(ebuf.get_leader_selection(curid), Some(selection.clone()));
+        assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 6));
+
+        // Move to end.
+        selection_cursor_set!(ebuf, &SelectionCursorChange::End, ctx!(curid, vwctx, vctx));
+        assert_eq!(ebuf.get_leader_selection(curid), Some(selection.clone()));
+        assert_eq!(ebuf.get_leader(curid), Cursor::new(1, 0));
+    }
+
+    #[test]
+    fn test_selection_cursor_set_linewise() {
+        let mut ebuf = mkbufstr("foo\nhello world\na b c d\n");
+        let curid = ebuf.create_group();
+        let vwctx = ViewportContext::default();
+        let mut vctx = VimContext::default();
+
+        // Start out at (1, 6).
+        ebuf.set_leader(curid, Cursor::new(1, 6));
+
+        vctx.persist.shape = Some(TargetShape::LineWise);
+
+        // Create a linewise selection across the two lines.
+        let mov = MoveType::FirstWord(MoveDir1D::Next);
+        edit!(ebuf, EditAction::Motion, mv!(mov), ctx!(curid, vwctx, vctx));
+
+        let selection = (Cursor::new(1, 6), Cursor::new(2, 0), TargetShape::LineWise);
+        assert_eq!(ebuf.get_leader_selection(curid), Some(selection.clone()));
+        assert_eq!(ebuf.get_leader(curid), Cursor::new(2, 0));
+
+        // Now swap which side is the anchor, and which side is mobile.
+        selection_cursor_set!(
+            ebuf,
+            &SelectionCursorChange::SwapAnchor(false),
+            ctx!(curid, vwctx, vctx)
+        );
+        assert_eq!(ebuf.get_leader_selection(curid), Some(selection.clone()));
+        assert_eq!(ebuf.get_leader(curid), Cursor::new(1, 6));
+
+        // Moving to the end of the selection places cursor in last column of last line.
+        let selection = (Cursor::new(1, 0), Cursor::new(2, 6), TargetShape::LineWise);
+        selection_cursor_set!(ebuf, &SelectionCursorChange::End, ctx!(curid, vwctx, vctx));
+        assert_eq!(ebuf.get_leader_selection(curid), Some(selection.clone()));
+        assert_eq!(ebuf.get_leader(curid), Cursor::new(2, 6));
+
+        // Moving to the beginning of the selection places cursor in first column of first line.
+        selection_cursor_set!(ebuf, &SelectionCursorChange::Beginning, ctx!(curid, vwctx, vctx));
+        assert_eq!(ebuf.get_leader_selection(curid), Some(selection.clone()));
+        assert_eq!(ebuf.get_leader(curid), Cursor::new(1, 0));
+    }
+
+    #[test]
+    fn test_selection_cursor_set_blockwise() {
+        let mut ebuf = mkbufstr("foo\nhello world\na b c d\n");
+        let curid = ebuf.create_group();
+        let vwctx = ViewportContext::default();
+        let mut vctx = VimContext::default();
+
+        // Start out at (1, 2).
+        ebuf.set_leader(curid, Cursor::new(1, 2));
+
+        vctx.persist.shape = Some(TargetShape::BlockWise);
+
+        // Create a block selection across two lines.
+        let mov = MoveType::BufferByteOffset;
+        edit!(ebuf, EditAction::Motion, mv!(mov, 21), ctx!(curid, vwctx, vctx));
+
+        let selection = (Cursor::new(1, 2), Cursor::new(2, 4), TargetShape::BlockWise);
+        assert_eq!(ebuf.get_leader_selection(curid), Some(selection.clone()));
+        assert_eq!(ebuf.get_leader(curid), Cursor::new(2, 4));
+
+        // Now swap which side is the anchor, and which side is mobile.
+        selection_cursor_set!(
+            ebuf,
+            &SelectionCursorChange::SwapAnchor(false),
+            ctx!(curid, vwctx, vctx)
+        );
+        assert_eq!(ebuf.get_leader_selection(curid), Some(selection.clone()));
+        assert_eq!(ebuf.get_leader(curid), Cursor::new(1, 2));
+
+        // Now swap over to the upper-right corner.
+        selection_cursor_set!(
+            ebuf,
+            &SelectionCursorChange::SwapAnchor(true),
+            ctx!(curid, vwctx, vctx)
+        );
+
+        let selection = (Cursor::new(1, 4), Cursor::new(2, 2), TargetShape::BlockWise);
+        assert_eq!(ebuf.get_leader_selection(curid), Some(selection.clone()));
+        assert_eq!(ebuf.get_leader(curid), Cursor::new(1, 4));
+
+        // Now swap to the first column of the selection.
+        selection_cursor_set!(ebuf, &SelectionCursorChange::Beginning, ctx!(curid, vwctx, vctx));
+
+        let selection = (Cursor::new(1, 2), Cursor::new(2, 4), TargetShape::BlockWise);
+        assert_eq!(ebuf.get_leader_selection(curid), Some(selection.clone()));
+        assert_eq!(ebuf.get_leader(curid), Cursor::new(1, 2));
+
+        // Now swap to the last column of the selection.
+        selection_cursor_set!(ebuf, &SelectionCursorChange::End, ctx!(curid, vwctx, vctx));
+
+        assert_eq!(ebuf.get_leader_selection(curid), Some(selection.clone()));
+        assert_eq!(ebuf.get_leader(curid), Cursor::new(2, 4));
+    }
+
+    #[test]
+    fn test_selection_resize() {
+        let mut ebuf = mkbufstr("hello world a b c d\n");
+        let curid = ebuf.create_group();
+        let vwctx = ViewportContext::default();
+        let mut vctx = VimContext::default();
+
+        // Start out at (0, 0).
+        ebuf.set_leader(curid, Cursor::new(0, 0));
+
+        vctx.persist.shape = Some(TargetShape::CharWise);
+
+        // Create a selection to resize from here to next word beginning.
+        let mov = MoveType::WordBegin(WordStyle::Little, MoveDir1D::Next);
+        edit!(ebuf, EditAction::Motion, mv!(mov), ctx!(curid, vwctx, vctx));
+
+        let selection = (Cursor::new(0, 0), Cursor::new(0, 6), TargetShape::CharWise);
+        assert_eq!(ebuf.get_leader_selection(curid), Some(selection));
+        assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 6));
+
+        // Now resize the selection to just be the second word.
+        let mov = MoveType::WordEnd(WordStyle::Little, MoveDir1D::Next);
+        ebuf.selection_resize(mv!(mov), ctx!(curid, vwctx, vctx)).unwrap();
+
+        let selection = (Cursor::new(0, 6), Cursor::new(0, 10), TargetShape::CharWise);
+        assert_eq!(ebuf.get_leader_selection(curid), Some(selection));
+        assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 10));
+
+        // Now resize the selection to just be the cursor position.
+        ebuf.selection_resize(EditTarget::CurrentPosition, ctx!(curid, vwctx, vctx))
+            .unwrap();
+
+        let selection = (Cursor::new(0, 10), Cursor::new(0, 10), TargetShape::CharWise);
+        assert_eq!(ebuf.get_leader_selection(curid), Some(selection));
+        assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 10));
     }
 }

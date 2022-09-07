@@ -668,7 +668,7 @@ impl EditRope {
     /// Calculate the max indexable column in a given line given the current context.
     ///
     /// This function expects to be given a valid line number as input.
-    fn max_column_idx<'a>(&self, y: usize, lastcol: bool) -> usize {
+    pub(crate) fn max_column_idx<'a>(&self, y: usize, lastcol: bool) -> usize {
         let columns = self.get_columns(y);
 
         if lastcol {

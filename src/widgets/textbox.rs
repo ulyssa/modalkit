@@ -65,9 +65,8 @@ use crate::editing::base::{
     MovePosition,
     ScrollSize,
     ScrollStyle,
-    SelectionCursorChange,
+    SelectionAction,
     TargetShape,
-    TargetShapeFilter,
     ViewportContext,
     Wrappable,
 };
@@ -435,18 +434,6 @@ where
         self.buffer.edit(operation, motion, &ctx)
     }
 
-    fn selcursor_set(&mut self, change: &SelectionCursorChange, ctx: &C) -> EditResult {
-        let ctx = (self.group_id, &self.viewctx, ctx);
-
-        self.buffer.selcursor_set(change, &ctx)
-    }
-
-    fn selection_split_lines(&mut self, filter: TargetShapeFilter, ctx: &C) -> EditResult {
-        let ctx = (self.group_id, &self.viewctx, ctx);
-
-        self.buffer.selection_split_lines(filter, &ctx)
-    }
-
     fn mark(&mut self, name: Mark, ctx: &C) -> EditResult {
         let ctx = (self.group_id, &self.viewctx, ctx);
 
@@ -457,6 +444,12 @@ where
         let ctx = (self.group_id, &self.viewctx, ctx);
 
         self.buffer.insert_text(act, &ctx)
+    }
+
+    fn selection_command(&mut self, act: SelectionAction, ctx: &C) -> EditResult {
+        let ctx = (self.group_id, &self.viewctx, ctx);
+
+        self.buffer.selection_command(act, &ctx)
     }
 
     fn history_command(&mut self, act: HistoryAction, ctx: &C) -> EditResult {

@@ -431,6 +431,9 @@ pub enum SelectionCursorChange {
     End,
 
     /// Swap the cursor with the anchor of the selection.
+    ///
+    /// [bool] indicates that, when the selection is [BlockWise](TargetShape::BlockWise), the
+    /// cursor should stay on the same line, and only change the column.
     SwapAnchor(bool),
 }
 
@@ -667,6 +670,27 @@ bitflags! {
     }
 }
 
+/// Selection manipulation
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[non_exhaustive]
+pub enum SelectionAction {
+    /// Change the placement of the cursor and anchor of a visual selection.
+    CursorSet(SelectionCursorChange),
+
+    /// Change the bounds of the current selection to the range described by [EditTarget] relative
+    /// to the current cursor position.
+    ///
+    /// Effectively, this repositions the anchor at the current cursor position and then extends
+    /// the selection from there.
+    Resize(EditTarget),
+
+    /// Split [matching selections](TargetShapeFilter) into multiple selections, each on their own
+    /// line.
+    ///
+    /// All of the new selections are of the same shape as the one they were split from.
+    SplitLines(TargetShapeFilter),
+}
+
 /// Text insertion actions
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[non_exhaustive]
@@ -860,15 +884,11 @@ pub enum Action<P: Application = ()> {
     /// Scroll the viewport in [the specified manner](ScrollStyle).
     Scroll(ScrollStyle),
 
-    /// Change the placement of the cursor and anchor of a visual selection.
-    SelectionCursorSet(SelectionCursorChange),
+    /// Modify the current selection.
+    Selection(SelectionAction),
 
     /// Modify the current cursor group.
     Cursor(CursorAction),
-
-    /// Split [matching selections](TargetShapeFilter) into multiple selections, each on their own
-    /// line.
-    SelectionSplitLines(TargetShapeFilter),
 
     /// Lookup the keyword under the cursor.
     KeywordLookup,
@@ -896,6 +916,12 @@ pub enum Action<P: Application = ()> {
 
     /// Application-specific command.
     Application(P::Action),
+}
+
+impl<P: Application> From<SelectionAction> for Action<P> {
+    fn from(act: SelectionAction) -> Self {
+        Action::Selection(act)
+    }
 }
 
 impl<P: Application> From<InsertTextAction> for Action<P> {
