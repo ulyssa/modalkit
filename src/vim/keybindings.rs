@@ -57,6 +57,8 @@ use crate::editing::base::{
     Char,
     CloseFlags,
     CloseTarget,
+    CommandAction,
+    CommandBarAction,
     CommandType,
     Count,
     CursorAction,
@@ -67,6 +69,7 @@ use crate::editing::base::{
     IndentChange,
     InsertStyle,
     InsertTextAction,
+    MacroAction,
     MoveDir1D,
     MoveDir2D,
     MoveDirMod,
@@ -185,6 +188,7 @@ enum InternalAction<P: Application> {
     SetPostAction(Action<P>),
     SetSearchCharParams(MoveDir1D, bool),
     SetSearchChar,
+    SetSearchRegexParams(MoveDir1D),
     SetReplaceChar(Option<Char>),
     SaveCounting,
     SetCursorChar(char),
@@ -207,6 +211,9 @@ impl<P: Application> InternalAction<P> {
                 }
 
                 ctx.persist.charsearch = ctx.get_typed();
+            },
+            InternalAction::SetSearchRegexParams(dir) => {
+                ctx.persist.regexsearch_dir = *dir;
             },
             InternalAction::SetReplaceChar(c) => {
                 if c.is_some() {
@@ -844,6 +851,22 @@ macro_rules! edit_search_end {
     };
 }
 
+macro_rules! edit_word_search_end {
+    ($style: expr, $boundary: expr, $dir: expr) => {
+        is!(
+            InternalAction::SetSearchRegexParams($dir),
+            Action::Edit(
+                Specifier::Contextual,
+                EditTarget::Search(
+                    SearchType::Word($style, $boundary),
+                    MoveDirMod::Same,
+                    Count::Contextual
+                )
+            )
+        )
+    };
+}
+
 macro_rules! edit_end {
     ($mt: expr) => {
         edit_target_end!(EditTarget::Motion($mt, Count::Contextual))
@@ -1158,15 +1181,43 @@ macro_rules! window_split {
     };
 }
 
+macro_rules! cmdbar {
+    ($type: expr) => {
+        act!(Action::CommandBar($type))
+    };
+    ($type: expr, $ns: expr) => {
+        act!(Action::CommandBar($type), $ns)
+    };
+}
+
 macro_rules! command {
     ($type: expr) => {
-        act!(Action::CommandFocus($type), VimMode::Command)
+        act!(Action::Command($type))
+    };
+    ($type: expr, $ns: expr) => {
+        act!(Action::Command($type), $ns)
+    };
+}
+
+macro_rules! cmdbar_focus {
+    ($type: expr) => {
+        cmdbar!(CommandBarAction::Focus($type), VimMode::Command)
+    };
+}
+
+macro_rules! search {
+    ($dir: expr) => {
+        is!(
+            InternalAction::SetSearchRegexParams($dir),
+            Action::CommandBar(CommandBarAction::Focus(CommandType::Search($dir, false))),
+            VimMode::Command
+        )
     };
 }
 
 macro_rules! command_unfocus {
     () => {
-        act!(Action::CommandUnfocus, VimMode::Normal)
+        cmdbar!(CommandBarAction::Abort, VimMode::Normal)
     };
 }
 
@@ -1215,8 +1266,8 @@ fn default_keys<P: Application>() -> Vec<(MappedModes, &'static str, InputStep<P
         ( NXOMAP, "g_", unmapped!() ),
         ( NXOMAP, "g^", edit_end!(MoveType::ScreenFirstWord(MoveDir1D::Next), 0) ),
         ( NXOMAP, "g$", edit_end!(MoveType::ScreenLinePos(MovePosition::End), Count::MinusOne) ),
-        ( NXOMAP, "g#", unmapped!() ),
-        ( NXOMAP, "g*", unmapped!() ),
+        ( NXOMAP, "g#", edit_word_search_end!(WordStyle::Little, false, MoveDir1D::Previous) ),
+        ( NXOMAP, "g*", edit_word_search_end!(WordStyle::Little, false, MoveDir1D::Next) ),
         ( NXOMAP, "g'{mark}", unmapped!() ),
         ( NXOMAP, "g`{mark}", unmapped!() ),
         ( NXOMAP, "g<Down>", edit_end!(MoveType::ScreenLine(MoveDir1D::Next)) ),
@@ -1231,8 +1282,6 @@ fn default_keys<P: Application>() -> Vec<(MappedModes, &'static str, InputStep<P
         ( NXOMAP, "l", edit_end!(MoveType::Column(MoveDir1D::Next, false)) ),
         ( NXOMAP, "L", edit_end!(MoveType::ViewportPos(MovePosition::End)) ),
         ( NXOMAP, "M", edit_end!(MoveType::ViewportPos(MovePosition::Middle)) ),
-        ( NXOMAP, "n", edit_search_end!(SearchType::Regex, MoveDirMod::Same) ),
-        ( NXOMAP, "N", edit_search_end!(SearchType::Regex, MoveDirMod::Flip) ),
         ( NXOMAP, "t", charsearch!(MoveDir1D::Next, false) ),
         ( NXOMAP, "T", charsearch!(MoveDir1D::Previous, false) ),
         ( NXOMAP, "w", edit_end!(MoveType::WordBegin(WordStyle::Little, MoveDir1D::Next)) ),
@@ -1246,10 +1295,10 @@ fn default_keys<P: Application>() -> Vec<(MappedModes, &'static str, InputStep<P
         ( NXOMAP, "-", edit_end!(MoveType::FirstWord(MoveDir1D::Previous)) ),
         ( NXOMAP, "+", edit_end!(MoveType::FirstWord(MoveDir1D::Next)) ),
         ( NXOMAP, "%", edit_end_ca!(MoveType::ItemMatch, MoveType::BufferLinePercent) ),
-        ( NXOMAP, "#", unmapped!() ),
-        ( NXOMAP, "*", unmapped!() ),
-        ( NXOMAP, "?", command!(CommandType::Search(MoveDir1D::Previous)) ),
-        ( NXOMAP, "/", command!(CommandType::Search(MoveDir1D::Next)) ),
+        ( NXOMAP, "#", edit_word_search_end!(WordStyle::Little, true, MoveDir1D::Previous) ),
+        ( NXOMAP, "*", edit_word_search_end!(WordStyle::Little, true, MoveDir1D::Next) ),
+        ( NXOMAP, "?", search!(MoveDir1D::Previous) ),
+        ( NXOMAP, "/", search!(MoveDir1D::Next) ),
         ( NXOMAP, "|", edit_end!(MoveType::LineColumnOffset) ),
         ( NXOMAP, ";", edit_search_end!(SearchType::Char(false), MoveDirMod::Same) ),
         ( NXOMAP, ",", edit_search_end!(SearchType::Char(false), MoveDirMod::Flip) ),
@@ -1339,8 +1388,8 @@ fn default_keys<P: Application>() -> Vec<(MappedModes, &'static str, InputStep<P
         ( NXMAP, "gT", tab_focus!(FocusChange::Direction1D(MoveDir1D::Previous, Count::Contextual, true)) ),
         ( NXMAP, "g<C-H>", select!(TargetShape::BlockWise) ),
         ( NXMAP, "m{mark}", act!(Action::Mark(Specifier::Contextual)) ),
-        ( NXMAP, "q{register}", act!(Action::MacroRecordToggle) ),
-        ( NXMAP, "q", recording!(Action::MacroRecordToggle) ),
+        ( NXMAP, "q{register}", act!(MacroAction::ToggleRecording.into()) ),
+        ( NXMAP, "q", recording!(MacroAction::ToggleRecording.into()) ),
         ( NXMAP, "v", visual!(TargetShape::CharWise) ),
         ( NXMAP, "V", visual!(TargetShape::LineWise) ),
         ( NXMAP, "zb", scrollcpv!(MovePosition::End, false) ),
@@ -1477,10 +1526,10 @@ fn default_keys<P: Application>() -> Vec<(MappedModes, &'static str, InputStep<P
         ( NMAP, ">>", edit_lines!(EditAction::Indent(IndentChange::Increase(Count::Exact(1)))) ),
         ( NMAP, "~", tilde!() ),
         ( NMAP, ".", act!(Action::EditRepeat(Count::Contextual)) ),
-        ( NMAP, ":", command!(CommandType::Command) ),
-        ( NMAP, "@{register}", act!(Action::MacroExecute(Count::Contextual)) ),
-        ( NMAP, "@:", act!(Action::CommandRepeat(Count::Contextual)) ),
-        ( NMAP, "@@", act!(Action::MacroRepeat(Count::Contextual)) ),
+        ( NMAP, ":", cmdbar_focus!(CommandType::Command) ),
+        ( NMAP, "@{register}", act!(MacroAction::Execute(Count::Contextual).into()) ),
+        ( NMAP, "@:", command!(CommandAction::Repeat(Count::Contextual)) ),
+        ( NMAP, "@@", act!(MacroAction::Repeat(Count::Contextual).into()) ),
         ( NMAP, "<C-A>", edit!(EditAction::ChangeNumber(NumberChange::IncreaseOne), MoveType::LinePos(MovePosition::End)) ),
         ( NMAP, "<C-C>", normal!() ),
         ( NMAP, "<C-I>", jump!(PositionList::ChangeList, MoveDir1D::Next) ),
@@ -1634,12 +1683,12 @@ fn default_keys<P: Application>() -> Vec<(MappedModes, &'static str, InputStep<P
         ( CMAP, "<C-Left>", edit!(EditAction::Motion, MoveType::WordBegin(WordStyle::Big, MoveDir1D::Previous)) ),
         ( CMAP, "<S-Right>", edit!(EditAction::Motion, MoveType::WordBegin(WordStyle::Big, MoveDir1D::Next)) ),
         ( CMAP, "<C-Right>", edit!(EditAction::Motion, MoveType::WordBegin(WordStyle::Big, MoveDir1D::Next)) ),
-        ( CMAP, "<Up>", unmapped!() ),
-        ( CMAP, "<S-Up>", unmapped!() ),
-        ( CMAP, "<Down>", unmapped!() ),
-        ( CMAP, "<S-Down>", unmapped!() ),
-        ( CMAP, "<PageDown>", unmapped!() ),
-        ( CMAP, "<PageUp>", unmapped!() ),
+        ( CMAP, "<Up>", cmdbar!(CommandBarAction::Recall(MoveDir1D::Previous, Count::Contextual)) ),
+        ( CMAP, "<Down>", cmdbar!(CommandBarAction::Recall(MoveDir1D::Next, Count::Contextual)) ),
+        ( CMAP, "<S-Up>", cmdbar!(CommandBarAction::Recall(MoveDir1D::Previous, Count::Contextual)) ),
+        ( CMAP, "<S-Down>", cmdbar!(CommandBarAction::Recall(MoveDir1D::Next, Count::Contextual)) ),
+        ( CMAP, "<PageUp>", cmdbar!(CommandBarAction::Recall(MoveDir1D::Previous, Count::Contextual)) ),
+        ( CMAP, "<PageDown>", cmdbar!(CommandBarAction::Recall(MoveDir1D::Next, Count::Contextual)) ),
         ( CMAP, "<Insert>", iact!(InternalAction::SetInsertStyle(InsertStyle::Replace)) ),
 
         // Internal mode to simplify keypresses allowed after f/F/t/T.
@@ -1698,7 +1747,15 @@ fn default_enter<P: Application>() -> Vec<(MappedModes, &'static str, InputStep<
         ( IMAP, "<Enter>", chartype!(Char::Single('\n')) ),
 
         // <Enter> in Command mode submits the command.
-        ( CMAP, "<Enter>", act!(Action::Submit, VimMode::Normal) ),
+        ( CMAP, "<Enter>", cmdbar!(CommandBarAction::Submit, VimMode::Normal) ),
+    ].to_vec()
+}
+
+#[rustfmt::skip]
+fn default_search<P: Application>() -> Vec<(MappedModes, &'static str, InputStep<P>)> {
+    [
+        ( NXOMAP, "n", edit_search_end!(SearchType::Regex, MoveDirMod::Same) ),
+        ( NXOMAP, "N", edit_search_end!(SearchType::Regex, MoveDirMod::Flip) ),
     ].to_vec()
 }
 
@@ -1706,16 +1763,33 @@ fn default_enter<P: Application>() -> Vec<(MappedModes, &'static str, InputStep<
 fn submit_on_enter<P: Application>() -> Vec<(MappedModes, &'static str, InputStep<P>)> {
     [
         // <Enter> in Normal and Visual mode submits contents.
-        ( NVMAP, "<Enter>", act!(Action::Submit, VimMode::Normal) ),
+        ( NVMAP, "<Enter>", cmdbar!(CommandBarAction::Submit, VimMode::Normal) ),
 
         // <Enter> in Insert mode submits contents and stays in Insert mode.
-        ( IMAP, "<Enter>", act!(Action::Submit, VimMode::Insert) ),
+        ( IMAP, "<Enter>", cmdbar!(CommandBarAction::Submit, VimMode::Insert) ),
 
         // <Enter> in Command mode submits the command.
-        ( CMAP, "<Enter>", act!(Action::Submit, VimMode::Normal) ),
+        ( CMAP, "<Enter>", cmdbar!(CommandBarAction::Submit, VimMode::Normal) ),
 
         // <Enter> in Operator-Pending mode moves to the next line.
         ( OMAP, "<Enter>", edit_end!(MoveType::FirstWord(MoveDir1D::Next)) ),
+    ].to_vec()
+}
+
+#[rustfmt::skip]
+fn search_is_action<P: Application>() -> Vec<(MappedModes, &'static str, InputStep<P>)> {
+    [
+        // Perform an application-level search in Normal mode.
+        ( NMAP, "n", act!(Action::Search(MoveDirMod::Same, Count::Contextual)) ),
+        ( NMAP, "N", act!(Action::Search(MoveDirMod::Flip, Count::Contextual)) ),
+
+        // Perform text search in Operator-Pending mode.
+        ( OMAP, "n", edit_search_end!(SearchType::Regex, MoveDirMod::Same) ),
+        ( OMAP, "N", edit_search_end!(SearchType::Regex, MoveDirMod::Flip) ),
+
+        // Perform text search in Visual mode.
+        ( XMAP, "n", edit_search_end!(SearchType::Regex, MoveDirMod::Same) ),
+        ( XMAP, "N", edit_search_end!(SearchType::Regex, MoveDirMod::Flip) ),
     ].to_vec()
 }
 
@@ -1754,13 +1828,20 @@ pub struct VimBindings<P: Application> {
     prefixes: Vec<(MappedModes, &'static str, Option<InputStep<P>>)>,
     mappings: Vec<(MappedModes, &'static str, InputStep<P>)>,
     enter: Vec<(MappedModes, &'static str, InputStep<P>)>,
+    search: Vec<(MappedModes, &'static str, InputStep<P>)>,
 }
 
 impl<P: Application> VimBindings<P> {
     /// Remap the Enter key in Normal, Visual, Select, and Insert mode to
-    /// [Action::Submit] instead.
+    /// [submit](CommandBarAction::Submit) instead.
     pub fn submit_on_enter(mut self) -> Self {
         self.enter = submit_on_enter();
+        self
+    }
+
+    /// Remap `n` and `N` in Normal mode to perform [Action::Search] instead.
+    pub fn search_is_action(mut self) -> Self {
+        self.search = search_is_action();
         self
     }
 }
@@ -1771,6 +1852,7 @@ impl<P: Application> Default for VimBindings<P> {
             prefixes: default_pfxs(),
             mappings: default_keys(),
             enter: default_enter(),
+            search: default_search(),
         }
     }
 }
@@ -1786,6 +1868,10 @@ impl<P: Application> InputBindings<KeyEvent, InputStep<P>> for VimBindings<P> {
         }
 
         for (modes, keys, action) in self.enter.iter() {
+            add_mapping(machine, modes, keys, action);
+        }
+
+        for (modes, keys, action) in self.search.iter() {
             add_mapping(machine, modes, keys, action);
         }
     }
@@ -1885,6 +1971,13 @@ mod tests {
         EditTarget::Search(SearchType::Char(false), MoveDirMod::Flip, Count::Contextual),
     );
     const CHECKPOINT: Action = Action::History(HistoryAction::Checkpoint);
+    const CMDBAR: Action = Action::CommandBar(CommandBarAction::Focus(CommandType::Command));
+    const CMDBAR_ABORT: Action = Action::CommandBar(CommandBarAction::Abort);
+    const CMDBAR_SEARCH_NEXT: Action =
+        Action::CommandBar(CommandBarAction::Focus(CommandType::Search(MoveDir1D::Next, false)));
+    const CMDBAR_SEARCH_PREV: Action = Action::CommandBar(CommandBarAction::Focus(
+        CommandType::Search(MoveDir1D::Previous, false),
+    ));
     const CURSOR_CLOSE: Action = Action::Cursor(CursorAction::Close(CursorCloseTarget::Followers));
     const CURSOR_SPLIT: Action = Action::Cursor(CursorAction::Split(Count::Contextual));
     const SEL_SPLIT: Action = Action::SelectionSplitLines(TargetShapeFilter::ALL);
@@ -2046,7 +2139,7 @@ mod tests {
 
         // Move to Command mode using ":".
         vm.input_key(key!(':'));
-        assert_pop2!(vm, Action::CommandFocus(CommandType::Command), ctx);
+        assert_pop2!(vm, CMDBAR, ctx);
         assert_eq!(vm.mode(), VimMode::Command);
 
         // Unmapped key types that character.
@@ -2070,7 +2163,7 @@ mod tests {
 
         // Go back to Normal mode via Escape.
         vm.input_key(key!(KeyCode::Esc));
-        assert_pop1!(vm, Action::CommandUnfocus, ctx);
+        assert_pop1!(vm, CMDBAR_ABORT, ctx);
 
         ctx.persist.insert = None;
         assert_pop1!(vm, CURSOR_CLOSE, ctx);
@@ -2079,7 +2172,7 @@ mod tests {
 
         // Move to Command mode (forward search) using "/".
         vm.input_key(key!('/'));
-        assert_pop2!(vm, Action::CommandFocus(CommandType::Search(MoveDir1D::Next)), ctx);
+        assert_pop2!(vm, CMDBAR_SEARCH_NEXT, ctx);
         assert_eq!(vm.mode(), VimMode::Command);
 
         // Unmapped key types that character.
@@ -2091,7 +2184,7 @@ mod tests {
 
         // Go back to Normal mode via ^C.
         vm.input_key(ctl!('c'));
-        assert_pop1!(vm, Action::CommandUnfocus, ctx);
+        assert_pop1!(vm, CMDBAR_ABORT, ctx);
 
         ctx.persist.insert = None;
         assert_pop1!(vm, CURSOR_CLOSE, ctx);
@@ -2099,8 +2192,9 @@ mod tests {
         assert_normal!(vm, ctx);
 
         // Move to Command mode (reverse search) using "?".
+        ctx.persist.regexsearch_dir = MoveDir1D::Previous;
         vm.input_key(key!('?'));
-        assert_pop2!(vm, Action::CommandFocus(CommandType::Search(MoveDir1D::Previous)), ctx);
+        assert_pop2!(vm, CMDBAR_SEARCH_PREV, ctx);
         assert_eq!(vm.mode(), VimMode::Command);
 
         // Unmapped key types that character.
@@ -2112,7 +2206,7 @@ mod tests {
 
         // Go back to Normal mode via ^C.
         vm.input_key(ctl!('c'));
-        assert_pop1!(vm, Action::CommandUnfocus, ctx);
+        assert_pop1!(vm, CMDBAR_ABORT, ctx);
 
         ctx.persist.insert = None;
         assert_pop1!(vm, CURSOR_CLOSE, ctx);

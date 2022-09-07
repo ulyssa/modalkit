@@ -16,12 +16,14 @@ use std::collections::HashMap;
 use std::marker::PhantomData;
 use std::ops::Range;
 
+use regex::Regex;
+
 use crate::{
     editing::cursor::{Cursor, CursorAdjustment},
     editing::history::HistoryList,
     editing::lineinfo::LineInfoStore,
     editing::rope::{ByteOff, CursorContext, EditRope, PrivateCursorOps},
-    editing::store::{BufferId, CursorStore, RegisterCell, SharedBuffer, SharedStore},
+    editing::store::{BufferId, CursorStore, RegisterCell, SharedBuffer, SharedStore, Store},
     util::{sort2, IdGenerator},
 };
 
@@ -56,10 +58,13 @@ use super::base::{
     TargetShape,
     TargetShapeFilter,
     ViewportContext,
+    WordStyle,
 };
 
 #[cfg(feature = "intervaltree")]
 use intervaltree::IntervalTree;
+
+const BUFFER_HISTORY_LEN: usize = 100;
 
 trait EditString<C> {
     fn delete(&mut self, range: &CursorRange, ctx: C) -> Option<Cursor>;
@@ -353,21 +358,88 @@ where
         count: &Count,
         ctx: &C,
     ) -> EditResult<Option<Cursor>> {
-        let res = match ctx.get_search_regex() {
-            Some((dir, needle)) => {
-                let count = ctx.resolve(count);
-                let dir = flip.resolve(&dir);
+        let needle = self._get_regex(ctx)?;
 
-                self.text.find_regex(cursor, dir, needle, count)
-            },
-            None => None,
-        };
+        let count = ctx.resolve(count);
+        let dir = ctx.get_search_regex_dir();
+        let dir = flip.resolve(&dir);
+
+        let res = self.text.find_regex(cursor, dir, &needle, count);
 
         Ok(res)
     }
 
+    fn _wordsearch<'a, 'b, 'c>(
+        &mut self,
+        cursor: &Cursor,
+        style: &WordStyle,
+        boundary: bool,
+        flip: &MoveDirMod,
+        count: &Count,
+        ctx: &C,
+    ) -> EditResult<Option<Cursor>> {
+        let mut cursor = cursor.clone();
+        let count = ctx.resolve(count);
+        let dir = ctx.get_search_regex_dir();
+        let dir = flip.resolve(&dir);
+
+        let word = self
+            .text
+            .get_cursor_word_mut(&mut cursor, *style)
+            .ok_or(EditError::NoCursorWord)?;
+        let word = regex::escape(word.to_string().as_str());
+
+        let needle = if boundary {
+            Regex::new(format!("\\b{}\\b", word).as_str())
+        } else {
+            Regex::new(word.as_str())
+        }?;
+
+        Store::set_last_search(needle.to_string(), &self.store);
+
+        let res = self.text.find_regex(&cursor, dir, &needle, count);
+
+        Ok(res)
+    }
+
+    fn _search(
+        &mut self,
+        cursor: &Cursor,
+        search: &SearchType,
+        flip: &MoveDirMod,
+        count: &Count,
+        ctx: &C,
+    ) -> EditResult<Option<Cursor>> {
+        match search {
+            SearchType::Char(multi) => {
+                return self._charsearch(cursor, flip, *multi, count, ctx);
+            },
+            SearchType::Regex => {
+                return self._regexsearch(cursor, flip, count, ctx);
+            },
+            SearchType::Word(style, boundary) => {
+                return self._wordsearch(cursor, style, *boundary, flip, count, ctx);
+            },
+        }
+    }
+
+    fn _get_last_search<'a, 'b, 'c>(&self) -> EditResult<Regex> {
+        let lsearch = self.get_register(&Some(Register::LastSearch)).value;
+        let regex = Regex::new(lsearch.to_string().as_ref())?;
+
+        return Ok(regex);
+    }
+
+    fn _get_regex<'a, 'b, 'c>(&self, ctx: &C) -> EditResult<Regex> {
+        if let Some(regex) = ctx.get_search_regex() {
+            return Ok(regex);
+        }
+
+        self._get_last_search()
+    }
+
     fn _target<'a, 'b, 'c>(
-        &self,
+        &mut self,
         id: CursorId,
         target: &EditTarget,
         ctx: &CursorMovementsContext<'a, 'b, 'c, Cursor, C>,
@@ -393,19 +465,9 @@ where
 
                 return Ok(Some(range));
             },
-            EditTarget::Search(SearchType::Char(multi), flip, count) => {
-                let nco = self._charsearch(&cursor, flip, *multi, count, ctx.context)?;
-                let range = nco.map(|nc| {
-                    let shape = TargetShape::CharWise;
-                    let inclusive = nc > cursor;
+            EditTarget::Search(search, flip, count) => {
+                let nco = self._search(&cursor, search, flip, count, ctx.context)?;
 
-                    CursorRange::new(cursor, nc, shape, inclusive)
-                });
-
-                return Ok(range);
-            },
-            EditTarget::Search(SearchType::Regex, flip, count) => {
-                let nco = self._regexsearch(&cursor, flip, count, ctx.context)?;
                 let range = nco.map(|nc| {
                     let shape = TargetShape::CharWise;
                     let inclusive = nc > cursor;
@@ -528,6 +590,21 @@ where
         self._adjust(&adj);
     }
 
+    pub(crate) fn line_leftover(&self, dir: MoveDir1D, count: usize, gid: CursorGroupId) -> usize {
+        let leader = self.get_leader(gid);
+
+        match dir {
+            MoveDir1D::Next => {
+                let avail = self.text.get_lines().saturating_sub(1).saturating_sub(leader.y);
+
+                return count.saturating_sub(avail);
+            },
+            MoveDir1D::Previous => {
+                return count.saturating_sub(leader.y);
+            },
+        }
+    }
+
     pub(crate) fn motion<'a, 'b, 'c>(
         &mut self,
         target: &EditTarget,
@@ -580,13 +657,8 @@ where
                         self.set_cursor(id, r.end);
                     }
                 },
-                EditTarget::Search(SearchType::Char(wrap), flip, count) => {
-                    if let Some(end) = self._charsearch(&cursor, flip, *wrap, count, ctx.context)? {
-                        self.set_cursor(id, end);
-                    }
-                },
-                EditTarget::Search(SearchType::Regex, flip, count) => {
-                    if let Some(end) = self._regexsearch(&cursor, flip, count, ctx.context)? {
+                EditTarget::Search(search, flip, count) => {
+                    if let Some(end) = self._search(&cursor, search, flip, count, ctx.context)? {
                         self.set_cursor(id, end);
                     }
                 },
@@ -632,43 +704,63 @@ where
         store.registers.put(register, cell, append, del)
     }
 
+    /// Return a reference to the contents of this buffer.
+    pub fn get(&self) -> &EditRope {
+        &self.text
+    }
+
     /// Return the contents of this buffer as a [String].
     pub fn get_text(&self) -> String {
         self.text.to_string()
     }
 
-    /// Replace the contents of this buffer with `t`.
-    pub fn set_text<T: Into<String>>(&mut self, t: T) {
-        let s: String = t.into();
+    /// Swap out the contents of this buffer with `t` and return the old value.
+    fn swap_rope<T: Into<EditRope>>(&mut self, t: T) -> EditRope {
+        let mut rope = t.into();
 
-        self.text = EditRope::from(s);
+        std::mem::swap(&mut self.text, &mut rope);
         self.text.trailing_newline();
+
+        // Reinitialize history so that undo doesn't take us to old buffer state.
+        self.history = HistoryList::new(self.text.clone(), BUFFER_HISTORY_LEN);
 
         self.cursors.zero_all();
         self.anchors.zero_all();
 
         self.store.write().unwrap().marks.zero_all(self.id);
+
+        return rope;
+    }
+
+    /// Replace the contents of this buffer with `t`.
+    ///
+    /// This also resets buffer-associated state, like marks and history.
+    pub fn set_text<T: Into<EditRope>>(&mut self, t: T) {
+        let _ = self.swap_rope(t);
     }
 
     /// Append text to this buffer.
-    pub fn append_text<T: Into<String>>(&mut self, t: T) -> Range<usize> {
-        let s: String = t.into();
-
+    pub fn append_text<T: Into<EditRope>>(&mut self, t: T) -> Range<usize> {
         let start = self.get_lines();
-        self.text += EditRope::from(s);
+        self.text += t.into();
         self.text.trailing_newline();
         let end = self.get_lines();
 
         Range { start, end }
     }
 
+    /// Clear the buffer of its current content, and return it.
+    ///
+    /// This also resets buffer-associated state, like marks and history.
+    pub fn reset(&mut self) -> EditRope {
+        self.swap_rope("\n")
+    }
+
     /// Clear the buffer of its current content, and return it as a [String].
+    ///
+    /// This also resets buffer-associated state, like marks and history.
     pub fn reset_text(&mut self) -> String {
-        let text = self.text.to_string();
-
-        self.set_text("\n");
-
-        return text;
+        self.reset().to_string()
     }
 
     fn add_follower(&mut self, group: CursorGroupId, follower: CursorId) {
@@ -1276,8 +1368,8 @@ where
     }
 
     fn checkpoint(&mut self) -> EditResult {
-        if self.text != self.history.current {
-            self.history.append(self.text.clone());
+        if &self.text != self.history.current() {
+            self.history.push(self.text.clone());
         }
 
         Ok(None)
@@ -2959,6 +3051,126 @@ mod tests {
         edit!(ebuf, EditAction::Delete, flip, ctx!(curid, vwctx, vctx));
         assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 8));
         assert_eq!(ebuf.get_text(), "a b c a  c 1 2 3\n");
+    }
+
+    #[test]
+    fn test_search_regex() {
+        let mut ebuf = mkbufstr("hello world\nhelp helm writhe\nwhisk helium\n");
+        let curid = ebuf.create_group();
+        let vwctx = ViewportContext::default();
+        let mut vctx = VimContext::default();
+
+        let op = EditAction::Motion;
+        let mv = EditTarget::Search(SearchType::Regex, MoveDirMod::Same, Count::Contextual);
+
+        Store::set_last_search("he", &ebuf.store);
+
+        // Move to (0, 6) to begin.
+        ebuf.set_leader(curid, Cursor::new(0, 6));
+
+        vctx.action.count = Some(1);
+        edit!(ebuf, op, mv, ctx!(curid, vwctx, vctx));
+        assert_eq!(ebuf.get_leader(curid), Cursor::new(1, 0));
+
+        vctx.action.count = Some(3);
+        edit!(ebuf, op, mv, ctx!(curid, vwctx, vctx));
+        assert_eq!(ebuf.get_leader(curid), Cursor::new(2, 6));
+
+        vctx.action.count = Some(4);
+        edit!(ebuf, op, mv, ctx!(curid, vwctx, vctx));
+        assert_eq!(ebuf.get_leader(curid), Cursor::new(1, 14));
+
+        vctx.persist.regexsearch_dir = MoveDir1D::Previous;
+
+        vctx.action.count = Some(2);
+        edit!(ebuf, op, mv, ctx!(curid, vwctx, vctx));
+        assert_eq!(ebuf.get_leader(curid), Cursor::new(1, 0));
+
+        vctx.action.count = Some(1);
+        edit!(ebuf, op, mv, ctx!(curid, vwctx, vctx));
+        assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 0));
+    }
+
+    #[test]
+    fn test_search_word_bound() {
+        let mut ebuf = mkbufstr("hello world\nhellfire hello brimstone\nhello hell\n");
+        let curid = ebuf.create_group();
+        let vwctx = ViewportContext::default();
+        let mut vctx = VimContext::default();
+
+        let op = EditAction::Motion;
+        let word = EditTarget::Search(
+            SearchType::Word(WordStyle::Little, true),
+            MoveDirMod::Same,
+            Count::Contextual,
+        );
+        let next = EditTarget::Search(SearchType::Regex, MoveDirMod::Same, Count::Contextual);
+
+        // Move to (0, 2) to begin, so that we're in the middle of "hello".
+        ebuf.set_leader(curid, Cursor::new(0, 2));
+
+        vctx.action.count = Some(1);
+        edit!(ebuf, op, word, ctx!(curid, vwctx, vctx));
+        assert_eq!(ebuf.get_leader(curid), Cursor::new(1, 9));
+
+        vctx.persist.regexsearch_dir = MoveDir1D::Previous;
+
+        vctx.action.count = Some(1);
+        edit!(ebuf, op, next, ctx!(curid, vwctx, vctx));
+        assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 0));
+
+        // Move to (2, 8) to begin, so that we're in the middle of "hell".
+        ebuf.set_leader(curid, Cursor::new(2, 8));
+
+        // Doesn't move.
+        vctx.action.count = Some(1);
+        edit!(ebuf, op, word, ctx!(curid, vwctx, vctx));
+        assert_eq!(ebuf.get_leader(curid), Cursor::new(2, 6));
+
+        // Doesn't move.
+        vctx.action.count = Some(4);
+        edit!(ebuf, op, next, ctx!(curid, vwctx, vctx));
+        assert_eq!(ebuf.get_leader(curid), Cursor::new(2, 6));
+    }
+
+    #[test]
+    fn test_search_word_no_bound() {
+        let mut ebuf = mkbufstr("hello world\nhellfire hello brimstone\nhello hell\n");
+        let curid = ebuf.create_group();
+        let vwctx = ViewportContext::default();
+        let mut vctx = VimContext::default();
+
+        let op = EditAction::Motion;
+        let word = EditTarget::Search(
+            SearchType::Word(WordStyle::Little, false),
+            MoveDirMod::Same,
+            Count::Contextual,
+        );
+        let next = EditTarget::Search(SearchType::Regex, MoveDirMod::Same, Count::Contextual);
+
+        // Move to (0, 2) to begin, so that we're in the middle of "hello".
+        ebuf.set_leader(curid, Cursor::new(0, 2));
+
+        vctx.action.count = Some(1);
+        edit!(ebuf, op, word, ctx!(curid, vwctx, vctx));
+        assert_eq!(ebuf.get_leader(curid), Cursor::new(1, 9));
+
+        vctx.persist.regexsearch_dir = MoveDir1D::Previous;
+
+        vctx.action.count = Some(1);
+        edit!(ebuf, op, next, ctx!(curid, vwctx, vctx));
+        assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 0));
+
+        // Move to (2, 8) to begin, so that we're in the middle of "hell".
+        ebuf.set_leader(curid, Cursor::new(2, 8));
+
+        vctx.action.count = Some(3);
+        edit!(ebuf, op, word, ctx!(curid, vwctx, vctx));
+        assert_eq!(ebuf.get_leader(curid), Cursor::new(1, 0));
+
+        vctx.action.count = Some(4);
+        edit!(ebuf, op, next, ctx!(curid, vwctx, vctx));
+        assert_eq!(ebuf.get_leader(curid), Cursor::new(1, 9));
     }
 
     #[test]

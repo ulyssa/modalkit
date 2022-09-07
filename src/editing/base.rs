@@ -183,12 +183,20 @@ pub enum SearchType {
     /// [bool] controls whether the search should continue across line boundaries.
     Char(bool),
 
-    /// Search for the regular expression indicated by [EditContext::get_search_regex].
+    /// Search for a regular expression.
     Regex,
+
+    /// Search for the word currently under the cursor, and update [Register::LastSearch] via
+    /// [Store::set_last_search].
+    ///
+    /// [bool] controls whether matches should be checked for using word boundaries.
+    ///
+    /// [Store::set_last_search]: crate::editing::store::Store::set_last_search
+    Word(WordStyle, bool),
 }
 
 /// The different ways of grouping a buffer's contents into words.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum WordStyle {
     /// Either a sequence of alphanumeric characters and underscores, or a sequence of other
     /// non-blank characters. An empty line is also a Little word.
@@ -331,11 +339,12 @@ pub enum MovePosition {
     End,
 }
 
-/// Represent a modification of a previous movement.
+/// Represent a modification of a previous [MoveDir1D] movement.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum MoveDirMod {
     Same,
     Flip,
+    Exact(MoveDir1D),
 }
 
 /// This represents a selection of an axis.
@@ -630,6 +639,50 @@ pub enum CursorAction {
     Split(Count),
 }
 
+/// Command actions
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[non_exhaustive]
+pub enum CommandAction {
+    /// Execute a command string.
+    ///
+    /// This should update [Register::LastCommand].
+    Execute(String),
+
+    /// Repeat the last executed command [*n* times](Count).
+    Repeat(Count),
+}
+
+/// Command bar actions
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[non_exhaustive]
+pub enum CommandBarAction {
+    /// Open the command bar so that the user can enter [CommandType] text.
+    Focus(CommandType),
+
+    /// Abort command entry.
+    Abort,
+
+    /// Submit the currently entered text.
+    Submit,
+
+    /// Move backwards and forwards through previous entries.
+    Recall(MoveDir1D, Count),
+}
+
+/// Macro actions
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[non_exhaustive]
+pub enum MacroAction {
+    /// Execute the contents of the contextually specified Register [*n* times](Count).
+    Execute(Count),
+
+    /// Execute the contents of the previously specified macro [*n* times](Count).
+    Repeat(Count),
+
+    /// Start or stop recording a macro.
+    ToggleRecording,
+}
+
 /// Tab actions
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[non_exhaustive]
@@ -713,6 +766,9 @@ pub enum Action<P: Application = ()> {
     /// Perform a history operation.
     History(HistoryAction),
 
+    /// Perform a macro-related action.
+    Macro(MacroAction),
+
     /// Complete the rest of the word typed thus far.
     Complete(MoveDir1D, bool),
 
@@ -750,37 +806,25 @@ pub enum Action<P: Application = ()> {
     /// Redraw the screen.
     RedrawScreen,
 
-    /// Perform the submit action for the currently focused UI element.
-    Submit,
-
     /// Suspend the process.
     Suspend,
 
-    /// Execute the contents of the contextually specified Register [*n* times](Count).
-    MacroExecute(Count),
+    /// Find the [*n*<sup>th</sup>](Count) occurrence of the current application-level search.
+    Search(MoveDirMod, Count),
 
-    /// Execute the contents of the previously specified macro [*n* times](Count).
-    MacroRepeat(Count),
+    /// Perform a command-related action.
+    Command(CommandAction),
 
-    /// Start or stop recording a macro.
-    MacroRecordToggle,
+    /// Perform a command bar-related action.
+    CommandBar(CommandBarAction),
 
-    /// Run a command.
-    CommandRun(String),
-
-    /// Repeat the last executed command [*n* times](Count).
-    CommandRepeat(Count),
-
-    /// Switch focus to the command bar so that the user can enter [CommandType] text.
-    CommandFocus(CommandType),
-
-    CommandUnfocus,
-
+    /// Perform a tab-related action.
     Tab(TabAction),
 
+    /// Perform a window-related action.
     Window(WindowAction),
 
-    /// Application specific command.
+    /// Application-specific command.
     Application(P::Action),
 }
 
@@ -802,6 +846,24 @@ impl<P: Application> From<CursorAction> for Action<P> {
     }
 }
 
+impl<P: Application> From<MacroAction> for Action<P> {
+    fn from(act: MacroAction) -> Self {
+        Action::Macro(act)
+    }
+}
+
+impl<P: Application> From<CommandAction> for Action<P> {
+    fn from(act: CommandAction) -> Self {
+        Action::Command(act)
+    }
+}
+
+impl<P: Application> From<CommandBarAction> for Action<P> {
+    fn from(act: CommandBarAction) -> Self {
+        Action::CommandBar(act)
+    }
+}
+
 impl<P: Application> From<WindowAction> for Action<P> {
     fn from(act: WindowAction) -> Self {
         Action::Window(act)
@@ -817,8 +879,14 @@ impl<P: Application> From<TabAction> for Action<P> {
 /// When focusing on the command bar, this is the type of command that should be submitted.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum CommandType {
+    /// Prompt the user for a command.
     Command,
-    Search(MoveDir1D),
+
+    /// Prompt the user for a search query.
+    ///
+    /// [MoveDir1D] controls which direction to search, and [bool] whether to perform an
+    /// incremental search as the user types their query.
+    Search(MoveDir1D, bool),
 }
 
 /// This specifies which list of cursors to use when jumping, the change list or the jump list.
@@ -856,6 +924,7 @@ impl From<char> for Char {
 
 /// Locations for temporarily storing text shared between buffers.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[non_exhaustive]
 pub enum Register {
     /// The default register.
     ///
@@ -865,7 +934,7 @@ pub enum Register {
     /// Recently deleted text.
     ///
     /// For example, `"[1-9]` in Vim.
-    RecentlyDeleted(usize), // "[1-9]
+    RecentlyDeleted(usize),
 
     /// Most recently deleted text that was shorted than a line.
     ///
@@ -1010,9 +1079,14 @@ pub trait EditContext:
     /// Indicates whether should be appended to the target register when yanking or deleting text.
     fn get_register_append(&self) -> bool;
 
-    /// Returns a regular expression to search for in the buffer, and the direction in
-    /// which to search.
-    fn get_search_regex(&self) -> Option<(MoveDir1D, Regex)>;
+    /// Returns a regular expression to search for in the buffer.
+    ///
+    /// If the context doesn't specify a search regex, then consumers should fall back to using
+    /// the contents of [Register::LastSearch].
+    fn get_search_regex(&self) -> Option<Regex>;
+
+    /// Get the direction in which to search.
+    fn get_search_regex_dir(&self) -> MoveDir1D;
 
     /// Returns a character to search for on the current line, and the direction in
     /// which to search.
@@ -1161,7 +1235,7 @@ pub trait CursorSearch<Cursor> {
         &self,
         cursor: &Cursor,
         dir: MoveDir1D,
-        needle: Regex,
+        needle: &Regex,
         count: usize,
     ) -> Option<Cursor>;
 }
@@ -1304,10 +1378,11 @@ impl MoveType {
 }
 
 impl MoveDirMod {
-    pub fn resolve<T: Flip + Clone>(&self, dir: &T) -> T {
+    pub fn resolve(&self, dir: &MoveDir1D) -> MoveDir1D {
         match self {
             MoveDirMod::Same => dir.clone(),
             MoveDirMod::Flip => dir.flip(),
+            MoveDirMod::Exact(exact) => exact.clone(),
         }
     }
 }
@@ -1327,6 +1402,10 @@ impl std::fmt::Display for EditInfo {
 #[derive(thiserror::Error, Debug)]
 #[non_exhaustive]
 pub enum EditError {
+    #[error("No word underneath cursor")]
+    NoCursorWord,
+    #[error("No current search specified")]
+    NoSearch,
     #[error("No current selection")]
     NoSelection,
     #[error("Invalid cursor group")]
@@ -1335,6 +1414,8 @@ pub enum EditError {
     InvalidCursor,
     #[error("Invalid digraph: {0:?} {1:?}")]
     InvalidDigraph(char, char),
+    #[error("Invalid regular expression: {0}")]
+    InvalidRegex(#[from] regex::Error),
     #[error("Mark not set")]
     MarkNotSet(Mark),
     #[error("Integer conversion error: {0}")]

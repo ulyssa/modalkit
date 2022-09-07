@@ -75,6 +75,7 @@ use crate::editing::base::{
 use crate::editing::{
     buffer::{CursorGroupId, Editable, FollowersInfo, HighlightInfo},
     cursor::Cursor,
+    rope::EditRope,
     store::SharedBuffer,
 };
 
@@ -201,7 +202,7 @@ where
 {
     /// Create state for a new text box.
     pub fn new(buffer: SharedBuffer<C, P>) -> Self {
-        let group_id = buffer.try_write().unwrap().create_group();
+        let group_id = buffer.write().unwrap().create_group();
         let mut viewctx = ViewportContext::default();
 
         viewctx.set_wrap(true);
@@ -218,17 +219,22 @@ where
 
     /// Get the contents of the underlying buffer as a [String].
     pub fn get_text(&self) -> String {
-        self.buffer.try_read().unwrap().get_text()
+        self.buffer.read().unwrap().get_text()
     }
 
     /// Replace the contents of the text box's underlying buffer.
-    pub fn set_text<T: Into<String>>(&mut self, t: T) {
-        self.buffer.try_write().unwrap().set_text(t)
+    pub fn set_text<T: Into<EditRope>>(&mut self, t: T) {
+        self.buffer.write().unwrap().set_text(t)
     }
 
     /// Clear the text box's underlying buffer of its content, and return it.
+    pub fn reset(&mut self) -> EditRope {
+        self.buffer.write().unwrap().reset()
+    }
+
+    /// Clear the text box's underlying buffer of its content, and return it as a [String].
     pub fn reset_text(&mut self) -> String {
-        self.buffer.try_write().unwrap().reset_text()
+        self.buffer.write().unwrap().reset_text()
     }
 
     /// Create or update a line annotation for the left gutter.
@@ -260,12 +266,12 @@ where
 
     /// Get the leader cursor for this text box's cursor group.
     pub fn get_cursor(&self) -> Cursor {
-        self.buffer.try_read().unwrap().get_leader(self.group_id)
+        self.buffer.read().unwrap().get_leader(self.group_id)
     }
 
     /// Calculate how many lines are in this text box.
     pub fn get_lines(&self) -> usize {
-        self.buffer.try_read().unwrap().get_lines()
+        self.buffer.read().unwrap().get_lines()
     }
 
     /// Check whether this text box is capable of displaying `max` lines.
@@ -285,7 +291,7 @@ where
                 return count;
             }
 
-            for line in self.buffer.try_read().unwrap().lines(0) {
+            for line in self.buffer.read().unwrap().lines(0) {
                 count += 1;
                 count += line.len().saturating_sub(1) / width;
 
@@ -296,7 +302,7 @@ where
 
             return count;
         } else {
-            self.buffer.try_read().unwrap().get_lines().min(max)
+            self.buffer.read().unwrap().get_lines().min(max)
         }
     }
 
@@ -338,7 +344,7 @@ where
          * be off-screen, this also sets a boundary of how far we can move the viewport.
          */
         let mut cursor = self.get_cursor();
-        let mut buffer = self.buffer.try_write().unwrap();
+        let mut buffer = self.buffer.write().unwrap();
         shift_cursor(&mut cursor, &self.viewctx.corner, width, height);
         buffer.clamp(&mut cursor, &(self.group_id, &self.viewctx, &ctx));
         shift_corner(&mut self.viewctx, &cursor, width, height);
@@ -390,7 +396,7 @@ where
     }
 
     fn linepos(&mut self, pos: MovePosition, count: &Count, ctx: &C) -> EditResult {
-        let mut buffer = self.buffer.try_write().unwrap();
+        let mut buffer = self.buffer.write().unwrap();
         let max = buffer.get_lines();
         let line = ctx.resolve(count).min(max).saturating_sub(1);
 
@@ -507,7 +513,7 @@ where
 
     fn dup(&self) -> Self {
         let buffer = self.buffer.clone();
-        let group_id = buffer.try_write().unwrap().create_group();
+        let group_id = buffer.write().unwrap().create_group();
 
         TextBoxState {
             buffer,
@@ -678,7 +684,7 @@ where
 
         let unstyled = Style::default();
 
-        let text = state.buffer.try_read().unwrap();
+        let text = state.buffer.read().unwrap();
         let mut line = cby;
         let mut lines = text.lines_at(line, cbx);
 
@@ -785,7 +791,7 @@ where
 
         let unstyled = Style::default();
 
-        let text = state.buffer.try_read().unwrap();
+        let text = state.buffer.read().unwrap();
         let mut line = cby;
         let mut lines = text.lines(line);
 
@@ -830,12 +836,12 @@ where
 
     #[inline]
     fn _selection_intervals(&self, state: &mut TextBoxState<C, P>) -> HighlightInfo {
-        state.buffer.try_read().unwrap()._selection_intervals(state.group_id)
+        state.buffer.read().unwrap()._selection_intervals(state.group_id)
     }
 
     #[inline]
     fn _follower_intervals(&self, state: &mut TextBoxState<C, P>) -> FollowersInfo {
-        state.buffer.try_read().unwrap()._follower_intervals(state.group_id)
+        state.buffer.read().unwrap()._follower_intervals(state.group_id)
     }
 
     fn _render_lines(&mut self, area: Rect, buf: &mut Buffer, state: &mut TextBoxState<C, P>) {

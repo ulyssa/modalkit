@@ -14,6 +14,7 @@ pub mod input;
 pub mod vim;
 
 #[cfg(feature = "readline")]
+#[deny(missing_docs)]
 pub mod readline;
 
 pub use crossterm;

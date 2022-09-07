@@ -96,6 +96,12 @@ impl From<&str> for RegisterCell {
     }
 }
 
+impl From<EditRope> for RegisterCell {
+    fn from(s: EditRope) -> RegisterCell {
+        RegisterCell::new(TargetShape::CharWise, s)
+    }
+}
+
 impl From<(TargetShape, &str)> for RegisterCell {
     fn from(c: (TargetShape, &str)) -> RegisterCell {
         RegisterCell::new(c.0, EditRope::from(c.1))
@@ -222,10 +228,6 @@ impl RegisterStore {
                 self.altbufname = cell.clone();
                 cell
             },
-            Register::LastSearch => {
-                self.last_search = cell.clone();
-                cell
-            },
             Register::LastYanked => {
                 self.last_yanked = cell.clone();
                 cell
@@ -249,9 +251,14 @@ impl RegisterStore {
             Register::CurBufName => cell,
             Register::LastCommand => cell,
             Register::LastInserted => cell,
+            Register::LastSearch => cell,
         };
 
         self.unnamed = unnamed;
+    }
+
+    pub(super) fn set_last_search<T: Into<EditRope>>(&mut self, rope: T) {
+        self.last_search = RegisterCell::from(rope.into());
     }
 }
 

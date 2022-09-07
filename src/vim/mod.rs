@@ -384,6 +384,7 @@ pub(crate) struct ActionContext<P: Application> {
 /// future keybinding sequences.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct PersistentContext {
+    pub(crate) regexsearch_dir: MoveDir1D,
     pub(crate) charsearch_params: (MoveDir1D, bool),
     pub(crate) charsearch: Option<Char>,
     pub(crate) shape: Option<TargetShape>,
@@ -526,8 +527,12 @@ impl<P: Application> EditContext for VimContext<P> {
         self.action.replace.clone()
     }
 
-    fn get_search_regex(&self) -> Option<(MoveDir1D, Regex)> {
+    fn get_search_regex(&self) -> Option<Regex> {
         None
+    }
+
+    fn get_search_regex_dir(&self) -> MoveDir1D {
+        self.persist.regexsearch_dir
     }
 
     fn get_search_char(&self) -> Option<(MoveDir1D, bool, Char)> {
@@ -590,6 +595,7 @@ impl<P: Application> Default for ActionContext<P> {
 impl Default for PersistentContext {
     fn default() -> Self {
         PersistentContext {
+            regexsearch_dir: MoveDir1D::Next,
             charsearch_params: (MoveDir1D::Next, false),
             charsearch: None,
             insert: None,

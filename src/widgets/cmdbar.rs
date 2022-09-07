@@ -20,6 +20,7 @@ use crate::editing::store::{SharedStore, Store};
 use crate::editing::base::{
     Action,
     Application,
+    CommandAction,
     CommandType,
     Count,
     EditContext,
@@ -39,6 +40,7 @@ use super::{
 pub struct CommandBarState<C: EditContext + InputContext, P: Application> {
     pub cmdtype: CommandType,
     pub tbox: TextBoxState<C, P>,
+    store: SharedStore<C, P>,
 }
 
 impl<C, P> CommandBarState<C, P>
@@ -52,6 +54,7 @@ where
         CommandBarState {
             cmdtype: CommandType::Command,
             tbox: TextBoxState::new(buffer),
+            store,
         }
     }
 
@@ -92,12 +95,16 @@ where
     P: Application,
 {
     fn submit(&mut self, _: &mut C) -> Option<Action<P>> {
-        let text = self.tbox.reset_text();
-
         match self.cmdtype {
-            CommandType::Command => Some(Action::CommandRun(text)),
-            CommandType::Search(_) => {
-                // XXX: need to use dir and text!
+            CommandType::Command => {
+                let text = self.tbox.reset_text();
+
+                Some(CommandAction::Execute(text).into())
+            },
+            CommandType::Search(_, _) => {
+                let text = self.tbox.reset().trim();
+
+                Store::set_last_search(text, &self.store);
 
                 let target =
                     EditTarget::Search(SearchType::Regex, MoveDirMod::Same, Count::Contextual);
@@ -148,8 +155,8 @@ where
         if self.focused {
             let prompt = match state.cmdtype {
                 CommandType::Command => ":",
-                CommandType::Search(MoveDir1D::Next) => "/",
-                CommandType::Search(MoveDir1D::Previous) => "?",
+                CommandType::Search(MoveDir1D::Next, _) => "/",
+                CommandType::Search(MoveDir1D::Previous, _) => "?",
             };
 
             let tbox = TextBox::new().prompt(prompt);
