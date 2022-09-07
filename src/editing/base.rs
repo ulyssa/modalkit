@@ -152,16 +152,19 @@ pub struct EditRange<Cursor> {
 }
 
 impl<Cursor: Ord> EditRange<Cursor> {
+    /// Create a new editing range.
     pub fn new(a: Cursor, b: Cursor, shape: TargetShape, inclusive: bool) -> Self {
         let (start, end) = sort2(a, b);
 
         EditRange { start, end, shape, inclusive }
     }
 
+    /// Create a new inclusive editing range.
     pub fn inclusive(a: Cursor, b: Cursor, shape: TargetShape) -> Self {
         Self::new(a, b, shape, true)
     }
 
+    /// Create a new exclusive editing range.
     pub fn exclusive(a: Cursor, b: Cursor, shape: TargetShape) -> Self {
         Self::new(a, b, shape, false)
     }
@@ -207,6 +210,11 @@ pub enum RangeType {
 
     /// Select the current line the cursor is on.
     Line,
+
+    /// Select a range of whitespace around the cursor.
+    ///
+    /// [bool] controls whether this crosses lines.
+    Whitespace(bool),
 
     /// Select the current word the cursor is in.
     Word(WordStyle),

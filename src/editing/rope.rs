@@ -310,6 +310,10 @@ fn is_keyword(c: char) -> bool {
     return c >= '!' && c <= '/' || c >= '[' && c <= '^' || c >= '{' && c <= '~' || c == '`';
 }
 
+fn is_horizontal_space(c: char) -> bool {
+    return c == ' ' || c == '\t';
+}
+
 fn is_space_char(c: char) -> bool {
     return c.is_ascii_whitespace();
 }
@@ -1521,6 +1525,30 @@ impl EditRope {
         Some(range)
     }
 
+    fn seek_while(&self, nc: &Cursor, dir: MoveDir1D, f: impl Fn(char) -> bool) -> Option<Cursor> {
+        let mut off = self.cursor_to_offset(nc);
+        let mut rc = self.offset_to_rc(off);
+
+        if !f(rc.peek_next_codepoint()?) {
+            return None;
+        }
+
+        loop {
+            match move_cursor(&mut rc, &dir) {
+                None => break,
+                Some(c) => {
+                    if f(c) {
+                        off = rc.pos().into();
+                    } else {
+                        break;
+                    }
+                },
+            }
+        }
+
+        return Some(self.offset_to_cursor(off));
+    }
+
     /// Returns an iterator over the newlines within this rope following `offset`.
     pub fn newlines(&self, offset: ByteOff) -> NewlineIterator {
         let rc = self.offset_to_rc(offset);
@@ -1852,6 +1880,18 @@ impl<C: EditContext> CursorMovements<Cursor, C> for EditRope {
 
                 Some(range)
             },
+            (RangeType::Whitespace(multiline), _) => {
+                let f = if *multiline {
+                    is_space_char
+                } else {
+                    is_horizontal_space
+                };
+
+                let start = self.seek_while(cursor, MoveDir1D::Previous, f)?;
+                let end = self.seek_while(cursor, MoveDir1D::Next, f)?;
+
+                EditRange::inclusive(start, end, TargetShape::CharWise).into()
+            },
             (RangeType::Line, count) => {
                 let style = ctx.context.get_insert_style();
                 let cctx = &(self, ctx.view.get_width(), style.is_some());
@@ -2132,6 +2172,21 @@ mod tests {
         let rope3 = EditRope::from("a\nb\nc");
         let rep = rope3.repeat(TargetShape::BlockWise, 5);
         assert_eq!(rep.to_string(), "aaaaa\nbbbbb\nccccc");
+    }
+
+    #[test]
+    fn test_rope_first_last() {
+        let rope = EditRope::from("a b c");
+        assert_eq!(rope.first(), Cursor::new(0, 0));
+        assert_eq!(rope.last(), Cursor::new(0, 4));
+
+        let rope = EditRope::from("a\nb\nc");
+        assert_eq!(rope.first(), Cursor::new(0, 0));
+        assert_eq!(rope.last(), Cursor::new(2, 0));
+
+        let rope = EditRope::from("a\nb\nc\n");
+        assert_eq!(rope.first(), Cursor::new(0, 0));
+        assert_eq!(rope.last(), Cursor::new(2, 1));
     }
 
     #[test]
@@ -3253,6 +3308,88 @@ mod tests {
     }
 
     #[test]
+    fn test_range_buffer() {
+        let rope = EditRope::from("abcdef\nghijklmn\n");
+        let vwctx = ViewportContext::<Cursor>::default();
+        let vctx: VimContext = VimContext::default();
+        let cw = TargetShape::LineWise;
+        let count = Count::Contextual;
+        let rt = RangeType::Buffer;
+
+        // Test multiple starting points, to show it doesn't matter.
+        let cursor = Cursor::new(0, 0);
+        let er = rope.range(&cursor, &rt, &count, cmctx!(vwctx, vctx)).unwrap();
+        assert_eq!(er, EditRange::inclusive(Cursor::new(0, 0), Cursor::new(1, 8), cw));
+
+        let cursor = Cursor::new(0, 3);
+        let er = rope.range(&cursor, &rt, &count, cmctx!(vwctx, vctx)).unwrap();
+        assert_eq!(er, EditRange::inclusive(Cursor::new(0, 0), Cursor::new(1, 8), cw));
+
+        let cursor = Cursor::new(1, 0);
+        let er = rope.range(&cursor, &rt, &count, cmctx!(vwctx, vctx)).unwrap();
+        assert_eq!(er, EditRange::inclusive(Cursor::new(0, 0), Cursor::new(1, 8), cw));
+
+        let cursor = Cursor::new(1, 5);
+        let er = rope.range(&cursor, &rt, &count, cmctx!(vwctx, vctx)).unwrap();
+        assert_eq!(er, EditRange::inclusive(Cursor::new(0, 0), Cursor::new(1, 8), cw));
+    }
+
+    #[test]
+    fn test_range_whitespace() {
+        let rope = EditRope::from("a   \t   b\nc  \t\n\n    d");
+        let vwctx = ViewportContext::<Cursor>::default();
+        let vctx: VimContext = VimContext::default();
+        let cw = TargetShape::CharWise;
+        let count = Count::Contextual;
+
+        // Test ranges without crossing newlines.
+        let rt = RangeType::Whitespace(false);
+
+        let cursor = Cursor::new(0, 1);
+        let er = rope.range(&cursor, &rt, &count, cmctx!(vwctx, vctx)).unwrap();
+        assert_eq!(er, EditRange::inclusive(Cursor::new(0, 1), Cursor::new(0, 7), cw));
+
+        let cursor = Cursor::new(0, 7);
+        let er = rope.range(&cursor, &rt, &count, cmctx!(vwctx, vctx)).unwrap();
+        assert_eq!(er, EditRange::inclusive(Cursor::new(0, 1), Cursor::new(0, 7), cw));
+
+        let cursor = Cursor::new(1, 3);
+        let er = rope.range(&cursor, &rt, &count, cmctx!(vwctx, vctx)).unwrap();
+        assert_eq!(er, EditRange::inclusive(Cursor::new(1, 1), Cursor::new(1, 3), cw));
+
+        let cursor = Cursor::new(2, 0);
+        let er = rope.range(&cursor, &rt, &count, cmctx!(vwctx, vctx));
+        assert_eq!(er, None);
+
+        let cursor = Cursor::new(3, 1);
+        let er = rope.range(&cursor, &rt, &count, cmctx!(vwctx, vctx)).unwrap();
+        assert_eq!(er, EditRange::inclusive(Cursor::new(3, 0), Cursor::new(3, 3), cw));
+
+        // Test ranges with crossing newlines.
+        let rt = RangeType::Whitespace(true);
+
+        let cursor = Cursor::new(0, 1);
+        let er = rope.range(&cursor, &rt, &count, cmctx!(vwctx, vctx)).unwrap();
+        assert_eq!(er, EditRange::inclusive(Cursor::new(0, 1), Cursor::new(0, 7), cw));
+
+        let cursor = Cursor::new(0, 7);
+        let er = rope.range(&cursor, &rt, &count, cmctx!(vwctx, vctx)).unwrap();
+        assert_eq!(er, EditRange::inclusive(Cursor::new(0, 1), Cursor::new(0, 7), cw));
+
+        let cursor = Cursor::new(1, 3);
+        let er = rope.range(&cursor, &rt, &count, cmctx!(vwctx, vctx)).unwrap();
+        assert_eq!(er, EditRange::inclusive(Cursor::new(1, 1), Cursor::new(3, 3), cw));
+
+        let cursor = Cursor::new(2, 0);
+        let er = rope.range(&cursor, &rt, &count, cmctx!(vwctx, vctx)).unwrap();
+        assert_eq!(er, EditRange::inclusive(Cursor::new(1, 1), Cursor::new(3, 3), cw));
+
+        let cursor = Cursor::new(3, 1);
+        let er = rope.range(&cursor, &rt, &count, cmctx!(vwctx, vctx)).unwrap();
+        assert_eq!(er, EditRange::inclusive(Cursor::new(1, 1), Cursor::new(3, 3), cw));
+    }
+
+    #[test]
     fn test_range_line() {
         let rope = EditRope::from("1 2 3\nhello world\n    foo bar\na b c d e f\n");
         let vwctx = ViewportContext::<Cursor>::default();
@@ -3428,6 +3565,45 @@ mod tests {
         // Right side of paren group.
         let cursor_r = Cursor::new(0, 35);
         let er = rope.range(&cursor_r, &rt, &count, cmctx!(vwctx, vctx));
+        assert_eq!(er, None);
+    }
+
+    #[test]
+    fn test_range_bracketed_exclusive() {
+        let rope = EditRope::from("foo (1 ( (a) \")\" (b) ')' (c) ) 2 3) bar");
+        let vwctx = ViewportContext::<Cursor>::default();
+        let mut vctx: VimContext = VimContext::default();
+        let cw = TargetShape::CharWise;
+        let count = Count::Contextual;
+        let rt = RangeType::Bracketed('(', ')', false);
+
+        // These starting positions are before the quotes.
+        let cursor_1 = Cursor::new(0, 5);
+        let cursor_a = Cursor::new(0, 10);
+
+        // Look for the parentheses surrounding "1".
+        vctx.action.count = Some(1);
+        let er = rope.range(&cursor_1, &rt, &count, cmctx!(vwctx, vctx)).unwrap();
+        assert_eq!(er, EditRange::inclusive(Cursor::new(0, 5), Cursor::new(0, 33), cw));
+
+        // Look for the parentheses surrounding "a" w/ count = 1.
+        vctx.action.count = Some(1);
+        let er = rope.range(&cursor_a, &rt, &count, cmctx!(vwctx, vctx)).unwrap();
+        assert_eq!(er, EditRange::inclusive(Cursor::new(0, 10), Cursor::new(0, 10), cw));
+
+        // Look for the parentheses surrounding "a" w/ count = 2.
+        vctx.action.count = Some(2);
+        let er = rope.range(&cursor_a, &rt, &count, cmctx!(vwctx, vctx)).unwrap();
+        assert_eq!(er, EditRange::inclusive(Cursor::new(0, 8), Cursor::new(0, 28), cw));
+
+        // Look for the parentheses surrounding "a" w/ count = 3.
+        vctx.action.count = Some(3);
+        let er = rope.range(&cursor_a, &rt, &count, cmctx!(vwctx, vctx)).unwrap();
+        assert_eq!(er, EditRange::inclusive(Cursor::new(0, 5), Cursor::new(0, 33), cw));
+
+        // Look for the parentheses surrounding "a" w/ count = 4.
+        vctx.action.count = Some(4);
+        let er = rope.range(&cursor_a, &rt, &count, cmctx!(vwctx, vctx));
         assert_eq!(er, None);
     }
 
