@@ -71,6 +71,7 @@ use crate::editing::{
         MoveDirMod,
         MoveType,
         Register,
+        RepeatType,
     },
     buffer::Editable,
     history::HistoryList,
@@ -143,7 +144,7 @@ where
     C: EditContext + InputContext,
     P: Application,
 {
-    bindings: KeyManager<TerminalKey, Action<P>, C, P>,
+    bindings: KeyManager<TerminalKey, Action<P>, RepeatType, C, P>,
     store: SharedStore<C, P>,
 
     history: HistoryList<EditRope>,
@@ -162,7 +163,7 @@ where
     P: Application,
 {
     /// Create a new instance.
-    pub fn new<B: BindingMachine<TerminalKey, Action<P>, C> + 'static>(
+    pub fn new<B: BindingMachine<TerminalKey, Action<P>, RepeatType, C> + 'static>(
         bindings: B,
     ) -> Result<Self, std::io::Error> {
         let dimensions = crossterm::terminal::size()?;
@@ -580,6 +581,20 @@ where
             Action::Suspend => return self.suspend(),
 
             // Simple delegations.
+            Action::Edit(action, mov) => self.edit(ctx.resolve(&action), mov, ctx)?,
+            Action::Macro(act) => self.bindings.macro_command(act, &ctx)?,
+            Action::Mark(mark) => self.focused_mut().mark(ctx.resolve(&mark), &ctx)?,
+            Action::Cursor(act) => self.focused_mut().cursor_command(act, &ctx)?,
+            Action::Selection(act) => self.focused_mut().selection_command(act, &ctx)?,
+            Action::History(act) => self.focused_mut().history_command(act, &ctx)?,
+            Action::Search(flip, count) => self.search(flip, count, ctx)?,
+
+            Action::RedrawScreen => {
+                self.context.top = 0;
+
+                None
+            },
+
             Action::InsertText(act) => {
                 let res = self.focused_mut().insert_text(act, &ctx)?;
 
@@ -588,20 +603,9 @@ where
 
                 res
             },
-            Action::Macro(act) => self.bindings.macro_command(act, &ctx)?,
-            Action::Mark(mark) => self.focused_mut().mark(ctx.resolve(&mark), &ctx)?,
-            Action::Cursor(act) => self.focused_mut().cursor_command(act, &ctx)?,
-            Action::Selection(act) => self.focused_mut().selection_command(act, &ctx)?,
-            Action::History(act) => self.focused_mut().history_command(act, &ctx)?,
-            Action::Search(flip, count) => self.search(flip, count, ctx)?,
 
-            Action::Edit(action, mov) => {
-                let action = ctx.resolve(&action);
-
-                self.edit(action, mov, ctx)?
-            },
-            Action::RedrawScreen => {
-                self.context.top = 0;
+            Action::Repeat(rt) => {
+                self.bindings.repeat(rt, Some(ctx));
 
                 None
             },
@@ -612,10 +616,6 @@ where
                 None
             },
             Action::Complete(_, _) => {
-                // XXX: implement
-                None
-            },
-            Action::EditRepeat(_) => {
                 // XXX: implement
                 None
             },

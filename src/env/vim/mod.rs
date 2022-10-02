@@ -5,10 +5,12 @@
 //! This module contains components to help with building applications that mimic Vim's user
 //! interfaces.
 //!
+use std::marker::PhantomData;
+
 use regex::Regex;
 
 use crate::{
-    input::bindings::{EdgeEvent, InputKeyContext, Mode, ModeKeys},
+    input::bindings::{EdgeEvent, InputKeyContext, Mode, ModeKeys, ModeSequence, SequenceStatus},
     input::key::TerminalKey,
     input::InputContext,
     util::{keycode_to_num, option_muladd_u32, option_muladd_usize},
@@ -32,6 +34,7 @@ use crate::editing::base::{
     MoveDir1D,
     MoveType,
     Register,
+    RepeatType,
     Resolve,
     Specifier,
     TargetShape,
@@ -212,6 +215,36 @@ impl<P: Application> Mode<Action<P>, VimContext<P>> for VimMode {
     }
 }
 
+impl<P: Application> ModeSequence<RepeatType, Action<P>, VimContext<P>> for VimMode {
+    fn sequences(
+        &self,
+        action: &Action<P>,
+        ctx: &VimContext<P>,
+    ) -> Vec<(RepeatType, SequenceStatus)> {
+        let motion = match self {
+            VimMode::Command => {
+                // Don't track anything done in Command mode.
+                return vec![];
+            },
+            VimMode::Normal => {
+                if ctx.persist.insert.is_some() {
+                    SequenceStatus::Restart
+                } else {
+                    SequenceStatus::Break
+                }
+            },
+            VimMode::Visual | VimMode::Select => SequenceStatus::Track,
+            _ => SequenceStatus::Break,
+        };
+
+        return vec![
+            (RepeatType::EditSequence, action.is_edit_sequence(motion, ctx)),
+            (RepeatType::LastAction, action.is_last_action(ctx)),
+            (RepeatType::LastSelection, action.is_last_selection(ctx)),
+        ];
+    }
+}
+
 impl<P: Application> ModeKeys<TerminalKey, Action<P>, VimContext<P>> for VimMode {
     fn unmapped(
         &self,
@@ -279,7 +312,7 @@ impl<P: Application> ModeKeys<TerminalKey, Action<P>, VimContext<P>> for VimMode
 /// This is the context specific to an action, and gets reset every time a full sequence of
 /// keybindings is pressed.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct ActionContext<P: Application> {
+pub(crate) struct ActionContext {
     // Fields for managing entered counts.
     pub(crate) count: Option<usize>,
     pub(crate) counting: Option<usize>,
@@ -290,8 +323,9 @@ pub(crate) struct ActionContext<P: Application> {
     pub(crate) register_append: bool,
     pub(crate) mark: Option<Mark>,
 
-    // The editing action to take.
+    // An editing action to take, and what text to target.
     pub(crate) operation: EditAction,
+    pub(crate) target: Option<EditTarget>,
 
     // Where to place the cursor after editing.
     pub(crate) cursor_end: Option<CursorEnd>,
@@ -299,8 +333,7 @@ pub(crate) struct ActionContext<P: Application> {
     // Temporary character search parameters.
     pub(crate) charsearch_params: Option<(MoveDir1D, bool)>,
 
-    // Delayed actions and mode transitions.
-    pub(crate) postaction: Option<Action<P>>,
+    // Delayed mode transition.
     pub(crate) postmode: Option<VimMode>,
 
     // Cursor indicator to show on-screen.
@@ -322,12 +355,26 @@ pub(crate) struct PersistentContext {
 /// This wraps both action specific context, and persistent context.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct VimContext<P: Application = ()> {
-    pub(crate) action: ActionContext<P>,
+    pub(crate) action: ActionContext,
     pub(crate) persist: PersistentContext,
     pub(self) ch: CharacterContext,
+
+    _p: PhantomData<P>,
 }
 
 impl<P: Application> InputContext for VimContext<P> {
+    fn overrides(&mut self, other: &Self) {
+        // Allow overriding the two fields that can prefix keybindings.
+
+        if other.action.count.is_some() {
+            self.action.count = other.action.count.clone();
+        }
+
+        if other.action.register.is_some() {
+            self.action.register = other.action.register.clone();
+        }
+    }
+
     fn reset(&mut self) {
         self.action = ActionContext::default();
     }
@@ -337,6 +384,8 @@ impl<P: Application> InputContext for VimContext<P> {
             persist: self.persist.clone(),
             action: std::mem::take(&mut self.action),
             ch: std::mem::take(&mut self.ch),
+
+            _p: PhantomData,
         }
     }
 }
@@ -457,7 +506,7 @@ impl<P: Application> EditContext for VimContext<P> {
     }
 }
 
-impl<P: Application> Default for ActionContext<P> {
+impl Default for ActionContext {
     fn default() -> Self {
         ActionContext {
             count: None,
@@ -468,13 +517,13 @@ impl<P: Application> Default for ActionContext<P> {
             register_append: false,
             mark: None,
 
-            operation: EditAction::default(),
+            operation: EditAction::Motion,
+            target: None,
 
             cursor_end: None,
 
             charsearch_params: None,
 
-            postaction: None,
             postmode: None,
 
             cursor: None,
@@ -497,10 +546,12 @@ impl Default for PersistentContext {
 
 impl<P: Application> Default for VimContext<P> {
     fn default() -> Self {
-        VimContext {
+        Self {
             action: ActionContext::default(),
             persist: PersistentContext::default(),
             ch: CharacterContext::default(),
+
+            _p: PhantomData,
         }
     }
 }

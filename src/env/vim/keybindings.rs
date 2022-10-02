@@ -80,6 +80,7 @@ use crate::editing::base::{
     PositionList,
     RangeType,
     Register,
+    RepeatType,
     ScrollSize,
     ScrollStyle,
     SearchType,
@@ -196,9 +197,9 @@ impl MappedModes {
 }
 
 #[derive(Clone, Debug)]
-enum InternalAction<P: Application> {
+enum InternalAction {
     SetCursorEnd(CursorEnd),
-    SetPostAction(Action<P>),
+    SetTarget(EditTarget),
     SetSearchCharParams(MoveDir1D, bool),
     SetSearchChar,
     SetSearchRegexParams(MoveDir1D),
@@ -213,8 +214,8 @@ enum InternalAction<P: Application> {
     SetPostMode(VimMode),
 }
 
-impl<P: Application> InternalAction<P> {
-    pub fn run(&self, ctx: &mut VimContext<P>) {
+impl InternalAction {
+    pub fn run<P: Application>(&self, ctx: &mut VimContext<P>) {
         match self {
             InternalAction::SetCursorEnd(end) => {
                 ctx.action.cursor_end = Some(*end);
@@ -291,8 +292,8 @@ impl<P: Application> InternalAction<P> {
             InternalAction::SetOperation(op) => {
                 ctx.action.operation = op.clone();
             },
-            InternalAction::SetPostAction(pa) => {
-                ctx.action.postaction = Some(pa.clone());
+            InternalAction::SetTarget(et) => {
+                ctx.action.target = Some(et.clone());
             },
             InternalAction::SetPostMode(ps) => {
                 ctx.action.postmode = Some(*ps);
@@ -301,7 +302,7 @@ impl<P: Application> InternalAction<P> {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 enum ExternalAction<P: Application> {
     Something(Action<P>),
     CountAlters(Vec<Action<P>>, Vec<Action<P>>),
@@ -321,7 +322,11 @@ impl<P: Application> ExternalAction<P> {
                 }
             },
             ExternalAction::PostAction => {
-                vec![context.action.postaction.take().unwrap_or(Action::NoOp)]
+                if let Some(target) = context.action.target.take() {
+                    vec![Action::Edit(Specifier::Contextual, target)]
+                } else {
+                    vec![Action::NoOp]
+                }
             },
             ExternalAction::MacroToggle(reqrec) => {
                 let recording = context.persist.recording.is_some();
@@ -343,10 +348,23 @@ impl<P: Application> ExternalAction<P> {
     }
 }
 
+impl<P: Application> Clone for ExternalAction<P> {
+    fn clone(&self) -> Self {
+        match self {
+            ExternalAction::Something(act) => ExternalAction::Something(act.clone()),
+            ExternalAction::CountAlters(act1, act2) => {
+                ExternalAction::CountAlters(act1.clone(), act2.clone())
+            },
+            ExternalAction::MacroToggle(reqrec) => ExternalAction::MacroToggle(*reqrec),
+            ExternalAction::PostAction => ExternalAction::PostAction,
+        }
+    }
+}
+
 /// Description of actions to take after an input sequence.
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct InputStep<P: Application> {
-    internal: Vec<InternalAction<P>>,
+    internal: Vec<InternalAction>,
     external: Vec<ExternalAction<P>>,
     fallthrough_mode: Option<VimMode>,
     nextm: Option<VimMode>,
@@ -370,11 +388,23 @@ impl<P: Application> InputStep<P> {
     }
 }
 
+impl<P: Application> Clone for InputStep<P> {
+    fn clone(&self) -> Self {
+        Self {
+            internal: self.internal.clone(),
+            external: self.external.clone(),
+            fallthrough_mode: self.fallthrough_mode.clone(),
+            nextm: self.nextm.clone(),
+        }
+    }
+}
+
 impl<P: Application> Step<TerminalKey> for InputStep<P> {
     type A = Action<P>;
     type C = VimContext<P>;
     type Class = CommonKeyClass;
     type M = VimMode;
+    type Sequence = RepeatType;
 
     fn is_unmapped(&self) -> bool {
         match self {
@@ -631,9 +661,10 @@ macro_rules! charsearch {
     ($d: expr, $i: expr) => {
         fallthrough!(VimMode::CharSearchSuffix, vec![
             InternalAction::SetSearchCharParams($d, $i),
-            InternalAction::SetPostAction(Action::Edit(
-                Specifier::Contextual,
-                EditTarget::Search(SearchType::Char(false), MoveDirMod::Same, Count::Contextual)
+            InternalAction::SetTarget(EditTarget::Search(
+                SearchType::Char(false),
+                MoveDirMod::Same,
+                Count::Contextual
             ))
         ])
     };
@@ -647,16 +678,19 @@ macro_rules! charsearch_suffix {
 
 macro_rules! charreplace {
     ($v: expr) => {
-        fallthrough!(VimMode::CharReplaceSuffix, vec![InternalAction::SetPostAction(Action::Edit(
-            Specifier::Exact(EditAction::Replace($v)),
-            EditTarget::Motion(MoveType::Column(MoveDir1D::Next, false), Count::Contextual)
-        ))])
+        fallthrough!(VimMode::CharReplaceSuffix, vec![
+            InternalAction::SetOperation(EditAction::Replace($v)),
+            InternalAction::SetTarget(EditTarget::Motion(
+                MoveType::Column(MoveDir1D::Next, false),
+                Count::Contextual
+            ))
+        ])
     };
     ($v: expr, $et: expr) => {
-        fallthrough!(VimMode::CharReplaceSuffix, vec![InternalAction::SetPostAction(Action::Edit(
-            Specifier::Exact(EditAction::Replace($v)),
-            $et
-        ))])
+        fallthrough!(VimMode::CharReplaceSuffix, vec![
+            InternalAction::SetOperation(EditAction::Replace($v)),
+            InternalAction::SetTarget($et)
+        ])
     };
 }
 
@@ -1460,7 +1494,7 @@ fn default_keys<P: Application>() -> Vec<(MappedModes, &'static str, InputStep<P
         ( NMAP, ">", edit_motion!(EditAction::Indent(IndentChange::Increase(Count::Exact(1)))) ),
         ( NMAP, ">>", edit_lines!(EditAction::Indent(IndentChange::Increase(Count::Exact(1)))) ),
         ( NMAP, "~", tilde!() ),
-        ( NMAP, ".", act!(Action::EditRepeat(Count::Contextual)) ),
+        ( NMAP, ".", act!(Action::Repeat(RepeatType::EditSequence)) ),
         ( NMAP, ":", cmdbar_focus!(CommandType::Command) ),
         ( NMAP, "@{register}", act!(MacroAction::Execute(Count::Contextual).into()) ),
         ( NMAP, "@:", command!(CommandAction::Repeat(Count::Contextual)) ),
@@ -1865,13 +1899,13 @@ mod tests {
 
     macro_rules! mv {
         ($mt: expr) => {
-            Action::Edit(Specifier::Contextual, EditTarget::Motion($mt, Count::Contextual))
+            Action::Edit(Specifier::Contextual, EditTarget::Motion($mt.clone(), Count::Contextual))
         };
         ($mt: expr, $c: literal) => {
-            Action::Edit(Specifier::Contextual, EditTarget::Motion($mt, Count::Exact($c)))
+            Action::Edit(Specifier::Contextual, EditTarget::Motion($mt.clone(), Count::Exact($c)))
         };
         ($mt: expr, $c: expr) => {
-            Action::Edit(Specifier::Contextual, EditTarget::Motion($mt, $c))
+            Action::Edit(Specifier::Contextual, EditTarget::Motion($mt.clone(), $c))
         };
     }
 
@@ -1920,14 +1954,6 @@ mod tests {
     const COLUMN_PREV: Action = Action::Edit(
         Specifier::Exact(EditAction::Motion),
         EditTarget::Motion(MoveType::Column(MoveDir1D::Previous, false), Count::Exact(1)),
-    );
-    const SEARCH_CHAR_SAME: Action = Action::Edit(
-        Specifier::Contextual,
-        EditTarget::Search(SearchType::Char(false), MoveDirMod::Same, Count::Contextual),
-    );
-    const SEARCH_CHAR_FLIP: Action = Action::Edit(
-        Specifier::Contextual,
-        EditTarget::Search(SearchType::Char(false), MoveDirMod::Flip, Count::Contextual),
     );
     const CHECKPOINT: Action = Action::History(HistoryAction::Checkpoint);
     const CMDBAR: Action = Action::CommandBar(CommandBarAction::Focus(CommandType::Command));
@@ -2689,15 +2715,16 @@ mod tests {
         assert_pop1!(vm, mvop!(EditAction::ChangeCase(Case::Toggle), col), ctx);
         assert_normal!(vm, ctx);
 
-        let op = EditAction::Replace(false);
-        let mov = mvop!(op, MoveType::Column(MoveDir1D::Next, false));
+        let mov = mv!(MoveType::Column(MoveDir1D::Next, false));
         ctx.action.cursor_end = None;
+        ctx.action.operation = EditAction::Replace(false);
         ctx.action.replace = Some('A'.into());
         ctx.ch.any = Some(key!('A').into());
         vm.input_key(key!('r'));
         vm.input_key(key!('A'));
         assert_pop1!(vm, mov, ctx);
         assert_normal!(vm, ctx);
+        ctx.action.operation = EditAction::Motion;
         ctx.action.replace = None;
         ctx.ch.any = None;
 
@@ -2872,13 +2899,21 @@ mod tests {
         let mut vm: VimMachine<TerminalKey> = VimMachine::default();
         let mut ctx = VimContext::default();
 
+        let same_target =
+            EditTarget::Search(SearchType::Char(false), MoveDirMod::Same, Count::Contextual);
+        let flip_target =
+            EditTarget::Search(SearchType::Char(false), MoveDirMod::Flip, Count::Contextual);
+
+        let same = Action::Edit(Specifier::Contextual, same_target.clone());
+        let flip = Action::Edit(Specifier::Contextual, flip_target.clone());
+
         // "fa" should update search params, and then continue character search.
         ctx.persist.charsearch_params = (MoveDir1D::Next, true);
         ctx.persist.charsearch = Some('a'.into());
         ctx.ch.any = Some(key!('a').into());
         vm.input_key(key!('f'));
         vm.input_key(key!('a'));
-        assert_pop1!(vm, SEARCH_CHAR_SAME, ctx);
+        assert_pop1!(vm, same, ctx);
         assert_normal!(vm, ctx);
 
         // ";" should continue character search.
@@ -2886,7 +2921,7 @@ mod tests {
         ctx.persist.charsearch = Some('a'.into());
         ctx.ch.any = None;
         vm.input_key(key!(';'));
-        assert_pop1!(vm, SEARCH_CHAR_SAME, ctx);
+        assert_pop1!(vm, same, ctx);
         assert_normal!(vm, ctx);
 
         // "," should continue character search in reverse direction.
@@ -2894,7 +2929,7 @@ mod tests {
         ctx.persist.charsearch = Some('a'.into());
         ctx.ch.any = None;
         vm.input_key(key!(','));
-        assert_pop1!(vm, SEARCH_CHAR_FLIP, ctx);
+        assert_pop1!(vm, flip, ctx);
         assert_normal!(vm, ctx);
 
         // "T<C-V>o125" should update params and continue search for codepoint.
@@ -2907,7 +2942,7 @@ mod tests {
         vm.input_key(key!('1'));
         vm.input_key(key!('2'));
         vm.input_key(key!('5'));
-        assert_pop1!(vm, SEARCH_CHAR_SAME, ctx);
+        assert_pop1!(vm, same, ctx);
         assert_normal!(vm, ctx);
 
         // ";" should continue search.
@@ -2915,7 +2950,7 @@ mod tests {
         ctx.persist.charsearch = Some('U'.into());
         ctx.ch.oct = None;
         vm.input_key(key!(';'));
-        assert_pop1!(vm, SEARCH_CHAR_SAME, ctx);
+        assert_pop1!(vm, same, ctx);
         assert_normal!(vm, ctx);
 
         // "F<C-K>Z<" should update params and continue search for digraph.
@@ -2927,7 +2962,7 @@ mod tests {
         vm.input_key(ctl!('k'));
         vm.input_key(key!('Z'));
         vm.input_key(key!('<'));
-        assert_pop1!(vm, SEARCH_CHAR_SAME, ctx);
+        assert_pop1!(vm, same, ctx);
         assert_normal!(vm, ctx);
 
         // "," should continue search in reverse direction.
@@ -2936,7 +2971,7 @@ mod tests {
         ctx.ch.digraph1 = None;
         ctx.ch.digraph2 = None;
         vm.input_key(key!(','));
-        assert_pop1!(vm, SEARCH_CHAR_FLIP, ctx);
+        assert_pop1!(vm, flip, ctx);
         assert_normal!(vm, ctx);
 
         // "t<Esc>" should do nothing leave persistent search parameters alone.
@@ -2945,7 +2980,7 @@ mod tests {
         ctx.persist.charsearch_params = (MoveDir1D::Previous, true);
         ctx.persist.charsearch = Some(Char::Digraph('Z', '<'));
         ctx.action.charsearch_params = Some((MoveDir1D::Next, false));
-        ctx.action.postaction = Some(SEARCH_CHAR_SAME.clone());
+        ctx.action.target = Some(same_target);
         assert_pop1!(vm, Action::NoOp, ctx);
         assert_normal!(vm, ctx);
     }
@@ -4050,6 +4085,198 @@ mod tests {
         ctx.persist.recording = None;
         vm.input_key(key!('q'));
         assert_pop1!(vm, toggle, ctx);
+        assert_normal!(vm, ctx);
+    }
+
+    #[test]
+    fn test_edit_repeat() {
+        let mut vm: VimMachine<TerminalKey> = VimMachine::default();
+        let mut ctx = VimContext::default();
+
+        let col = MoveType::Column(MoveDir1D::Next, false);
+
+        // Feed in a tracked sequence.
+        ctx.action.operation = EditAction::Delete;
+        ctx.action.count = Some(2);
+        vm.input_key(key!('2'));
+        vm.input_key(key!('d'));
+        vm.input_key(key!('l'));
+        assert_pop1!(vm, mv!(col), ctx);
+        assert_normal!(vm, ctx);
+
+        // Feed in a breaking sequence.
+        ctx.action.operation = EditAction::Motion;
+        ctx.action.count = Some(3);
+        vm.input_key(key!('3'));
+        vm.input_key(key!('l'));
+        assert_pop1!(vm, mv!(col), ctx);
+        assert_normal!(vm, ctx);
+
+        // Press ".".
+        ctx.action.operation = EditAction::Motion;
+        ctx.action.count = None;
+        vm.input_key(key!('.'));
+        assert_pop1!(vm, Action::Repeat(RepeatType::EditSequence), ctx);
+
+        // Check that repeating does 2dw action.
+        ctx.action.operation = EditAction::Delete;
+        ctx.action.count = Some(2);
+        vm.repeat(RepeatType::EditSequence, None);
+        assert_pop1!(vm, mv!(col), ctx);
+
+        // Read the Checkpoint from pressing "." earlier.
+        assert_normal!(vm, ctx);
+
+        // Press ".".
+        ctx.action.operation = EditAction::Motion;
+        ctx.action.count = None;
+        vm.input_key(key!('.'));
+        assert_pop1!(vm, Action::Repeat(RepeatType::EditSequence), ctx);
+
+        // Check that we can override the count and register.
+        ctx.action.operation = EditAction::Delete;
+        ctx.action.count = Some(4);
+        ctx.action.register = Some(Register::Named('a'));
+        vm.repeat(RepeatType::EditSequence, Some(ctx.clone()));
+        assert_pop1!(vm, mv!(col), ctx);
+
+        // Read the Checkpoint from pressing "." earlier.
+        assert_normal!(vm, ctx);
+
+        // Press ".".
+        ctx.action.operation = EditAction::Motion;
+        ctx.action.count = None;
+        ctx.action.register = None;
+        vm.input_key(key!('.'));
+        assert_pop1!(vm, Action::Repeat(RepeatType::EditSequence), ctx);
+
+        // Repeating without a context now uses the overriden context.
+        ctx.action.operation = EditAction::Delete;
+        ctx.action.count = Some(4);
+        ctx.action.register = Some(Register::Named('a'));
+        vm.repeat(RepeatType::EditSequence, None);
+        assert_pop1!(vm, mv!(col), ctx);
+
+        // Read the Checkpoint from pressing "." earlier.
+        assert_normal!(vm, ctx);
+
+        // Feed in a change sequence.
+        ctx.action.count = Some(2);
+        ctx.action.register = None;
+        ctx.persist.insert = Some(InsertStyle::Insert);
+        vm.input_key(key!('2'));
+        vm.input_key(key!('c'));
+        vm.input_key(key!('l'));
+        assert_pop2!(vm, mv!(col), ctx);
+        assert_eq!(vm.mode(), VimMode::Insert);
+
+        // Type some new characters.
+        let ch_2 = typechar!('2');
+        let ch_c = typechar!('c');
+        let ch_l = typechar!('l');
+
+        ctx.action.operation = EditAction::Motion;
+        ctx.action.count = None;
+        vm.input_key(key!('2'));
+        vm.input_key(key!('c'));
+        vm.input_key(key!('l'));
+
+        assert_pop1!(vm, ch_2.clone(), ctx);
+        assert_pop1!(vm, ch_c.clone(), ctx);
+        assert_pop1!(vm, ch_l.clone(), ctx);
+
+        // Back to Normal mode.
+        ctx.persist.insert = None;
+        vm.input_key(ctl!('c'));
+        assert_pop1!(vm, CURSOR_CLOSE, ctx);
+        assert_pop1!(vm, COLUMN_PREV, ctx);
+        assert_normal!(vm, ctx);
+
+        // Press ".".
+        vm.input_key(key!('.'));
+        assert_pop1!(vm, Action::Repeat(RepeatType::EditSequence), ctx);
+
+        // Repeat the whole change sequence.
+        vm.repeat(RepeatType::EditSequence, None);
+
+        ctx.action.operation = EditAction::Delete;
+        ctx.action.count = Some(2);
+        ctx.persist.insert = Some(InsertStyle::Insert);
+        assert_pop1!(vm, mv!(col), ctx);
+
+        ctx.action.operation = EditAction::Motion;
+        ctx.action.count = None;
+        assert_pop1!(vm, ch_2.clone(), ctx);
+        assert_pop1!(vm, ch_c.clone(), ctx);
+        assert_pop1!(vm, ch_l.clone(), ctx);
+
+        ctx.persist.insert = None;
+        assert_pop1!(vm, CURSOR_CLOSE, ctx);
+
+        // Read the Checkpoint from pressing "." earlier.
+        assert_normal!(vm, ctx);
+    }
+
+    #[test]
+    fn test_edit_repeat_append_line() {
+        let mut vm: VimMachine<TerminalKey> = VimMachine::default();
+        let mut ctx = VimContext::default();
+
+        let op = EditAction::Motion;
+        let mov = mvop!(op, MoveType::LinePos(MovePosition::End), 0);
+
+        // Move down a line, so we do SequenceStatus::Break.
+        vm.input_key(key!('j'));
+        assert_pop1!(vm, mv!(MoveType::Line(MoveDir1D::Next)), ctx);
+        assert_normal!(vm, ctx);
+
+        // Move to Insert mode at end of line.
+        ctx.persist.insert = Some(InsertStyle::Insert);
+        vm.input_key(key!('A'));
+        assert_pop1!(vm, mov, ctx);
+        assert_pop2!(vm, CURSOR_SPLIT, ctx);
+        assert_eq!(vm.mode(), VimMode::Insert);
+
+        // Type some characters.
+        vm.input_key(key!('a'));
+        assert_pop1!(vm, typechar!('a'), ctx);
+
+        vm.input_key(key!('b'));
+        assert_pop1!(vm, typechar!('b'), ctx);
+
+        vm.input_key(key!('c'));
+        assert_pop1!(vm, typechar!('c'), ctx);
+
+        // Back to Normal mode.
+        ctx.persist.insert = None;
+        vm.input_key(ctl!('c'));
+        assert_pop1!(vm, CURSOR_CLOSE, ctx);
+        assert_pop1!(vm, COLUMN_PREV, ctx);
+        assert_normal!(vm, ctx);
+
+        // Move down a line.
+        vm.input_key(key!('j'));
+        assert_pop1!(vm, mv!(MoveType::Line(MoveDir1D::Next)), ctx);
+        assert_normal!(vm, ctx);
+
+        // Press ".".
+        vm.input_key(key!('.'));
+        assert_pop1!(vm, Action::Repeat(RepeatType::EditSequence), ctx);
+
+        // Repeat the whole append sequence, including moving to EOL.
+        vm.repeat(RepeatType::EditSequence, Some(ctx.clone()));
+
+        ctx.persist.insert = Some(InsertStyle::Insert);
+        assert_pop1!(vm, mov, ctx);
+        assert_pop1!(vm, CURSOR_SPLIT, ctx);
+        assert_pop1!(vm, typechar!('a'), ctx);
+        assert_pop1!(vm, typechar!('b'), ctx);
+        assert_pop1!(vm, typechar!('c'), ctx);
+
+        ctx.persist.insert = None;
+        assert_pop1!(vm, CURSOR_CLOSE, ctx);
+
+        // Read the Checkpoint from pressing "." earlier.
         assert_normal!(vm, ctx);
     }
 }

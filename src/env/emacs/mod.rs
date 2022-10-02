@@ -10,7 +10,7 @@ use std::marker::PhantomData;
 use regex::Regex;
 
 use crate::input::{
-    bindings::{EdgeEvent, InputKeyContext, Mode, ModeKeys},
+    bindings::{EdgeEvent, InputKeyContext, Mode, ModeKeys, ModeSequence, SequenceStatus},
     key::TerminalKey,
     InputContext,
 };
@@ -28,6 +28,7 @@ use crate::editing::base::{
     Mark,
     MoveDir1D,
     Register,
+    RepeatType,
     Resolve,
     Specifier,
     TargetShape,
@@ -91,12 +92,36 @@ impl<P: Application> Mode<Action<P>, EmacsContext<P>> for EmacsMode {
     }
 }
 
+impl<P: Application> ModeSequence<RepeatType, Action<P>, EmacsContext<P>> for EmacsMode {
+    fn sequences(
+        &self,
+        action: &Action<P>,
+        ctx: &EmacsContext<P>,
+    ) -> Vec<(RepeatType, SequenceStatus)> {
+        match self {
+            EmacsMode::Insert | EmacsMode::Command => {
+                vec![
+                    (RepeatType::EditSequence, action.is_edit_sequence(SequenceStatus::Break, ctx)),
+                    (RepeatType::LastAction, action.is_last_action(ctx)),
+                    (RepeatType::LastSelection, action.is_last_selection(ctx)),
+                ]
+            },
+            EmacsMode::Search => {
+                // Don't track anything done in Search mode.
+                vec![]
+            },
+        }
+    }
+}
+
 impl<P: Application> ModeKeys<TerminalKey, Action<P>, EmacsContext<P>> for EmacsMode {
     fn unmapped(
         &self,
         ke: &TerminalKey,
-        _: &mut EmacsContext<P>,
+        ctx: &mut EmacsContext<P>,
     ) -> (Vec<Action<P>>, Option<Self>) {
+        ctx.persist.repeating = false;
+
         match self {
             EmacsMode::Insert => {
                 if let Some(c) = ke.get_char() {
@@ -155,6 +180,7 @@ impl Default for ActionContext {
 /// future keybinding sequences.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct PersistentContext {
+    repeating: bool,
     insert: InsertStyle,
     shape: Option<TargetShape>,
     shift: bool,
@@ -163,6 +189,7 @@ pub(crate) struct PersistentContext {
 impl Default for PersistentContext {
     fn default() -> Self {
         Self {
+            repeating: false,
             insert: InsertStyle::Insert,
             shape: None,
             shift: false,
@@ -181,6 +208,13 @@ pub struct EmacsContext<P: Application = ()> {
 }
 
 impl<P: Application> InputContext for EmacsContext<P> {
+    fn overrides(&mut self, other: &Self) {
+        // Allow overriding count.
+        if other.action.count.is_some() {
+            self.action.count = other.action.count;
+        }
+    }
+
     fn reset(&mut self) {
         self.action = ActionContext::default();
     }

@@ -39,6 +39,7 @@ use crate::editing::base::{
     MoveType,
     RangeType,
     Register,
+    RepeatType,
     ScrollSize,
     ScrollStyle,
     SearchType,
@@ -157,12 +158,29 @@ impl InternalAction {
 #[derive(Clone, Debug)]
 enum ExternalAction<P: Application> {
     Something(Action<P>),
+    Repeat(bool),
 }
 
 impl<P: Application> ExternalAction<P> {
-    fn resolve(&self, _: &mut EmacsContext<P>) -> Vec<Action<P>> {
+    fn resolve(&self, ctx: &mut EmacsContext<P>) -> Vec<Action<P>> {
         match self {
-            ExternalAction::Something(act) => vec![act.clone()],
+            ExternalAction::Something(act) => {
+                ctx.persist.repeating = false;
+
+                vec![act.clone()]
+            },
+            ExternalAction::Repeat(reqrep) => {
+                if *reqrep && !ctx.persist.repeating {
+                    let ch = Char::Single('z').into();
+                    let it = InsertTextAction::Type(ch, MoveDir1D::Previous, Count::Contextual);
+
+                    return vec![it.into()];
+                }
+
+                ctx.persist.repeating = true;
+
+                return vec![Action::Repeat(RepeatType::LastAction)];
+            },
         }
     }
 }
@@ -199,6 +217,7 @@ impl<P: Application> Step<TerminalKey> for InputStep<P> {
     type C = EmacsContext<P>;
     type M = EmacsMode;
     type Class = CommonKeyClass;
+    type Sequence = RepeatType;
 
     fn is_unmapped(&self) -> bool {
         match self {
@@ -451,7 +470,7 @@ fn default_keys<P: Application>() -> Vec<(MappedModes, &'static str, InputStep<P
         ( ICMAP, "<C-E>", motion!(MoveType::LinePos(MovePosition::End), Count::MinusOne) ),
         ( ICMAP, "<C-F>", motion!(MoveType::Column(MoveDir1D::Next, true)) ),
         ( ICMAP, "<C-K>", kill!(MoveType::LinePos(MovePosition::End), Count::MinusOne) ),
-        ( ICMAP, "<C-X>z", act!(Action::EditRepeat(Count::Contextual)) ),
+        ( ICMAP, "<C-X>z", isv!(vec![], vec![ExternalAction::Repeat(false)]) ),
         ( ICMAP, "<C-W>", kill_target!(EditTarget::Selection) ),
         ( ICMAP, "<C-Left>", motion!(MoveType::WordBegin(WordStyle::Little, MoveDir1D::Previous)) ),
         ( ICMAP, "<C-Right>", motion!(MoveType::WordBegin(WordStyle::NonAlphaNum, MoveDir1D::Next)) ),
@@ -480,6 +499,7 @@ fn default_keys<P: Application>() -> Vec<(MappedModes, &'static str, InputStep<P
         ( ICMAP, "<Home>", motion!(MoveType::LinePos(MovePosition::Beginning), Count::MinusOne) ),
         ( ICMAP, "<Left>", motion!(MoveType::Column(MoveDir1D::Previous, true)) ),
         ( ICMAP, "<Right>", motion!(MoveType::Column(MoveDir1D::Next, true)) ),
+        ( ICMAP, "z", isv!(vec![], vec![ExternalAction::Repeat(true)]) ),
 
         // Insert mode keybindings.
         ( IMAP, "<C-G>", is!(InternalAction::ClearTargetShape(false), Action::Edit(EditAction::Motion.into(), EditTarget::CurrentPosition), EmacsMode::Insert) ),
@@ -838,5 +858,94 @@ mod tests {
         vm.input_key(ctl!('u'));
         vm.input_key(key!(' '));
         assert_pop2!(vm, typechar!(' '), ctx);
+    }
+
+    #[test]
+    fn test_repeat_action() {
+        let mut vm: EmacsMachine<TerminalKey> = EmacsMachine::default();
+        let mut ctx = EmacsContext::default();
+
+        // Start out in Insert mode.
+        assert_eq!(vm.mode(), EmacsMode::Insert);
+
+        // Type several characters.
+        vm.input_key(key!('a'));
+        vm.input_key(key!('b'));
+        vm.input_key(key!('c'));
+        assert_pop1!(vm, typechar!('a'), ctx);
+        assert_pop1!(vm, typechar!('b'), ctx);
+        assert_pop2!(vm, typechar!('c'), ctx);
+
+        // Press C-X z to repeat typing 'c'.
+        ctx.persist.repeating = true;
+        vm.input_key(ctl!('x'));
+        vm.input_key(key!('z'));
+        assert_pop2!(vm, Action::Repeat(RepeatType::LastAction), ctx);
+
+        // Only 'c' comes back.
+        ctx.persist.repeating = false;
+        vm.repeat(RepeatType::LastAction, Some(ctx.clone()));
+        assert_pop2!(vm, typechar!('c'), ctx);
+
+        // Pressing 'z' keeps repeating.
+        ctx.persist.repeating = true;
+        vm.input_key(key!('z'));
+        assert_pop2!(vm, Action::Repeat(RepeatType::LastAction), ctx);
+
+        // Get back 'c' again.
+        ctx.persist.repeating = false;
+        vm.repeat(RepeatType::LastAction, Some(ctx.clone()));
+        assert_pop2!(vm, typechar!('c'), ctx);
+
+        // Pressing 'z' keeps repeating.
+        ctx.persist.repeating = true;
+        vm.input_key(key!('z'));
+        assert_pop2!(vm, Action::Repeat(RepeatType::LastAction), ctx);
+
+        // Get back 'c' again.
+        ctx.persist.repeating = false;
+        vm.repeat(RepeatType::LastAction, Some(ctx.clone()));
+        assert_pop2!(vm, typechar!('c'), ctx);
+
+        // Pressing 'd', an unmapped key, interrupts the sequence.
+        ctx.persist.repeating = false;
+        vm.input_key(key!('d'));
+        assert_pop2!(vm, typechar!('d'), ctx);
+
+        // Pressing 'z' doesn't repeat anymore.
+        ctx.persist.repeating = false;
+        vm.input_key(key!('z'));
+        assert_pop2!(vm, typechar!('z'), ctx);
+
+        // Press C-X z to repeat typing the 'z' character.
+        ctx.persist.repeating = true;
+        vm.input_key(ctl!('x'));
+        vm.input_key(key!('z'));
+        assert_pop2!(vm, Action::Repeat(RepeatType::LastAction), ctx);
+
+        // Get back 'z'.
+        ctx.persist.repeating = false;
+        vm.repeat(RepeatType::LastAction, Some(ctx.clone()));
+        assert_pop2!(vm, typechar!('z'), ctx);
+
+        // Pressing 'z' keeps repeating.
+        ctx.persist.repeating = true;
+        vm.input_key(key!('z'));
+        assert_pop2!(vm, Action::Repeat(RepeatType::LastAction), ctx);
+
+        // Get back 'z'.
+        ctx.persist.repeating = false;
+        vm.repeat(RepeatType::LastAction, Some(ctx.clone()));
+        assert_pop2!(vm, typechar!('z'), ctx);
+
+        // Pressing <Right>, a mapped key, interrupts the sequence.
+        ctx.persist.repeating = false;
+        vm.input_key(key!(KeyCode::Right));
+        assert_pop2!(vm, mv!(MoveType::Column(MoveDir1D::Next, true)), ctx);
+
+        // Pressing 'z' doesn't repeat anymore.
+        ctx.persist.repeating = false;
+        vm.input_key(key!('z'));
+        assert_pop2!(vm, typechar!('z'), ctx);
     }
 }

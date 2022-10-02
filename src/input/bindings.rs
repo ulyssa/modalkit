@@ -200,6 +200,18 @@ pub trait ModeKeys<Key, A, C>: Mode<A, C> {
     }
 }
 
+/// Sequence-specific behaviour associated with a [Mode].
+#[allow(unused_variables)]
+pub trait ModeSequence<S, A, C>: Mode<A, C> {
+    /// Controls how and what gets included in the sequences of actions tracked by
+    /// [ModalMachine].
+    ///
+    /// By default, this will not place the action in any sequence.
+    fn sequences(&self, action: &A, ctx: &C) -> Vec<(S, SequenceStatus)> {
+        vec![]
+    }
+}
+
 /// Trait for the classes of input keys specific to a consumer.
 ///
 /// For example, the input keys "0" to "9" might correspond to a `Count` variant in an
@@ -215,10 +227,33 @@ pub trait InputKeyClass<T>: Clone + Debug + Hash + Eq + PartialEq {
     fn memberships(ke: &T) -> Vec<Self>;
 }
 
+/// Trait for the classes of action sequences that are tracked, and can be repeated.
+pub trait SequenceClass: Clone + Debug + Hash + Eq + PartialEq {}
+
+/// Different ways to include an action in the current action sequence.
+pub enum SequenceStatus {
+    /// Clear the sequence, start a new one with this action, and then perform a
+    /// [SequenceStatus::Break].
+    Atom,
+
+    /// Don't include this action in the last sequence, and start a new sequence on the next
+    /// [SequenceStatus::Track].
+    Break,
+
+    /// Don't include this action in the last sequence.
+    Ignore,
+
+    /// Clear the sequence and start a new one with this action.
+    Restart,
+
+    /// Include this action in the last sequence.
+    Track,
+}
+
 /// Trait for controlling the behaviour of [ModalMachine] during a sequence of input keys.
 pub trait Step<Key>: Clone {
     /// The type of output action produced after input.
-    type A;
+    type A: Clone;
 
     /// A context object for managing state that accompanies actions.
     type C: InputKeyContext<Key, Self::Class>;
@@ -227,7 +262,10 @@ pub trait Step<Key>: Clone {
     type Class: InputKeyClass<Key>;
 
     /// The possible modes for mapping keys.
-    type M: ModeKeys<Key, Self::A, Self::C>;
+    type M: ModeKeys<Key, Self::A, Self::C> + ModeSequence<Self::Sequence, Self::A, Self::C>;
+
+    /// The types of tracked action sequences.
+    type Sequence: SequenceClass;
 
     /// Indicates whether this step should be treated as if it's an unmapped key, and
     /// reset to the root of the current mode.
@@ -259,7 +297,7 @@ pub trait InputBindings<Key: InputKey, S: Step<Key>> {
 }
 
 /// Trait for objects that can process input keys using previously mapped bindings.
-pub trait BindingMachine<K, A, C>
+pub trait BindingMachine<K, A, S, C>
 where
     K: InputKey,
     C: InputContext,
@@ -278,6 +316,13 @@ where
 
     /// Returns a character to show for the cursor.
     fn get_cursor_indicator(&self) -> Option<char>;
+
+    /// Repeat a recent sequence of tracked actions, and optionally override their original
+    /// contexts using [InputContext::overrides]. The repeated sequence will be inserted at
+    /// the beginning of the action queue, before any other pending actions.
+    ///
+    /// See [ModeSequence::sequences] for how to control what is repeated here.
+    fn repeat(&mut self, sequence: S, ctx: Option<C>);
 }
 
 /// A default [InputKeyClass] with no members.
@@ -291,12 +336,23 @@ impl<T> InputKeyClass<T> for EmptyKeyClass {
     }
 }
 
-/// An implementation [InputKeyContext] that stores nothing.
+/// A default [SequenceClass] with no members.
+#[derive(Clone, Debug, Hash, Eq, PartialEq)]
+#[non_exhaustive]
+pub enum EmptySequence {}
+
+impl SequenceClass for EmptySequence {}
+
+impl<M, A, C> ModeSequence<EmptySequence, A, C> for M where M: Mode<A, C> {}
+
+/// An implementation of [InputKeyContext] that stores nothing.
 #[derive(Clone, Debug, Default, Hash, Eq, PartialEq)]
 #[non_exhaustive]
 pub struct EmptyKeyContext {}
 
 impl InputContext for EmptyKeyContext {
+    fn overrides(&mut self, _: &Self) {}
+
     fn reset(&mut self) {}
 
     fn take(&mut self) -> Self {
@@ -316,6 +372,7 @@ where
     type C = EmptyKeyContext;
     type Class = EmptyKeyClass;
     type M = M;
+    type Sequence = EmptySequence;
 
     fn is_unmapped(&self) -> bool {
         self.0.is_none() && self.1.is_none()
@@ -836,12 +893,79 @@ impl<Key: InputKey, S: Step<Key>> Default for InputMachine<Key, S> {
     }
 }
 
+struct SequenceTracker<A, C>
+where
+    A: Clone,
+    C: InputContext,
+{
+    sequence: Vec<(A, C)>,
+    sequence_break: bool,
+}
+
+impl<A, C> SequenceTracker<A, C>
+where
+    A: Clone,
+    C: InputContext,
+{
+    fn fetch(&mut self, ctx: Option<C>) -> Vec<(A, C)> {
+        let mut res = vec![];
+
+        for pair in self.sequence.iter_mut() {
+            if let Some(ref ctx) = ctx {
+                pair.1.overrides(ctx);
+            }
+
+            res.push(pair.clone());
+        }
+
+        return res;
+    }
+
+    fn push(&mut self, status: SequenceStatus, pair: &(A, C)) {
+        match status {
+            SequenceStatus::Atom => {
+                self.sequence = vec![pair.clone()];
+                self.sequence_break = true;
+            },
+            SequenceStatus::Break => {
+                self.sequence_break = true;
+            },
+            SequenceStatus::Ignore => {
+                // Do nothing.
+            },
+            SequenceStatus::Restart => {
+                self.sequence = vec![pair.clone()];
+                self.sequence_break = false;
+            },
+            SequenceStatus::Track => {
+                if self.sequence_break {
+                    self.sequence = vec![pair.clone()];
+                    self.sequence_break = false;
+                } else {
+                    self.sequence.push(pair.clone());
+                }
+            },
+        }
+    }
+}
+
+impl<A, C> Default for SequenceTracker<A, C>
+where
+    A: Clone,
+    C: InputContext,
+{
+    fn default() -> Self {
+        Self { sequence: vec![], sequence_break: false }
+    }
+}
+
 /// Manage and process modal keybindings.
 pub struct ModalMachine<Key: InputKey, S: Step<Key>> {
     state: S::M,
     ctx: S::C,
     im: InputMachine<Key, S>,
     actions: VecDeque<(S::A, S::C)>,
+    sequences: HashMap<S::Sequence, SequenceTracker<S::A, S::C>>,
 }
 
 impl<Key: InputKey, S: Step<Key>> ModalMachine<Key, S> {
@@ -851,6 +975,7 @@ impl<Key: InputKey, S: Step<Key>> ModalMachine<Key, S> {
             ctx: S::C::default(),
             im: InputMachine::default(),
             actions: VecDeque::new(),
+            sequences: HashMap::new(),
         }
     }
 
@@ -963,7 +1088,17 @@ impl<Key: InputKey, S: Step<Key>> ModalMachine<Key, S> {
         }
     }
 
+    fn sequence(&mut self, seq: S::Sequence, status: SequenceStatus, pair: &(S::A, S::C)) {
+        self.sequences.entry(seq).or_default().push(status, pair);
+    }
+
     fn push(&mut self, pair: (S::A, S::C)) {
+        let seqs = self.state.sequences(&pair.0, &pair.1);
+
+        for (seq, status) in seqs {
+            self.sequence(seq, status, &pair);
+        }
+
         self.actions.push_back(pair);
     }
 
@@ -975,7 +1110,7 @@ impl<Key: InputKey, S: Step<Key>> ModalMachine<Key, S> {
     }
 }
 
-impl<Key, S> BindingMachine<Key, S::A, S::C> for ModalMachine<Key, S>
+impl<Key, S> BindingMachine<Key, S::A, S::Sequence, S::C> for ModalMachine<Key, S>
 where
     Key: InputKey,
     S: Step<Key>,
@@ -1026,6 +1161,14 @@ where
 
     fn get_cursor_indicator(&self) -> Option<char> {
         self.ctx.get_cursor_indicator()
+    }
+
+    fn repeat(&mut self, seq: S::Sequence, ctx: Option<S::C>) {
+        let tracker = self.sequences.entry(seq).or_default();
+        let mut seq = VecDeque::from(tracker.fetch(ctx));
+
+        std::mem::swap(&mut self.actions, &mut seq);
+        self.actions.append(&mut seq);
     }
 }
 
@@ -1144,6 +1287,11 @@ mod tests {
         Count,
     }
 
+    #[derive(Clone, Debug, Hash, Eq, PartialEq)]
+    enum TestSequence {
+        Edit,
+    }
+
     #[derive(Clone, Debug, Default, Eq, PartialEq)]
     struct TestTempContext {
         count: Option<usize>,
@@ -1175,6 +1323,8 @@ mod tests {
 
     type TestEdgeEvent = EdgeEvent<TerminalKey, TestKeyClass>;
 
+    impl SequenceClass for TestSequence {}
+
     impl InputKeyClass<TerminalKey> for TestKeyClass {
         fn memberships(ke: &TerminalKey) -> Vec<Self> {
             let mut kcs = vec![];
@@ -1205,6 +1355,46 @@ mod tests {
         }
     }
 
+    impl ModeSequence<TestSequence, TestAction, TestContext> for TestMode {
+        fn sequences(
+            &self,
+            action: &TestAction,
+            ctx: &TestContext,
+        ) -> Vec<(TestSequence, SequenceStatus)> {
+            let status = match action {
+                // Don't let a NoOp impact current sequence.
+                TestAction::NoOp => SequenceStatus::Ignore,
+
+                // Movement and typing break current sequence.
+                TestAction::MoveDown => SequenceStatus::Break,
+                TestAction::MoveLeft => SequenceStatus::Break,
+                TestAction::MoveRight => SequenceStatus::Break,
+                TestAction::MoveUp => SequenceStatus::Break,
+                TestAction::Type(_) => SequenceStatus::Break,
+
+                // These actions are always on their own.
+                TestAction::Paste => SequenceStatus::Atom,
+                TestAction::Query => SequenceStatus::Atom,
+
+                // These actions are always at the start
+                TestAction::Inveigle => SequenceStatus::Restart,
+                TestAction::Palaver => SequenceStatus::Restart,
+
+                // Sequences of Decimate and Delete are tracked and can be repeated.
+                TestAction::EditLine | TestAction::EditTillChar | TestAction::EditWord => {
+                    match ctx.temp.operation {
+                        Some(TestOperation::Decimate) => SequenceStatus::Track,
+                        Some(TestOperation::Delete) => SequenceStatus::Track,
+                        Some(TestOperation::Yank) => SequenceStatus::Break,
+                        None => SequenceStatus::Break,
+                    }
+                },
+            };
+
+            vec![(TestSequence::Edit, status)]
+        }
+    }
+
     impl ModeKeys<TerminalKey, TestAction, TestContext> for TestMode {
         fn unmapped(
             &self,
@@ -1226,6 +1416,16 @@ mod tests {
     }
 
     impl InputContext for TestContext {
+        fn overrides(&mut self, other: &Self) {
+            if other.temp.count.is_some() {
+                self.temp.count = other.temp.count;
+            }
+
+            if other.temp.operation.is_some() {
+                self.temp.operation = other.temp.operation.clone();
+            }
+        }
+
         fn reset(&mut self) {
             self.temp = TestTempContext::default();
         }
@@ -1282,6 +1482,7 @@ mod tests {
         type C = TestContext;
         type Class = TestKeyClass;
         type M = TestMode;
+        type Sequence = TestSequence;
 
         fn is_unmapped(&self) -> bool {
             match self {
@@ -1909,6 +2110,88 @@ mod tests {
         tm.input_key(key!(';'));
         assert_pop2!(tm, TestAction::EditTillChar, ctx);
         assert_eq!(tm.mode(), TestMode::Normal);
+    }
+
+    #[test]
+    fn test_repeat_sequence() {
+        let mut tm = TestMachine::default();
+        let mut ctx = TestContext::default();
+
+        // Go to Normal mode.
+        tm.input_key(ctl!('l'));
+
+        // Feed a sequence.
+        ctx.temp.operation = Some(TestOperation::Delete);
+        tm.input_key(key!('d'));
+        tm.input_key(key!('d'));
+        assert_pop2!(tm, TestAction::EditLine, ctx);
+
+        ctx.temp.operation = None;
+        tm.input_key(key!('n'));
+        assert_pop2!(tm, TestAction::NoOp, ctx);
+
+        ctx.temp.operation = Some(TestOperation::Delete);
+        ctx.temp.count = Some(3);
+        tm.input_key(key!('3'));
+        tm.input_key(key!('d'));
+        tm.input_key(key!('w'));
+        assert_pop2!(tm, TestAction::EditWord, ctx);
+
+        ctx.temp.operation = Some(TestOperation::Yank);
+        ctx.temp.count = None;
+        ctx.keep.tillchar = Some('a');
+        tm.input_key(key!('y'));
+        tm.input_key(key!('t'));
+        tm.input_key(key!('a'));
+        assert_pop2!(tm, TestAction::EditTillChar, ctx);
+
+        // Now we can repeat the deletions, but not the yank.
+        ctx.keep.tillchar = None;
+        tm.repeat(TestSequence::Edit, None);
+
+        ctx.temp.operation = Some(TestOperation::Delete);
+        ctx.temp.count = None;
+        assert_pop1!(tm, TestAction::EditLine, ctx);
+
+        ctx.temp.operation = Some(TestOperation::Delete);
+        ctx.temp.count = Some(3);
+        assert_pop2!(tm, TestAction::EditWord, ctx);
+
+        // We can override the context, and change the operation.
+        ctx.temp.operation = Some(TestOperation::Decimate);
+        ctx.temp.count = None;
+        tm.repeat(TestSequence::Edit, Some(ctx.clone()));
+
+        ctx.temp.operation = Some(TestOperation::Decimate);
+        ctx.temp.count = None;
+        assert_pop1!(tm, TestAction::EditLine, ctx);
+
+        ctx.temp.operation = Some(TestOperation::Decimate);
+        ctx.temp.count = Some(3);
+        assert_pop2!(tm, TestAction::EditWord, ctx);
+
+        // Move back to Insert mode.
+        ctx.temp.operation = None;
+        ctx.temp.count = None;
+        tm.input_key(key!(KeyCode::Esc));
+        assert_eq!(tm.pop(), None);
+        assert_eq!(tm.mode(), TestMode::Insert);
+
+        // Paste twice.
+        ctx.keep.tillchar = Some('a');
+        ctx.temp.register = Some('b');
+        ctx.temp.cursor = Some('^');
+        tm.input_key(ctl!('r'));
+        tm.input_key(key!('b'));
+        assert_pop2!(tm, TestAction::Paste, ctx);
+
+        tm.input_key(ctl!('r'));
+        tm.input_key(key!('b'));
+        assert_pop2!(tm, TestAction::Paste, ctx);
+
+        // Repeat only pastes once.
+        tm.repeat(TestSequence::Edit, None);
+        assert_pop2!(tm, TestAction::Paste, ctx);
     }
 
     #[test]

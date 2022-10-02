@@ -101,6 +101,10 @@ impl<P: Application> Default for CommandContext<P> {
 }
 
 impl<P: Application> InputContext for CommandContext<P> {
+    fn overrides(&mut self, _: &Self) {
+        unimplemented!();
+    }
+
     fn reset(&mut self) {
         unimplemented!();
     }

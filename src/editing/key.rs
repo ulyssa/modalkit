@@ -35,27 +35,27 @@ use super::{
 };
 
 /// Wraps keybindings so that they can be fed simulated keypresses from macros.
-pub struct KeyManager<K, A, C, P = ()>
+pub struct KeyManager<K, A, S, C, P = ()>
 where
     K: InputKey,
     C: EditContext + InputContext,
     P: Application,
 {
     store: SharedStore<C, P>,
-    bindings: Box<dyn BindingMachine<K, A, C>>,
+    bindings: Box<dyn BindingMachine<K, A, S, C>>,
     keystack: VecDeque<K>,
     recording: Option<(Register, bool)>,
     typed: EditRope,
 }
 
-impl<K, A, C, P> KeyManager<K, A, C, P>
+impl<K, A, S, C, P> KeyManager<K, A, S, C, P>
 where
     K: InputKey,
     C: EditContext + InputContext,
     P: Application,
 {
     /// Create a new instance.
-    pub fn new<B: BindingMachine<K, A, C> + 'static>(
+    pub fn new<B: BindingMachine<K, A, S, C> + 'static>(
         bindings: B,
         store: SharedStore<C, P>,
     ) -> Self {
@@ -117,7 +117,7 @@ where
     }
 }
 
-impl<K, A, C, P> BindingMachine<K, A, C> for KeyManager<K, A, C, P>
+impl<K, A, S, C, P> BindingMachine<K, A, S, C> for KeyManager<K, A, S, C, P>
 where
     K: InputKey,
     C: EditContext + InputContext,
@@ -155,5 +155,9 @@ where
 
     fn get_cursor_indicator(&self) -> Option<char> {
         self.bindings.get_cursor_indicator()
+    }
+
+    fn repeat(&mut self, seq: S, other: Option<C>) {
+        self.bindings.repeat(seq, other)
     }
 }

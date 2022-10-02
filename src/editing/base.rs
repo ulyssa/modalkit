@@ -37,6 +37,7 @@ use bitflags::bitflags;
 use regex::Regex;
 
 use crate::{
+    input::bindings::{SequenceClass, SequenceStatus},
     input::commands::{Command, CommandError},
     input::key::MacroError,
     util::{is_horizontal_space, is_keyword, is_newline, is_space_char, is_word_char, sort2},
@@ -278,6 +279,21 @@ impl<Cursor: Ord> EditRange<Cursor> {
         Self::new(a, b, shape, false)
     }
 }
+
+/// Different action sequences that can be repeated.
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub enum RepeatType {
+    /// A sequence of changes made to a buffer.
+    EditSequence,
+
+    /// The last [Action] done.
+    LastAction,
+
+    /// The last selection resize made in a buffer.
+    LastSelection,
+}
+
+impl SequenceClass for RepeatType {}
 
 /// Specify a range within the text around the current cursor position.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -1270,9 +1286,33 @@ pub enum WindowAction {
 /// Implementors of this trait can be used with [Action::Application]. This can then be used to
 /// create additional keybindings and commands on top of the defaults provided by modules like
 /// [modalkit::env::vim](crate::env::vim).
-pub trait ApplicationAction: Clone + Debug + Eq + PartialEq {}
+pub trait ApplicationAction: Clone + Debug + Eq + PartialEq {
+    /// Allows controlling how application-specific actions are included in
+    /// [RepeatType::EditSequence].
+    fn is_edit_sequence<C: EditContext>(&self, ctx: &C) -> SequenceStatus;
 
-impl ApplicationAction for () {}
+    /// Allows controlling how application-specific actions are included in
+    /// [RepeatType::LastAction].
+    fn is_last_action<C: EditContext>(&self, ctx: &C) -> SequenceStatus;
+
+    /// Allows controlling how application-specific actions are included in
+    /// [RepeatType::LastSelection].
+    fn is_last_selection<C: EditContext>(&self, ctx: &C) -> SequenceStatus;
+}
+
+impl ApplicationAction for () {
+    fn is_edit_sequence<C: EditContext>(&self, _: &C) -> SequenceStatus {
+        SequenceStatus::Break
+    }
+
+    fn is_last_action<C: EditContext>(&self, _: &C) -> SequenceStatus {
+        SequenceStatus::Ignore
+    }
+
+    fn is_last_selection<C: EditContext>(&self, _: &C) -> SequenceStatus {
+        SequenceStatus::Ignore
+    }
+}
 
 /// Trait for objects that hold application-specific information.
 ///
@@ -1314,9 +1354,6 @@ pub enum Action<P: Application = ()> {
     /// Perform the specified [action](EditAction) on [a target](EditTarget).
     Edit(Specifier<EditAction>, EditTarget),
 
-    /// Repeat the last edit [*n*](Count) times.
-    EditRepeat(Count),
-
     /// Insert text.
     InsertText(InsertTextAction),
 
@@ -1325,6 +1362,9 @@ pub enum Action<P: Application = ()> {
 
     /// Create a new [Mark] at the current cursor position.
     Mark(Specifier<Mark>),
+
+    /// Repeat an action sequence with the current context.
+    Repeat(RepeatType),
 
     /// Scroll the viewport in [the specified manner](ScrollStyle).
     Scroll(ScrollStyle),
@@ -1361,6 +1401,128 @@ pub enum Action<P: Application = ()> {
 
     /// Application-specific command.
     Application(P::Action),
+}
+
+impl<P: Application> Action<P> {
+    /// Indicates how an action gets included in [RepeatType::EditSequence].
+    ///
+    /// `motion` indicates what to do with [EditAction::Motion].
+    pub fn is_edit_sequence<C: EditContext>(
+        &self,
+        motion: SequenceStatus,
+        ctx: &C,
+    ) -> SequenceStatus {
+        match self {
+            Action::Repeat(_) => SequenceStatus::Ignore,
+
+            Action::Application(act) => act.is_edit_sequence(ctx),
+
+            Action::CommandBar(_) => SequenceStatus::Break,
+            Action::Command(_) => SequenceStatus::Break,
+            Action::History(_) => SequenceStatus::Break,
+            Action::Jump(_, _, _) => SequenceStatus::Break,
+            Action::Macro(_) => SequenceStatus::Break,
+            Action::Mark(_) => SequenceStatus::Break,
+            Action::Tab(_) => SequenceStatus::Break,
+            Action::Window(_) => SequenceStatus::Break,
+
+            Action::KeywordLookup => SequenceStatus::Ignore,
+            Action::NoOp => SequenceStatus::Ignore,
+            Action::RedrawScreen => SequenceStatus::Ignore,
+            Action::Scroll(_) => SequenceStatus::Ignore,
+            Action::Search(_, _) => SequenceStatus::Ignore,
+            Action::Suspend => SequenceStatus::Ignore,
+
+            Action::InsertText(_) => SequenceStatus::Track,
+            Action::Cursor(_) => SequenceStatus::Track,
+            Action::Selection(_) => SequenceStatus::Track,
+            Action::Complete(_, _) => SequenceStatus::Track,
+
+            Action::Edit(act, _) => {
+                match ctx.resolve(act) {
+                    EditAction::Motion => motion,
+                    EditAction::Yank => SequenceStatus::Ignore,
+                    _ => SequenceStatus::Track,
+                }
+            },
+        }
+    }
+
+    /// Indicates how an action gets included in [RepeatType::LastAction].
+    pub fn is_last_action<C: EditContext>(&self, ctx: &C) -> SequenceStatus {
+        match self {
+            Action::Repeat(RepeatType::EditSequence) => SequenceStatus::Atom,
+            Action::Repeat(RepeatType::LastAction) => SequenceStatus::Ignore,
+            Action::Repeat(RepeatType::LastSelection) => SequenceStatus::Atom,
+
+            Action::History(HistoryAction::Checkpoint) => SequenceStatus::Ignore,
+            Action::History(HistoryAction::Undo(_)) => SequenceStatus::Atom,
+            Action::History(HistoryAction::Redo(_)) => SequenceStatus::Atom,
+
+            Action::Application(act) => act.is_last_action(ctx),
+
+            Action::Command(_) => SequenceStatus::Atom,
+            Action::CommandBar(_) => SequenceStatus::Atom,
+            Action::Jump(_, _, _) => SequenceStatus::Atom,
+            Action::Macro(_) => SequenceStatus::Atom,
+            Action::Mark(_) => SequenceStatus::Atom,
+            Action::Tab(_) => SequenceStatus::Atom,
+            Action::Window(_) => SequenceStatus::Atom,
+            Action::KeywordLookup => SequenceStatus::Atom,
+            Action::NoOp => SequenceStatus::Atom,
+            Action::RedrawScreen => SequenceStatus::Atom,
+            Action::Scroll(_) => SequenceStatus::Atom,
+            Action::Search(_, _) => SequenceStatus::Atom,
+            Action::Suspend => SequenceStatus::Atom,
+            Action::InsertText(_) => SequenceStatus::Atom,
+            Action::Cursor(_) => SequenceStatus::Atom,
+            Action::Selection(_) => SequenceStatus::Atom,
+            Action::Complete(_, _) => SequenceStatus::Atom,
+            Action::Edit(_, _) => SequenceStatus::Atom,
+        }
+    }
+
+    /// Indicates how an action gets included in [RepeatType::LastSelection].
+    pub fn is_last_selection<C: EditContext>(&self, ctx: &C) -> SequenceStatus {
+        match self {
+            Action::Repeat(_) => SequenceStatus::Ignore,
+
+            Action::Application(act) => act.is_last_selection(ctx),
+
+            Action::Command(_) => SequenceStatus::Ignore,
+            Action::CommandBar(_) => SequenceStatus::Ignore,
+            Action::History(_) => SequenceStatus::Ignore,
+            Action::Jump(_, _, _) => SequenceStatus::Ignore,
+            Action::Macro(_) => SequenceStatus::Ignore,
+            Action::Mark(_) => SequenceStatus::Ignore,
+            Action::Tab(_) => SequenceStatus::Ignore,
+            Action::Window(_) => SequenceStatus::Ignore,
+            Action::KeywordLookup => SequenceStatus::Ignore,
+            Action::NoOp => SequenceStatus::Ignore,
+            Action::RedrawScreen => SequenceStatus::Ignore,
+            Action::Scroll(_) => SequenceStatus::Ignore,
+            Action::Search(_, _) => SequenceStatus::Ignore,
+            Action::Suspend => SequenceStatus::Ignore,
+            Action::InsertText(_) => SequenceStatus::Ignore,
+            Action::Cursor(_) => SequenceStatus::Ignore,
+            Action::Complete(_, _) => SequenceStatus::Ignore,
+
+            Action::Selection(SelectionAction::Resize(_, _)) => SequenceStatus::Track,
+            Action::Selection(_) => SequenceStatus::Ignore,
+
+            Action::Edit(act, _) => {
+                if let EditAction::Motion = ctx.resolve(act) {
+                    if ctx.get_target_shape().is_some() {
+                        SequenceStatus::Restart
+                    } else {
+                        SequenceStatus::Ignore
+                    }
+                } else {
+                    SequenceStatus::Ignore
+                }
+            },
+        }
+    }
 }
 
 impl<P: Application> From<SelectionAction> for Action<P> {

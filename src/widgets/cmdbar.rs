@@ -23,12 +23,12 @@ use crate::editing::base::{
     CommandAction,
     CommandType,
     Count,
+    EditAction,
     EditContext,
     EditTarget,
     MoveDir1D,
     MoveDirMod,
     SearchType,
-    Specifier,
 };
 
 use super::{
@@ -108,7 +108,7 @@ where
 
                 let target =
                     EditTarget::Search(SearchType::Regex, MoveDirMod::Same, Count::Contextual);
-                let action = Action::Edit(Specifier::Contextual, target);
+                let action = Action::Edit(EditAction::Motion.into(), target);
 
                 Some(action)
             },

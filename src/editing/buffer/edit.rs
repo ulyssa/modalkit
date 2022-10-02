@@ -428,8 +428,6 @@ mod tests {
         edit!(ebuf, EditAction::Motion, mv!(mov), ctx!(curid, vwctx, vctx));
         assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 6));
 
-        vctx.action.operation = EditAction::Yank;
-
         // Test that we use the unnamed register ("") by default.
         edit!(ebuf, EditAction::Yank, mv!(mov), ctx!(curid, vwctx, vctx));
         assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 6));

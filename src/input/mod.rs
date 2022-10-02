@@ -10,6 +10,9 @@ pub mod key;
 
 /// Represents contextual information that is updated upon user input.
 pub trait InputContext: Clone + Default {
+    /// Override implementor-determined fields in this context using values from another.
+    fn overrides(&mut self, other: &Self);
+
     /// Reset any action-specific state.
     fn reset(&mut self);
 
