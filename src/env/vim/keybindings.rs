@@ -83,6 +83,8 @@ use crate::editing::base::{
     SearchType,
     SelectionAction,
     SelectionCursorChange,
+    SelectionResizeStyle,
+    SelectionSplitStyle,
     SizeChange,
     Specifier,
     TabAction,
@@ -495,6 +497,24 @@ macro_rules! fallthrough {
     };
 }
 
+macro_rules! shaped_filter {
+    ($f: expr, $shape: expr, $act: expr) => {
+        is!(InternalAction::SetTargetShape($f, $shape), $act)
+    };
+    ($f: expr, $shape: expr, $act: expr, $nm: expr) => {
+        is!(InternalAction::SetTargetShape($f, $shape), $act, $nm)
+    };
+}
+
+macro_rules! shaped {
+    ($shape: expr, $act: expr) => {
+        shaped_filter!(TargetShapeFilter::ALL, $shape, $act)
+    };
+    ($shape: expr, $act: expr, $nm: expr) => {
+        shaped_filter!(TargetShapeFilter::ALL, $shape, $act, $nm)
+    };
+}
+
 macro_rules! jump {
     ($l: expr, $d: expr) => {
         act!(Action::Jump($l, $d, Count::Contextual))
@@ -526,31 +546,6 @@ macro_rules! scrollcpv {
 macro_rules! scrollcph {
     ($p: expr) => {
         scroll!(ScrollStyle::CursorPos($p, Axis::Horizontal))
-    };
-}
-
-macro_rules! edit_target_shaped {
-    ($ea: expr, $f: expr, $shape: expr, $et: expr, $mode: expr) => {
-        isv!(
-            vec![InternalAction::SetTargetShape($f, $shape)],
-            vec![ExternalAction::Something(Action::Edit(
-                Specifier::Exact($ea),
-                $et
-            ))],
-            $mode
-        )
-    };
-    ($ea: expr, $f: expr, $shape: expr, $et: expr) => {
-        isv!(
-            vec![
-                InternalAction::SetOperation($ea),
-                InternalAction::SetTargetShape($f, $shape),
-            ],
-            vec![ExternalAction::Something(Action::Edit(
-                Specifier::Contextual,
-                $et
-            ))]
-        )
     };
 }
 
@@ -759,10 +754,7 @@ macro_rules! edit_target_end {
 
 macro_rules! edit_target_end_shaped {
     ($shape: expr, $et: expr) => {
-        is!(
-            InternalAction::SetTargetShape(TargetShapeFilter::ALL, $shape),
-            Action::Edit(Specifier::Contextual, $et)
-        )
+        shaped!($shape, Action::Edit(Specifier::Contextual, $et))
     };
 }
 
@@ -906,11 +898,10 @@ macro_rules! open_lines {
 
 macro_rules! edit_selection_nochar {
     ($ea: expr) => {
-        edit_target_shaped!(
-            $ea,
+        shaped_filter!(
             TargetShapeFilter::CHAR,
             TargetShape::LineWise,
-            EditTarget::Selection,
+            Action::Edit(Specifier::Exact($ea), EditTarget::Selection),
             VimMode::Normal
         )
     };
@@ -925,7 +916,8 @@ macro_rules! delete_selection_nochar {
             )],
             vec![
                 ExternalAction::Something(
-                    SelectionAction::SplitLines(TargetShapeFilter::ALL).into()
+                    SelectionAction::Split(SelectionSplitStyle::Lines, TargetShapeFilter::ALL)
+                        .into()
                 ),
                 ExternalAction::Something(SelectionAction::CursorSet($cursor).into()),
                 ExternalAction::Something(Action::Edit(EditAction::Delete.into(), $et)),
@@ -944,7 +936,8 @@ macro_rules! change_selection_nochar {
             ],
             vec![
                 ExternalAction::Something(
-                    SelectionAction::SplitLines(TargetShapeFilter::ALL).into()
+                    SelectionAction::Split(SelectionSplitStyle::Lines, TargetShapeFilter::ALL)
+                        .into()
                 ),
                 ExternalAction::Something(SelectionAction::CursorSet($cursor).into()),
                 ExternalAction::Something(Action::Edit(EditAction::Delete.into(), $et)),
@@ -961,7 +954,8 @@ macro_rules! insert_visual {
             vec![InternalAction::SetInsertStyle(InsertStyle::Insert)],
             vec![
                 ExternalAction::Something(
-                    SelectionAction::SplitLines(TargetShapeFilter::BLOCK).into()
+                    SelectionAction::Split(SelectionSplitStyle::Lines, TargetShapeFilter::BLOCK)
+                        .into()
                 ),
                 ExternalAction::Something(SelectionAction::CursorSet($cursor).into()),
                 ExternalAction::Something(CursorAction::Split(Count::Contextual).into()),
@@ -974,7 +968,8 @@ macro_rules! insert_visual {
             vec![InternalAction::SetInsertStyle(InsertStyle::Insert)],
             vec![
                 ExternalAction::Something(
-                    SelectionAction::SplitLines(TargetShapeFilter::BLOCK).into()
+                    SelectionAction::Split(SelectionSplitStyle::Lines, TargetShapeFilter::BLOCK)
+                        .into()
                 ),
                 ExternalAction::Something(SelectionAction::CursorSet($cursor).into()),
                 ExternalAction::Something(Action::Edit(EditAction::Delete.into(), $et)),
@@ -996,10 +991,23 @@ macro_rules! shape {
 
 macro_rules! start_selection {
     ($shape: expr, $mode: expr) => {
-        is!(
-            InternalAction::SetTargetShape(TargetShapeFilter::ALL, $shape),
+        shaped!(
+            $shape,
             Action::Edit(Specifier::Exact(EditAction::Motion), EditTarget::CurrentPosition),
             $mode
+        )
+    };
+}
+
+macro_rules! selection_resize_search {
+    ($style: expr, $dir: expr) => {
+        shaped!(
+            TargetShape::CharWise,
+            Action::Selection(SelectionAction::Resize(
+                $style,
+                EditTarget::Search(SearchType::Regex, MoveDirMod::Exact($dir), Count::Contextual)
+            )),
+            VimMode::Visual
         )
     };
 }
@@ -1174,8 +1182,6 @@ fn default_keys<P: Application>() -> Vec<(MappedModes, &'static str, InputStep<P
         ( NXOMAP, "gk", edit_end!(MoveType::ScreenLine(MoveDir1D::Previous)) ),
         ( NXOMAP, "gm", edit_end!(MoveType::ScreenLinePos(MovePosition::Middle), 0) ),
         ( NXOMAP, "gM", edit_target_end_ca!(EditTarget::Motion(MoveType::LinePos(MovePosition::Middle), Count::MinusOne), EditTarget::Motion(MoveType::LinePercent, Count::Contextual)) ),
-        ( NXOMAP, "gn", unmapped!() ),
-        ( NXOMAP, "gN", unmapped!() ),
         ( NXOMAP, "go", edit_end!(MoveType::BufferByteOffset) ),
         ( NXOMAP, "g_", unmapped!() ),
         ( NXOMAP, "g^", edit_end!(MoveType::ScreenFirstWord(MoveDir1D::Next), 0) ),
@@ -1389,6 +1395,8 @@ fn default_keys<P: Application>() -> Vec<(MappedModes, &'static str, InputStep<P
         ( NMAP, "gi", unmapped!() ),
         ( NMAP, "gI", insert!(InsertStyle::Insert, MoveType::LinePos(MovePosition::Beginning), 0) ),
         ( NMAP, "gJ", edit_lines!(EditAction::Join(false)) ),
+        ( NMAP, "gn", selection_resize_search!(SelectionResizeStyle::Object, MoveDir1D::Next) ),
+        ( NMAP, "gN", selection_resize_search!(SelectionResizeStyle::Object, MoveDir1D::Previous) ),
         ( NMAP, "gq", edit_motion!(EditAction::Format) ),
         ( NMAP, "gqgq", edit_lines!(EditAction::Format) ),
         ( NMAP, "gqq", edit_lines!(EditAction::Format) ),
@@ -1475,6 +1483,8 @@ fn default_keys<P: Application>() -> Vec<(MappedModes, &'static str, InputStep<P
         ( XMAP, "d", edit_selection!(EditAction::Delete) ),
         ( XMAP, "D", delete_selection_nochar!(SelectionCursorChange::Beginning, EditTarget::Motion(MoveType::LinePos(MovePosition::End), Count::Exact(0))) ),
         ( XMAP, "gJ", edit_selection!(EditAction::Join(false)) ),
+        ( XMAP, "gn", selection_resize_search!(SelectionResizeStyle::Extend, MoveDir1D::Next) ),
+        ( XMAP, "gN", selection_resize_search!(SelectionResizeStyle::Extend, MoveDir1D::Previous) ),
         ( XMAP, "gq", edit_selection!(EditAction::Format) ),
         ( XMAP, "gr", charreplace!(true, EditTarget::Selection) ),
         ( XMAP, "gu", edit_selection!(EditAction::ChangeCase(Case::Lower)) ),
@@ -1604,6 +1614,10 @@ fn default_keys<P: Application>() -> Vec<(MappedModes, &'static str, InputStep<P
         ( CMAP, "<PageUp>", cmdbar!(CommandBarAction::Recall(MoveDir1D::Previous, Count::Contextual)) ),
         ( CMAP, "<PageDown>", cmdbar!(CommandBarAction::Recall(MoveDir1D::Next, Count::Contextual)) ),
         ( CMAP, "<Insert>", iact!(InternalAction::SetInsertStyle(InsertStyle::Replace)) ),
+
+        // Operator-Pending mode
+        ( OMAP, "gn", unmapped!() ),
+        ( OMAP, "gN", unmapped!() ),
 
         // Internal mode to simplify keypresses allowed after f/F/t/T.
         ( SUFFIX_CHARSRCH, "<C-K>{digraph1}{digraph2}", charsearch_suffix!() ),
@@ -1896,10 +1910,14 @@ mod tests {
     ));
     const CURSOR_CLOSE: Action = Action::Cursor(CursorAction::Close(CursorCloseTarget::Followers));
     const CURSOR_SPLIT: Action = Action::Cursor(CursorAction::Split(Count::Contextual));
-    const SEL_SPLIT: Action =
-        Action::Selection(SelectionAction::SplitLines(TargetShapeFilter::ALL));
-    const BLOCK_SPLIT: Action =
-        Action::Selection(SelectionAction::SplitLines(TargetShapeFilter::BLOCK));
+    const SEL_SPLIT: Action = Action::Selection(SelectionAction::Split(
+        SelectionSplitStyle::Lines,
+        TargetShapeFilter::ALL,
+    ));
+    const BLOCK_SPLIT: Action = Action::Selection(SelectionAction::Split(
+        SelectionSplitStyle::Lines,
+        TargetShapeFilter::BLOCK,
+    ));
     const BLOCK_BEG: Action =
         Action::Selection(SelectionAction::CursorSet(SelectionCursorChange::Beginning));
     const BLOCK_END: Action =

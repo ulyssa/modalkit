@@ -7,6 +7,8 @@
 //!
 use std::cmp::{Ord, Ordering, PartialOrd};
 
+use crate::util::sort2;
+
 use super::base::Wrappable;
 
 /// Represents a movable point within a document.
@@ -54,6 +56,11 @@ impl Cursor {
     /// Create a new cursor.
     pub fn new(line: usize, column: usize) -> Self {
         Cursor { xgoal: column, x: column, y: line }
+    }
+
+    pub(crate) fn goal(mut self, goal: usize) -> Cursor {
+        self.xgoal = goal;
+        self
     }
 
     /// Zero out this cursor's line and column.
@@ -180,4 +187,16 @@ impl Ord for Cursor {
     fn cmp(&self, other: &Cursor) -> Ordering {
         self.compare(other)
     }
+}
+
+/// Treat two cursors as describing a block of text, and return the upper left cursor, and bottom
+/// cursor for the block.
+pub(crate) fn block_cursors(a: &Cursor, b: &Cursor) -> (Cursor, Cursor) {
+    let (lstart, lend) = sort2(a.y, b.y);
+
+    let lcol = a.x.min(b.x);
+    let rcol = a.x.max(b.x);
+    let rgoal = a.xgoal.max(b.xgoal);
+
+    (Cursor::new(lstart, lcol), Cursor::new(lend, rcol).goal(rgoal))
 }

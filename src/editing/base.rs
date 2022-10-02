@@ -63,7 +63,8 @@ pub enum EditAction {
     /// Move the cursor.
     ///
     /// If a shape is [specified contextually](EditContext::get_target_shape), then visually select
-    /// text while moving.
+    /// text while moving, as if using [SelectionAction::Resize] with
+    /// [SelectionResizeStyle::Extend].
     Motion,
     /// Delete the targeted text.
     Delete,
@@ -528,6 +529,7 @@ pub enum CloseTarget {
 pub enum CursorCloseTarget {
     /// Target the cursor group's leader.
     Leader,
+
     /// Target the cursor group's followers.
     Followers,
 }
@@ -670,25 +672,68 @@ bitflags! {
     }
 }
 
+/// Different ways to split existing selections into new ones.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[non_exhaustive]
+pub enum SelectionSplitStyle {
+    /// Split a selection into two selections, one at the current cursor position, and the other at
+    /// the anchor.
+    Anchor,
+
+    /// Split a selection at each line boundary it contains.
+    Lines,
+}
+
+/// Different ways to change the boundaries of a visual selection.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[non_exhaustive]
+pub enum SelectionResizeStyle {
+    /// Extend (or possibly shrink) the selection by moving the cursor.
+    ///
+    /// When extending with [EditTarget::Range], this may also move the anchor to fully encompass
+    /// the [RangeType].
+    Extend,
+
+    /// Interpret the [EditTarget] as the bounds of a text object, and select it.
+    Object,
+
+    /// Move the anchor to the current cursor position and create a new selection from there.
+    Restart,
+}
+
 /// Selection manipulation
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[non_exhaustive]
 pub enum SelectionAction {
+    /// Duplicate selections [*n* times](Count) to adjacent lines in [MoveDir1D] direction.
+    ///
+    /// If the column positions are too large to fit on the adjacent lines, then the next line
+    /// large enough to hold the selection is used instead.
+    Duplicate(MoveDir1D, Count),
+
     /// Change the placement of the cursor and anchor of a visual selection.
     CursorSet(SelectionCursorChange),
 
-    /// Change the bounds of the current selection to the range described by [EditTarget] relative
-    /// to the current cursor position.
+    /// Change the bounds of the current selection as described by the
+    /// [style](SelectionResizeStyle) and [target](EditTarget).
     ///
-    /// Effectively, this repositions the anchor at the current cursor position and then extends
-    /// the selection from there.
-    Resize(EditTarget),
+    /// If the context doesn't specify a selection shape, then the selection will determine its
+    /// shape from the [EditTarget].
+    Resize(SelectionResizeStyle, EditTarget),
 
-    /// Split [matching selections](TargetShapeFilter) into multiple selections, each on their own
-    /// line.
+    /// Split [matching selections](TargetShapeFilter) into multiple selections line.
     ///
     /// All of the new selections are of the same shape as the one they were split from.
-    SplitLines(TargetShapeFilter),
+    Split(SelectionSplitStyle, TargetShapeFilter),
+
+    /// Remove whitespace from around [matching selections](TargetShapeFilter).
+    ///
+    /// Specifically, the anchor and cursor are moved so that:
+    ///
+    /// - For [TargetShape::CharWise], they are positioned over a non-whitespace character.
+    /// - For [TargetShape::LineWise], they are not positioned on blank lines.
+    /// - For [TargetShape::BlockWise], columns and rows only containing whitespace are removed.
+    Trim(TargetShapeFilter),
 }
 
 /// Text insertion actions
@@ -725,6 +770,9 @@ pub enum HistoryAction {
 pub enum CursorAction {
     /// Close the [targeted cursors](CursorCloseTarget) in the current cursor group.
     Close(CursorCloseTarget),
+
+    /// Rotate which cursor in the cursor group is the current leader .
+    Rotate(MoveDir1D, Count),
 
     /// Convert a cursor into [*n*](Count) cursors.
     Split(Count),
@@ -1408,7 +1456,7 @@ pub trait CursorSearch<Cursor> {
         dir: MoveDir1D,
         needle: &Regex,
         count: usize,
-    ) -> Option<Cursor>;
+    ) -> Option<EditRange<Cursor>>;
 }
 
 /// Trait for directions capable of being flipped.

@@ -43,6 +43,7 @@ use crate::editing::base::{
     SearchType,
     SelectionAction,
     SelectionCursorChange,
+    SelectionResizeStyle,
     Specifier,
     TargetShape,
     WindowAction,
@@ -354,13 +355,16 @@ macro_rules! start_selection {
     ($shape: expr) => {
         is!(
             InternalAction::SetTargetShape($shape, false),
-            Action::Selection(SelectionAction::Resize(EditTarget::CurrentPosition))
+            Action::Selection(SelectionAction::Resize(
+                SelectionResizeStyle::Restart,
+                EditTarget::CurrentPosition
+            ))
         )
     };
     ($shape: expr, $target: expr) => {
         is!(
             InternalAction::SetTargetShape($shape, false),
-            Action::Selection(SelectionAction::Resize($target))
+            Action::Selection(SelectionAction::Resize(SelectionResizeStyle::Restart, $target))
         )
     };
 }
@@ -610,7 +614,8 @@ mod tests {
         assert_eq!(vm.mode(), EmacsMode::Insert);
 
         // <C-Space> begins selection.
-        let act = SelectionAction::Resize(EditTarget::CurrentPosition);
+        let act =
+            SelectionAction::Resize(SelectionResizeStyle::Restart, EditTarget::CurrentPosition);
         vm.input_key(ctl!(' '));
         assert_pop2!(vm, Action::from(act), ctx);
 

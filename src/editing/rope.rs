@@ -73,7 +73,6 @@ struct U16Off(usize);
 pub(super) type CursorContext<'a> = (&'a EditRope, usize, bool);
 
 pub(super) trait PrivateCursorOps {
-    fn goal(self, goal: usize) -> Cursor;
     fn set_column<'a>(&mut self, x: usize, ctx: &CursorContext<'a>);
     fn set_line<'a>(&mut self, y: usize, ctx: &CursorContext<'a>);
     fn set<'a>(&mut self, y: usize, x: usize, ctx: &CursorContext<'a>);
@@ -98,11 +97,6 @@ pub(super) trait PrivateCursorOps {
 }
 
 impl PrivateCursorOps for Cursor {
-    fn goal(mut self, goal: usize) -> Cursor {
-        self.xgoal = goal;
-        self
-    }
-
     fn clamp<'a>(&mut self, ctx: &CursorContext<'a>) {
         self.set(self.y, self.x, ctx);
     }
@@ -527,8 +521,14 @@ fn is_word_after(rc: &RopeCursor<'_, RopeInfo>, _: &MoveDir1D, _: bool) -> bool 
 
 /// Iterator over a rope's characters.
 pub struct CharacterIterator<'a> {
-    rc: RopeCursor<'a, RopeInfo>,
-    position: usize,
+    rc_pos: RopeCursor<'a, RopeInfo>,
+    rc_end: RopeCursor<'a, RopeInfo>,
+
+    pos: Option<usize>,
+    end: Option<usize>,
+
+    first: usize,
+    last: usize,
 }
 
 /// Iterator over a rope's newlines.
@@ -537,9 +537,41 @@ pub struct NewlineIterator<'a> {
 }
 
 impl<'a> CharacterIterator<'a> {
-    /// Current byte offset into the underlying rope.
+    fn new(rope: &'a Rope, pos: usize, end: usize) -> Self {
+        let rc_pos = RopeCursor::new(rope, pos);
+        let rc_end = RopeCursor::new(rope, end);
+
+        CharacterIterator {
+            rc_pos,
+            rc_end,
+
+            first: pos,
+            last: end,
+
+            pos: None,
+            end: None,
+        }
+    }
+
+    #[inline]
+    fn done(&self) -> bool {
+        match (self.pos, self.end) {
+            (Some(pos), Some(end)) => pos >= end,
+            (Some(pos), None) => pos > self.last,
+            (None, Some(end)) => self.first > end,
+            (None, None) => false,
+        }
+    }
+
+    /// Byte offset into the underlying rope of the last character returned from [Iterator::next].
     pub fn pos(&self) -> ByteOff {
-        ByteOff(self.position)
+        ByteOff(self.pos.expect("next() hasn't been called yet"))
+    }
+
+    /// Byte offset into the underlying rope of the last character returned from
+    /// [DoubleEndedIterator::next_back].
+    pub fn pos_back(&self) -> ByteOff {
+        ByteOff(self.end.expect("next_back() hasn't been called yet"))
     }
 }
 
@@ -547,12 +579,31 @@ impl<'a> Iterator for CharacterIterator<'a> {
     type Item = char;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let res = self.rc.peek_next_codepoint();
+        let res = self.rc_pos.peek_next_codepoint();
 
-        self.position = self.rc.pos();
-        self.rc.next::<BaseMetric>();
+        self.pos = self.rc_pos.pos().into();
+        self.rc_pos.next::<BaseMetric>();
 
-        return res;
+        if self.done() {
+            return None;
+        } else {
+            return res;
+        }
+    }
+}
+
+impl<'a> DoubleEndedIterator for CharacterIterator<'a> {
+    fn next_back(&mut self) -> Option<Self::Item> {
+        let res = self.rc_end.peek_next_codepoint();
+
+        self.end = self.rc_end.pos().into();
+        self.rc_end.prev::<BaseMetric>();
+
+        if self.done() {
+            return None;
+        } else {
+            return res;
+        }
     }
 }
 
@@ -1053,8 +1104,7 @@ impl EditRope {
 
             self.rope.edit(ioff..ioff, line);
 
-            let cctx = &(&*self, 0, false);
-            c.line(MoveDir1D::Next, 1, cctx);
+            c.down(1);
         }
 
         if ilines > alines {
@@ -1193,7 +1243,7 @@ impl EditRope {
     }
 
     /// Returns the character (if it exists) at a given cursor position.
-    pub fn get_char_at(&self, cursor: &Cursor) -> Option<char> {
+    pub fn get_char_at_cursor(&self, cursor: &Cursor) -> Option<char> {
         let lmax = self.max_line_idx();
 
         if cursor.y > lmax {
@@ -1209,6 +1259,34 @@ impl EditRope {
         let off = self.cursor_to_offset(cursor);
 
         self.chars(off).next()
+    }
+
+    /// Returns true if a line only contains only whitespace characters.
+    pub fn is_blank_line(&self, line: usize) -> bool {
+        let offset = self.offset_of_line(line);
+
+        for c in self.chars(offset) {
+            if c == '\n' {
+                return true;
+            }
+
+            if !c.is_ascii_whitespace() {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /// Returns true if the inclusive range of bytes contains only whitespace characters.
+    pub fn is_blank_range(&self, start: ByteOff, end: ByteOff) -> bool {
+        for c in self.chars_until(start, end) {
+            if !c.is_ascii_whitespace() {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /// Return the length in bytes as a [ByteOff].
@@ -1414,24 +1492,43 @@ impl EditRope {
         return adjs;
     }
 
-    fn _find_regex_previous(&self, start: usize, needle: &Regex, count: usize) -> Option<Cursor> {
+    fn _match_to_range(&self, m: Match) -> EditRange<Cursor> {
+        let start = self.offset_to_cursor(m.start().into());
+        let end = self.offset_to_cursor(m.end().saturating_sub(1).into());
+
+        return EditRange::inclusive(start, end, TargetShape::CharWise);
+    }
+
+    fn _find_regex_previous(
+        &self,
+        start: usize,
+        needle: &Regex,
+        count: usize,
+    ) -> Option<EditRange<Cursor>> {
         let text = self.to_string();
-        let ms: Vec<usize> = needle.find_iter(&text).map(|m| m.start()).collect();
+        let ms: Vec<_> = needle.find_iter(&text).collect();
         let modulus = ms.len();
 
-        for (i, off) in ms.iter().enumerate() {
-            if off >= &start {
+        for (i, m) in ms.iter().enumerate() {
+            let off = m.start();
+
+            if off >= start {
                 let offset = count % modulus;
                 let idx = (modulus + i - offset) % modulus;
 
-                return self.offset_to_cursor(ms[idx].into()).into();
+                return self._match_to_range(ms[idx]).into();
             }
         }
 
         return None;
     }
 
-    fn _find_regex_next(&self, start: usize, needle: &Regex, mut count: usize) -> Option<Cursor> {
+    fn _find_regex_next(
+        &self,
+        start: usize,
+        needle: &Regex,
+        mut count: usize,
+    ) -> Option<EditRange<Cursor>> {
         let text = self.to_string();
 
         // Start search right after the cursor position.
@@ -1483,7 +1580,7 @@ impl EditRope {
         }
 
         if count == 0 {
-            return res.map(|m| self.offset_to_cursor(ByteOff(m.start())));
+            return res.map(|m| self._match_to_range(m));
         } else {
             return None;
         }
@@ -1786,10 +1883,15 @@ impl EditRope {
     }
 
     /// Returns an iterator over the characters within this rope following `position`.
-    pub fn chars(&self, ByteOff(position): ByteOff) -> CharacterIterator {
-        let rc = RopeCursor::new(&self.rope, position);
+    pub fn chars(&self, ByteOff(pos): ByteOff) -> CharacterIterator {
+        let end = self.last_offset().0;
 
-        CharacterIterator { rc, position }
+        CharacterIterator::new(&self.rope, pos, end)
+    }
+
+    /// Returns an iterator over the characters within this rope following `position`.
+    pub fn chars_until(&self, ByteOff(pos): ByteOff, ByteOff(end): ByteOff) -> CharacterIterator {
+        CharacterIterator::new(&self.rope, pos, end)
     }
 
     /// Returns the [word](WordStyle) underneath the [Cursor], and updates it to point at the
@@ -2065,6 +2167,10 @@ impl<C: EditContext> CursorMovements<Cursor, C> for EditRope {
                 // Move the cursor to the line position.
                 let cctx = &(cctx.0, cctx.1, lastcol);
                 nc.textpos(*pos, 0, maxcol, cctx);
+
+                if let MovePosition::End = pos {
+                    nc.xgoal = usize::MAX;
+                }
             },
 
             // screen line movements
@@ -2283,7 +2389,7 @@ impl CursorSearch<Cursor> for EditRope {
         dir: MoveDir1D,
         needle: &Regex,
         count: usize,
-    ) -> Option<Cursor> {
+    ) -> Option<EditRange<Cursor>> {
         let start = self.cursor_to_offset(cursor);
 
         if start > self.last_offset() || self.len() == 0 {
@@ -2330,36 +2436,210 @@ mod tests {
     }
 
     #[test]
+    fn test_is_blank_line() {
+        let r = EditRope::from("a b c\n a b c \n\n    \n\t\na b c\n");
+
+        assert_eq!(r.is_blank_line(0), false);
+        assert_eq!(r.is_blank_line(1), false);
+        assert_eq!(r.is_blank_line(2), true);
+        assert_eq!(r.is_blank_line(3), true);
+        assert_eq!(r.is_blank_line(4), true);
+        assert_eq!(r.is_blank_line(5), false);
+    }
+
+    #[test]
+    fn test_is_blank_range() {
+        let r = EditRope::from("a b c\n a b c \n\n    \n\t\na b c\n");
+
+        // Non-whitespace range.
+        assert_eq!(r.is_blank_range(0.into(), 0.into()), false);
+
+        // Non-whitespace range that ends on whitespace.
+        assert_eq!(r.is_blank_range(0.into(), 1.into()), false);
+
+        // Non-whitespace range that starts on whitespace.
+        assert_eq!(r.is_blank_range(1.into(), 4.into()), false);
+
+        // Non-whitespace range with whitespace next to both sides.
+        assert_eq!(r.is_blank_range(7.into(), 12.into()), false);
+
+        // Whitespace range with whitespace next to both sides.
+        assert_eq!(r.is_blank_range(13.into(), 20.into()), true);
+
+        // Whitespace ranges with non-whitespace next to both sides.
+        assert_eq!(r.is_blank_range(1.into(), 1.into()), true);
+        assert_eq!(r.is_blank_range(5.into(), 6.into()), true);
+        assert_eq!(r.is_blank_range(12.into(), 21.into()), true);
+    }
+
+    #[test]
+    fn test_chars_until_iter() {
+        let r = EditRope::from("hello\nworld\n");
+        let mut iter = r.chars_until(3.into(), 7.into());
+
+        assert_eq!(iter.next(), Some('l'));
+        assert_eq!(iter.pos(), 3.into());
+
+        assert_eq!(iter.next_back(), Some('o'));
+        assert_eq!(iter.pos_back(), 7.into());
+
+        assert_eq!(iter.next(), Some('o'));
+        assert_eq!(iter.pos(), 4.into());
+
+        assert_eq!(iter.next_back(), Some('w'));
+        assert_eq!(iter.pos_back(), 6.into());
+
+        assert_eq!(iter.next(), Some('\n'));
+        assert_eq!(iter.pos(), 5.into());
+
+        assert_eq!(iter.next(), None);
+        assert_eq!(iter.next_back(), None);
+    }
+
+    #[test]
     fn test_chars_iter() {
         let r = EditRope::from("hello\nworld\n");
         let mut iter = r.chars(0.into());
 
         assert_eq!(iter.next(), Some('h'));
+        assert_eq!(iter.pos(), 0.into());
+
         assert_eq!(iter.next(), Some('e'));
+        assert_eq!(iter.pos(), 1.into());
+
         assert_eq!(iter.next(), Some('l'));
+        assert_eq!(iter.pos(), 2.into());
+
         assert_eq!(iter.next(), Some('l'));
+        assert_eq!(iter.pos(), 3.into());
+
         assert_eq!(iter.next(), Some('o'));
+        assert_eq!(iter.pos(), 4.into());
+
         assert_eq!(iter.next(), Some('\n'));
+        assert_eq!(iter.pos(), 5.into());
+
         assert_eq!(iter.next(), Some('w'));
+        assert_eq!(iter.pos(), 6.into());
+
         assert_eq!(iter.next(), Some('o'));
+        assert_eq!(iter.pos(), 7.into());
+
         assert_eq!(iter.next(), Some('r'));
+        assert_eq!(iter.pos(), 8.into());
+
         assert_eq!(iter.next(), Some('l'));
+        assert_eq!(iter.pos(), 9.into());
+
         assert_eq!(iter.next(), Some('d'));
+        assert_eq!(iter.pos(), 10.into());
+
         assert_eq!(iter.next(), Some('\n'));
+        assert_eq!(iter.pos(), 11.into());
+
         assert_eq!(iter.next(), None);
 
         let r = EditRope::from("foo bar baz\n");
         let mut iter = r.chars(4.into());
 
         assert_eq!(iter.next(), Some('b'));
+        assert_eq!(iter.pos(), 4.into());
+
         assert_eq!(iter.next(), Some('a'));
+        assert_eq!(iter.pos(), 5.into());
+
         assert_eq!(iter.next(), Some('r'));
+        assert_eq!(iter.pos(), 6.into());
+
         assert_eq!(iter.next(), Some(' '));
+        assert_eq!(iter.pos(), 7.into());
+
         assert_eq!(iter.next(), Some('b'));
+        assert_eq!(iter.pos(), 8.into());
+
         assert_eq!(iter.next(), Some('a'));
+        assert_eq!(iter.pos(), 9.into());
+
         assert_eq!(iter.next(), Some('z'));
+        assert_eq!(iter.pos(), 10.into());
+
         assert_eq!(iter.next(), Some('\n'));
+        assert_eq!(iter.pos(), 11.into());
+
         assert_eq!(iter.next(), None);
+    }
+
+    #[test]
+    fn test_chars_double_ended_iter() {
+        let r = EditRope::from("hello\nworld\n");
+        let mut iter = r.chars(0.into());
+
+        assert_eq!(iter.next_back(), Some('\n'));
+        assert_eq!(iter.pos_back(), 11.into());
+
+        assert_eq!(iter.next_back(), Some('d'));
+        assert_eq!(iter.pos_back(), 10.into());
+
+        assert_eq!(iter.next_back(), Some('l'));
+        assert_eq!(iter.pos_back(), 9.into());
+
+        assert_eq!(iter.next_back(), Some('r'));
+        assert_eq!(iter.pos_back(), 8.into());
+
+        assert_eq!(iter.next_back(), Some('o'));
+        assert_eq!(iter.pos_back(), 7.into());
+
+        assert_eq!(iter.next_back(), Some('w'));
+        assert_eq!(iter.pos_back(), 6.into());
+
+        assert_eq!(iter.next_back(), Some('\n'));
+        assert_eq!(iter.pos_back(), 5.into());
+
+        assert_eq!(iter.next_back(), Some('o'));
+        assert_eq!(iter.pos_back(), 4.into());
+
+        assert_eq!(iter.next_back(), Some('l'));
+        assert_eq!(iter.pos_back(), 3.into());
+
+        assert_eq!(iter.next_back(), Some('l'));
+        assert_eq!(iter.pos_back(), 2.into());
+
+        assert_eq!(iter.next_back(), Some('e'));
+        assert_eq!(iter.pos_back(), 1.into());
+
+        assert_eq!(iter.next_back(), Some('h'));
+        assert_eq!(iter.pos_back(), 0.into());
+
+        assert_eq!(iter.next_back(), None);
+
+        let r = EditRope::from("foo bar baz\n");
+        let mut iter = r.chars(4.into());
+
+        assert_eq!(iter.next_back(), Some('\n'));
+        assert_eq!(iter.pos_back(), 11.into());
+
+        assert_eq!(iter.next_back(), Some('z'));
+        assert_eq!(iter.pos_back(), 10.into());
+
+        assert_eq!(iter.next_back(), Some('a'));
+        assert_eq!(iter.pos_back(), 9.into());
+
+        assert_eq!(iter.next_back(), Some('b'));
+        assert_eq!(iter.pos_back(), 8.into());
+
+        assert_eq!(iter.next_back(), Some(' '));
+        assert_eq!(iter.pos_back(), 7.into());
+
+        assert_eq!(iter.next_back(), Some('r'));
+        assert_eq!(iter.pos_back(), 6.into());
+
+        assert_eq!(iter.next_back(), Some('a'));
+        assert_eq!(iter.pos_back(), 5.into());
+
+        assert_eq!(iter.next_back(), Some('b'));
+        assert_eq!(iter.pos_back(), 4.into());
+
+        assert_eq!(iter.next_back(), None);
     }
 
     #[test]
@@ -2416,6 +2696,15 @@ mod tests {
 
         // First character after newline is on the next line (line 1).
         assert_eq!(rope.line_of_offset(ByteOff(6)), 1);
+    }
+
+    #[test]
+    fn test_offset_of_line_blank_line() {
+        let rope = EditRope::from("a b c\n\nd e f\n");
+
+        assert_eq!(rope.offset_of_line(0), 0.into());
+        assert_eq!(rope.offset_of_line(1), 6.into());
+        assert_eq!(rope.offset_of_line(2), 7.into());
     }
 
     #[test]
@@ -2874,6 +3163,7 @@ mod tests {
     fn test_find_regex_next() {
         let zero = Cursor::new(0, 0);
         let needle = Regex::new("he").unwrap();
+        let cw = TargetShape::CharWise;
 
         // Empty string.
         let character = EditRope::from("");
@@ -2887,29 +3177,30 @@ mod tests {
 
         // Positive result.
         let writhe = EditRope::from("writhe");
-        let res = writhe.find_regex(&zero, MoveDir1D::Next, &needle, 1);
-        assert_eq!(res, Some(Cursor::new(0, 4)));
+        let res = writhe.find_regex(&zero, MoveDir1D::Next, &needle, 1).unwrap();
+        assert_eq!(res, EditRange::inclusive(Cursor::new(0, 4), Cursor::new(0, 5), cw));
 
         // Multiple count.
         let multi = EditRope::from("writhe helium\nworld help\n");
 
-        let res = multi.find_regex(&zero, MoveDir1D::Next, &needle, 3);
-        assert_eq!(res, Some(Cursor::new(1, 6)));
+        let res = multi.find_regex(&zero, MoveDir1D::Next, &needle, 3).unwrap();
+        assert_eq!(res, EditRange::inclusive(Cursor::new(1, 6), Cursor::new(1, 7), cw));
 
         // Start at non-zero cursor.
         let cursor = Cursor::new(1, 6);
-        let res = multi.find_regex(&cursor, MoveDir1D::Next, &needle, 2);
-        assert_eq!(res, Some(Cursor::new(0, 7)));
+        let res = multi.find_regex(&cursor, MoveDir1D::Next, &needle, 2).unwrap();
+        assert_eq!(res, EditRange::inclusive(Cursor::new(0, 7), Cursor::new(0, 8), cw));
 
         // Wrap around multiple times.
-        let res = multi.find_regex(&zero, MoveDir1D::Next, &needle, 8);
-        assert_eq!(res, Some(Cursor::new(0, 7)));
+        let res = multi.find_regex(&zero, MoveDir1D::Next, &needle, 8).unwrap();
+        assert_eq!(res, EditRange::inclusive(Cursor::new(0, 7), Cursor::new(0, 8), cw));
     }
 
     #[test]
     fn test_find_regex_previous() {
         let zero = Cursor::new(0, 0);
         let needle = Regex::new("he").unwrap();
+        let cw = TargetShape::CharWise;
 
         // Empty string.
         let character = EditRope::from("");
@@ -2923,23 +3214,23 @@ mod tests {
 
         // Positive result.
         let writhe = EditRope::from("writhe");
-        let res = writhe.find_regex(&zero, MoveDir1D::Previous, &needle, 1);
-        assert_eq!(res, Some(Cursor::new(0, 4)));
+        let res = writhe.find_regex(&zero, MoveDir1D::Previous, &needle, 1).unwrap();
+        assert_eq!(res, EditRange::inclusive(Cursor::new(0, 4), Cursor::new(0, 5), cw));
 
         // Multiple count.
         let multi = EditRope::from("writhe helium\nworld help\n");
 
-        let res = multi.find_regex(&zero, MoveDir1D::Previous, &needle, 2);
-        assert_eq!(res, Some(Cursor::new(0, 7)));
+        let res = multi.find_regex(&zero, MoveDir1D::Previous, &needle, 2).unwrap();
+        assert_eq!(res, EditRange::inclusive(Cursor::new(0, 7), Cursor::new(0, 8), cw));
 
         // Start at non-zero cursor.
         let cursor = Cursor::new(0, 4);
-        let res = multi.find_regex(&cursor, MoveDir1D::Previous, &needle, 2);
-        assert_eq!(res, Some(Cursor::new(0, 7)));
+        let res = multi.find_regex(&cursor, MoveDir1D::Previous, &needle, 2).unwrap();
+        assert_eq!(res, EditRange::inclusive(Cursor::new(0, 7), Cursor::new(0, 8), cw));
 
         // Wrap around multiple times.
-        let res = multi.find_regex(&zero, MoveDir1D::Previous, &needle, 8);
-        assert_eq!(res, Some(Cursor::new(0, 7)));
+        let res = multi.find_regex(&zero, MoveDir1D::Previous, &needle, 8).unwrap();
+        assert_eq!(res, EditRange::inclusive(Cursor::new(0, 7), Cursor::new(0, 8), cw));
     }
 
     #[test]
@@ -3456,16 +3747,16 @@ mod tests {
 
         // Move to end of line.
         cursor = rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)).unwrap();
-        assert_eq!(cursor, Cursor::new(0, 9));
+        assert_eq!(cursor, Cursor::new(0, 9).goal(usize::MAX));
 
         // Repeating stays at end of line because of Count::MinusOne.
         cursor = rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)).unwrap();
-        assert_eq!(cursor, Cursor::new(0, 9));
+        assert_eq!(cursor, Cursor::new(0, 9).goal(usize::MAX));
 
         // Using a higher context count allows us to move to the next line ending.
         vctx.action.count = Some(2);
         cursor = rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)).unwrap();
-        assert_eq!(cursor, Cursor::new(1, 4));
+        assert_eq!(cursor, Cursor::new(1, 4).goal(usize::MAX));
 
         // Trying to move past the end of the buffer fails.
         assert_eq!(rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)), None);
