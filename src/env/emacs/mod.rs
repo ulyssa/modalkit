@@ -33,7 +33,7 @@ use crate::editing::base::{
     TargetShape,
 };
 
-use crate::util::{keycode_to_num, option_muladd_u32};
+use crate::util::{keycode_to_num, option_muladd_u32, option_muladd_usize};
 
 use super::{CharacterContext, CommonKeyClass};
 
@@ -44,6 +44,9 @@ pub mod keybindings;
 pub enum EmacsMode {
     /// Insert mode keypresses.
     Insert,
+
+    /// Command bar keypresses.
+    Command,
 
     /// Search bar keypresses.
     Search,
@@ -61,7 +64,7 @@ impl<P: Application> Mode<Action<P>, EmacsContext<P>> for EmacsMode {
             EmacsMode::Insert => {
                 return vec![];
             },
-            EmacsMode::Search => {
+            EmacsMode::Command | EmacsMode::Search => {
                 ctx.persist.shape = None;
 
                 return vec![];
@@ -81,7 +84,7 @@ impl<P: Application> Mode<Action<P>, EmacsContext<P>> for EmacsMode {
                     },
                 }
             },
-            EmacsMode::Search => {
+            EmacsMode::Command | EmacsMode::Search => {
                 return None;
             },
         }
@@ -99,6 +102,19 @@ impl<P: Application> ModeKeys<TerminalKey, Action<P>, EmacsContext<P>> for Emacs
                 if let Some(c) = ke.get_char() {
                     let ch = Char::Single(c).into();
                     let it = InsertTextAction::Type(ch, MoveDir1D::Previous, Count::Contextual);
+
+                    (vec![it.into()], None)
+                } else {
+                    (vec![], None)
+                }
+            },
+            EmacsMode::Command => {
+                if let Some(c) = ke.get_char() {
+                    let it = InsertTextAction::Type(
+                        Char::Single(c).into(),
+                        MoveDir1D::Previous,
+                        Count::Contextual,
+                    );
 
                     (vec![it.into()], None)
                 } else {
@@ -123,13 +139,15 @@ impl<P: Application> ModeKeys<TerminalKey, Action<P>, EmacsContext<P>> for Emacs
 /// keybindings is pressed.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct ActionContext {
-    // Other arguments to key sequences.
+    // Prefix arguments to key sequences.
+    pub(crate) count: Option<usize>,
+    pub(crate) counting: Option<usize>,
     pub(crate) register: Option<Register>,
 }
 
 impl Default for ActionContext {
     fn default() -> Self {
-        Self { register: None }
+        Self { count: None, counting: None, register: None }
     }
 }
 
@@ -231,8 +249,8 @@ impl<P: Application> Default for EmacsContext<P> {
 impl<P: Application> Resolve<Count, usize> for EmacsContext<P> {
     fn resolve(&self, count: &Count) -> usize {
         match count {
-            Count::Contextual => 1,
-            Count::MinusOne => 0,
+            Count::Contextual => self.action.count.unwrap_or(1),
+            Count::MinusOne => self.action.count.unwrap_or(0).saturating_sub(1),
             Count::Exact(n) => *n,
         }
     }
@@ -270,6 +288,13 @@ impl<P: Application> InputKeyContext<TerminalKey, CommonKeyClass> for EmacsConte
         match ev {
             EdgeEvent::Key(_) | EdgeEvent::Fallthrough => {
                 // Do nothing.
+            },
+            EdgeEvent::Class(CommonKeyClass::Count) => {
+                if let Some(n) = keycode_to_num(ke, 10) {
+                    let new = option_muladd_usize(&self.action.counting, 10, n as usize);
+
+                    self.action.counting = Some(new);
+                }
             },
 
             // Track literals, codepoints, etc.

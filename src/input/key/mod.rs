@@ -64,6 +64,14 @@ impl TerminalKey {
         None
     }
 
+    pub(crate) fn get_char_mods(&self) -> Option<(char, KeyModifiers)> {
+        if let KeyCode::Char(c) = self.code {
+            return Some((c, self.modifiers));
+        }
+
+        None
+    }
+
     /// Return this key's representation as a single codepoint, if it exists.
     pub fn get_literal_char(&self) -> Option<char> {
         match self.code {

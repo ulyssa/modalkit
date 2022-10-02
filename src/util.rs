@@ -188,7 +188,7 @@ pub fn idx_move<T>(els: &mut Vec<T>, fidx: &mut usize, tidx: usize, idx_last: &m
 
 #[inline]
 pub fn keycode_to_num(ke: &TerminalKey, radix: u32) -> Option<u32> {
-    if let Some(c) = ke.get_char() {
+    if let Some((c, _)) = ke.get_char_mods() {
         c.to_digit(radix)
     } else {
         None

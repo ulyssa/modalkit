@@ -58,6 +58,7 @@ fn parse_edgename(input: &str) -> IResult<&str, CommonEdgePathPart> {
     let (input, _) = char('{')(input)?;
     let (input, e) = alt((
         value(EdgeEvent::Any, tag("any")),
+        value(EdgeEvent::Class(CommonKeyClass::Count), tag("count")),
         value(EdgeEvent::Class(CommonKeyClass::Register), tag("register")),
         value(EdgeEvent::Class(CommonKeyClass::Mark), tag("mark")),
         value(EdgeEvent::Class(CommonKeyClass::Octal), tag("oct")),
