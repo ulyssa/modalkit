@@ -57,6 +57,20 @@ pub enum Case {
     Toggle,
 }
 
+/// Specify how to join lines together.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum JoinStyle {
+    /// Leave whitespace around the join point as-is.
+    NoChange,
+
+    /// Replace whitespace around the join point with a single space.
+    OneSpace,
+
+    /// Always insert a new space at the join point, regardless of whether there's already
+    /// whitespace there.
+    NewSpace,
+}
+
 /// The various actions that can be taken on text.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum EditAction {
@@ -66,24 +80,32 @@ pub enum EditAction {
     /// text while moving, as if using [SelectionAction::Resize] with
     /// [SelectionResizeStyle::Extend].
     Motion,
+
     /// Delete the targeted text.
     Delete,
+
     /// Yank the targeted text into a [Register].
     Yank,
+
     /// Replace characters within the targeted text with a new character.
     ///
     /// If [bool] is true, virtually replace characters by how many columns they occupy.
     Replace(bool),
+
     /// Automatically format the targeted text.
     Format,
+
     /// Change a number within the targeted text.
     ChangeNumber(NumberChange),
+
     /// Join the lines within the targeted text together.
     ///
     /// If [bool] is true, modify spacing when joining.
-    Join(bool),
+    Join(JoinStyle),
+
     /// Change the indent level of the targeted text.
     Indent(IndentChange),
+
     /// Change the case of the targeted text.
     ChangeCase(Case),
 }
@@ -1950,6 +1972,10 @@ pub enum EditError {
     /// Failure due to invalid input where an integer was expected.
     #[error("Integer conversion error: {0}")]
     IntConversionError(#[from] std::num::TryFromIntError),
+
+    /// Failure due to an unimplemented feature.
+    #[error("Unimplemented: {0}")]
+    Unimplemented(String),
 
     /// Generic failure.
     #[error("Error: {0}")]

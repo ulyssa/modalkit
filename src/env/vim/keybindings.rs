@@ -69,6 +69,7 @@ use crate::editing::base::{
     IndentChange,
     InsertStyle,
     InsertTextAction,
+    JoinStyle,
     MacroAction,
     MoveDir1D,
     MoveDir2D,
@@ -1405,7 +1406,7 @@ fn default_keys<P: Application>() -> Vec<(MappedModes, &'static str, InputStep<P
         ( NMAP, "ga", unmapped!() ),
         ( NMAP, "gi", unmapped!() ),
         ( NMAP, "gI", insert!(InsertStyle::Insert, MoveType::LinePos(MovePosition::Beginning), 0) ),
-        ( NMAP, "gJ", edit_lines!(EditAction::Join(false)) ),
+        ( NMAP, "gJ", edit_lines!(EditAction::Join(JoinStyle::NoChange)) ),
         ( NMAP, "gn", selection_resize_search!(SelectionResizeStyle::Object, MoveDir1D::Next) ),
         ( NMAP, "gN", selection_resize_search!(SelectionResizeStyle::Object, MoveDir1D::Previous) ),
         ( NMAP, "gq", edit_motion!(EditAction::Format) ),
@@ -1432,7 +1433,7 @@ fn default_keys<P: Application>() -> Vec<(MappedModes, &'static str, InputStep<P
         ( NMAP, "g<Tab>", tab_focus!(FocusChange::PreviouslyFocused) ),
         ( NMAP, "i", insert!(InsertStyle::Insert) ),
         ( NMAP, "I", insert!(InsertStyle::Insert, MoveType::FirstWord(MoveDir1D::Next), 0) ),
-        ( NMAP, "J", edit_lines!(EditAction::Join(true)) ),
+        ( NMAP, "J", edit_lines!(EditAction::Join(JoinStyle::OneSpace)) ),
         ( NMAP, "K", act!(Action::KeywordLookup) ),
         ( NMAP, "o", open_lines!(MoveDir1D::Next) ),
         ( NMAP, "O", open_lines!(MoveDir1D::Previous) ),
@@ -1493,7 +1494,7 @@ fn default_keys<P: Application>() -> Vec<(MappedModes, &'static str, InputStep<P
         ( XMAP, "C", change_selection_nochar!(SelectionCursorChange::Beginning, EditTarget::Motion(MoveType::LinePos(MovePosition::End), Count::Exact(0))) ),
         ( XMAP, "d", edit_selection!(EditAction::Delete) ),
         ( XMAP, "D", delete_selection_nochar!(SelectionCursorChange::Beginning, EditTarget::Motion(MoveType::LinePos(MovePosition::End), Count::Exact(0))) ),
-        ( XMAP, "gJ", edit_selection!(EditAction::Join(false)) ),
+        ( XMAP, "gJ", edit_selection!(EditAction::Join(JoinStyle::NoChange)) ),
         ( XMAP, "gn", selection_resize_search!(SelectionResizeStyle::Extend, MoveDir1D::Next) ),
         ( XMAP, "gN", selection_resize_search!(SelectionResizeStyle::Extend, MoveDir1D::Previous) ),
         ( XMAP, "gq", edit_selection!(EditAction::Format) ),
@@ -1505,7 +1506,7 @@ fn default_keys<P: Application>() -> Vec<(MappedModes, &'static str, InputStep<P
         ( XMAP, "g<C-A>", edit_selection!(EditAction::ChangeNumber(NumberChange::IncreaseAll)) ),
         ( XMAP, "g<C-X>", edit_selection!(EditAction::ChangeNumber(NumberChange::DecreaseAll)) ),
         ( XMAP, "I", insert_visual!(SelectionCursorChange::Beginning) ),
-        ( XMAP, "J", edit_selection!(EditAction::Join(true)) ),
+        ( XMAP, "J", edit_selection!(EditAction::Join(JoinStyle::OneSpace)) ),
         ( XMAP, "K", act!(Action::KeywordLookup) ),
         ( XMAP, "o", selection!(SelectionAction::CursorSet(SelectionCursorChange::SwapAnchor(false))) ),
         ( XMAP, "O", selection!(SelectionAction::CursorSet(SelectionCursorChange::SwapAnchor(true))) ),
@@ -2667,13 +2668,13 @@ mod tests {
 
         ctx.action.operation = EditAction::Motion;
 
-        let op = EditAction::Join(true);
+        let op = EditAction::Join(JoinStyle::OneSpace);
         let lines = rangeop!(op, RangeType::Line);
         vm.input_key(key!('J'));
         assert_pop1!(vm, lines, ctx);
         assert_normal!(vm, ctx);
 
-        let op = EditAction::Join(false);
+        let op = EditAction::Join(JoinStyle::NoChange);
         let lines = rangeop!(op, RangeType::Line);
         vm.input_key(key!('g'));
         vm.input_key(key!('J'));

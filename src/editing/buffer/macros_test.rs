@@ -64,3 +64,31 @@ macro_rules! type_char {
             .unwrap()
     };
 }
+
+macro_rules! mark {
+    ($c: expr) => {
+        Mark::BufferNamed($c)
+    };
+}
+
+macro_rules! edit_char_mark {
+    ($ebuf: expr, $act: expr, $c: expr, $curid: expr, $vwctx: expr, $vctx: expr) => {
+        edit!(
+            $ebuf,
+            $act,
+            EditTarget::CharJump(Specifier::Exact(mark!($c))),
+            ctx!($curid, $vwctx, $vctx)
+        )
+    };
+}
+
+macro_rules! edit_line_mark {
+    ($ebuf: expr, $act: expr, $c: expr, $curid: expr, $vwctx: expr, $vctx: expr) => {
+        edit!(
+            $ebuf,
+            $act,
+            EditTarget::LineJump(Specifier::Exact(mark!($c))),
+            ctx!($curid, $vwctx, $vctx)
+        )
+    };
+}
