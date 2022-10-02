@@ -20,11 +20,11 @@ use xi_rope::rope::{BaseMetric, LinesMetric, Utf16CodeUnitsMetric};
 use xi_rope::rope::{Rope, RopeInfo};
 use xi_rope::tree::Cursor as RopeCursor;
 
-use crate::util::{is_horizontal_space, is_newline, is_space_char};
-
 use crate::editing::cursor::{Cursor, CursorAdjustment};
 
 use crate::editing::base::{
+    BoundaryTest,
+    BoundaryTestContext,
     Case,
     Count,
     CursorMovements,
@@ -35,6 +35,7 @@ use crate::editing::base::{
     InsertStyle,
     MoveDir1D,
     MovePosition,
+    MoveTerminus,
     MoveType,
     RangeType,
     TargetShape,
@@ -93,6 +94,7 @@ pub(super) trait PrivateCursorOps {
 
     fn bufpos<'a>(&mut self, pos: MovePosition, ctx: &CursorContext<'a>);
     fn skip_space<'a>(&mut self, ctx: &CursorContext<'a>);
+    fn skip_space_rev<'a>(&mut self, ctx: &CursorContext<'a>);
     fn first_word<'a>(&mut self, ctx: &CursorContext<'a>);
 }
 
@@ -231,6 +233,29 @@ impl PrivateCursorOps for Cursor {
         self.set_column(x, ctx);
     }
 
+    fn skip_space_rev<'a>(&mut self, ctx: &CursorContext<'a>) {
+        let off = ctx.0.cursor_to_offset(self);
+        let mut rc = RopeCursor::new(&ctx.0.rope, off.0);
+        let mut x = self.x;
+
+        while x > 0 {
+            match rc.peek_next_codepoint() {
+                None => break,
+                Some(c) => {
+                    if !c.is_ascii_whitespace() {
+                        break;
+                    }
+
+                    x -= 1;
+                },
+            }
+
+            rc.prev::<BaseMetric>();
+        }
+
+        self.set_column(x, ctx);
+    }
+
     fn first_word<'a>(&mut self, ctx: &CursorContext<'a>) {
         self.set_column(0, ctx);
         self.skip_space(ctx);
@@ -315,208 +340,6 @@ fn next_utf8(text: &[u8], i: usize) -> usize {
         4
     };
     i + inc
-}
-
-fn is_word_char(c: char) -> bool {
-    return c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '_';
-}
-
-fn is_keyword(c: char) -> bool {
-    return c >= '!' && c <= '/' || c >= '[' && c <= '^' || c >= '{' && c <= '~' || c == '`';
-}
-
-fn is_big_word_begin(rc: &RopeCursor<'_, RopeInfo>, dir: &MoveDir1D, last: bool) -> bool {
-    let off = rc.pos();
-    let tlen = rc.total_len();
-    let maxi = tlen.saturating_sub(1);
-
-    if off == 0 {
-        /*
-         * The first character always counts as a word beginning.
-         */
-        return true;
-    }
-
-    if off >= maxi {
-        /*
-         * If we're moving towards the end of the document, the last
-         * character counts as a word beginning.
-         */
-        return dir == &MoveDir1D::Next;
-    }
-
-    let s = rc.root().slice(off - 1..off + 1).to_string();
-
-    let mut chars = s.chars();
-    let oa = chars.next();
-    let ob = chars.next();
-
-    match (oa, ob) {
-        (Some(_), None) => true,
-        (Some(a), Some(b)) => {
-            let aws = is_space_char(a);
-            let bws = is_space_char(b);
-            let bnl = is_newline(b);
-
-            return (last && bnl) || (aws && !bws);
-        },
-        _ => false,
-    }
-}
-
-fn is_big_word_end(rc: &RopeCursor<'_, RopeInfo>, dir: &MoveDir1D, _: bool) -> bool {
-    let off = rc.pos();
-    let tlen = rc.total_len();
-    let maxi = tlen.saturating_sub(1);
-
-    if dir == &MoveDir1D::Previous && off == 0 {
-        return true;
-    }
-
-    if off >= maxi {
-        return true;
-    }
-
-    let s = rc.root().slice(off..off + 2).to_string();
-
-    let mut chars = s.chars();
-    let oa = chars.next();
-    let ob = chars.next();
-
-    match (oa, ob) {
-        (Some(a), Some(b)) => {
-            let aws = is_space_char(a);
-            let bws = is_space_char(b);
-
-            return !aws && bws;
-        },
-        _ => false,
-    }
-}
-
-fn is_big_word_after(rc: &RopeCursor<'_, RopeInfo>, _: &MoveDir1D, _: bool) -> bool {
-    let off = rc.pos();
-    let tlen = rc.total_len();
-    let maxi = tlen.saturating_sub(1);
-
-    if off == 0 || off >= maxi {
-        return true;
-    }
-
-    let s = rc.root().slice(off - 1..=off).to_string();
-
-    let mut chars = s.chars();
-    let oa = chars.next();
-    let ob = chars.next();
-
-    match (oa, ob) {
-        (Some(a), Some(b)) => {
-            let aws = is_space_char(a);
-            let bws = is_space_char(b);
-
-            return !aws && bws;
-        },
-        _ => false,
-    }
-}
-
-fn is_word_begin(rc: &RopeCursor<'_, RopeInfo>, dir: &MoveDir1D, last: bool) -> bool {
-    let off = rc.pos();
-    let tlen = rc.total_len();
-    let maxi = tlen.saturating_sub(1);
-
-    if off == 0 {
-        /*
-         * The first character always counts as a word beginning.
-         */
-        return true;
-    }
-
-    if off >= maxi {
-        /*
-         * If we're moving towards the end of the document, the index after
-         * the last character counts as a word beginning.
-         */
-        return dir == &MoveDir1D::Next;
-    }
-
-    let s = rc.root().slice(off - 1..off + 1).to_string();
-
-    let mut chars = s.chars();
-    let oa = chars.next();
-    let ob = chars.next();
-
-    match (oa, ob) {
-        (Some(_), None) => true,
-        (Some(a), Some(b)) => {
-            let awc = is_word_char(a);
-            let akw = is_keyword(a);
-            let bwc = is_word_char(b);
-            let bkw = is_keyword(b);
-            let bnl = is_newline(b);
-
-            return (last && bnl) || (awc && bkw) || (akw && bwc) || (!awc && bwc) || (!akw && bkw);
-        },
-        _ => false,
-    }
-}
-
-fn is_word_end(rc: &RopeCursor<'_, RopeInfo>, dir: &MoveDir1D, _: bool) -> bool {
-    let off = rc.pos();
-    let tlen = rc.total_len();
-    let maxi = tlen.saturating_sub(1);
-
-    if dir == &MoveDir1D::Previous && off == 0 {
-        return true;
-    }
-
-    if off >= maxi {
-        return true;
-    }
-
-    let s = rc.root().slice(off..off + 2).to_string();
-
-    let mut chars = s.chars();
-    let oa = chars.next();
-    let ob = chars.next();
-
-    match (oa, ob) {
-        (Some(a), Some(b)) => {
-            let awc = is_word_char(a);
-            let akw = is_keyword(a);
-            let bwc = is_word_char(b);
-            let bkw = is_keyword(b);
-
-            return (awc && bkw) || (akw && bwc) || (awc && !bwc) || (akw && !bkw);
-        },
-        _ => false,
-    }
-}
-
-fn is_word_after(rc: &RopeCursor<'_, RopeInfo>, _: &MoveDir1D, _: bool) -> bool {
-    let off = rc.pos();
-    let tlen = rc.total_len();
-    let maxi = tlen.saturating_sub(1);
-
-    if off == 0 || off >= maxi {
-        return true;
-    }
-
-    let s = rc.root().slice(off - 1..=off).to_string();
-
-    let mut chars = s.chars();
-    let oa = chars.next();
-    let ob = chars.next();
-
-    match (oa, ob) {
-        (Some(a), Some(b)) => {
-            let awc = is_word_char(a);
-            let bwc = is_word_char(b);
-
-            return awc && !bwc;
-        },
-        _ => false,
-    }
 }
 
 /// Iterator over a rope's characters.
@@ -618,7 +441,115 @@ impl<'a> Iterator for NewlineIterator<'a> {
     }
 }
 
-type MatchFn = fn(&RopeCursor<'_, RopeInfo>, &MoveDir1D, bool) -> bool;
+struct BoundaryTestIterator<'a> {
+    chars: CharacterIterator<'a>,
+    ctx: BoundaryTestContext,
+
+    coff: ByteOff,
+    aoff: ByteOff,
+    boff: ByteOff,
+}
+
+impl<'a> BoundaryTestIterator<'a> {
+    fn new(chars: CharacterIterator<'a>, ctx: BoundaryTestContext) -> Self {
+        Self {
+            chars,
+            ctx,
+
+            aoff: ByteOff(0),
+            boff: ByteOff(0),
+            coff: ByteOff(0),
+        }
+    }
+
+    fn pos(&self) -> ByteOff {
+        return self.coff;
+    }
+
+    fn init(mut self, skip_first: bool) -> Option<Self> {
+        match self.ctx.dir {
+            MoveDir1D::Next => {
+                if skip_first {
+                    self.ctx.before = self.chars.next();
+                    self.boff = self.chars.pos();
+                }
+
+                if let Some(current) = self.chars.next() {
+                    self.ctx.current = current;
+                    self.coff = self.chars.pos();
+
+                    self.ctx.after = self.chars.next();
+                    self.aoff = self.chars.pos();
+
+                    return Some(self);
+                } else {
+                    return None;
+                }
+            },
+            MoveDir1D::Previous => {
+                if skip_first {
+                    self.ctx.after = self.chars.next_back();
+                    self.aoff = self.chars.pos_back();
+                }
+
+                if let Some(current) = self.chars.next_back() {
+                    self.ctx.current = current;
+                    self.coff = self.chars.pos_back();
+
+                    self.ctx.before = self.chars.next_back();
+                    self.boff = self.chars.pos_back();
+
+                    return Some(self);
+                } else {
+                    return None;
+                }
+            },
+        }
+    }
+
+    fn next_char(&mut self) -> bool {
+        match self.ctx.dir {
+            MoveDir1D::Next => {
+                if let Some(after) = self.ctx.after {
+                    // Move ctx.current into ctx.before.
+                    self.ctx.before = Some(self.ctx.current);
+                    self.boff = self.coff;
+
+                    // Move ctx.after into ctx.current.
+                    self.ctx.current = after;
+                    self.coff = self.aoff;
+
+                    // Read new value into ctx.after.
+                    self.ctx.after = self.chars.next();
+                    self.aoff = self.chars.pos();
+
+                    return false;
+                } else {
+                    return true;
+                }
+            },
+            MoveDir1D::Previous => {
+                if let Some(before) = self.ctx.before {
+                    // Move ctx.current into ctx.after.
+                    self.ctx.after = Some(self.ctx.current);
+                    self.aoff = self.coff;
+
+                    // Move ctx.before into ctx.current.
+                    self.ctx.current = before;
+                    self.coff = self.boff;
+
+                    // Read new value into ctx.before.
+                    self.ctx.before = self.chars.next_back();
+                    self.boff = self.chars.pos_back();
+
+                    return false;
+                } else {
+                    return true;
+                }
+            },
+        }
+    }
+}
 
 fn cursor_from_rc(rc: &RopeCursor<'_, RopeInfo>) -> Cursor {
     let rope = rc.root();
@@ -1586,44 +1517,80 @@ impl EditRope {
         }
     }
 
-    fn find_word(
+    fn boundary(
         &self,
         nc: &Cursor,
         dir: MoveDir1D,
-        matches: MatchFn,
-        mut count: usize,
-        lastcount: bool,
+        count: usize,
+        motion: bool,
+    ) -> Option<BoundaryTestIterator> {
+        let off = self.cursor_to_offset(&nc);
+        let off_u16 = self.offset_to_u16(off);
+
+        let boff = self.u16_to_offset(U16Off(off_u16.0.saturating_sub(1)));
+        let aoff = self.u16_to_offset(U16Off(off_u16.0.saturating_add(1)));
+
+        let (chars, skip_first) = match dir {
+            MoveDir1D::Next => {
+                if off_u16.0 > 0 {
+                    (self.chars(boff), true)
+                } else {
+                    (self.chars(off), false)
+                }
+            },
+            MoveDir1D::Previous => {
+                let last = self.last_offset();
+
+                if aoff > last {
+                    (self.chars_until(ByteOff(0), last), false)
+                } else {
+                    (self.chars_until(ByteOff(0), aoff), true)
+                }
+            },
+        };
+
+        let ctx = BoundaryTestContext {
+            current: ' ',
+            before: None,
+            after: None,
+
+            dir,
+            motion,
+            count,
+        };
+
+        BoundaryTestIterator::new(chars, ctx).init(skip_first)
+    }
+
+    fn find_boundary<O: BoundaryTest>(
+        &self,
+        nc: &Cursor,
+        obj: &O,
+        terminus: MoveTerminus,
+        dir: MoveDir1D,
+        count: usize,
+        motion: bool,
         lastcol: bool,
     ) -> Option<Cursor> {
-        let off = self.cursor_to_offset(&nc);
-        let mut rc = self.offset_to_rc(off);
+        let mut bti = self.boundary(nc, dir, count, motion)?;
+        let first = obj.is_boundary(terminus, &bti.ctx);
 
-        while count > 0 {
-            /*
-             * Some movements, like WordBegin and BigWordBegin, end in a different location when
-             * performing an operation. We pass a flag to the matches function when we've reached
-             * the final count, and are not doing a Motion.
-             */
-            let lastcount = count == 1 && lastcount;
-
-            match move_cursor(&mut rc, &dir) {
-                None => {
-                    break;
-                },
-                Some(_) => {
-                    if matches(&rc, &dir, lastcount) {
-                        count -= 1;
-                    }
-                },
+        if bti.next_char() {
+            if first {
+                // If we can't move, and we're at the boundary, count it.
+                return Some(nc.clone());
+            } else {
+                return None;
             }
         }
+
+        let off = self.seek_next(obj, terminus, bti)?;
+        let mut cursor = self.offset_to_cursor(off);
 
         /*
          * Word movements always move, even if they can't do a full count.
          */
-        let mut cursor = cursor_from_rc(&rc);
-
-        if !lastcount && !lastcol {
+        if motion && !lastcol {
             let x = self.max_column_idx(cursor.y, lastcol).min(cursor.x);
 
             cursor.set_x(x);
@@ -1803,6 +1770,63 @@ impl EditRope {
         return None;
     }
 
+    fn find_item_range(&self, nc: &Cursor) -> Option<EditRange<Cursor>> {
+        let off = self.cursor_to_offset(nc);
+        let mut rc = self.offset_to_rc(off);
+
+        while let Some(c) = rc.peek_next_codepoint() {
+            let (start, end) = match c {
+                '(' => {
+                    let start = cursor_from_rc(&rc);
+                    let end = self.find_match(rc, ')', '(', MoveDir1D::Next)?;
+
+                    (start, end)
+                },
+                ')' => {
+                    let end = cursor_from_rc(&rc);
+                    let start = self.find_match(rc, '(', ')', MoveDir1D::Previous)?;
+
+                    (start, end)
+                },
+                '[' => {
+                    let start = cursor_from_rc(&rc);
+                    let end = self.find_match(rc, ']', '[', MoveDir1D::Next)?;
+
+                    (start, end)
+                },
+                ']' => {
+                    let end = cursor_from_rc(&rc);
+                    let start = self.find_match(rc, '[', ']', MoveDir1D::Previous)?;
+
+                    (start, end)
+                },
+                '{' => {
+                    let start = cursor_from_rc(&rc);
+                    let end = self.find_match(rc, '}', '{', MoveDir1D::Next)?;
+
+                    (start, end)
+                },
+                '}' => {
+                    let end = cursor_from_rc(&rc);
+                    let start = self.find_match(rc, '{', '}', MoveDir1D::Previous)?;
+
+                    (start, end)
+                },
+                '"' | '\'' => {
+                    return None;
+                },
+                _ => {
+                    rc.next::<BaseMetric>();
+                    continue;
+                },
+            };
+
+            return EditRange::inclusive(start, end, TargetShape::CharWise).into();
+        }
+
+        return None;
+    }
+
     fn find_quoted(
         &self,
         cursor: &Cursor,
@@ -1836,43 +1860,52 @@ impl EditRope {
         Some(range)
     }
 
-    fn seek_while(&self, nc: &Cursor, dir: MoveDir1D, f: impl Fn(char) -> bool) -> Option<Cursor> {
-        let mut off = self.cursor_to_offset(nc);
-        let mut rc = self.offset_to_rc(off);
+    fn seek_next<'a, O: BoundaryTest>(
+        &'a self,
+        obj: &O,
+        terminus: MoveTerminus,
+        mut bti: BoundaryTestIterator<'a>,
+    ) -> Option<ByteOff> {
+        let mut res = None;
 
-        if !f(rc.peek_next_codepoint()?) {
-            return None;
-        }
+        while bti.ctx.count > 0 {
+            if obj.is_boundary(terminus, &bti.ctx) {
+                res = bti.pos().into();
+                bti.ctx.count -= 1;
+            }
 
-        loop {
-            match move_cursor(&mut rc, &dir) {
-                None => break,
-                Some(c) => {
-                    if f(c) {
-                        off = rc.pos().into();
-                    } else {
-                        break;
-                    }
-                },
+            if bti.next_char() {
+                break;
             }
         }
 
-        return Some(self.offset_to_cursor(off));
+        return res;
     }
 
-    fn seek(&self, nc: &Cursor, dir: MoveDir1D, matches: MatchFn) -> Option<Cursor> {
-        let off = self.cursor_to_offset(nc);
-        let mut rc = self.offset_to_rc(off);
+    fn seek<O: BoundaryTest>(
+        &self,
+        nc: &Cursor,
+        obj: &O,
+        terminus: MoveTerminus,
+        dir: MoveDir1D,
+        count: usize,
+        motion: bool,
+        lastcol: bool,
+    ) -> Option<Cursor> {
+        let bti = self.boundary(nc, dir, count, motion)?;
+        let off = self.seek_next(obj, terminus, bti)?;
+        let mut cursor = self.offset_to_cursor(off);
 
-        loop {
-            if matches(&rc, &dir, false) {
-                return Some(cursor_from_rc(&rc));
-            }
+        /*
+         * Word movements always move, even if they can't do a full count.
+         */
+        if motion && !lastcol {
+            let x = self.max_column_idx(cursor.y, lastcol).min(cursor.x);
 
-            if let None = move_cursor(&mut rc, &dir) {
-                return None;
-            }
+            cursor.set_x(x);
         }
+
+        Some(cursor)
     }
 
     /// Returns an iterator over the newlines within this rope following `offset`.
@@ -1899,21 +1932,10 @@ impl EditRope {
     ///
     /// If the cursor is not positioned over a word, this will search for the next word in the
     /// text.
-    pub fn get_cursor_word_mut(&self, cursor: &mut Cursor, style: WordStyle) -> Option<Self> {
-        let (start, end) = match style {
-            WordStyle::Big => {
-                let end = self.seek(cursor, MoveDir1D::Next, is_big_word_end)?;
-                let start = self.seek(&end, MoveDir1D::Previous, is_big_word_begin)?;
-
-                (start, end)
-            },
-            WordStyle::Little => {
-                let end = self.seek(cursor, MoveDir1D::Next, is_word_end)?;
-                let start = self.seek(&end, MoveDir1D::Previous, is_word_begin)?;
-
-                (start, end)
-            },
-        };
+    pub fn get_cursor_word_mut(&self, cursor: &mut Cursor, style: &WordStyle) -> Option<Self> {
+        let end = self.seek(cursor, style, MoveTerminus::End, MoveDir1D::Next, 1, false, false)?;
+        let start =
+            self.seek(&end, style, MoveTerminus::Beginning, MoveDir1D::Previous, 1, false, false)?;
 
         let so = self.cursor_to_offset(&start);
         let eo = self.cursor_to_offset(&end);
@@ -1927,7 +1949,7 @@ impl EditRope {
     ///
     /// If the cursor is not positioned over a word, this will search for the next word in the
     /// text.
-    pub fn get_cursor_word(&self, cursor: &Cursor, style: WordStyle) -> Option<Self> {
+    pub fn get_cursor_word(&self, cursor: &Cursor, style: &WordStyle) -> Option<Self> {
         let mut cursor = cursor.clone();
 
         self.get_cursor_word_mut(&mut cursor, style)
@@ -2068,67 +2090,34 @@ impl<C: EditContext> CursorMovements<Cursor, C> for EditRope {
             },
 
             // wordwise movement
+            (MoveType::FinalNonBlank(dir), count) => {
+                nc.line(*dir, count, cctx);
+                nc.set_column(usize::MAX, cctx);
+                nc.skip_space_rev(cctx);
+            },
             (MoveType::FirstWord(dir), count) => {
                 nc.line(*dir, count, cctx);
                 nc.first_word(cctx);
             },
-            (MoveType::WordBegin(WordStyle::Little, dir), count) => {
-                return self.find_word(
+            (MoveType::WordBegin(style, dir), count) => {
+                return self.find_boundary(
                     &nc,
+                    style,
+                    MoveTerminus::Beginning,
                     *dir,
-                    is_word_begin,
                     count,
-                    !ctx.action.is_motion(),
+                    ctx.action.is_motion(),
                     lastcol,
                 );
             },
-            (MoveType::WordEnd(WordStyle::Little, dir), count) => {
-                return self.find_word(
+            (MoveType::WordEnd(style, dir), count) => {
+                return self.find_boundary(
                     &nc,
+                    style,
+                    MoveTerminus::End,
                     *dir,
-                    is_word_end,
                     count,
-                    !ctx.action.is_motion(),
-                    lastcol,
-                );
-            },
-            (MoveType::WordAfter(WordStyle::Little, dir), count) => {
-                return self.find_word(
-                    &nc,
-                    *dir,
-                    is_word_after,
-                    count,
-                    !ctx.action.is_motion(),
-                    lastcol,
-                );
-            },
-            (MoveType::WordBegin(WordStyle::Big, dir), count) => {
-                return self.find_word(
-                    &nc,
-                    *dir,
-                    is_big_word_begin,
-                    count,
-                    !ctx.action.is_motion(),
-                    lastcol,
-                );
-            },
-            (MoveType::WordEnd(WordStyle::Big, dir), count) => {
-                return self.find_word(
-                    &nc,
-                    *dir,
-                    is_big_word_end,
-                    count,
-                    !ctx.action.is_motion(),
-                    lastcol,
-                );
-            },
-            (MoveType::WordAfter(WordStyle::Big, dir), count) => {
-                return self.find_word(
-                    &nc,
-                    *dir,
-                    is_big_word_after,
-                    count,
-                    !ctx.action.is_motion(),
+                    ctx.action.is_motion(),
                     lastcol,
                 );
             },
@@ -2243,28 +2232,47 @@ impl<C: EditContext> CursorMovements<Cursor, C> for EditRope {
         &self,
         cursor: &Cursor,
         range: &RangeType,
+        inclusive: bool,
         count: &Count,
         ctx: &CursorMovementsContext<'a, 'b, 'c, Cursor, C>,
     ) -> Option<EditRange<Cursor>> {
         match (range, count) {
+            (RangeType::Item, _) => self.find_item_range(cursor),
+            (RangeType::Word(obj), count) => {
+                let motion = ctx.action.is_motion();
+                let lastcol = ctx.context.get_insert_style().is_some();
+                let count = ctx.context.resolve(count);
+
+                let end = self.seek(
+                    cursor,
+                    obj,
+                    MoveTerminus::End,
+                    MoveDir1D::Next,
+                    count,
+                    motion,
+                    lastcol,
+                )?;
+                let start = self.seek(
+                    &end,
+                    obj,
+                    MoveTerminus::Beginning,
+                    MoveDir1D::Previous,
+                    count,
+                    motion,
+                    lastcol,
+                )?;
+
+                if &start <= cursor && cursor <= &end {
+                    EditRange::inclusive(start, end, TargetShape::CharWise).into()
+                } else {
+                    None
+                }
+            },
             (RangeType::Buffer, _) => {
                 let start = self.first();
                 let end = self.last();
-                let range = EditRange::inclusive(start, end, TargetShape::LineWise);
 
-                Some(range)
-            },
-            (RangeType::Whitespace(multiline), _) => {
-                let f = if *multiline {
-                    is_space_char
-                } else {
-                    is_horizontal_space
-                };
-
-                let start = self.seek_while(cursor, MoveDir1D::Previous, f)?;
-                let end = self.seek_while(cursor, MoveDir1D::Next, f)?;
-
-                EditRange::inclusive(start, end, TargetShape::CharWise).into()
+                EditRange::inclusive(start, end, TargetShape::LineWise).into()
             },
             (RangeType::Line, count) => {
                 let style = ctx.context.get_insert_style();
@@ -2278,26 +2286,23 @@ impl<C: EditContext> CursorMovements<Cursor, C> for EditRope {
                 end.line(MoveDir1D::Next, count, cctx);
                 end.first_word(cctx);
 
-                EditRange::new(start, end, TargetShape::LineWise, false).into()
-            },
-            (RangeType::Word(_), _) => {
-                return None;
+                EditRange::exclusive(start, end, TargetShape::LineWise).into()
             },
             (RangeType::Paragraph, _) => {
-                return None;
+                // XXX: implement
+                None
             },
             (RangeType::Sentence, _) => {
-                return None;
+                // XXX: implement
+                None
             },
-            (RangeType::Bracketed(left, right, inclusive), count) => {
+            (RangeType::Bracketed(left, right), count) => {
                 let count = ctx.context.resolve(count);
 
-                self.find_bracketed(&cursor, *left, *right, *inclusive, count)
+                self.find_bracketed(&cursor, *left, *right, inclusive, count)
             },
-            (RangeType::Quote(quote, inclusive), _) => {
-                self.find_quoted(&cursor, *quote, *inclusive)
-            },
-            (RangeType::XmlTag(_), _) => {
+            (RangeType::Quote(quote), _) => self.find_quoted(&cursor, *quote, inclusive),
+            (RangeType::XmlTag, _) => {
                 // XXX: implement
                 None
             },
@@ -2406,7 +2411,7 @@ impl CursorSearch<Cursor> for EditRope {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::editing::base::{EditAction, Wrappable};
+    use crate::editing::base::{EditAction, Radix, Wrappable};
     use crate::env::vim::VimContext;
 
     macro_rules! cmctx {
@@ -3013,22 +3018,22 @@ mod tests {
 
         // Little word stops at hyphen.
         let cursor = Cursor::new(0, 0);
-        let res = rope.get_cursor_word(&cursor, WordStyle::Little).unwrap();
+        let res = rope.get_cursor_word(&cursor, &WordStyle::Little).unwrap();
         assert_eq!(res.to_string(), "hello");
 
         // Little word doesn't go backwards past hyphen.
         let cursor = Cursor::new(0, 6);
-        let res = rope.get_cursor_word(&cursor, WordStyle::Little).unwrap();
+        let res = rope.get_cursor_word(&cursor, &WordStyle::Little).unwrap();
         assert_eq!(res.to_string(), "world");
 
         // Start on space, and find next word.
         let cursor = Cursor::new(0, 11);
-        let res = rope.get_cursor_word(&cursor, WordStyle::Little).unwrap();
+        let res = rope.get_cursor_word(&cursor, &WordStyle::Little).unwrap();
         assert_eq!(res.to_string(), "a");
 
         // Start on single-character word.
         let cursor = Cursor::new(0, 14);
-        let res = rope.get_cursor_word(&cursor, WordStyle::Little).unwrap();
+        let res = rope.get_cursor_word(&cursor, &WordStyle::Little).unwrap();
         assert_eq!(res.to_string(), "b");
     }
 
@@ -3038,22 +3043,22 @@ mod tests {
 
         // Little word includes hyphen.
         let cursor = Cursor::new(0, 0);
-        let res = rope.get_cursor_word(&cursor, WordStyle::Big).unwrap();
+        let res = rope.get_cursor_word(&cursor, &WordStyle::Big).unwrap();
         assert_eq!(res.to_string(), "hello-world");
 
         // Big word goes backwards over hyphen.
         let cursor = Cursor::new(0, 6);
-        let res = rope.get_cursor_word(&cursor, WordStyle::Big).unwrap();
+        let res = rope.get_cursor_word(&cursor, &WordStyle::Big).unwrap();
         assert_eq!(res.to_string(), "hello-world");
 
         // Start on space, and find next word.
         let cursor = Cursor::new(0, 11);
-        let res = rope.get_cursor_word(&cursor, WordStyle::Big).unwrap();
+        let res = rope.get_cursor_word(&cursor, &WordStyle::Big).unwrap();
         assert_eq!(res.to_string(), "a");
 
         // Start on single-character word.
         let cursor = Cursor::new(0, 14);
-        let res = rope.get_cursor_word(&cursor, WordStyle::Big).unwrap();
+        let res = rope.get_cursor_word(&cursor, &WordStyle::Big).unwrap();
         assert_eq!(res.to_string(), "b");
     }
 
@@ -3062,7 +3067,7 @@ mod tests {
         let text = EditRope::from("hello world\n");
         let mut cursor = Cursor::new(0, 8);
 
-        let res = text.get_cursor_word_mut(&mut cursor, WordStyle::Little).unwrap();
+        let res = text.get_cursor_word_mut(&mut cursor, &WordStyle::Little).unwrap();
         assert_eq!(cursor, Cursor::new(0, 6));
         assert_eq!(res.to_string(), "world");
     }
@@ -3609,8 +3614,8 @@ mod tests {
     }
 
     #[test]
-    fn test_motion_word_after() {
-        let rope = EditRope::from("hello   world  \nhow,are you,doing\n today\n");
+    fn test_motion_word_begin_nonalphanum() {
+        let rope = EditRope::from("hello   world  \nhow,are ,, you,doing\n today\n");
         let vwctx = ViewportContext::<Cursor>::default();
         let mut vctx: VimContext = VimContext::default();
         let mut cursor = rope.first();
@@ -3619,7 +3624,7 @@ mod tests {
         vctx.persist.insert = Some(InsertStyle::Insert);
 
         // Emacs' <M-f> movement.
-        let mov = MoveType::WordAfter(WordStyle::Little, MoveDir1D::Next);
+        let mov = MoveType::WordBegin(WordStyle::NonAlphaNum, MoveDir1D::Next);
 
         cursor = rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(cursor, Cursor::new(0, 5));
@@ -3634,22 +3639,26 @@ mod tests {
         assert_eq!(cursor, Cursor::new(1, 7));
 
         cursor = rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)).unwrap();
-        assert_eq!(cursor, Cursor::new(1, 11));
+        assert_eq!(cursor, Cursor::new(1, 14));
 
         cursor = rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)).unwrap();
-        assert_eq!(cursor, Cursor::new(1, 17));
+        assert_eq!(cursor, Cursor::new(1, 20));
 
         cursor = rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(cursor, Cursor::new(2, 6));
 
+        // Cannot move any further.
+        cursor = rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)).unwrap();
+        assert_eq!(cursor, Cursor::new(2, 6));
+
         // Now move backwards!
-        let mov = MoveType::WordAfter(WordStyle::Little, MoveDir1D::Previous);
+        let mov = MoveType::WordBegin(WordStyle::NonAlphaNum, MoveDir1D::Previous);
 
         cursor = rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)).unwrap();
-        assert_eq!(cursor, Cursor::new(1, 17));
+        assert_eq!(cursor, Cursor::new(1, 20));
 
         cursor = rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)).unwrap();
-        assert_eq!(cursor, Cursor::new(1, 11));
+        assert_eq!(cursor, Cursor::new(1, 14));
 
         cursor = rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(cursor, Cursor::new(1, 7));
@@ -3666,38 +3675,181 @@ mod tests {
         cursor = rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(cursor, Cursor::new(0, 0));
 
-        // Forwards again, but with WordStyle::Big this time.
-        let mov = MoveType::WordAfter(WordStyle::Big, MoveDir1D::Next);
+        // Cannot move any further.
+        cursor = rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)).unwrap();
+        assert_eq!(cursor, Cursor::new(0, 0));
+
+        // Move forward to word end.
+        let mov = MoveType::WordEnd(WordStyle::NonAlphaNum, MoveDir1D::Next);
 
         cursor = rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)).unwrap();
-        assert_eq!(cursor, Cursor::new(0, 5));
+        assert_eq!(cursor, Cursor::new(0, 7));
 
         cursor = rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)).unwrap();
-        assert_eq!(cursor, Cursor::new(0, 13));
+        assert_eq!(cursor, Cursor::new(0, 15));
 
         cursor = rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)).unwrap();
-        assert_eq!(cursor, Cursor::new(1, 7));
+        assert_eq!(cursor, Cursor::new(1, 3));
 
         cursor = rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)).unwrap();
-        assert_eq!(cursor, Cursor::new(1, 17));
+        assert_eq!(cursor, Cursor::new(1, 10));
+
+        cursor = rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)).unwrap();
+        assert_eq!(cursor, Cursor::new(1, 14));
+
+        cursor = rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)).unwrap();
+        assert_eq!(cursor, Cursor::new(2, 0));
 
         cursor = rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(cursor, Cursor::new(2, 6));
 
-        // And backwards with WordStyle::Big.
-        let mov = MoveType::WordAfter(WordStyle::Big, MoveDir1D::Previous);
+        // Cannot move any further.
+        cursor = rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)).unwrap();
+        assert_eq!(cursor, Cursor::new(2, 6));
+    }
+
+    #[test]
+    fn test_motion_word_alphanum() {
+        let rope = EditRope::from("hello   world  \nhow,are ,, you,doing\n today\n");
+        let vwctx = ViewportContext::<Cursor>::default();
+        let mut vctx: VimContext = VimContext::default();
+        let mut cursor = rope.first();
+        let count = Count::Contextual;
+
+        vctx.persist.insert = Some(InsertStyle::Insert);
+
+        // Move forwards with WordStyle::AlphaNum.
+        let mov = MoveType::WordBegin(WordStyle::AlphaNum, MoveDir1D::Next);
 
         cursor = rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)).unwrap();
-        assert_eq!(cursor, Cursor::new(1, 17));
+        assert_eq!(cursor, Cursor::new(0, 8));
 
         cursor = rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)).unwrap();
-        assert_eq!(cursor, Cursor::new(1, 7));
+        assert_eq!(cursor, Cursor::new(1, 0));
 
         cursor = rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)).unwrap();
-        assert_eq!(cursor, Cursor::new(0, 13));
+        assert_eq!(cursor, Cursor::new(1, 4));
 
         cursor = rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)).unwrap();
-        assert_eq!(cursor, Cursor::new(0, 5));
+        assert_eq!(cursor, Cursor::new(1, 11));
+
+        cursor = rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)).unwrap();
+        assert_eq!(cursor, Cursor::new(1, 15));
+
+        cursor = rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)).unwrap();
+        assert_eq!(cursor, Cursor::new(2, 1));
+
+        cursor = rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)).unwrap();
+        assert_eq!(cursor, Cursor::new(2, 6));
+
+        // Cannot move any further.
+        cursor = rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)).unwrap();
+        assert_eq!(cursor, Cursor::new(2, 6));
+
+        // Emacs' <M-b> movement.
+        let mov = MoveType::WordBegin(WordStyle::AlphaNum, MoveDir1D::Previous);
+
+        cursor = rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)).unwrap();
+        assert_eq!(cursor, Cursor::new(2, 1));
+
+        cursor = rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)).unwrap();
+        assert_eq!(cursor, Cursor::new(1, 15));
+
+        cursor = rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)).unwrap();
+        assert_eq!(cursor, Cursor::new(1, 11));
+
+        cursor = rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)).unwrap();
+        assert_eq!(cursor, Cursor::new(1, 4));
+
+        cursor = rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)).unwrap();
+        assert_eq!(cursor, Cursor::new(1, 0));
+
+        cursor = rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)).unwrap();
+        assert_eq!(cursor, Cursor::new(0, 8));
+
+        cursor = rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)).unwrap();
+        assert_eq!(cursor, Cursor::new(0, 0));
+
+        // Cannot move any further.
+        cursor = rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)).unwrap();
+        assert_eq!(cursor, Cursor::new(0, 0));
+
+        // Move forward to the word end.
+        let mov = MoveType::WordEnd(WordStyle::AlphaNum, MoveDir1D::Next);
+
+        cursor = rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)).unwrap();
+        assert_eq!(cursor, Cursor::new(0, 4));
+
+        cursor = rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)).unwrap();
+        assert_eq!(cursor, Cursor::new(0, 12));
+
+        cursor = rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)).unwrap();
+        assert_eq!(cursor, Cursor::new(1, 2));
+
+        cursor = rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)).unwrap();
+        assert_eq!(cursor, Cursor::new(1, 6));
+
+        cursor = rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)).unwrap();
+        assert_eq!(cursor, Cursor::new(1, 13));
+
+        cursor = rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)).unwrap();
+        assert_eq!(cursor, Cursor::new(1, 19));
+
+        cursor = rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)).unwrap();
+        assert_eq!(cursor, Cursor::new(2, 5));
+
+        cursor = rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)).unwrap();
+        assert_eq!(cursor, Cursor::new(2, 6));
+
+        // Cannot move any further.
+        cursor = rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)).unwrap();
+        assert_eq!(cursor, Cursor::new(2, 6));
+    }
+
+    #[test]
+    fn test_final_non_blank() {
+        let rope = EditRope::from("hello world       \na b c d e  \n12345\n");
+        let vwctx = ViewportContext::<Cursor>::default();
+        let vctx: VimContext = VimContext::default();
+        let mut cursor = rope.first();
+
+        assert_eq!(cursor, Cursor::new(0, 0));
+
+        // Move to final non-blank on current line ("g_").
+        let mov = MoveType::FinalNonBlank(MoveDir1D::Next);
+        let count = Count::Exact(0);
+        cursor = rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)).unwrap();
+        assert_eq!(cursor, Cursor::new(0, 10));
+
+        // Move to final non-blank on next line ("2g_"), which has trailing spaces.
+        let mov = MoveType::FinalNonBlank(MoveDir1D::Next);
+        let count = Count::Exact(1);
+        cursor = rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)).unwrap();
+        assert_eq!(cursor, Cursor::new(1, 8));
+
+        // Move to final non-blank on next line ("2g_"), which doesn't have trailing spaces.
+        let mov = MoveType::FinalNonBlank(MoveDir1D::Next);
+        let count = Count::Exact(1);
+        cursor = rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)).unwrap();
+        assert_eq!(cursor, Cursor::new(2, 4));
+
+        // Cannot move forwards any further.
+        let mov = MoveType::FinalNonBlank(MoveDir1D::Next);
+        let count = Count::Exact(1);
+        cursor = rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)).unwrap();
+        assert_eq!(cursor, Cursor::new(2, 4));
+
+        // Move back two lines.
+        let mov = MoveType::FinalNonBlank(MoveDir1D::Previous);
+        let count = Count::Exact(2);
+        cursor = rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)).unwrap();
+        assert_eq!(cursor, Cursor::new(0, 10));
+
+        // Cannot move back any further.
+        let mov = MoveType::FinalNonBlank(MoveDir1D::Previous);
+        let count = Count::Exact(1);
+        cursor = rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)).unwrap();
+        assert_eq!(cursor, Cursor::new(0, 10));
     }
 
     #[test]
@@ -4270,20 +4422,148 @@ mod tests {
 
         // Test multiple starting points, to show it doesn't matter.
         let cursor = Cursor::new(0, 0);
-        let er = rope.range(&cursor, &rt, &count, cmctx!(vwctx, vctx)).unwrap();
+        let er = rope.range(&cursor, &rt, true, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(er, EditRange::inclusive(Cursor::new(0, 0), Cursor::new(1, 8), cw));
 
         let cursor = Cursor::new(0, 3);
-        let er = rope.range(&cursor, &rt, &count, cmctx!(vwctx, vctx)).unwrap();
+        let er = rope.range(&cursor, &rt, true, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(er, EditRange::inclusive(Cursor::new(0, 0), Cursor::new(1, 8), cw));
 
         let cursor = Cursor::new(1, 0);
-        let er = rope.range(&cursor, &rt, &count, cmctx!(vwctx, vctx)).unwrap();
+        let er = rope.range(&cursor, &rt, true, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(er, EditRange::inclusive(Cursor::new(0, 0), Cursor::new(1, 8), cw));
 
         let cursor = Cursor::new(1, 5);
-        let er = rope.range(&cursor, &rt, &count, cmctx!(vwctx, vctx)).unwrap();
+        let er = rope.range(&cursor, &rt, true, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(er, EditRange::inclusive(Cursor::new(0, 0), Cursor::new(1, 8), cw));
+    }
+
+    #[test]
+    fn test_range_number_base2() {
+        let rope = EditRope::from("abc103g-458\n");
+        let vwctx = ViewportContext::<Cursor>::default();
+        let vctx: VimContext = VimContext::default();
+        let cw = TargetShape::CharWise;
+        let count = Count::Contextual;
+
+        let rt = RangeType::Word(WordStyle::Number(Radix::Binary));
+        let inc = false;
+
+        for x in 0..=2 {
+            let cursor = Cursor::new(0, x);
+            let er = rope.range(&cursor, &rt, inc, &count, cmctx!(vwctx, vctx));
+            assert_eq!(er, None);
+        }
+
+        for x in 3..=4 {
+            let cursor = Cursor::new(0, x);
+            let er = rope.range(&cursor, &rt, inc, &count, cmctx!(vwctx, vctx)).unwrap();
+            assert_eq!(er, EditRange::inclusive(Cursor::new(0, 3), Cursor::new(0, 4), cw));
+        }
+
+        for x in 5..=10 {
+            let cursor = Cursor::new(0, x);
+            let er = rope.range(&cursor, &rt, inc, &count, cmctx!(vwctx, vctx));
+            assert_eq!(er, None);
+        }
+    }
+
+    #[test]
+    fn test_range_number_base8() {
+        let rope = EditRope::from("abc103g-458\n");
+        let vwctx = ViewportContext::<Cursor>::default();
+        let vctx: VimContext = VimContext::default();
+        let cw = TargetShape::CharWise;
+        let count = Count::Contextual;
+
+        let rt = RangeType::Word(WordStyle::Number(Radix::Octal));
+        let inc = false;
+
+        for x in 0..=2 {
+            let cursor = Cursor::new(0, x);
+            let er = rope.range(&cursor, &rt, inc, &count, cmctx!(vwctx, vctx));
+            assert_eq!(er, None);
+        }
+
+        for x in 3..=5 {
+            let cursor = Cursor::new(0, x);
+            let er = rope.range(&cursor, &rt, inc, &count, cmctx!(vwctx, vctx)).unwrap();
+            assert_eq!(er, EditRange::inclusive(Cursor::new(0, 3), Cursor::new(0, 5), cw));
+        }
+
+        let cursor = Cursor::new(0, 6);
+        let er = rope.range(&cursor, &rt, inc, &count, cmctx!(vwctx, vctx));
+        assert_eq!(er, None);
+
+        for x in 7..=9 {
+            let cursor = Cursor::new(0, x);
+            let er = rope.range(&cursor, &rt, inc, &count, cmctx!(vwctx, vctx)).unwrap();
+            assert_eq!(er, EditRange::inclusive(Cursor::new(0, 7), Cursor::new(0, 9), cw));
+        }
+
+        let cursor = Cursor::new(0, 10);
+        let er = rope.range(&cursor, &rt, inc, &count, cmctx!(vwctx, vctx));
+        assert_eq!(er, None);
+    }
+
+    #[test]
+    fn test_range_number_base10() {
+        let rope = EditRope::from("abc103g-458\n");
+        let vwctx = ViewportContext::<Cursor>::default();
+        let vctx: VimContext = VimContext::default();
+        let cw = TargetShape::CharWise;
+        let count = Count::Contextual;
+
+        let rt = RangeType::Word(WordStyle::Number(Radix::Decimal));
+        let inc = false;
+
+        let cursor = Cursor::new(0, 1);
+        let er = rope.range(&cursor, &rt, inc, &count, cmctx!(vwctx, vctx));
+        assert_eq!(er, None);
+
+        for x in 3..=5 {
+            let cursor = Cursor::new(0, x);
+            let er = rope.range(&cursor, &rt, inc, &count, cmctx!(vwctx, vctx)).unwrap();
+            assert_eq!(er, EditRange::inclusive(Cursor::new(0, 3), Cursor::new(0, 5), cw));
+        }
+
+        let cursor = Cursor::new(0, 6);
+        let er = rope.range(&cursor, &rt, inc, &count, cmctx!(vwctx, vctx));
+        assert_eq!(er, None);
+
+        for x in 7..=10 {
+            let cursor = Cursor::new(0, x);
+            let er = rope.range(&cursor, &rt, inc, &count, cmctx!(vwctx, vctx)).unwrap();
+            assert_eq!(er, EditRange::inclusive(Cursor::new(0, 7), Cursor::new(0, 10), cw));
+        }
+    }
+
+    #[test]
+    fn test_range_number_base16() {
+        let rope = EditRope::from("abc103g-458\n");
+        let vwctx = ViewportContext::<Cursor>::default();
+        let vctx: VimContext = VimContext::default();
+        let cw = TargetShape::CharWise;
+        let count = Count::Contextual;
+
+        let rt = RangeType::Word(WordStyle::Number(Radix::Hexadecimal));
+        let inc = false;
+
+        for x in 0..=5 {
+            let cursor = Cursor::new(0, x);
+            let er = rope.range(&cursor, &rt, inc, &count, cmctx!(vwctx, vctx)).unwrap();
+            assert_eq!(er, EditRange::inclusive(Cursor::new(0, 0), Cursor::new(0, 5), cw));
+        }
+
+        let cursor = Cursor::new(0, 6);
+        let er = rope.range(&cursor, &rt, inc, &count, cmctx!(vwctx, vctx));
+        assert_eq!(er, None);
+
+        for x in 7..=10 {
+            let cursor = Cursor::new(0, x);
+            let er = rope.range(&cursor, &rt, inc, &count, cmctx!(vwctx, vctx)).unwrap();
+            assert_eq!(er, EditRange::inclusive(Cursor::new(0, 7), Cursor::new(0, 10), cw));
+        }
     }
 
     #[test]
@@ -4293,51 +4573,52 @@ mod tests {
         let vctx: VimContext = VimContext::default();
         let cw = TargetShape::CharWise;
         let count = Count::Contextual;
+        let inc = true;
 
         // Test ranges without crossing newlines.
-        let rt = RangeType::Whitespace(false);
+        let rt = RangeType::Word(WordStyle::Whitespace(false));
 
         let cursor = Cursor::new(0, 1);
-        let er = rope.range(&cursor, &rt, &count, cmctx!(vwctx, vctx)).unwrap();
+        let er = rope.range(&cursor, &rt, inc, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(er, EditRange::inclusive(Cursor::new(0, 1), Cursor::new(0, 7), cw));
 
         let cursor = Cursor::new(0, 7);
-        let er = rope.range(&cursor, &rt, &count, cmctx!(vwctx, vctx)).unwrap();
+        let er = rope.range(&cursor, &rt, inc, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(er, EditRange::inclusive(Cursor::new(0, 1), Cursor::new(0, 7), cw));
 
         let cursor = Cursor::new(1, 3);
-        let er = rope.range(&cursor, &rt, &count, cmctx!(vwctx, vctx)).unwrap();
+        let er = rope.range(&cursor, &rt, inc, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(er, EditRange::inclusive(Cursor::new(1, 1), Cursor::new(1, 3), cw));
 
         let cursor = Cursor::new(2, 0);
-        let er = rope.range(&cursor, &rt, &count, cmctx!(vwctx, vctx));
+        let er = rope.range(&cursor, &rt, inc, &count, cmctx!(vwctx, vctx));
         assert_eq!(er, None);
 
         let cursor = Cursor::new(3, 1);
-        let er = rope.range(&cursor, &rt, &count, cmctx!(vwctx, vctx)).unwrap();
+        let er = rope.range(&cursor, &rt, inc, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(er, EditRange::inclusive(Cursor::new(3, 0), Cursor::new(3, 3), cw));
 
         // Test ranges with crossing newlines.
-        let rt = RangeType::Whitespace(true);
+        let rt = RangeType::Word(WordStyle::Whitespace(true));
 
         let cursor = Cursor::new(0, 1);
-        let er = rope.range(&cursor, &rt, &count, cmctx!(vwctx, vctx)).unwrap();
+        let er = rope.range(&cursor, &rt, inc, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(er, EditRange::inclusive(Cursor::new(0, 1), Cursor::new(0, 7), cw));
 
         let cursor = Cursor::new(0, 7);
-        let er = rope.range(&cursor, &rt, &count, cmctx!(vwctx, vctx)).unwrap();
+        let er = rope.range(&cursor, &rt, inc, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(er, EditRange::inclusive(Cursor::new(0, 1), Cursor::new(0, 7), cw));
 
         let cursor = Cursor::new(1, 3);
-        let er = rope.range(&cursor, &rt, &count, cmctx!(vwctx, vctx)).unwrap();
+        let er = rope.range(&cursor, &rt, inc, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(er, EditRange::inclusive(Cursor::new(1, 1), Cursor::new(3, 3), cw));
 
         let cursor = Cursor::new(2, 0);
-        let er = rope.range(&cursor, &rt, &count, cmctx!(vwctx, vctx)).unwrap();
+        let er = rope.range(&cursor, &rt, inc, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(er, EditRange::inclusive(Cursor::new(1, 1), Cursor::new(3, 3), cw));
 
         let cursor = Cursor::new(3, 1);
-        let er = rope.range(&cursor, &rt, &count, cmctx!(vwctx, vctx)).unwrap();
+        let er = rope.range(&cursor, &rt, inc, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(er, EditRange::inclusive(Cursor::new(1, 1), Cursor::new(3, 3), cw));
     }
 
@@ -4350,25 +4631,26 @@ mod tests {
         let count = Count::Contextual;
         let rt = RangeType::Line;
         let cursor = Cursor::new(1, 6);
+        let inc = true;
 
         // Select a single line.
         vctx.action.count = Some(1);
-        let er = rope.range(&cursor, &rt, &count, cmctx!(vwctx, vctx)).unwrap();
+        let er = rope.range(&cursor, &rt, inc, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(er, EditRange::exclusive(Cursor::new(1, 0), Cursor::new(1, 6), cw));
 
         // End cursor is placed on the first word (important for forced-motion compatibility).
         vctx.action.count = Some(2);
-        let er = rope.range(&cursor, &rt, &count, cmctx!(vwctx, vctx)).unwrap();
+        let er = rope.range(&cursor, &rt, inc, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(er, EditRange::exclusive(Cursor::new(1, 6), Cursor::new(2, 4), cw));
 
         // Select up to the last line.
         vctx.action.count = Some(3);
-        let er = rope.range(&cursor, &rt, &count, cmctx!(vwctx, vctx)).unwrap();
+        let er = rope.range(&cursor, &rt, inc, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(er, EditRange::exclusive(Cursor::new(1, 6), Cursor::new(3, 0), cw));
 
         // Providing a count higher than number of lines stops at the last line.
         vctx.action.count = Some(4);
-        let er = rope.range(&cursor, &rt, &count, cmctx!(vwctx, vctx)).unwrap();
+        let er = rope.range(&cursor, &rt, inc, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(er, EditRange::exclusive(Cursor::new(1, 6), Cursor::new(3, 0), cw));
     }
 
@@ -4379,7 +4661,8 @@ mod tests {
         let mut vctx: VimContext = VimContext::default();
         let cw = TargetShape::CharWise;
         let count = Count::Contextual;
-        let rt = RangeType::Bracketed('(', ')', true);
+        let rt = RangeType::Bracketed('(', ')');
+        let inc = true;
 
         let cursor_al = Cursor::new(0, 9);
         let cursor_ar = Cursor::new(0, 11);
@@ -4388,38 +4671,38 @@ mod tests {
 
         // Select parentheses surrounding "a" w/ count = 1.
         vctx.action.count = Some(1);
-        let er = rope.range(&cursor_al, &rt, &count, cmctx!(vwctx, vctx)).unwrap();
+        let er = rope.range(&cursor_al, &rt, inc, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(er, EditRange::inclusive(Cursor::new(0, 9), Cursor::new(0, 11), cw));
 
         vctx.action.count = Some(1);
-        let er = rope.range(&cursor_ar, &rt, &count, cmctx!(vwctx, vctx)).unwrap();
+        let er = rope.range(&cursor_ar, &rt, inc, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(er, EditRange::inclusive(Cursor::new(0, 9), Cursor::new(0, 11), cw));
 
         // Select parentheses surrounding "a" w/ count = 3.
         vctx.action.count = Some(3);
-        let er = rope.range(&cursor_al, &rt, &count, cmctx!(vwctx, vctx)).unwrap();
+        let er = rope.range(&cursor_al, &rt, inc, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(er, EditRange::inclusive(Cursor::new(0, 4), Cursor::new(0, 34), cw));
 
         vctx.action.count = Some(3);
-        let er = rope.range(&cursor_ar, &rt, &count, cmctx!(vwctx, vctx)).unwrap();
+        let er = rope.range(&cursor_ar, &rt, inc, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(er, EditRange::inclusive(Cursor::new(0, 4), Cursor::new(0, 34), cw));
 
         // Select the parentheses surrounding "c" w/ count = 1.
         vctx.action.count = Some(1);
-        let er = rope.range(&cursor_cl, &rt, &count, cmctx!(vwctx, vctx)).unwrap();
+        let er = rope.range(&cursor_cl, &rt, inc, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(er, EditRange::inclusive(Cursor::new(0, 25), Cursor::new(0, 27), cw));
 
         vctx.action.count = Some(1);
-        let er = rope.range(&cursor_cr, &rt, &count, cmctx!(vwctx, vctx)).unwrap();
+        let er = rope.range(&cursor_cr, &rt, inc, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(er, EditRange::inclusive(Cursor::new(0, 25), Cursor::new(0, 27), cw));
 
         // Look for the parentheses surrounding "c" w/ count = 3.
         vctx.action.count = Some(3);
-        let er = rope.range(&cursor_cl, &rt, &count, cmctx!(vwctx, vctx)).unwrap();
+        let er = rope.range(&cursor_cl, &rt, inc, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(er, EditRange::inclusive(Cursor::new(0, 4), Cursor::new(0, 34), cw));
 
         vctx.action.count = Some(3);
-        let er = rope.range(&cursor_cr, &rt, &count, cmctx!(vwctx, vctx)).unwrap();
+        let er = rope.range(&cursor_cr, &rt, inc, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(er, EditRange::inclusive(Cursor::new(0, 4), Cursor::new(0, 34), cw));
     }
 
@@ -4430,7 +4713,8 @@ mod tests {
         let mut vctx: VimContext = VimContext::default();
         let cw = TargetShape::CharWise;
         let count = Count::Contextual;
-        let rt = RangeType::Bracketed('(', ')', true);
+        let rt = RangeType::Bracketed('(', ')');
+        let inc = true;
 
         // These starting positions are before the quotes.
         let cursor_1 = Cursor::new(0, 5);
@@ -4438,27 +4722,27 @@ mod tests {
 
         // Look for the parentheses surrounding "1".
         vctx.action.count = Some(1);
-        let er = rope.range(&cursor_1, &rt, &count, cmctx!(vwctx, vctx)).unwrap();
+        let er = rope.range(&cursor_1, &rt, inc, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(er, EditRange::inclusive(Cursor::new(0, 4), Cursor::new(0, 34), cw));
 
         // Look for the parentheses surrounding "a" w/ count = 1.
         vctx.action.count = Some(1);
-        let er = rope.range(&cursor_a, &rt, &count, cmctx!(vwctx, vctx)).unwrap();
+        let er = rope.range(&cursor_a, &rt, inc, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(er, EditRange::inclusive(Cursor::new(0, 9), Cursor::new(0, 11), cw));
 
         // Look for the parentheses surrounding "a" w/ count = 2.
         vctx.action.count = Some(2);
-        let er = rope.range(&cursor_a, &rt, &count, cmctx!(vwctx, vctx)).unwrap();
+        let er = rope.range(&cursor_a, &rt, inc, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(er, EditRange::inclusive(Cursor::new(0, 7), Cursor::new(0, 29), cw));
 
         // Look for the parentheses surrounding "a" w/ count = 3.
         vctx.action.count = Some(3);
-        let er = rope.range(&cursor_a, &rt, &count, cmctx!(vwctx, vctx)).unwrap();
+        let er = rope.range(&cursor_a, &rt, inc, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(er, EditRange::inclusive(Cursor::new(0, 4), Cursor::new(0, 34), cw));
 
         // Look for the parentheses surrounding "a" w/ count = 4.
         vctx.action.count = Some(4);
-        let er = rope.range(&cursor_a, &rt, &count, cmctx!(vwctx, vctx));
+        let er = rope.range(&cursor_a, &rt, inc, &count, cmctx!(vwctx, vctx));
         assert_eq!(er, None);
     }
 
@@ -4469,7 +4753,8 @@ mod tests {
         let mut vctx: VimContext = VimContext::default();
         let cw = TargetShape::CharWise;
         let count = Count::Contextual;
-        let rt = RangeType::Bracketed('(', ')', true);
+        let rt = RangeType::Bracketed('(', ')');
+        let inc = true;
 
         // These starting positions are after the quotes.
         let cursor_2 = Cursor::new(0, 31);
@@ -4477,27 +4762,27 @@ mod tests {
 
         // Look for the parentheses surrounding "2".
         vctx.action.count = Some(1);
-        let er = rope.range(&cursor_2, &rt, &count, cmctx!(vwctx, vctx)).unwrap();
+        let er = rope.range(&cursor_2, &rt, inc, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(er, EditRange::inclusive(Cursor::new(0, 4), Cursor::new(0, 34), cw));
 
         // Look for the parentheses surrounding "c" w/ count = 1.
         vctx.action.count = Some(1);
-        let er = rope.range(&cursor_c, &rt, &count, cmctx!(vwctx, vctx)).unwrap();
+        let er = rope.range(&cursor_c, &rt, inc, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(er, EditRange::inclusive(Cursor::new(0, 25), Cursor::new(0, 27), cw));
 
         // Look for the parentheses surrounding "c" w/ count = 2.
         vctx.action.count = Some(2);
-        let er = rope.range(&cursor_c, &rt, &count, cmctx!(vwctx, vctx)).unwrap();
+        let er = rope.range(&cursor_c, &rt, inc, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(er, EditRange::inclusive(Cursor::new(0, 7), Cursor::new(0, 29), cw));
 
         // Look for the parentheses surrounding "c" w/ count = 3.
         vctx.action.count = Some(3);
-        let er = rope.range(&cursor_c, &rt, &count, cmctx!(vwctx, vctx)).unwrap();
+        let er = rope.range(&cursor_c, &rt, inc, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(er, EditRange::inclusive(Cursor::new(0, 4), Cursor::new(0, 34), cw));
 
         // Look for the parentheses surrounding "c" w/ count = 4.
         vctx.action.count = Some(4);
-        let er = rope.range(&cursor_c, &rt, &count, cmctx!(vwctx, vctx));
+        let er = rope.range(&cursor_c, &rt, inc, &count, cmctx!(vwctx, vctx));
         assert_eq!(er, None);
     }
 
@@ -4507,16 +4792,17 @@ mod tests {
         let vwctx = ViewportContext::<Cursor>::default();
         let vctx: VimContext = VimContext::default();
         let count = Count::Contextual;
-        let rt = RangeType::Bracketed('(', ')', true);
+        let rt = RangeType::Bracketed('(', ')');
+        let inc = true;
 
         // Left side of paren group.
         let cursor_l = Cursor::new(0, 3);
-        let er = rope.range(&cursor_l, &rt, &count, cmctx!(vwctx, vctx));
+        let er = rope.range(&cursor_l, &rt, inc, &count, cmctx!(vwctx, vctx));
         assert_eq!(er, None);
 
         // Right side of paren group.
         let cursor_r = Cursor::new(0, 35);
-        let er = rope.range(&cursor_r, &rt, &count, cmctx!(vwctx, vctx));
+        let er = rope.range(&cursor_r, &rt, inc, &count, cmctx!(vwctx, vctx));
         assert_eq!(er, None);
     }
 
@@ -4527,7 +4813,8 @@ mod tests {
         let mut vctx: VimContext = VimContext::default();
         let cw = TargetShape::CharWise;
         let count = Count::Contextual;
-        let rt = RangeType::Bracketed('(', ')', false);
+        let rt = RangeType::Bracketed('(', ')');
+        let inc = false;
 
         // These starting positions are before the quotes.
         let cursor_1 = Cursor::new(0, 5);
@@ -4535,27 +4822,27 @@ mod tests {
 
         // Look for the parentheses surrounding "1".
         vctx.action.count = Some(1);
-        let er = rope.range(&cursor_1, &rt, &count, cmctx!(vwctx, vctx)).unwrap();
+        let er = rope.range(&cursor_1, &rt, inc, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(er, EditRange::inclusive(Cursor::new(0, 5), Cursor::new(0, 33), cw));
 
         // Look for the parentheses surrounding "a" w/ count = 1.
         vctx.action.count = Some(1);
-        let er = rope.range(&cursor_a, &rt, &count, cmctx!(vwctx, vctx)).unwrap();
+        let er = rope.range(&cursor_a, &rt, inc, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(er, EditRange::inclusive(Cursor::new(0, 10), Cursor::new(0, 10), cw));
 
         // Look for the parentheses surrounding "a" w/ count = 2.
         vctx.action.count = Some(2);
-        let er = rope.range(&cursor_a, &rt, &count, cmctx!(vwctx, vctx)).unwrap();
+        let er = rope.range(&cursor_a, &rt, inc, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(er, EditRange::inclusive(Cursor::new(0, 8), Cursor::new(0, 28), cw));
 
         // Look for the parentheses surrounding "a" w/ count = 3.
         vctx.action.count = Some(3);
-        let er = rope.range(&cursor_a, &rt, &count, cmctx!(vwctx, vctx)).unwrap();
+        let er = rope.range(&cursor_a, &rt, inc, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(er, EditRange::inclusive(Cursor::new(0, 5), Cursor::new(0, 33), cw));
 
         // Look for the parentheses surrounding "a" w/ count = 4.
         vctx.action.count = Some(4);
-        let er = rope.range(&cursor_a, &rt, &count, cmctx!(vwctx, vctx));
+        let er = rope.range(&cursor_a, &rt, inc, &count, cmctx!(vwctx, vctx));
         assert_eq!(er, None);
     }
 
@@ -4565,23 +4852,24 @@ mod tests {
         let vwctx = ViewportContext::<Cursor>::default();
         let vctx: VimContext = VimContext::default();
         let count = Count::Contextual;
-        let rt = RangeType::Quote('\'', true);
+        let rt = RangeType::Quote('\'');
         let cw = TargetShape::CharWise;
+        let inc = true;
 
         // Start before escaped single quotes.
         let cursor = Cursor::new(0, 7);
-        let er = rope.range(&cursor, &rt, &count, cmctx!(vwctx, vctx)).unwrap();
+        let er = rope.range(&cursor, &rt, inc, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(er, EditRange::inclusive(Cursor::new(0, 6), Cursor::new(0, 26), cw));
 
         // Start inside escaped single quotes.
         let cursor = Cursor::new(0, 17);
-        let er = rope.range(&cursor, &rt, &count, cmctx!(vwctx, vctx)).unwrap();
+        let er = rope.range(&cursor, &rt, inc, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(er, EditRange::inclusive(Cursor::new(0, 6), Cursor::new(0, 26), cw));
 
         // Starting from "m" we get (0, 26) and (0, 34), even if we might not consider those
         // a pair when scanning from the start of the line.
         let cursor = Cursor::new(0, 30);
-        let er = rope.range(&cursor, &rt, &count, cmctx!(vwctx, vctx)).unwrap();
+        let er = rope.range(&cursor, &rt, inc, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(er, EditRange::inclusive(Cursor::new(0, 26), Cursor::new(0, 34), cw));
     }
 

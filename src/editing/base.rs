@@ -16,7 +16,7 @@
 //! // Copy the next three lines.
 //! use modalkit::editing::base::{RangeType};
 //!
-//! let _: Action = Action::Edit(EditAction::Yank.into(), EditTarget::Range(RangeType::Line, 3.into()));
+//! let _: Action = Action::Edit(EditAction::Yank.into(), EditTarget::Range(RangeType::Line, true, 3.into()));
 //!
 //! // Make some contextually specified number of words lowercase.
 //! use modalkit::editing::base::{Case, Count, MoveDir1D, MoveType, WordStyle};
@@ -38,7 +38,7 @@ use regex::Regex;
 
 use crate::{
     input::commands::{Command, CommandError},
-    util::sort2,
+    util::{is_horizontal_space, is_keyword, is_newline, is_space_char, is_word_char, sort2},
 };
 
 /// Specify how to change the case of a string.
@@ -105,6 +105,9 @@ impl Default for EditAction {
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[non_exhaustive]
 pub enum EditTarget {
+    /// Move to one of the sides of a range.
+    Boundary(RangeType, bool, MoveTerminus, Count),
+
     /// Target the current cursor position.
     CurrentPosition,
 
@@ -118,7 +121,9 @@ pub enum EditTarget {
     Motion(MoveType, Count),
 
     /// Target a range of text around the cursor.
-    Range(RangeType, Count),
+    ///
+    /// [bool] indicates if this is an inclusive range, when applicable to the [RangeType].
+    Range(RangeType, bool, Count),
 
     /// Target the text between the current cursor position and the end of a search.
     ///
@@ -137,7 +142,7 @@ impl From<MoveType> for EditTarget {
 
 impl From<RangeType> for EditTarget {
     fn from(mt: RangeType) -> Self {
-        EditTarget::Range(mt, Count::Contextual)
+        EditTarget::Range(mt, true, Count::Contextual)
     }
 }
 
@@ -198,22 +203,289 @@ pub enum SearchType {
 }
 
 /// The different ways of grouping a buffer's contents into words.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum WordStyle {
+    /// A run of alphanumeric characters.
+    AlphaNum,
+
+    /// A sequence of non-blank characters.
+    ///
+    /// An empty line is also a Big word. Vim calls this a `WORD`.
+    Big,
+
     /// Either a sequence of alphanumeric characters and underscores, or a sequence of other
-    /// non-blank characters. An empty line is also a Little word.
+    /// non-blank characters.
+    ///
+    /// An empty line is also a Little word.
     Little,
 
-    /// A sequence of non-blank characters. An empty line also a Big word.
+    /// A run of non-alphanumeric characters.
+    NonAlphaNum,
+
+    /// A run of digits in the given base, with an optional leading hyphen.
+    Number(Radix),
+
+    /// A run of blank characters.
     ///
-    /// Vim calls this a `WORD`.
-    Big,
+    /// [bool] controls whether this crosses line boundaries.
+    Whitespace(bool),
+}
+
+impl BoundaryTest for WordStyle {
+    fn is_boundary_begin(&self, ctx: &BoundaryTestContext) -> bool {
+        match self {
+            WordStyle::AlphaNum => {
+                if ctx.after.is_none() && ctx.dir == MoveDir1D::Next {
+                    // Last character is counted when moving forward.
+                    return true;
+                } else if let Some(before) = ctx.before {
+                    let befwc = is_word_char(before);
+                    let curwc = is_word_char(ctx.current);
+
+                    return !befwc && curwc;
+                } else {
+                    // First character is always counted.
+                    return true;
+                }
+            },
+            WordStyle::NonAlphaNum => {
+                if ctx.after.is_none() && ctx.dir == MoveDir1D::Next {
+                    // Last character is counted when moving forward.
+                    return true;
+                } else if let Some(before) = ctx.before {
+                    let befwc = is_word_char(before);
+                    let curwc = is_word_char(ctx.current);
+
+                    return befwc && !curwc;
+                } else {
+                    // First character is always counted.
+                    return true;
+                }
+            },
+            WordStyle::Big => {
+                if ctx.after.is_none() && ctx.dir == MoveDir1D::Next {
+                    // Last character is counted when moving forward.
+                    return true;
+                } else if let Some(before) = ctx.before {
+                    let befws = is_space_char(before);
+                    let curws = is_space_char(ctx.current);
+                    let curnl = is_newline(ctx.current);
+
+                    // The final word beginning is calculated differently during an operation.
+                    let last = !ctx.motion && ctx.count == 1;
+
+                    return (last && curnl) || (befws && !curws);
+                } else {
+                    // First character is always counted.
+                    return true;
+                }
+            },
+            WordStyle::Little => {
+                if ctx.after.is_none() && ctx.dir == MoveDir1D::Next {
+                    // Last character is counted when moving forward.
+                    return true;
+                } else if let Some(before) = ctx.before {
+                    let befwc = is_word_char(before);
+                    let befkw = is_keyword(before);
+                    let curwc = is_word_char(ctx.current);
+                    let curkw = is_keyword(ctx.current);
+                    let curnl = is_newline(ctx.current);
+
+                    // The final word beginning is calculated differently during an operation.
+                    let last = !ctx.motion && ctx.count == 1;
+
+                    return (last && curnl) ||
+                        (befwc && curkw) ||
+                        (befkw && curwc) ||
+                        (!befwc && curwc) ||
+                        (!befkw && curkw);
+                } else {
+                    // First character is always counted.
+                    return true;
+                }
+            },
+            WordStyle::Number(radix) => {
+                let cn = radix.contains(ctx.current);
+
+                if ctx.current == '-' {
+                    // A hyphen is only the start of a number if a digit follows it.
+                    matches!(ctx.after, Some(c) if radix.contains(c))
+                } else if let Some(before) = ctx.before {
+                    // Not preceded by a hyphen or digit.
+                    cn && before != '-' && !radix.contains(before)
+                } else {
+                    // First character counts if it's a digit.
+                    cn
+                }
+            },
+            WordStyle::Whitespace(multiline) => {
+                let f = if *multiline {
+                    is_space_char
+                } else {
+                    is_horizontal_space
+                };
+
+                return f(ctx.current) && matches!(ctx.before, Some(c) if !f(c));
+            },
+        }
+    }
+
+    fn is_boundary_end(&self, ctx: &BoundaryTestContext) -> bool {
+        match self {
+            WordStyle::AlphaNum => {
+                if ctx.before.is_none() && ctx.dir == MoveDir1D::Previous {
+                    // First character is counted when moving back.
+                    return true;
+                } else if let Some(after) = ctx.after {
+                    let curwc = is_word_char(ctx.current);
+                    let aftwc = is_word_char(after);
+
+                    return curwc && !aftwc;
+                } else {
+                    // Last character is always counted.
+                    return true;
+                }
+            },
+            WordStyle::NonAlphaNum => {
+                if ctx.before.is_none() && ctx.dir == MoveDir1D::Previous {
+                    // First character is counted when moving back.
+                    return true;
+                } else if let Some(after) = ctx.after {
+                    let curwc = is_word_char(ctx.current);
+                    let aftwc = is_word_char(after);
+
+                    return !curwc && aftwc;
+                } else {
+                    // Last character is always counted.
+                    return true;
+                }
+            },
+            WordStyle::Big => {
+                if ctx.before.is_none() && ctx.dir == MoveDir1D::Previous {
+                    // First character is counted when moving back.
+                    return true;
+                } else if let Some(after) = ctx.after {
+                    !is_space_char(ctx.current) && is_space_char(after)
+                } else {
+                    // Last character is always a word ending.
+                    return true;
+                }
+            },
+            WordStyle::Little => {
+                if ctx.before.is_none() && ctx.dir == MoveDir1D::Previous {
+                    // First character is counted when moving back.
+                    return true;
+                } else if let Some(after) = ctx.after {
+                    let curwc = is_word_char(ctx.current);
+                    let curkw = is_keyword(ctx.current);
+                    let aftwc = is_word_char(after);
+                    let aftkw = is_keyword(after);
+
+                    return (curwc && aftkw) ||
+                        (curkw && aftwc) ||
+                        (curwc && !aftwc) ||
+                        (curkw && !aftkw);
+                } else {
+                    // Last character is always counted.
+                    return true;
+                }
+            },
+            WordStyle::Number(radix) => {
+                if let Some(after) = ctx.after {
+                    return radix.contains(ctx.current) && !radix.contains(after);
+                } else {
+                    return radix.contains(ctx.current);
+                }
+            },
+            WordStyle::Whitespace(multiline) => {
+                let f = if *multiline {
+                    is_space_char
+                } else {
+                    is_horizontal_space
+                };
+
+                return f(ctx.current) && matches!(ctx.after, Some(c) if !f(c));
+            },
+        }
+    }
+}
+
+/// Specify the base for a number.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Radix {
+    /// A base 2 number.
+    Binary,
+
+    /// A base 8 number.
+    Octal,
+
+    /// A base 10 number.
+    Decimal,
+
+    /// A base 16 number.
+    Hexadecimal,
+}
+
+impl Radix {
+    /// Test whether a character is used by this base.
+    pub fn contains(&self, c: char) -> bool {
+        match self {
+            Radix::Binary => c == '0' || c == '1',
+            Radix::Octal => c >= '0' && c <= '7',
+            Radix::Decimal => c.is_ascii_digit(),
+            Radix::Hexadecimal => c.is_ascii_hexdigit(),
+        }
+    }
+}
+
+/// Contextual information given while searching for the boundary of a range.
+pub struct BoundaryTestContext {
+    /// The current candidate character for the object boundary search.
+    pub current: char,
+
+    /// The character that comes before the candidate in the text.
+    pub before: Option<char>,
+
+    /// The character that comes after the candidate in the text.
+    pub after: Option<char>,
+
+    /// The direction the search is moving in.
+    pub dir: MoveDir1D,
+
+    /// Whether we are performing this search as part of a cursor movement.
+    pub motion: bool,
+
+    /// How many boundaries we have left to find.
+    pub count: usize,
+}
+
+/// Trait for types which have simple start and end boundaries within a text document.
+///
+/// Boundaries are searched for a character at a time, with the previous and following character
+/// context provided if available.
+pub trait BoundaryTest {
+    /// Check whether we are at the beginning of the range.
+    fn is_boundary_begin(&self, ctx: &BoundaryTestContext) -> bool;
+
+    /// Check whether we are at the end of the range.
+    fn is_boundary_end(&self, ctx: &BoundaryTestContext) -> bool;
+
+    /// Check whether we are at the given side of the range.
+    fn is_boundary(&self, terminus: MoveTerminus, ctx: &BoundaryTestContext) -> bool {
+        match terminus {
+            MoveTerminus::Beginning => self.is_boundary_begin(ctx),
+            MoveTerminus::End => self.is_boundary_end(ctx),
+        }
+    }
 }
 
 /// Specify a range within the text around the current cursor position.
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[non_exhaustive]
 pub enum RangeType {
+    /// Select from the beginning to the end of a [word](WordStyle).
+    Word(WordStyle),
+
     /// Select the whole buffer.
     Buffer,
 
@@ -226,26 +498,25 @@ pub enum RangeType {
     /// Select the current line the cursor is on.
     Line,
 
-    /// Select a range of whitespace around the cursor.
-    ///
-    /// [bool] controls whether this crosses lines.
-    Whitespace(bool),
-
-    /// Select the current word the cursor is in.
-    Word(WordStyle),
-
     /// Select the current block specified by the start and end characters.
-    Bracketed(char, char, bool), // start, end, inclusive
+    ///
+    /// When done inclusively, the delimiters are included.
+    Bracketed(char, char),
+
+    /// Select the range enclosed by the next item character.
+    ///
+    /// This is the ranged version of [MoveType::ItemMatch].
+    Item,
 
     /// Select text quoted by [char] around the cursor.
     ///
-    /// [bool] indicates whether the selection should include the quote characters.
-    Quote(char, bool),
+    /// When done inclusively, the quote characters are included.
+    Quote(char),
 
     /// Select the XML block around the cursor.
     ///
-    /// [bool] indicates whether to include the XML tags for the block.
-    XmlTag(bool),
+    /// When done inclusively, the opening and closing tags are included.
+    XmlTag,
 }
 
 /// Specify a movement away from the current cursor position.
@@ -268,6 +539,9 @@ pub enum MoveType {
     ///
     /// The [bool] parameter indicates whether to cross line boundaries.
     Column(MoveDir1D, bool),
+
+    /// Move to the final non-blank character [*n* lines](Count) away in [MoveDir1D] direction.
+    FinalNonBlank(MoveDir1D),
 
     /// Move to the first word [*n* lines](Count) away in [MoveDir1D] direction.
     FirstWord(MoveDir1D),
@@ -294,9 +568,6 @@ pub enum MoveType {
 
     /// Move to the end of a word [*n* times](Count) in [MoveDir1D] direction.
     WordEnd(WordStyle, MoveDir1D),
-
-    /// Move to the column just after the end of a word [*n* times](Count) in [MoveDir1D] direction.
-    WordAfter(WordStyle, MoveDir1D),
 
     /// Move to the beginning of a paragraph [*n* times](Count) in [MoveDir1D] direction.
     ParagraphBegin(MoveDir1D),
@@ -347,6 +618,16 @@ pub enum MoveDir2D {
 
     /// Move downwards.
     Down,
+}
+
+/// Represents the two sides of a range that has no meaningful middle.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum MoveTerminus {
+    /// The beginning of a range.
+    Beginning,
+
+    /// The end of a range.
+    End,
 }
 
 /// Represent movement to a position along a 1-dimensional line.
@@ -1431,6 +1712,7 @@ pub trait CursorMovements<Cursor, Context: EditContext> {
         &self,
         cursor: &Cursor,
         range: &RangeType,
+        inclusive: bool,
         count: &Count,
         ctx: &CursorMovementsContext<'a, 'b, 'c, Cursor, Context>,
     ) -> Option<EditRange<Cursor>>;
@@ -1513,6 +1795,7 @@ impl MoveType {
     pub fn is_inclusive_motion(&self) -> bool {
         match self {
             MoveType::BufferPos(_) => true,
+            MoveType::FinalNonBlank(_) => true,
             MoveType::ItemMatch => true,
             MoveType::LineColumnOffset => true,
             MoveType::WordEnd(_, _) => true,
@@ -1533,7 +1816,6 @@ impl MoveType {
             MoveType::SectionBegin(_) => false,
             MoveType::SectionEnd(_) => false,
             MoveType::SentenceBegin(_) => false,
-            MoveType::WordAfter(_, _) => false,
             MoveType::WordBegin(_, _) => false,
         }
     }
@@ -1553,6 +1835,7 @@ impl MoveType {
             MoveType::SentenceBegin(_) => true,
 
             MoveType::Column(_, _) => false,
+            MoveType::FinalNonBlank(_) => false,
             MoveType::FirstWord(_) => false,
             MoveType::LineColumnOffset => false,
             MoveType::Line(_) => false,
@@ -1562,7 +1845,6 @@ impl MoveType {
             MoveType::ScreenLine(_) => false,
             MoveType::ScreenLinePos(_) => false,
             MoveType::SectionEnd(_) => false,
-            MoveType::WordAfter(_, _) => false,
             MoveType::WordBegin(_, _) => false,
             MoveType::WordEnd(_, _) => false,
         }
@@ -1582,6 +1864,7 @@ impl MoveType {
 
             MoveType::BufferByteOffset => TargetShape::CharWise,
             MoveType::Column(_, _) => TargetShape::CharWise,
+            MoveType::FinalNonBlank(_) => TargetShape::CharWise,
             MoveType::ItemMatch => TargetShape::CharWise,
             MoveType::LineColumnOffset => TargetShape::CharWise,
             MoveType::LinePercent => TargetShape::CharWise,
@@ -1591,7 +1874,6 @@ impl MoveType {
             MoveType::ScreenLinePos(_) => TargetShape::CharWise,
             MoveType::ScreenLine(_) => TargetShape::CharWise,
             MoveType::SentenceBegin(_) => TargetShape::CharWise,
-            MoveType::WordAfter(_, _) => TargetShape::CharWise,
             MoveType::WordBegin(_, _) => TargetShape::CharWise,
             MoveType::WordEnd(_, _) => TargetShape::CharWise,
         }

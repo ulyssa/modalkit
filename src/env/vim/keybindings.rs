@@ -35,7 +35,7 @@
 //!     keybindings.input_key(key(KeyCode::Char('d'), KeyModifiers::NONE));
 //!
 //!     let (act, ctx) = keybindings.pop().unwrap();
-//!     assert_eq!(act, Action::Edit(EditAction::Delete.into(), EditTarget::Range(RangeType::Line, Count::Contextual)));
+//!     assert_eq!(act, Action::Edit(EditAction::Delete.into(), RangeType::Line.into()));
 //!     assert_eq!(ctx.resolve(&Count::Contextual), 5);
 //!
 //!     // Returning to Normal mode causes history checkpoint.
@@ -74,6 +74,7 @@ use crate::editing::base::{
     MoveDir2D,
     MoveDirMod,
     MovePosition,
+    MoveTerminus,
     MoveType,
     NumberChange,
     PositionList,
@@ -515,12 +516,6 @@ macro_rules! shaped {
     };
 }
 
-macro_rules! jump {
-    ($l: expr, $d: expr) => {
-        act!(Action::Jump($l, $d, Count::Contextual))
-    };
-}
-
 macro_rules! scrollcpv {
     ($p: expr, $fw: literal) => {
         if $fw {
@@ -609,13 +604,7 @@ macro_rules! change_target {
 
 macro_rules! change_range {
     ($rt: expr) => {
-        change_target!(EditTarget::Range($rt, Count::Contextual))
-    };
-    ($rt: expr, $c: literal) => {
-        change_target!(EditTarget::Range($rt, Count::Exact($c)))
-    };
-    ($rt: expr, $c: expr) => {
-        change_target!(EditTarget::Range($rt, $c))
+        change_target!(EditTarget::Range($rt, true, Count::Contextual))
     };
 }
 
@@ -736,13 +725,7 @@ macro_rules! edit_motion {
 
 macro_rules! edit_lines {
     ($ea: expr) => {
-        edit_range!($ea, RangeType::Line, Count::Contextual, VimMode::Normal)
-    };
-    ($ea: expr, $c: literal) => {
-        edit_range!($ea, RangeType::Line, Count::Exact($c), VimMode::Normal)
-    };
-    ($ea: expr, $c: expr) => {
-        edit_range!($ea, RangeType::Line, $c, VimMode::Normal)
+        edit_target!($ea, RangeType::Line.into(), VimMode::Normal)
     };
 }
 
@@ -769,13 +752,16 @@ macro_rules! edit_target_end_ca {
 
 macro_rules! edit_range_end {
     ($rt: expr) => {
-        edit_target_end!(EditTarget::Range($rt, Count::Contextual))
+        edit_target_end!(EditTarget::Range($rt, true, Count::Contextual))
     };
-    ($rt: expr, $c: literal) => {
-        edit_target_end!(EditTarget::Range($rt, Count::Exact($c)))
+    ($rt: expr, $inc: expr) => {
+        edit_target_end!(EditTarget::Range($rt, $inc, Count::Contextual))
     };
-    ($rt: expr, $c: expr) => {
-        edit_target_end!(EditTarget::Range($rt, $c))
+    ($rt: expr, $inc: expr, $c: literal) => {
+        edit_target_end!(EditTarget::Range($rt, $inc, Count::Exact($c)))
+    };
+    ($rt: expr, $inc: expr, $c: expr) => {
+        edit_target_end!(EditTarget::Range($rt, $inc, $c))
     };
 }
 
@@ -1148,6 +1134,7 @@ fn default_keys<P: Application>() -> Vec<(MappedModes, &'static str, InputStep<P
     [
         // Normal, Visual, Select, Insert mode keys
         ( NVIMAP, "<C-\\><C-N>", normal!() ),
+        ( NVIMAP, "<C-End>", edit_target_end!(EditTarget::Boundary(RangeType::Buffer, true, MoveTerminus::End, Count::Contextual)) ),
 
         // Normal, Visual, Select, Operation Pending mode keys
         ( MAP, "<C-H>", edit_end!(MoveType::Column(MoveDir1D::Previous, true)) ),
@@ -1183,7 +1170,7 @@ fn default_keys<P: Application>() -> Vec<(MappedModes, &'static str, InputStep<P
         ( NXOMAP, "gm", edit_end!(MoveType::ScreenLinePos(MovePosition::Middle), 0) ),
         ( NXOMAP, "gM", edit_target_end_ca!(EditTarget::Motion(MoveType::LinePos(MovePosition::Middle), Count::MinusOne), EditTarget::Motion(MoveType::LinePercent, Count::Contextual)) ),
         ( NXOMAP, "go", edit_end!(MoveType::BufferByteOffset) ),
-        ( NXOMAP, "g_", unmapped!() ),
+        ( NXOMAP, "g_", edit_end!(MoveType::FinalNonBlank(MoveDir1D::Next), Count::MinusOne) ),
         ( NXOMAP, "g^", edit_end!(MoveType::ScreenFirstWord(MoveDir1D::Next), 0) ),
         ( NXOMAP, "g$", edit_end!(MoveType::ScreenLinePos(MovePosition::End), Count::MinusOne) ),
         ( NXOMAP, "g#", edit_word_search_end!(WordStyle::Little, false, MoveDir1D::Previous) ),
@@ -1351,34 +1338,34 @@ fn default_keys<P: Application>() -> Vec<(MappedModes, &'static str, InputStep<P
         ( VOMAP, "is", edit_range_end!(RangeType::Sentence) ),
         ( VOMAP, "ap", edit_range_end!(RangeType::Paragraph) ),
         ( VOMAP, "ip", edit_range_end!(RangeType::Paragraph) ),
-        ( VOMAP, "a]", edit_range_end!(RangeType::Bracketed('[', ']', true)) ),
-        ( VOMAP, "a[", edit_range_end!(RangeType::Bracketed('[', ']', true)) ),
-        ( VOMAP, "i]", edit_range_end!(RangeType::Bracketed('[', ']', false)) ),
-        ( VOMAP, "i[", edit_range_end!(RangeType::Bracketed('[', ']', false)) ),
-        ( VOMAP, "a)", edit_range_end!(RangeType::Bracketed('(', ')', true)) ),
-        ( VOMAP, "a(", edit_range_end!(RangeType::Bracketed('(', ')', true)) ),
-        ( VOMAP, "ab", edit_range_end!(RangeType::Bracketed('(', ')', true)) ),
-        ( VOMAP, "i)", edit_range_end!(RangeType::Bracketed('(', ')', false)) ),
-        ( VOMAP, "i(", edit_range_end!(RangeType::Bracketed('(', ')', false)) ),
-        ( VOMAP, "ib", edit_range_end!(RangeType::Bracketed('(', ')', false)) ),
-        ( VOMAP, "a>", edit_range_end!(RangeType::Bracketed('<', '>', true)) ),
-        ( VOMAP, "a<", edit_range_end!(RangeType::Bracketed('<', '>', true)) ),
-        ( VOMAP, "i>", edit_range_end!(RangeType::Bracketed('<', '>', false)) ),
-        ( VOMAP, "i<", edit_range_end!(RangeType::Bracketed('<', '>', false)) ),
-        ( VOMAP, "at", edit_range_end!(RangeType::XmlTag(true)) ),
-        ( VOMAP, "it", edit_range_end!(RangeType::XmlTag(false)) ),
-        ( VOMAP, "a}", edit_range_end!(RangeType::Bracketed('{', '}', true)) ),
-        ( VOMAP, "a{", edit_range_end!(RangeType::Bracketed('{', '}', true)) ),
-        ( VOMAP, "aB", edit_range_end!(RangeType::Bracketed('{', '}', true)) ),
-        ( VOMAP, "i}", edit_range_end!(RangeType::Bracketed('{', '}', false)) ),
-        ( VOMAP, "i{", edit_range_end!(RangeType::Bracketed('{', '}', false)) ),
-        ( VOMAP, "iB", edit_range_end!(RangeType::Bracketed('{', '}', false)) ),
-        ( VOMAP, "a\"", edit_range_end!(RangeType::Quote('\"', true)) ),
-        ( VOMAP, "i\"", edit_range_end!(RangeType::Quote('\"', false)) ),
-        ( VOMAP, "a\'", edit_range_end!(RangeType::Quote('\'', true)) ),
-        ( VOMAP, "i\'", edit_range_end!(RangeType::Quote('\'', false)) ),
-        ( VOMAP, "a`", edit_range_end!(RangeType::Quote('`', true)) ),
-        ( VOMAP, "i`", edit_range_end!(RangeType::Quote('`', false)) ),
+        ( VOMAP, "a]", edit_range_end!(RangeType::Bracketed('[', ']'), true) ),
+        ( VOMAP, "a[", edit_range_end!(RangeType::Bracketed('[', ']'), true) ),
+        ( VOMAP, "i]", edit_range_end!(RangeType::Bracketed('[', ']'), false) ),
+        ( VOMAP, "i[", edit_range_end!(RangeType::Bracketed('[', ']'), false) ),
+        ( VOMAP, "a)", edit_range_end!(RangeType::Bracketed('(', ')'), true) ),
+        ( VOMAP, "a(", edit_range_end!(RangeType::Bracketed('(', ')'), true) ),
+        ( VOMAP, "ab", edit_range_end!(RangeType::Bracketed('(', ')'), true) ),
+        ( VOMAP, "i)", edit_range_end!(RangeType::Bracketed('(', ')'), false) ),
+        ( VOMAP, "i(", edit_range_end!(RangeType::Bracketed('(', ')'), false) ),
+        ( VOMAP, "ib", edit_range_end!(RangeType::Bracketed('(', ')'), false) ),
+        ( VOMAP, "a>", edit_range_end!(RangeType::Bracketed('<', '>'), true) ),
+        ( VOMAP, "a<", edit_range_end!(RangeType::Bracketed('<', '>'), true) ),
+        ( VOMAP, "i>", edit_range_end!(RangeType::Bracketed('<', '>'), false) ),
+        ( VOMAP, "i<", edit_range_end!(RangeType::Bracketed('<', '>'), false) ),
+        ( VOMAP, "at", edit_range_end!(RangeType::XmlTag, true) ),
+        ( VOMAP, "it", edit_range_end!(RangeType::XmlTag, false) ),
+        ( VOMAP, "a}", edit_range_end!(RangeType::Bracketed('{', '}'), true) ),
+        ( VOMAP, "a{", edit_range_end!(RangeType::Bracketed('{', '}'), true) ),
+        ( VOMAP, "aB", edit_range_end!(RangeType::Bracketed('{', '}'), true) ),
+        ( VOMAP, "i}", edit_range_end!(RangeType::Bracketed('{', '}'), false) ),
+        ( VOMAP, "i{", edit_range_end!(RangeType::Bracketed('{', '}'), false) ),
+        ( VOMAP, "iB", edit_range_end!(RangeType::Bracketed('{', '}'), false) ),
+        ( VOMAP, "a\"", edit_range_end!(RangeType::Quote('\"'), true) ),
+        ( VOMAP, "i\"", edit_range_end!(RangeType::Quote('\"'), false) ),
+        ( VOMAP, "a\'", edit_range_end!(RangeType::Quote('\''), true) ),
+        ( VOMAP, "i\'", edit_range_end!(RangeType::Quote('\''), false) ),
+        ( VOMAP, "a`", edit_range_end!(RangeType::Quote('`'), true) ),
+        ( VOMAP, "i`", edit_range_end!(RangeType::Quote('`'), false) ),
 
         // Normal mode keys
         ( NMAP, "a", insert!(InsertStyle::Insert, MoveType::Column(MoveDir1D::Next, false)) ),
@@ -1454,10 +1441,10 @@ fn default_keys<P: Application>() -> Vec<(MappedModes, &'static str, InputStep<P
         ( NMAP, "@@", act!(MacroAction::Repeat(Count::Contextual).into()) ),
         ( NMAP, "<C-A>", edit!(EditAction::ChangeNumber(NumberChange::IncreaseOne), MoveType::LinePos(MovePosition::End)) ),
         ( NMAP, "<C-C>", normal!() ),
-        ( NMAP, "<C-I>", jump!(PositionList::ChangeList, MoveDir1D::Next) ),
+        ( NMAP, "<C-I>", jump!(PositionList::JumpList, MoveDir1D::Next) ),
         ( NMAP, "<C-G>", unmapped!() ),
         ( NMAP, "<C-L>", act!(Action::RedrawScreen) ),
-        ( NMAP, "<C-O>", jump!(PositionList::ChangeList, MoveDir1D::Previous) ),
+        ( NMAP, "<C-O>", jump!(PositionList::JumpList, MoveDir1D::Previous) ),
         ( NMAP, "<C-R>", history!(HistoryAction::Redo(Count::Contextual)) ),
         ( NMAP, "<C-T>", unmapped!() ),
         ( NMAP, "<C-X>", edit!(EditAction::ChangeNumber(NumberChange::DecreaseOne), MoveType::LinePos(MovePosition::End)) ),
@@ -1582,7 +1569,6 @@ fn default_keys<P: Application>() -> Vec<(MappedModes, &'static str, InputStep<P
         ( IMAP, "<Esc>", normal!() ),
         ( IMAP, "<Tab>", chartype!(Char::Single('\t')) ),
         ( IMAP, "<C-Home>", edit!(EditAction::Motion, MoveType::BufferPos(MovePosition::Beginning)) ),
-        ( IMAP, "<C-End>", edit!(EditAction::Motion, MoveType::BufferPos(MovePosition::End)) ),
         ( IMAP, "<Insert>", insert!(InsertStyle::Replace) ),
         ( IMAP, "<PageDown>", scroll2d!(MoveDir2D::Down, ScrollSize::Page) ),
         ( IMAP, "<PageUp>", scroll2d!(MoveDir2D::Up, ScrollSize::Page) ),
@@ -1864,25 +1850,31 @@ mod tests {
 
     macro_rules! rangeop {
         ($ea: expr, $rt: expr) => {
-            Action::Edit(Specifier::Exact($ea), EditTarget::Range($rt, Count::Contextual))
+            Action::Edit(Specifier::Exact($ea), EditTarget::Range($rt, true, Count::Contextual))
         };
-        ($ea: expr, $rt: expr, $c: literal) => {
-            Action::Edit(Specifier::Exact($ea), EditTarget::Range($rt, Count::Exact($c)))
+        ($ea: expr, $rt: expr, $inc: expr) => {
+            Action::Edit(Specifier::Exact($ea), EditTarget::Range($rt, $inc, Count::Contextual))
         };
-        ($ea: expr, $rt: expr, $c: expr) => {
-            Action::Edit(Specifier::Exact($ea), EditTarget::Range($rt, $c))
+        ($ea: expr, $rt: expr, $inc: expr, $c: literal) => {
+            Action::Edit(Specifier::Exact($ea), EditTarget::Range($rt, $inc, Count::Exact($c)))
+        };
+        ($ea: expr, $rt: expr, $inc: expr, $c: expr) => {
+            Action::Edit(Specifier::Exact($ea), EditTarget::Range($rt, $inc, $c))
         };
     }
 
     macro_rules! range {
         ($rt: expr) => {
-            Action::Edit(Specifier::Contextual, EditTarget::Range($rt, Count::Contextual))
+            Action::Edit(Specifier::Contextual, EditTarget::Range($rt, true, Count::Contextual))
         };
-        ($rt: expr, $c: literal) => {
-            Action::Edit(Specifier::Contextual, EditTarget::Range($rt, Count::Exact($c)))
+        ($rt: expr, $inc: expr) => {
+            Action::Edit(Specifier::Contextual, EditTarget::Range($rt, $inc, Count::Contextual))
         };
-        ($rt: expr, $c: expr) => {
-            Action::Edit(Specifier::Contextual, EditTarget::Range($rt, $c))
+        ($rt: expr, $inc: expr, $c: literal) => {
+            Action::Edit(Specifier::Contextual, EditTarget::Range($rt, $inc, Count::Exact($c)))
+        };
+        ($rt: expr, $inc: expr, $c: expr) => {
+            Action::Edit(Specifier::Contextual, EditTarget::Range($rt, $inc, $c))
         };
     }
 
@@ -2475,7 +2467,7 @@ mod tests {
         let mut ctx = VimContext::default();
 
         let op = EditAction::Yank;
-        let mov = Action::Edit(op.into(), EditTarget::Range(RangeType::Line, Count::Contextual));
+        let mov = rangeop!(op, RangeType::Line);
         ctx.action.operation = EditAction::Yank;
 
         ctx.action.register = None;

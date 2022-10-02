@@ -50,6 +50,7 @@ use super::base::{
     Mark,
     MoveDir1D,
     MoveDirMod,
+    MoveTerminus,
     NumberChange,
     Register,
     SearchType,
@@ -393,7 +394,7 @@ where
 
         let word = self
             .text
-            .get_cursor_word_mut(&mut cursor, *style)
+            .get_cursor_word_mut(&mut cursor, style)
             .ok_or(EditError::NoCursorWord)?;
         let word = regex::escape(word.to_string().as_str());
 
@@ -455,6 +456,20 @@ where
         let cursor = self.get_cursor(id);
 
         match target {
+            EditTarget::Boundary(range, inclusive, term, count) => {
+                if let Some(r) = self.text.range(&cursor, range, *inclusive, count, ctx) {
+                    let side = match term {
+                        MoveTerminus::Beginning => r.start,
+                        MoveTerminus::End => r.end,
+                    };
+
+                    let r = CursorRange::new(cursor, side, r.shape, r.inclusive);
+
+                    return Ok(Some(r));
+                } else {
+                    return Ok(None);
+                }
+            },
             EditTarget::CurrentPosition => {
                 let end = cursor.clone();
                 let range = CursorRange::inclusive(cursor, end, TargetShape::CharWise);
@@ -505,8 +520,8 @@ where
             EditTarget::Motion(motion, count) => {
                 return Ok(self.text.range_of_movement(&cursor, motion, count, ctx));
             },
-            EditTarget::Range(range, count) => {
-                return Ok(self.text.range(&cursor, range, count, ctx));
+            EditTarget::Range(range, inclusive, count) => {
+                return Ok(self.text.range(&cursor, range, *inclusive, count, ctx));
             },
         }
     }
@@ -642,6 +657,16 @@ where
             self.clear_selection(id);
 
             match target {
+                EditTarget::Boundary(range, inclusive, term, count) => {
+                    if let Some(r) = self.text.range(&cursor, range, *inclusive, count, &ctx) {
+                        let nc = match term {
+                            MoveTerminus::Beginning => r.start,
+                            MoveTerminus::End => r.end,
+                        };
+
+                        self.set_cursor(id, nc);
+                    }
+                },
                 EditTarget::CurrentPosition | EditTarget::Selection => {
                     // Do nothing.
                 },
@@ -658,8 +683,8 @@ where
                         self.set_cursor(id, nc);
                     }
                 },
-                EditTarget::Range(range, count) => {
-                    if let Some(r) = self.text.range(&cursor, range, count, &ctx) {
+                EditTarget::Range(range, inclusive, count) => {
+                    if let Some(r) = self.text.range(&cursor, range, *inclusive, count, &ctx) {
                         self.set_cursor(id, r.end);
                     }
                 },

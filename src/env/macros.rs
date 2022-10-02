@@ -64,6 +64,12 @@ macro_rules! history {
     };
 }
 
+macro_rules! jump {
+    ($l: expr, $d: expr) => {
+        act!(Action::Jump($l, $d, Count::Contextual))
+    };
+}
+
 macro_rules! scroll {
     ($style: expr) => {
         act!(Action::Scroll($style))
@@ -91,18 +97,20 @@ macro_rules! edit_target {
     };
 }
 
-macro_rules! edit_range {
-    ($ea: expr, $rt: expr) => {
-        edit_target!($ea, EditTarget::Range($rt, Count::Contextual))
+macro_rules! edit_buffer {
+    ($ea: expr, $term: expr) => {
+        edit_target!(
+            $ea,
+            EditTarget::Boundary(RangeType::Buffer, true, $term, Count::Contextual),
+            Default::default()
+        )
     };
-    ($ea: expr, $rt: expr, $c: literal) => {
-        edit_target!($ea, EditTarget::Range($rt, Count::Exact($c)))
-    };
-    ($ea: expr, $rt: expr, $c: expr) => {
-        edit_target!($ea, EditTarget::Range($rt, $c))
-    };
-    ($ea: expr, $rt: expr, $c: expr, $mode: expr) => {
-        edit_target!($ea, EditTarget::Range($rt, $c), $mode)
+    ($ea: expr, $term: expr, $mode: expr) => {
+        edit_target!(
+            $ea,
+            EditTarget::Boundary(RangeType::Buffer, true, $term, Count::Contextual),
+            $mode
+        )
     };
 }
 

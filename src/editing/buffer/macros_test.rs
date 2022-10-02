@@ -9,10 +9,10 @@ macro_rules! mv {
 
 macro_rules! range {
     ($rt: expr) => {
-        EditTarget::Range($rt, Count::Contextual)
+        EditTarget::Range($rt, true, Count::Contextual)
     };
     ($rt: expr, $c: expr) => {
-        EditTarget::Range($rt, Count::Exact($c))
+        EditTarget::Range($rt, true, Count::Exact($c))
     };
 }
 

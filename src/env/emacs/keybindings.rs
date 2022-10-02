@@ -35,6 +35,7 @@ use crate::editing::base::{
     MoveDir2D,
     MoveDirMod,
     MovePosition,
+    MoveTerminus,
     MoveType,
     RangeType,
     Register,
@@ -281,19 +282,35 @@ macro_rules! kill {
     };
 }
 
-macro_rules! erase {
-    ($t: expr) => {
+macro_rules! erase_target {
+    ($et: expr) => {
         is!(
             InternalAction::SetRegister(Register::Blackhole),
-            Action::Edit(EditAction::Delete.into(), $t.into())
+            Action::Edit(EditAction::Delete.into(), $et)
         )
+    };
+}
+
+macro_rules! erase {
+    ($mt: expr) => {
+        erase_target!(EditTarget::Motion($mt, Count::Contextual))
+    };
+}
+
+macro_rules! erase_range {
+    ($rt: expr) => {
+        erase_target!(EditTarget::Range($rt, true, Count::Contextual))
     };
 }
 
 macro_rules! just_one_space {
     () => {
         isv!(vec![InternalAction::SetRegister(Register::Blackhole)], vec![
-            Action::Edit(EditAction::Delete.into(), RangeType::Whitespace(false).into()).into(),
+            Action::Edit(
+                EditAction::Delete.into(),
+                RangeType::Word(WordStyle::Whitespace(false)).into()
+            )
+            .into(),
             Action::from(InsertTextAction::Type(Char::Single(' ').into(), MoveDir1D::Previous))
                 .into()
         ])
@@ -419,7 +436,7 @@ fn default_keys<P: Application>() -> Vec<(MappedModes, &'static str, InputStep<P
         ( IMAP, "<C-X><Left>", unmapped!() ),
         ( IMAP, "<C-X><Right>", unmapped!() ),
         ( IMAP, "<C-X>b", unmapped!() ),
-        ( IMAP, "<C-X>h", start_selection!(TargetShape::CharWise, EditTarget::Range(RangeType::Buffer, Count::Contextual)) ),
+        ( IMAP, "<C-X>h", start_selection!(TargetShape::CharWise, RangeType::Buffer.into()) ),
         ( IMAP, "<C-X>k", unmapped!() ),
         ( IMAP, "<C-X>o", window_focus!(FocusChange::Direction1D(MoveDir1D::Next, Count::Exact(1), true)) ),
         ( IMAP, "<C-X>s", unmapped!() ),
@@ -436,11 +453,11 @@ fn default_keys<P: Application>() -> Vec<(MappedModes, &'static str, InputStep<P
         ( IMAP, "<C-Del>", kill!(MoveType::LinePos(MovePosition::End), 0) ),
         ( IMAP, "<C-Space>", start_selection!(TargetShape::CharWise) ),
         ( IMAP, "<C-Left>", motion!(MoveType::WordBegin(WordStyle::Little, MoveDir1D::Previous)) ),
-        ( IMAP, "<C-Right>", motion!(MoveType::WordAfter(WordStyle::Little, MoveDir1D::Next)) ),
+        ( IMAP, "<C-Right>", motion!(MoveType::WordBegin(WordStyle::NonAlphaNum, MoveDir1D::Next)) ),
         ( IMAP, "<M-b>", motion!(MoveType::WordBegin(WordStyle::Little, MoveDir1D::Previous)) ),
         ( IMAP, "<M-c>", edit!(EditAction::ChangeCase(Case::Title), MoveType::WordEnd(WordStyle::Little, MoveDir1D::Next)) ),
         ( IMAP, "<M-d>", kill!(MoveType::WordEnd(WordStyle::Little, MoveDir1D::Next)) ),
-        ( IMAP, "<M-f>", motion!(MoveType::WordAfter(WordStyle::Little, MoveDir1D::Next)) ),
+        ( IMAP, "<M-f>", motion!(MoveType::WordBegin(WordStyle::NonAlphaNum, MoveDir1D::Next)) ),
         ( IMAP, "<M-l>", edit!(EditAction::ChangeCase(Case::Lower), MoveType::WordEnd(WordStyle::Little, MoveDir1D::Next)) ),
         ( IMAP, "<M-s>.", search_word!(WordStyle::Big) ),
         ( IMAP, "<M-t>", unmapped!() ),
@@ -449,13 +466,13 @@ fn default_keys<P: Application>() -> Vec<(MappedModes, &'static str, InputStep<P
         ( IMAP, "<M-w>", kill_target!(EditTarget::Selection) ),
         ( IMAP, "<M-z>{char}", kill_target!(EditTarget::Search(SearchType::Char(true), MoveDirMod::Same, Count::Contextual)) ),
         ( IMAP, "<M-S>.", search_word!(WordStyle::Big) ),
-        ( IMAP, "<M-\\>", erase!(RangeType::Whitespace(false)) ),
+        ( IMAP, "<M-\\>", erase_range!(RangeType::Word(WordStyle::Whitespace(false))) ),
         ( IMAP, "<M-^>", edit!(EditAction::Join(true), MoveType::Line(MoveDir1D::Previous)) ),
-        ( IMAP, "<M-<>", motion!(MoveType::BufferPos(MovePosition::Beginning)) ),
-        ( IMAP, "<M->>", motion!(MoveType::BufferPos(MovePosition::End)) ),
+        ( IMAP, "<M-<>", edit_buffer!(EditAction::Motion, MoveTerminus::Beginning) ),
+        ( IMAP, "<M->>", edit_buffer!(EditAction::Motion, MoveTerminus::End) ),
         ( IMAP, "<M-Space>", just_one_space!() ),
         ( IMAP, "<M-Left>", motion!(MoveType::WordBegin(WordStyle::Little, MoveDir1D::Previous)) ),
-        ( IMAP, "<M-Right>", motion!(MoveType::WordAfter(WordStyle::Little, MoveDir1D::Next)) ),
+        ( IMAP, "<M-Right>", motion!(MoveType::WordBegin(WordStyle::NonAlphaNum, MoveDir1D::Next)) ),
         ( IMAP, "<S-End>", start_shift_selection!(TargetShape::CharWise, MoveType::LinePos(MovePosition::End).into()) ),
         ( IMAP, "<S-Home>", start_shift_selection!(TargetShape::CharWise, MoveType::LinePos(MovePosition::Beginning).into()) ),
         ( IMAP, "<S-Up>", start_shift_selection!(TargetShape::CharWise, MoveType::Line(MoveDir1D::Previous).into()) ),

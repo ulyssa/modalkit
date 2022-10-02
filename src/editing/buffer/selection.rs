@@ -14,6 +14,7 @@ use crate::editing::base::{
     EditResult,
     EditTarget,
     MoveDir1D,
+    MoveTerminus,
     SelectionCursorChange,
     SelectionResizeStyle,
     SelectionSplitStyle,
@@ -357,6 +358,20 @@ where
             }
 
             let tshape = match target {
+                EditTarget::Boundary(range, inclusive, term, count) => {
+                    if let Some(r) = self.text.range(&cursor, range, *inclusive, count, ctx) {
+                        let nc = match term {
+                            MoveTerminus::Beginning => r.start,
+                            MoveTerminus::End => r.end,
+                        };
+
+                        self.set_cursor(id, nc);
+
+                        r.shape
+                    } else {
+                        TargetShape::CharWise
+                    }
+                },
                 EditTarget::CurrentPosition | EditTarget::Selection => {
                     // Do nothing to the cursor.
                     TargetShape::CharWise
@@ -380,8 +395,8 @@ where
 
                     mv.shape()
                 },
-                EditTarget::Range(range, count) => {
-                    if let Some(r) = self.text.range(&cursor, range, count, &ctx) {
+                EditTarget::Range(range, inclusive, count) => {
+                    if let Some(r) = self.text.range(&cursor, range, *inclusive, count, &ctx) {
                         if obj {
                             self.anchors.put(id, r.start);
                             self.cursors.put(id, r.end);
@@ -791,6 +806,12 @@ mod tests {
         };
     }
 
+    macro_rules! selection_extend {
+        ($ebuf: expr, $et: expr, $ctx: expr) => {
+            $ebuf.selection_resize(SelectionResizeStyle::Extend, &$et, $ctx).unwrap()
+        };
+    }
+
     macro_rules! selection_restart {
         ($ebuf: expr, $et: expr, $ctx: expr) => {
             $ebuf.selection_resize(SelectionResizeStyle::Restart, &$et, $ctx).unwrap()
@@ -1124,6 +1145,34 @@ mod tests {
         let selection = (Cursor::new(0, 10), Cursor::new(0, 10), TargetShape::CharWise);
         assert_eq!(ebuf.get_leader_selection(curid), Some(selection));
         assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 10));
+    }
+
+    #[test]
+    fn test_selection_resize_range_grows() {
+        let mut ebuf = mkbufstr("hello world\n");
+        let curid = ebuf.create_group();
+        let vwctx = ViewportContext::default();
+        let mut vctx = VimContext::default();
+        let cw = TargetShape::CharWise;
+
+        // Start out at (0, 2), over "l".
+        ebuf.set_leader(curid, Cursor::new(0, 2));
+
+        vctx.persist.shape = Some(cw);
+
+        // Create selection over "ll".
+        let right = MoveType::Column(MoveDir1D::Next, false).into();
+        let lsel = (Cursor::new(0, 2), Cursor::new(0, 3), cw);
+        selection_extend!(ebuf, right, ctx!(curid, vwctx, vctx));
+        assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 3));
+        assert_eq!(ebuf.get_leader_selection(curid), Some(lsel.clone()));
+
+        // Doing a word range should also move anchor.
+        let range = RangeType::Word(WordStyle::Little).into();
+        let lsel = (Cursor::new(0, 0), Cursor::new(0, 4), cw);
+        selection_extend!(ebuf, range, ctx!(curid, vwctx, vctx));
+        assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 4));
+        assert_eq!(ebuf.get_leader_selection(curid), Some(lsel.clone()));
     }
 
     #[test]

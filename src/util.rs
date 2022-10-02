@@ -264,6 +264,14 @@ pub fn is_newline(c: char) -> bool {
     c == '\n' || c == '\r'
 }
 
+pub fn is_word_char(c: char) -> bool {
+    return c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '_';
+}
+
+pub fn is_keyword(c: char) -> bool {
+    return c >= '!' && c <= '/' || c >= '[' && c <= '^' || c >= '{' && c <= '~' || c == '`';
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
