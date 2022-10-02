@@ -1,6 +1,6 @@
 [package]
 name = "modalkit"
-version = "0.0.4"
+version = "0.0.5"
 authors = ["Ulyssa <git@ulyssa.dev>"]
 repository = "https://github.com/ulyssa/modalkit"
 homepage = "https://github.com/ulyssa/modalkit"
