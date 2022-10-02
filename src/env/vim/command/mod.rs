@@ -148,15 +148,16 @@ fn sum_mods<P: Application>(
     Some((dir, off))
 }
 
-fn window_range_target<P: Application>(
-    desc: &CommandDescription,
-    ctx: &mut CommandContext<P>,
+fn range_to_fc<P: Application>(
+    range: &RangeSpec,
+    wrapdir: bool,
+    context: &VimContext<P>,
 ) -> CommandResult<P, FocusChange> {
-    let target = match &desc.range {
-        Some(RangeSpec::Single(RangeEnding(RangeEndingType::Absolute(count), mods))) => {
-            let count = ctx.context.resolve(count);
+    let fc = match range {
+        RangeSpec::Single(RangeEnding(RangeEndingType::Absolute(count), mods)) => {
+            let count = context.resolve(count);
 
-            match sum_mods(mods, &*ctx.context) {
+            match sum_mods(mods, context) {
                 Some((MoveDir1D::Previous, off)) => {
                     FocusChange::Offset(count.saturating_sub(off).into(), false)
                 },
@@ -168,30 +169,42 @@ fn window_range_target<P: Application>(
                 },
             }
         },
-        Some(RangeSpec::Single(RangeEnding(RangeEndingType::Unspecified, mods))) => {
-            if let Some((dir, off)) = sum_mods(mods, &*ctx.context) {
-                FocusChange::Direction1D(dir, Count::Exact(off), false)
+        RangeSpec::Single(RangeEnding(
+            RangeEndingType::Unspecified | RangeEndingType::Current,
+            mods,
+        )) => {
+            if let Some((dir, off)) = sum_mods(mods, context) {
+                FocusChange::Direction1D(dir, Count::Exact(off), wrapdir)
             } else {
                 return Err(CommandError::InvalidRange);
             }
         },
-        Some(RangeSpec::Single(RangeEnding(RangeEndingType::Last, mods))) => {
+        RangeSpec::Single(RangeEnding(RangeEndingType::Last, mods)) => {
             if mods.len() != 0 {
                 return Err(CommandError::InvalidRange);
             }
 
             FocusChange::Position(MovePosition::End)
         },
-        Some(_) => {
+        _ => {
             return Err(CommandError::InvalidRange);
-        },
-        None => {
-            // Act on the current window by default.
-            FocusChange::Current
         },
     };
 
-    Ok(target)
+    return Ok(fc);
+}
+
+/// Interpret the range provided to a window command.
+///
+/// If no range is specified, then act on the current window by default.
+fn window_range_target<P: Application>(
+    desc: &CommandDescription,
+    ctx: &mut CommandContext<P>,
+) -> CommandResult<P, FocusChange> {
+    desc.range
+        .as_ref()
+        .map(|r| range_to_fc(r, false, &*ctx.context))
+        .unwrap_or(Ok(FocusChange::Current))
 }
 
 fn window_close<P: Application>(
@@ -302,32 +315,9 @@ fn tab_next<P: Application>(
         (r @ Some(_), false) => r,
     };
 
-    let change = match range {
-        Some(RangeSpec::Single(RangeEnding(RangeEndingType::Absolute(count), _))) => {
-            FocusChange::Offset(count, false)
-        },
-        Some(RangeSpec::Single(RangeEnding(RangeEndingType::Unspecified, mods))) => {
-            if let Some((dir, off)) = sum_mods(&mods, &*ctx.context) {
-                FocusChange::Direction1D(dir, Count::Exact(off), false)
-            } else {
-                return Err(CommandError::InvalidRange);
-            }
-        },
-        Some(RangeSpec::Single(RangeEnding(RangeEndingType::Last, mods))) => {
-            if mods.len() != 0 {
-                return Err(CommandError::InvalidRange);
-            }
-
-            FocusChange::Position(MovePosition::End)
-        },
-        Some(_) => {
-            return Err(CommandError::InvalidRange);
-        },
-        None => {
-            // Focus on the next tab by default.
-            FocusChange::Direction1D(MoveDir1D::Next, Count::Contextual, true)
-        },
-    };
+    let change = range
+        .map(|r| range_to_fc(&r, true, &*ctx.context))
+        .unwrap_or(Ok(FocusChange::Direction1D(MoveDir1D::Next, Count::Contextual, true)))?;
 
     let action = TabAction::Focus(change).into();
 
@@ -359,6 +349,7 @@ fn tab_prev<P: Application>(
                 return Err(CommandError::InvalidRange);
             }
 
+            // Move back {count} pages.
             FocusChange::Direction1D(MoveDir1D::Previous, count, true)
         },
         Some(_) => {
@@ -391,6 +382,70 @@ fn tab_last<P: Application>(
 ) -> CommandResult<P> {
     let change = FocusChange::Position(MovePosition::End);
     let action = TabAction::Focus(change).into();
+
+    Ok(CommandStep::Continue(action, ctx.context.take()))
+}
+
+fn tab_new<P: Application>(
+    desc: CommandDescription,
+    ctx: &mut CommandContext<P>,
+) -> CommandResult<P> {
+    let change = desc
+        .range
+        .map(|r| range_to_fc(&r, false, &*ctx.context))
+        .unwrap_or(Ok(FocusChange::Current))?;
+    let action = TabAction::Open(change);
+
+    Ok(CommandStep::Continue(action.into(), ctx.context.take()))
+}
+
+fn tab_close<P: Application>(
+    desc: CommandDescription,
+    ctx: &mut CommandContext<P>,
+) -> CommandResult<P> {
+    let change = desc
+        .range
+        .map(|r| range_to_fc(&r, false, &*ctx.context))
+        .unwrap_or(Ok(FocusChange::Current))?;
+    let target = CloseTarget::Single(change);
+    let flags = if desc.bang {
+        CloseFlags::FQ
+    } else {
+        CloseFlags::QUIT
+    };
+    let action = TabAction::Close(target, flags);
+
+    Ok(CommandStep::Continue(action.into(), ctx.context.take()))
+}
+
+fn tab_only<P: Application>(
+    desc: CommandDescription,
+    ctx: &mut CommandContext<P>,
+) -> CommandResult<P> {
+    let change = desc
+        .range
+        .map(|r| range_to_fc(&r, false, &*ctx.context))
+        .unwrap_or(Ok(FocusChange::Current))?;
+    let target = CloseTarget::AllBut(change);
+    let flags = if desc.bang {
+        CloseFlags::FQ
+    } else {
+        CloseFlags::QUIT
+    };
+    let action = TabAction::Close(target, flags);
+
+    Ok(CommandStep::Continue(action.into(), ctx.context.take()))
+}
+
+fn tab_move<P: Application>(
+    desc: CommandDescription,
+    ctx: &mut CommandContext<P>,
+) -> CommandResult<P> {
+    let change = desc
+        .range
+        .map(|r| range_to_fc(&r, false, &*ctx.context))
+        .unwrap_or(Ok(FocusChange::Position(MovePosition::End)))?;
+    let action = TabAction::Move(change).into();
 
     Ok(CommandStep::Continue(action, ctx.context.take()))
 }
@@ -473,7 +528,14 @@ fn default_cmds<P: Application>() -> Vec<VimCommand<P>> {
             names: strs!["vs", "vsp", "vsplit"],
             f: window_split_vertical,
         },
+        VimCommand { names: strs!["tabc", "tabclose"], f: tab_close },
+        VimCommand {
+            names: strs!["tabe", "tabedit", "tabnew"],
+            f: tab_new,
+        },
+        VimCommand { names: strs!["tabm", "tabmove"], f: tab_move },
         VimCommand { names: strs!["tabn", "tabnext"], f: tab_next },
+        VimCommand { names: strs!["tabo", "tabonly"], f: tab_only },
         VimCommand {
             names: strs!["tabp", "tabprevious", "tabN", "tabNext"],
             f: tab_prev,

@@ -781,8 +781,24 @@ pub enum TabAction {
     /// Close the [CloseTarget] tabs with [CloseFlags] options.
     Close(CloseTarget, CloseFlags),
 
-    /// Change the currently focus to the tab targeted by [FocusChange].
+    /// Extract the currently focused window from the currently focused tab, and place it in a new
+    /// tab.
+    ///
+    /// If there is only one window in the current tab, then this does nothing.
+    ///
+    /// The new tab will be placed on [MoveDir1D] side of the tab targeted by [FocusChange]. If
+    /// [FocusChange] doesn't resolve to a valid tab, then the new tab is placed after the
+    /// currently focused tab.
+    Extract(FocusChange, MoveDir1D),
+
+    /// Change the current focus to the tab targeted by [FocusChange].
     Focus(FocusChange),
+
+    /// Move the currently focused tab to the position targeted by [FocusChange].
+    Move(FocusChange),
+
+    /// Open a new tab after the tab targeted by [FocusChange].
+    Open(FocusChange),
 }
 
 /// Window actions
@@ -1548,6 +1564,12 @@ impl MoveDirMod {
 /// Additional information returned after an editing operation.
 pub struct EditInfo {
     msg: String,
+}
+
+impl EditInfo {
+    pub(crate) fn new(msg: &str) -> Self {
+        EditInfo { msg: msg.to_string() }
+    }
 }
 
 impl std::fmt::Display for EditInfo {

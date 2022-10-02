@@ -1,3 +1,5 @@
+use std::cmp::Ordering;
+
 use crate::editing::base::MoveDir1D;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
@@ -118,6 +120,56 @@ pub fn idx_offset(
     }
 }
 
+/// Move the element currently located at index `fidx` to be located before the element currently
+/// located at index `tidx`.
+///
+/// `fidx` will be updated with the new index of the element after it has been moved.
+///
+/// `idx_last` represents an index to another tracked element, and will be updated to make sure
+/// that it continues to point at the same element.
+pub fn idx_move<T>(els: &mut Vec<T>, fidx: &mut usize, tidx: usize, idx_last: &mut usize) {
+    let nidx = match tidx.cmp(fidx) {
+        Ordering::Less => {
+            let tab = els.remove(*fidx);
+            els.insert(tidx, tab);
+
+            tidx
+        },
+        Ordering::Equal => {
+            // Do nothing.
+            return;
+        },
+        Ordering::Greater => {
+            let tab = els.remove(*fidx);
+            let tidx = tidx - 1;
+            els.insert(tidx, tab);
+
+            tidx
+        },
+    };
+
+    match idx_last.cmp(&fidx) {
+        Ordering::Less => {
+            if *idx_last >= tidx {
+                // tabidx moved from after idx_last to before it.
+                *idx_last += 1;
+            }
+        },
+        Ordering::Equal => {
+            // fidx and idx_last are the same, and should remain so.
+            *idx_last = nidx;
+        },
+        Ordering::Greater => {
+            if *idx_last < tidx {
+                // fidx move from before idx_last to after it.
+                *idx_last -= 1;
+            }
+        },
+    }
+
+    *fidx = nidx;
+}
+
 #[inline]
 pub fn get_char(ke: &KeyEvent) -> Option<char> {
     if let KeyCode::Char(c) = ke.code {
@@ -210,4 +262,102 @@ pub fn is_space_char(c: char) -> bool {
 
 pub fn is_newline(c: char) -> bool {
     c == '\n' || c == '\r'
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_idx_move_equal() {
+        let mut idx;
+        let mut idxlast;
+        let mut v = vec!['a', 'b', 'c', 'd', 'e'];
+
+        // Move element to later in the list when idx == idxlast.
+        idx = 0;
+        idxlast = 0;
+        idx_move(&mut v, &mut idx, 3, &mut idxlast);
+
+        assert_eq!(idx, 2);
+        assert_eq!(idxlast, 2);
+        assert_eq!(v, vec!['b', 'c', 'a', 'd', 'e']);
+
+        // Move element to earlier in the list when idx == idxlast.
+        idx = 3;
+        idxlast = 3;
+        idx_move(&mut v, &mut idx, 0, &mut idxlast);
+
+        assert_eq!(idx, 0);
+        assert_eq!(idxlast, 0);
+        assert_eq!(v, vec!['d', 'b', 'c', 'a', 'e']);
+    }
+
+    #[test]
+    fn test_idx_move_cross() {
+        let mut idx;
+        let mut idxlast;
+        let mut v = vec!['a', 'b', 'c', 'd', 'e'];
+
+        // Move element to later place in the list, crossing over idxlast.
+        idx = 0;
+        idxlast = 1;
+        idx_move(&mut v, &mut idx, 3, &mut idxlast);
+
+        assert_eq!(idx, 2);
+        assert_eq!(idxlast, 0);
+        assert_eq!(v, vec!['b', 'c', 'a', 'd', 'e']);
+
+        // Move element to earlier place in the list, crossing over idxlast.
+        idx = 3;
+        idxlast = 1;
+        idx_move(&mut v, &mut idx, 0, &mut idxlast);
+
+        assert_eq!(idx, 0);
+        assert_eq!(idxlast, 2);
+        assert_eq!(v, vec!['d', 'b', 'c', 'a', 'e']);
+
+        // Move element to earlier place in the list, so that it's just before idxlast.
+        idx = 3;
+        idxlast = 1;
+        idx_move(&mut v, &mut idx, 1, &mut idxlast);
+
+        assert_eq!(idx, 1);
+        assert_eq!(idxlast, 2);
+        assert_eq!(v, vec!['d', 'a', 'b', 'c', 'e']);
+    }
+
+    #[test]
+    fn test_idx_move_no_cross() {
+        let mut idx;
+        let mut idxlast;
+        let mut v = vec!['a', 'b', 'c', 'd', 'e'];
+
+        // Move element to later place in the list, when idxlast is just before affected range.
+        idx = 2;
+        idxlast = 1;
+        idx_move(&mut v, &mut idx, 4, &mut idxlast);
+
+        assert_eq!(idx, 3);
+        assert_eq!(idxlast, 1);
+        assert_eq!(v, vec!['a', 'b', 'd', 'c', 'e']);
+
+        // Move element to earlier place in the list, when idxlast is just before affected range.
+        idx = 3;
+        idxlast = 1;
+        idx_move(&mut v, &mut idx, 2, &mut idxlast);
+
+        assert_eq!(idx, 2);
+        assert_eq!(idxlast, 1);
+        assert_eq!(v, vec!['a', 'b', 'c', 'd', 'e']);
+
+        // Move element to later in the list, so that it's before idxlast.
+        idx = 0;
+        idxlast = 3;
+        idx_move(&mut v, &mut idx, 3, &mut idxlast);
+
+        assert_eq!(idx, 2);
+        assert_eq!(idxlast, 3);
+        assert_eq!(v, vec!['b', 'c', 'a', 'd', 'e']);
+    }
 }

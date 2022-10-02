@@ -1066,6 +1066,16 @@ impl<W: Window> WindowLayoutState<W> {
         }
     }
 
+    pub fn empty() -> Self {
+        WindowLayoutState {
+            root: None,
+            info: TreeInfo::default(),
+            zoom: false,
+            focused: 0,
+            focused_last: 0,
+        }
+    }
+
     /// Fetch a reference to the currently focused [Window].
     pub fn get(&self) -> Option<&W> {
         self.root.get(self.focused)
@@ -1074,6 +1084,20 @@ impl<W: Window> WindowLayoutState<W> {
     /// Fetch a mutable reference the currently focused [Window].
     pub fn get_mut(&mut self) -> Option<&mut W> {
         self.root.get_mut(self.focused)
+    }
+
+    /// Extract the currently focused [Window] into its own window layout.
+    pub fn extract(&mut self) -> Self {
+        let at = self.focused;
+        let trail = ResizeInfoTrail::new(at, &mut self.info.resized, None);
+
+        if let Some(w) = self.root.close(at, trail) {
+            self._clamp_focus();
+
+            return WindowLayoutState::new(w);
+        } else {
+            return WindowLayoutState::empty();
+        }
     }
 
     fn move_side(&mut self, at: usize, dir: MoveDir2D) {

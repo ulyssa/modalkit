@@ -1259,7 +1259,7 @@ fn default_keys<P: Application>() -> Vec<(MappedModes, &'static str, InputStep<P
         ( NVMAP, "<C-W>s", window_split!(Axis::Horizontal) ),
         ( NVMAP, "<C-W>S", window_split!(Axis::Horizontal) ),
         ( NVMAP, "<C-W>t", window_focus!(FocusChange::Position(MovePosition::Beginning)) ),
-        ( NVMAP, "<C-W>T", unmapped!() ),
+        ( NVMAP, "<C-W>T", tab!(TabAction::Extract(FocusChange::Current, MoveDir1D::Next), TabAction::Extract(FocusChange::Offset(Count::Contextual, false), MoveDir1D::Previous)) ),
         ( NVMAP, "<C-W>v", window_split!(Axis::Vertical) ),
         ( NVMAP, "<C-W>w", window_focus!(FocusChange::Direction1D(MoveDir1D::Next, Count::Exact(1), true), FocusChange::Offset(Count::Contextual, true)) ),
         ( NVMAP, "<C-W>W", window_focus!(FocusChange::Direction1D(MoveDir1D::Previous, Count::Exact(1), true), FocusChange::Offset(Count::Contextual, true)) ),

@@ -19,7 +19,7 @@ use crate::{
     editing::buffer::Editable,
     editing::store::SharedStore,
     input::InputContext,
-    util::idx_offset,
+    util::{idx_move, idx_offset},
 };
 
 use super::{
@@ -46,6 +46,7 @@ use crate::editing::base::{
     EditAction,
     EditContext,
     EditError,
+    EditInfo,
     EditResult,
     EditTarget,
     FocusChange,
@@ -65,8 +66,18 @@ trait TabActions<C> {
     /// Close one or more tabs, and all of their [Windows](Window).
     fn tab_close(&mut self, target: &CloseTarget, flags: CloseFlags, ctx: &C) -> EditResult;
 
+    /// Extract the currently focused [Window] from the currently focused tab, and place it in a
+    /// new tab.
+    fn tab_extract(&mut self, change: &FocusChange, side: MoveDir1D, ctx: &C) -> EditResult;
+
     /// Switch focus to another tab.
     fn tab_focus(&mut self, change: &FocusChange, ctx: &C) -> EditResult;
+
+    /// Move the current tab to another position.
+    fn tab_move(&mut self, change: &FocusChange, ctx: &C) -> EditResult;
+
+    /// Open a new tab after the tab targeted by [FocusChange].
+    fn tab_open(&mut self, change: &FocusChange, ctx: &C) -> EditResult;
 }
 
 fn bold<'a>(s: String) -> Span<'a> {
@@ -145,6 +156,26 @@ where
         if idx != self.tabidx {
             self.tabidx_last = self.tabidx;
             self.tabidx = idx;
+        }
+    }
+
+    fn _insert_tab(&mut self, idx: usize, tab: WindowLayoutState<W>) {
+        self.tabs.insert(idx, tab);
+
+        if self.tabidx >= idx {
+            self.tabidx_last = self.tabidx + 1;
+        } else {
+            self.tabidx_last = self.tabidx;
+        }
+
+        self.tabidx = idx;
+    }
+
+    fn _remove_tab(&mut self, idx: usize) {
+        let _ = self.tabs.remove(idx);
+
+        if idx < self.tabidx {
+            self.tabidx = self.tabidx.saturating_sub(1);
         }
     }
 
@@ -288,12 +319,33 @@ where
                         ));
                     }
 
-                    let _ = self.tabs.remove(idx);
-
-                    if idx < self.tabidx {
-                        self.tabidx = self.tabidx.saturating_sub(1);
-                    }
+                    self._remove_tab(idx);
                 }
+            },
+        }
+
+        return Ok(None);
+    }
+
+    fn tab_extract(&mut self, change: &FocusChange, side: MoveDir1D, ctx: &C) -> EditResult {
+        if self.windows() <= 1 {
+            return Ok(Some(EditInfo::new("Already one window")));
+        }
+
+        let tab = self.current_tab_mut().extract();
+
+        let (idx, side) = if let Some(idx) = self._target(change, ctx) {
+            (idx, side)
+        } else {
+            (self.tabidx, MoveDir1D::Next)
+        };
+
+        match side {
+            MoveDir1D::Next => {
+                self._insert_tab(idx + 1, tab);
+            },
+            MoveDir1D::Previous => {
+                self._insert_tab(idx, tab);
             },
         }
 
@@ -306,6 +358,23 @@ where
         }
 
         Ok(None)
+    }
+
+    fn tab_move(&mut self, change: &FocusChange, ctx: &C) -> EditResult {
+        if let Some(idx) = self._target(change, ctx) {
+            idx_move(&mut self.tabs, &mut self.tabidx, idx, &mut self.tabidx_last);
+        }
+
+        return Ok(None);
+    }
+
+    fn tab_open(&mut self, change: &FocusChange, ctx: &C) -> EditResult {
+        let idx = self._target(change, ctx).unwrap_or(self.tabidx);
+        let tab = WindowLayoutState::empty();
+
+        self._insert_tab(idx, tab);
+
+        return Ok(None);
     }
 }
 
@@ -322,7 +391,10 @@ where
     fn tab_command(&mut self, act: TabAction, ctx: &C) -> EditResult {
         match act {
             TabAction::Close(target, flags) => self.tab_close(&target, flags, ctx),
+            TabAction::Extract(target, side) => self.tab_extract(&target, side, ctx),
             TabAction::Focus(change) => self.tab_focus(&change, ctx),
+            TabAction::Move(change) => self.tab_move(&change, ctx),
+            TabAction::Open(change) => self.tab_open(&change, ctx),
         }
     }
 }
@@ -349,7 +421,14 @@ where
     }
 
     fn window_command(&mut self, act: WindowAction, ctx: &C) -> EditResult {
-        self.current_tab_mut().window_command(act, ctx)
+        let tab = self.current_tab_mut();
+        let ret = tab.window_command(act, ctx);
+
+        if WindowContainer::<W, C>::windows(tab) == 0 {
+            self._remove_tab(self.tabidx);
+        }
+
+        ret
     }
 }
 
