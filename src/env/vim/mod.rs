@@ -20,6 +20,7 @@ use crate::editing::base::{
     Count,
     CursorAction,
     CursorCloseTarget,
+    CursorEnd,
     EditAction,
     EditContext,
     EditTarget,
@@ -309,6 +310,9 @@ pub(crate) struct ActionContext<P: Application> {
     // The editing action to take.
     pub(crate) operation: EditAction,
 
+    // Where to place the cursor after editing.
+    pub(crate) cursor_end: Option<CursorEnd>,
+
     // Temporary character search parameters.
     pub(crate) charsearch_params: Option<(MoveDir1D, bool)>,
 
@@ -463,6 +467,10 @@ impl<P: Application> InputKeyContext<KeyEvent, CommonKeyClass> for VimContext<P>
 }
 
 impl<P: Application> EditContext for VimContext<P> {
+    fn get_cursor_end(&self) -> CursorEnd {
+        self.action.cursor_end.unwrap_or(CursorEnd::Auto)
+    }
+
     fn get_replace_char(&self) -> Option<Char> {
         self.action.replace.clone()
     }
@@ -493,6 +501,10 @@ impl<P: Application> EditContext for VimContext<P> {
         self.persist.insert.clone()
     }
 
+    fn get_last_column(&self) -> bool {
+        self.persist.insert.is_some()
+    }
+
     fn get_register(&self) -> Option<Register> {
         self.action.register.clone()
     }
@@ -521,6 +533,8 @@ impl<P: Application> Default for ActionContext<P> {
             mark: None,
 
             operation: EditAction::default(),
+
+            cursor_end: None,
 
             charsearch_params: None,
 

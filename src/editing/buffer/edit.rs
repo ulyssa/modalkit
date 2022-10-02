@@ -3,6 +3,7 @@ use crate::{editing::cursor::Cursor, editing::rope::EditRope, editing::store::Re
 use crate::editing::base::{
     Application,
     Case,
+    CursorChoice,
     CursorMovements,
     CursorMovementsContext,
     EditContext,
@@ -16,14 +17,14 @@ use crate::editing::base::{
 use super::{CursorRange, EditBuffer};
 
 pub trait EditActions<C> {
-    fn delete(&mut self, range: &CursorRange, ctx: C) -> Option<Cursor>;
-    fn yank(&mut self, range: &CursorRange, ctx: C) -> Option<Cursor>;
-    fn replace(&mut self, c: char, virt: bool, range: &CursorRange, ctx: C) -> Option<Cursor>;
-    fn changecase(&mut self, case: &Case, range: &CursorRange, ctx: C) -> Option<Cursor>;
-    fn format(&mut self, range: &CursorRange, ctx: C) -> Option<Cursor>;
-    fn changenum(&mut self, change: &NumberChange, range: &CursorRange, ctx: C) -> Option<Cursor>;
-    fn join(&mut self, spaces: JoinStyle, range: &CursorRange, ctx: C) -> Option<Cursor>;
-    fn indent(&mut self, change: &IndentChange, range: &CursorRange, ctx: C) -> Option<Cursor>;
+    fn delete(&mut self, range: &CursorRange, ctx: C) -> CursorChoice;
+    fn yank(&mut self, range: &CursorRange, ctx: C) -> CursorChoice;
+    fn replace(&mut self, c: char, virt: bool, range: &CursorRange, ctx: C) -> CursorChoice;
+    fn changecase(&mut self, case: &Case, range: &CursorRange, ctx: C) -> CursorChoice;
+    fn format(&mut self, range: &CursorRange, ctx: C) -> CursorChoice;
+    fn changenum(&mut self, change: &NumberChange, range: &CursorRange, ctx: C) -> CursorChoice;
+    fn join(&mut self, spaces: JoinStyle, range: &CursorRange, ctx: C) -> CursorChoice;
+    fn indent(&mut self, change: &IndentChange, range: &CursorRange, ctx: C) -> CursorChoice;
 }
 
 impl<'a, 'b, 'c, C, P> EditActions<&CursorMovementsContext<'a, 'b, 'c, Cursor, C>>
@@ -36,7 +37,7 @@ where
         &mut self,
         range: &CursorRange,
         ctx: &CursorMovementsContext<'a, 'b, 'c, Cursor, C>,
-    ) -> Option<Cursor> {
+    ) -> CursorChoice {
         let style = ctx.context.get_insert_style().unwrap_or(InsertStyle::Insert);
         let (shape, ranges) = self._effective(range, ctx.context.get_target_shape());
         let mut deleted = EditRope::from("");
@@ -90,23 +91,30 @@ where
 
         let cursor = self.text.offset_to_cursor(coff);
 
-        return Some(cursor);
+        return CursorChoice::Single(cursor);
     }
 
     fn yank(
         &mut self,
         range: &CursorRange,
         ctx: &CursorMovementsContext<'a, 'b, 'c, Cursor, C>,
-    ) -> Option<Cursor> {
+    ) -> CursorChoice {
         let (shape, ranges) = self._effective(range, ctx.context.get_target_shape());
         let mut yanked = EditRope::from("");
         let mut first = true;
+        let mut cursors = None;
 
         for (start, end, inclusive) in ranges.into_iter() {
             if first {
                 first = false;
             } else {
                 yanked += EditRope::from('\n');
+            }
+
+            if let Some((_, ref mut eoff)) = cursors {
+                *eoff = end;
+            } else {
+                cursors = Some((start, end));
             }
 
             yanked += self.text.slice(start, end, inclusive);
@@ -117,23 +125,23 @@ where
         let append = ctx.context.get_register_append();
         self.set_register(&register, cell, append, false);
 
-        match shape {
-            TargetShape::LineWise => {
-                // LineWise yanks leave the cursor in place.
-                return None;
-            },
-            TargetShape::CharWise => {
-                // CharWise yanks place the cursor at the beginning.
-                return range.start.clone().into();
-            },
-            TargetShape::BlockWise => {
-                // BlockWise yanks place the cursor at the upper left.
-                let y = range.start.y.min(range.end.y);
-                let x = range.start.x.min(range.end.x);
+        cursors
+            .map(|(start, end)| {
+                let start = self.text.offset_to_cursor(start);
+                let end = self.text.offset_to_cursor(end);
 
-                return Cursor::new(y, x).into();
-            },
-        }
+                match shape {
+                    TargetShape::CharWise | TargetShape::LineWise => {
+                        // CharWise and LineWise yanks place the cursor at the range start.
+                        CursorChoice::Range(start, end, range.start.clone())
+                    },
+                    TargetShape::BlockWise => {
+                        // BlockWise yanks place the cursor at the upper left.
+                        CursorChoice::Range(start.clone(), end, start)
+                    },
+                }
+            })
+            .unwrap_or_default()
     }
 
     fn replace(
@@ -142,7 +150,7 @@ where
         _virt: bool,
         range: &CursorRange,
         ctx: &CursorMovementsContext<'a, 'b, 'c, Cursor, C>,
-    ) -> Option<Cursor> {
+    ) -> CursorChoice {
         let (_, ranges) = self._effective(range, ctx.context.get_target_shape());
         let mut cursor = None;
 
@@ -169,7 +177,9 @@ where
             };
         }
 
-        return cursor.map(|off| self.text.offset_to_cursor(off));
+        return cursor
+            .map(|off| self.text.offset_to_cursor(off).into())
+            .unwrap_or_default();
     }
 
     fn changecase(
@@ -177,31 +187,41 @@ where
         case: &Case,
         range: &CursorRange,
         ctx: &CursorMovementsContext<'a, 'b, 'c, Cursor, C>,
-    ) -> Option<Cursor> {
+    ) -> CursorChoice {
         let (shape, ranges) = self._effective(range, ctx.context.get_target_shape());
-        let mut cursor = None;
+        let mut cursors = None;
 
         for (start, end, inclusive) in ranges.into_iter().rev() {
             self.text = self.text.transform(start, end, inclusive, |r| r.changecase(case));
 
-            cursor = Some(start);
+            if let Some((ref mut soff, _)) = cursors {
+                *soff = start;
+            } else {
+                cursors = Some((start, end));
+            }
         }
 
-        match shape {
-            TargetShape::CharWise => {
-                return cursor.map(|off| self.text.offset_to_cursor(off));
-            },
-            TargetShape::LineWise => {
-                if range.start.y == range.end.y {
-                    return self.text.first_word(&range.start, ctx).into();
-                } else {
-                    return range.start.clone().into();
+        cursors
+            .map(|(start, end)| {
+                let start = self.text.offset_to_cursor(start);
+                let end = self.text.offset_to_cursor(end);
+
+                match shape {
+                    TargetShape::CharWise | TargetShape::BlockWise => {
+                        CursorChoice::Range(start.clone(), end, start)
+                    },
+                    TargetShape::LineWise => {
+                        let default = if range.start.y == range.end.y {
+                            self.text.first_word(&range.start, ctx)
+                        } else {
+                            range.start.clone()
+                        };
+
+                        CursorChoice::Range(start, end, default)
+                    },
                 }
-            },
-            TargetShape::BlockWise => {
-                return cursor.map(|off| self.text.offset_to_cursor(off));
-            },
-        }
+            })
+            .unwrap_or_default()
     }
 
     fn indent(
@@ -209,23 +229,23 @@ where
         _: &IndentChange,
         _: &CursorRange,
         _: &CursorMovementsContext<'a, 'b, 'c, Cursor, C>,
-    ) -> Option<Cursor> {
+    ) -> CursorChoice {
         // XXX: implement (:help <, :help >, :help v_b_<, :help v_b_>)
 
-        return None;
+        return CursorChoice::Empty;
     }
 
     fn format(
         &mut self,
         _: &CursorRange,
         _: &CursorMovementsContext<'a, 'b, 'c, Cursor, C>,
-    ) -> Option<Cursor> {
+    ) -> CursorChoice {
         /*
          * Automatically formatting lines requires a whole lot of logic that just doesn't exist
          * in this codebase yet. At some point, if some kind of filetype detection is added, then
          * this function can be made to do something useful.
          */
-        return None;
+        return CursorChoice::Empty;
     }
 
     fn changenum(
@@ -233,10 +253,10 @@ where
         _: &NumberChange,
         _: &CursorRange,
         _: &CursorMovementsContext<'a, 'b, 'c, Cursor, C>,
-    ) -> Option<Cursor> {
+    ) -> CursorChoice {
         // XXX: implement (:help nrformats)
 
-        return None;
+        return CursorChoice::Empty;
     }
 
     fn join(
@@ -244,7 +264,7 @@ where
         spaces: JoinStyle,
         range: &CursorRange,
         _: &CursorMovementsContext<'a, 'b, 'c, Cursor, C>,
-    ) -> Option<Cursor> {
+    ) -> CursorChoice {
         // Joining is always forced into a LineWise movement.
         let (_, ranges) = self._effective(range, Some(TargetShape::LineWise));
         let mut cursor = None;
@@ -335,7 +355,9 @@ where
             }
         }
 
-        return cursor.map(|off| self.text.offset_to_cursor(off));
+        return cursor
+            .map(|off| self.text.offset_to_cursor(off).into())
+            .unwrap_or_default();
     }
 }
 
@@ -343,6 +365,8 @@ where
 mod tests {
     use super::super::tests::*;
     use super::*;
+
+    use crate::editing::base::CursorEnd;
 
     macro_rules! get_reg {
         ($ebuf: expr, $reg: expr) => {
@@ -690,6 +714,27 @@ mod tests {
         assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 0));
 
         // XXX: cursor should move to first word after g~~/gUU/guu
+    }
+
+    #[test]
+    fn test_changecase_tilde() {
+        let mut ebuf = mkbufstr("thiS iS An eXaMpLE of mIxed cASE\nfoo bar\n");
+        let curid = ebuf.create_group();
+        let vwctx = ViewportContext::default();
+        let mut vctx = VimContext::default();
+
+        let operation = EditAction::ChangeCase(Case::Toggle);
+        let mov = MoveType::Column(MoveDir1D::Next, false);
+
+        vctx.action.cursor_end = Some(CursorEnd::End);
+
+        // Start out at (0, 11), at the start of "eXaMpLE".
+        ebuf.set_leader(curid, Cursor::new(0, 11));
+
+        // Toggle case to the end of the line ("100~").
+        edit!(ebuf, operation, mv!(mov, 100), ctx!(curid, vwctx, vctx));
+        assert_eq!(ebuf.get_text(), "thiS iS An ExAmPle OF MiXED Case\nfoo bar\n");
+        assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 31));
     }
 
     #[test]

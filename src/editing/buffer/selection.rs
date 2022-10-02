@@ -266,7 +266,7 @@ where
         let gid = ictx.0;
         let count = ictx.2.resolve(&count);
         let lines = self.text.get_lines();
-        let lastcol = ictx.2.get_insert_style().is_some();
+        let lastcol = ictx.2.get_last_column();
 
         for (start, end, shape) in self.get_group_selections(gid).unwrap_or_else(Vec::new) {
             let check = |ebuf: &EditBuffer<C, P>, lstart, lend| {
@@ -549,7 +549,7 @@ where
         ctx: &CursorGroupIdContext<'a, 'b, C>,
     ) -> EditResult {
         let gid = ctx.0;
-        let lastcol = ctx.2.get_insert_style().is_some();
+        let lastcol = ctx.2.get_last_column();
         let mut del = Vec::new();
 
         for (id, mut cursor) in self.get_group_cursors(gid) {

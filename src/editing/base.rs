@@ -168,6 +168,80 @@ impl From<RangeType> for EditTarget {
     }
 }
 
+/// Determines where to leave the cursor after editing text.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CursorEnd {
+    /// Keep the current cursor position as best as possible.
+    Keep,
+
+    /// Place the cursor at the start of the [EditTarget].
+    Start,
+
+    /// Place the cursor at the end of the [EditTarget].
+    End,
+
+    /// Use the default cursor end position for the operation.
+    Auto,
+}
+
+/// Result type for functions that provide the option of leaving the cursor in different places.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum CursorChoice<C = super::cursor::Cursor> {
+    /// One choice of cursor placement.
+    Single(C),
+
+    /// The start and end positions of an affected range, and a default choice that may or may not
+    /// be inside the range.
+    Range(C, C, C),
+
+    /// No choices for cursor placement.
+    Empty,
+}
+
+impl<C: Clone> CursorChoice<C> {
+    /// Get a reference to the cursor that would be chosen by `placement`.
+    pub fn get(&self, placement: CursorEnd) -> Option<&C> {
+        match (self, placement) {
+            (CursorChoice::Empty, _) => None,
+            (CursorChoice::Single(_), CursorEnd::Keep) => None,
+            (CursorChoice::Single(c), CursorEnd::Start) => Some(c),
+            (CursorChoice::Single(c), CursorEnd::End) => Some(c),
+            (CursorChoice::Single(c), CursorEnd::Auto) => Some(c),
+            (CursorChoice::Range(_, _, _), CursorEnd::Keep) => None,
+            (CursorChoice::Range(s, _, _), CursorEnd::Start) => Some(s),
+            (CursorChoice::Range(_, e, _), CursorEnd::End) => Some(e),
+            (CursorChoice::Range(_, _, d), CursorEnd::Auto) => Some(d),
+        }
+    }
+
+    /// Choose the cursor placement as indicated.
+    pub fn resolve(self, placement: CursorEnd) -> Option<C> {
+        match (self, placement) {
+            (CursorChoice::Empty, _) => None,
+            (CursorChoice::Single(_), CursorEnd::Keep) => None,
+            (CursorChoice::Single(c), CursorEnd::Start) => Some(c),
+            (CursorChoice::Single(c), CursorEnd::End) => Some(c),
+            (CursorChoice::Single(c), CursorEnd::Auto) => Some(c),
+            (CursorChoice::Range(_, _, _), CursorEnd::Keep) => None,
+            (CursorChoice::Range(s, _, _), CursorEnd::Start) => Some(s),
+            (CursorChoice::Range(_, e, _), CursorEnd::End) => Some(e),
+            (CursorChoice::Range(_, _, d), CursorEnd::Auto) => Some(d),
+        }
+    }
+}
+
+impl<C> From<C> for CursorChoice<C> {
+    fn from(cursor: C) -> Self {
+        CursorChoice::Single(cursor)
+    }
+}
+
+impl<C> Default for CursorChoice<C> {
+    fn default() -> Self {
+        CursorChoice::Empty
+    }
+}
+
 /// Description of a textual range within a buffer.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct EditRange<Cursor> {
@@ -1588,11 +1662,19 @@ pub trait EditContext:
     + Resolve<Specifier<EditAction>, EditAction>
     + Resolve<Count, usize>
 {
+    /// Indicates where to leave the cursor after editing text.
+    fn get_cursor_end(&self) -> CursorEnd {
+        CursorEnd::Auto
+    }
+
     /// Indicates a shape to be applied to an [EditAction].
     fn get_target_shape(&self) -> Option<TargetShape>;
 
     /// Indicates the style by which text should be inserted into the buffer.
     fn get_insert_style(&self) -> Option<InsertStyle>;
+
+    /// Indicates whether it is okay to move the cursor into the last column of a line.
+    fn get_last_column(&self) -> bool;
 
     /// Indicates which register yanked and deleted text should go to.
     fn get_register(&self) -> Option<Register>;

@@ -234,6 +234,10 @@ impl<P: Application> EditContext for EmacsContext<P> {
         self.persist.insert.into()
     }
 
+    fn get_last_column(&self) -> bool {
+        true
+    }
+
     fn get_register(&self) -> Option<Register> {
         self.action.register.clone()
     }

@@ -3,6 +3,8 @@ use crate::editing::{
         Application,
         Char,
         Count,
+        CursorChoice,
+        CursorEnd,
         EditContext,
         EditResult,
         InsertStyle,
@@ -48,10 +50,11 @@ where
         let style = ctx.2.get_insert_style();
         let cell = self.get_register(&ctx.2.get_register());
         let text = cell.value.repeat(cell.shape, count);
+        let end = ctx.2.get_cursor_end();
 
         for member in self.get_group(ctx.0) {
             let cursor = self.get_cursor(member);
-            let (mut cursor, adjs) = if let Some(style) = style {
+            let (choice, adjs) = if let Some(style) = style {
                 self.text.insert(&cursor, dir, text.clone(), style)
             } else {
                 self.text.paste(&cursor, dir, text.clone(), cell.shape)
@@ -59,9 +62,10 @@ where
 
             self._adjust_all(adjs);
 
-            // XXX: remove clamp() and do it right in EditRope::paste
-            self.clamp(&mut cursor, ctx);
-            self.set_cursor(member, cursor)
+            if let Some(mut cursor) = choice.resolve(end) {
+                self.clamp(&mut cursor, ctx);
+                self.set_cursor(member, cursor)
+            }
         }
 
         Ok(None)
@@ -76,15 +80,18 @@ where
     ) -> EditResult {
         let count = ctx.2.resolve(&count);
         let text = EditRope::from("\n").repeat(TargetShape::CharWise, count);
+        let end = ctx.2.get_cursor_end();
 
         for member in self.get_group(ctx.0) {
             let cursor = self.get_cursor(member);
-            let (mut cursor, adjs) = self.text.paste(&cursor, dir, text.clone(), shape);
+            let (choice, adjs) = self.text.paste(&cursor, dir, text.clone(), shape);
 
             self._adjust_all(adjs);
 
-            self.clamp(&mut cursor, ctx);
-            self.set_cursor(member, cursor);
+            if let Some(mut cursor) = choice.resolve(end) {
+                self.clamp(&mut cursor, ctx);
+                self.set_cursor(member, cursor);
+            }
         }
 
         Ok(None)
@@ -99,14 +106,19 @@ where
     ) -> EditResult {
         let style = ctx.2.get_insert_style().unwrap_or(InsertStyle::Insert);
         let count = ctx.2.resolve(&count);
+        let end = ctx.2.get_cursor_end();
 
         let text = EditRope::from(s.as_str()).repeat(TargetShape::CharWise, count);
 
         for (member, cursor) in self.get_group_cursors(ctx.0).into_iter().rev() {
-            let (cursor, adjs) = self.text.insert(&cursor, dir, text.clone(), style);
+            let (choice, adjs) = self.text.insert(&cursor, dir, text.clone(), style);
 
             self._adjust_all(adjs);
-            self.set_cursor(member, cursor);
+
+            if let Some(mut cursor) = choice.resolve(end) {
+                self.clamp(&mut cursor, ctx);
+                self.set_cursor(member, cursor);
+            }
         }
 
         Ok(None)
@@ -121,18 +133,25 @@ where
     ) -> EditResult {
         let style = ctx.2.get_insert_style().unwrap_or(InsertStyle::Insert);
         let count = ctx.2.resolve(&count);
+        let end = ctx.2.get_cursor_end();
 
-        for (member, mut cursor) in self.get_group_cursors(ctx.0).into_iter().rev() {
+        for (member, cursor) in self.get_group_cursors(ctx.0).into_iter().rev() {
+            let mut choice = CursorChoice::Single(cursor);
+
             for _ in 0..count {
-                let s = self._str(ch.clone(), &cursor)?;
-                let text = EditRope::from(s.as_str());
+                if let Some(cursor) = choice.get(CursorEnd::Auto) {
+                    let s = self._str(ch.clone(), cursor)?;
+                    let text = EditRope::from(s.as_str());
 
-                let res = self.text.insert(&cursor, dir, text, style);
-                cursor = res.0;
-                self._adjust_all(res.1);
+                    let res = self.text.insert(&cursor, dir, text, style);
+                    choice = res.0;
+                    self._adjust_all(res.1);
+                }
             }
 
-            self.set_cursor(member, cursor);
+            if let Some(cursor) = choice.resolve(end) {
+                self.set_cursor(member, cursor);
+            }
         }
 
         Ok(None)

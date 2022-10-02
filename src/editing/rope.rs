@@ -27,9 +27,11 @@ use crate::editing::base::{
     BoundaryTestContext,
     Case,
     Count,
+    CursorChoice,
     CursorMovements,
     CursorMovementsContext,
     CursorSearch,
+    EditAction,
     EditContext,
     EditRange,
     InsertStyle,
@@ -635,6 +637,18 @@ fn titlecase(s: String) -> String {
         .collect()
 }
 
+fn get_last_column<'a, 'b, 'c, C: EditContext>(
+    ctx: &CursorMovementsContext<'a, 'b, 'c, Cursor, C>,
+) -> bool {
+    let shaped = ctx.context.get_target_shape().is_some();
+
+    if ctx.action.is_motion() {
+        return ctx.context.get_last_column() || shaped;
+    }
+
+    return !shaped;
+}
+
 /// A rope with context-aware movements and high-level operations.
 #[derive(Clone, Debug)]
 pub struct EditRope {
@@ -941,9 +955,10 @@ impl EditRope {
         &mut self,
         cursor: &Cursor,
         text: EditRope,
-    ) -> (Cursor, Vec<CursorAdjustment>) {
+    ) -> (CursorChoice, Vec<CursorAdjustment>) {
         let off = self.offset_of_line(cursor.y).0;
         let tlines = text.get_lines() as isize;
+        let tlen = text.len();
 
         self.rope.edit(off..off, text.rope);
 
@@ -954,11 +969,14 @@ impl EditRope {
             amount_after: 0,
         };
 
-        let cctx = &(&*self, 0, true);
-        let mut nc = cursor.clone();
-        nc.first_word(cctx);
+        let start = self.offset_to_cursor(ByteOff(off));
+        let end = self.offset_to_cursor(ByteOff(off + tlen));
 
-        (nc, vec![adj])
+        let mut default = start.clone();
+        let cctx = &(&*self, 0, true);
+        default.first_word(cctx);
+
+        (CursorChoice::Range(start, end, default), vec![adj])
     }
 
     /// Do a linewise insertion of some text below the cursor's current line. The text should
@@ -967,23 +985,26 @@ impl EditRope {
         &mut self,
         cursor: &Cursor,
         text: EditRope,
-    ) -> (Cursor, Vec<CursorAdjustment>) {
+    ) -> (CursorChoice, Vec<CursorAdjustment>) {
         let coff = self.cursor_to_offset(cursor);
         let mut rc = self.offset_to_rc(coff);
         let tlines = text.get_lines() as isize;
+        let tlen = text.len();
 
-        match rc.next::<LinesMetric>() {
+        let soff = match rc.next::<LinesMetric>() {
             Some(end) => {
                 self.rope.edit(end..end, text.rope);
+                end
             },
             None => {
                 let end = self.rope.len();
                 self.rope.edit(end..end, text.rope);
                 self.rope.edit(end..end, Rope::from("\n"));
+                end
             },
-        }
+        };
 
-        let lstart = self.line_of_offset(coff);
+        let lstart = self.line_of_offset(coff) + 1;
         let adj = CursorAdjustment::Line {
             line_start: lstart,
             line_end: usize::MAX,
@@ -991,12 +1012,14 @@ impl EditRope {
             amount_after: 0,
         };
 
-        let cctx = &(&*self, 0usize, true);
-        let mut nc = cursor.clone();
-        nc.down(1);
-        nc.first_word(cctx);
+        let start = self.offset_to_cursor(ByteOff(soff));
+        let end = self.offset_to_cursor(ByteOff(soff + tlen));
 
-        return (nc, vec![adj]);
+        let mut default = start.clone();
+        let cctx = &(&*self, 0usize, true);
+        default.first_word(cctx);
+
+        return (CursorChoice::Range(start, end, default), vec![adj]);
     }
 
     /// Do a blockwise insertion of some text. Lines within the block should be separated by a
@@ -1006,12 +1029,12 @@ impl EditRope {
         cursor: &Cursor,
         off: usize,
         text: EditRope,
-    ) -> (Cursor, Vec<CursorAdjustment>) {
+    ) -> (CursorChoice, Vec<CursorAdjustment>) {
         let colmax = self.max_column_idx(cursor.y, true);
         let cstart = cursor.x.saturating_add(off).min(colmax);
         let coff = self.lincol_to_offset(cursor.y, cstart);
-        let nc = self.offset_to_cursor(coff);
 
+        let mut eoff = coff;
         let mut adjs = vec![];
         let mut c = cursor.clone();
 
@@ -1025,15 +1048,18 @@ impl EditRope {
             let colmax = self.max_column_idx(c.y, true);
             let cstart = c.x.saturating_add(off).min(colmax);
             let ioff = self.lincol_to_offset(c.y, cstart).0;
+            let tlen = line.len();
 
             adjs.push(CursorAdjustment::Column {
                 line: c.y,
                 column_start: cstart,
                 amt_line: 0,
-                amt_col: line.len() as isize,
+                amt_col: tlen as isize,
             });
 
             self.rope.edit(ioff..ioff, line);
+
+            eoff = ByteOff(ioff + tlen);
 
             c.down(1);
         }
@@ -1041,11 +1067,17 @@ impl EditRope {
         if ilines > alines {
             let start = text.offset_of_line(alines).0;
             let append = text.rope.slice(start..) + Rope::from("\n");
+            let alen = append.len();
             let len = self.rope.len();
             self.rope.edit(len..len, append);
+            eoff = ByteOff(len + alen);
         }
 
-        return (nc, adjs);
+        let start = self.offset_to_cursor(coff);
+        let end = self.offset_to_cursor(eoff);
+        let default = start.clone();
+
+        return (CursorChoice::Range(start, end, default), adjs);
     }
 
     fn _insert(
@@ -1055,7 +1087,7 @@ impl EditRope {
         co: usize,
         text: EditRope,
         style: InsertStyle,
-    ) -> (Cursor, Vec<CursorAdjustment>) {
+    ) -> (CursorChoice, Vec<CursorAdjustment>) {
         let colmax = self.max_column_idx(cursor.y, true);
         let cstart = cursor.x.saturating_add(off).min(colmax);
 
@@ -1105,11 +1137,15 @@ impl EditRope {
             });
         }
 
+        let start = self.offset_to_cursor(ioff);
+        let end = self.offset_to_cursor(ByteOff(ioff.0 + tlen));
+
         let noff = self.offset_to_u16(insend);
         let noff = noff.0.saturating_sub(1).saturating_add(co);
         let noff = self.u16_to_offset(U16Off(noff));
+        let default = self.offset_to_cursor(noff);
 
-        return (self.offset_to_cursor(noff), adjs);
+        return (CursorChoice::Range(start, end, default), adjs);
     }
 
     /// Insert or replace text before or after a given cursor position.
@@ -1119,7 +1155,11 @@ impl EditRope {
         dir: MoveDir1D,
         text: EditRope,
         style: InsertStyle,
-    ) -> (Cursor, Vec<CursorAdjustment>) {
+    ) -> (CursorChoice, Vec<CursorAdjustment>) {
+        if text.len() == 0 {
+            return (CursorChoice::Single(cursor.clone()), vec![]);
+        }
+
         match dir {
             MoveDir1D::Previous => {
                 return self._insert(cursor, 0, 1, text, style);
@@ -1137,7 +1177,11 @@ impl EditRope {
         dir: MoveDir1D,
         text: EditRope,
         shape: TargetShape,
-    ) -> (Cursor, Vec<CursorAdjustment>) {
+    ) -> (CursorChoice, Vec<CursorAdjustment>) {
+        if text.len() == 0 {
+            return (CursorChoice::Single(cursor.clone()), vec![]);
+        }
+
         match (shape, dir) {
             (TargetShape::CharWise, MoveDir1D::Previous) => {
                 return self._insert(cursor, 0, 0, text, InsertStyle::Insert);
@@ -1358,21 +1402,20 @@ impl EditRope {
                         continue;
                     }
 
-                    let lline = self.line_of_offset(last);
+                    let clast = self.offset_to_cursor(last);
                     let sline = self.line_of_offset(start);
 
-                    if lline == sline {
+                    if clast.y == sline {
                         let lu16 = self.offset_to_u16(last);
                         let su16 = self.offset_to_u16(start);
 
                         adjs.push(CursorAdjustment::Column {
-                            line: lline + inserted,
-                            column_start: lu16.0,
+                            line: clast.y + inserted,
+                            column_start: clast.x,
                             amt_line: 0,
                             amt_col: -(su16.0 as isize - lu16.0 as isize),
                         });
                     } else {
-                        let clast = self.offset_to_cursor(last);
                         adjs.push(CursorAdjustment::Column {
                             line: clast.y + inserted,
                             column_start: clast.x,
@@ -1380,11 +1423,11 @@ impl EditRope {
                             amt_col: isize::MIN,
                         });
 
-                        let dlines = sline - lline;
+                        let dlines = sline - clast.y;
                         adjs.push(CursorAdjustment::Line {
-                            line_start: lline + inserted,
-                            line_end: sline + inserted,
-                            amount: isize::MAX,
+                            line_start: clast.y + inserted,
+                            line_end: (sline + inserted).saturating_sub(1),
+                            amount: isize::MIN,
                             amount_after: -(dlines as isize),
                         });
                     }
@@ -1417,6 +1460,39 @@ impl EditRope {
                         inserted += nlines;
                     }
                 },
+            }
+        }
+
+        let loff = self.last_offset();
+
+        if last <= loff {
+            let clast = self.offset_to_cursor(last);
+            let lbyte = self.offset_of_line(clast.y);
+            let mline = self.line_of_offset(loff);
+            let dlines = (mline - clast.y) as isize;
+
+            if last > lbyte {
+                // We aren't deleting the whole line.
+                adjs.push(CursorAdjustment::Column {
+                    line: clast.y + inserted,
+                    column_start: clast.x,
+                    amt_line: 0,
+                    amt_col: isize::MIN,
+                });
+
+                adjs.push(CursorAdjustment::Line {
+                    line_start: clast.y + inserted,
+                    line_end: mline + inserted,
+                    amount: -dlines,
+                    amount_after: isize::MIN,
+                });
+            } else {
+                adjs.push(CursorAdjustment::Line {
+                    line_start: clast.y + inserted,
+                    line_end: mline + inserted,
+                    amount: -(dlines + 1),
+                    amount_after: isize::MIN,
+                });
             }
         }
 
@@ -2032,7 +2108,7 @@ impl<C: EditContext> CursorMovements<Cursor, C> for EditRope {
         count: &Count,
         ctx: &CursorMovementsContext<'a, 'b, 'c, Cursor, C>,
     ) -> Option<Cursor> {
-        let lastcol = ctx.context.get_insert_style().is_some();
+        let lastcol = get_last_column(ctx);
         let cctx = &(self, ctx.view.get_width(), lastcol);
         let mut nc = cursor.clone();
 
@@ -2240,7 +2316,7 @@ impl<C: EditContext> CursorMovements<Cursor, C> for EditRope {
             (RangeType::Item, _) => self.find_item_range(cursor),
             (RangeType::Word(obj), count) => {
                 let motion = ctx.action.is_motion();
-                let lastcol = ctx.context.get_insert_style().is_some();
+                let lastcol = get_last_column(ctx);
                 let count = ctx.context.resolve(count);
 
                 let end = self.seek(
@@ -2275,16 +2351,24 @@ impl<C: EditContext> CursorMovements<Cursor, C> for EditRope {
                 EditRange::inclusive(start, end, TargetShape::LineWise).into()
             },
             (RangeType::Line, count) => {
-                let style = ctx.context.get_insert_style();
-                let cctx = &(self, ctx.view.get_width(), style.is_some());
+                let lastcol = get_last_column(ctx);
+                let cctx = &(self, ctx.view.get_width(), lastcol);
                 let count = ctx.context.resolve(count).saturating_sub(1);
 
                 let start = cursor.clone();
                 let mut end = cursor.clone();
 
-                // Place end cursor on the first word count lines away
-                end.line(MoveDir1D::Next, count, cctx);
-                end.first_word(cctx);
+                match ctx.action {
+                    EditAction::Yank => {
+                        // Place end cursor count lines away.
+                        end.line(MoveDir1D::Next, count, cctx);
+                    },
+                    _ => {
+                        // Place end cursor on the first word count lines away.
+                        end.line(MoveDir1D::Next, count, cctx);
+                        end.first_word(cctx);
+                    },
+                }
 
                 EditRange::exclusive(start, end, TargetShape::LineWise).into()
             },
@@ -2411,7 +2495,7 @@ impl CursorSearch<Cursor> for EditRope {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::editing::base::{EditAction, Radix, Wrappable};
+    use crate::editing::base::{CursorEnd, Radix, Wrappable};
     use crate::env::vim::VimContext;
 
     macro_rules! cmctx {
@@ -2731,35 +2815,102 @@ mod tests {
     }
 
     #[test]
+    fn test_rope_paste_empty() {
+        let mut rope = EditRope::from("world");
+        let cursor = Cursor::new(0, 2);
+
+        // Paste CharWise
+        let shape = TargetShape::CharWise;
+        let choice = rope.paste(&cursor, MoveDir1D::Next, "".into(), shape).0;
+        assert_eq!(rope.to_string(), "world");
+        assert_eq!(choice, CursorChoice::Single(Cursor::new(0, 2)));
+
+        let choice = rope.paste(&cursor, MoveDir1D::Previous, "".into(), shape).0;
+        assert_eq!(rope.to_string(), "world");
+        assert_eq!(choice, CursorChoice::Single(Cursor::new(0, 2)));
+
+        // Paste LineWise
+        let shape = TargetShape::LineWise;
+        let choice = rope.paste(&cursor, MoveDir1D::Next, "".into(), shape).0;
+        assert_eq!(rope.to_string(), "world");
+        assert_eq!(choice, CursorChoice::Single(Cursor::new(0, 2)));
+
+        let choice = rope.paste(&cursor, MoveDir1D::Previous, "".into(), shape).0;
+        assert_eq!(rope.to_string(), "world");
+        assert_eq!(choice, CursorChoice::Single(Cursor::new(0, 2)));
+
+        // Paste BlockWise
+        let shape = TargetShape::BlockWise;
+        let choice = rope.paste(&cursor, MoveDir1D::Next, "".into(), shape).0;
+        assert_eq!(rope.to_string(), "world");
+        assert_eq!(choice, CursorChoice::Single(Cursor::new(0, 2)));
+
+        let choice = rope.paste(&cursor, MoveDir1D::Previous, "".into(), shape).0;
+        assert_eq!(rope.to_string(), "world");
+        assert_eq!(choice, CursorChoice::Single(Cursor::new(0, 2)));
+    }
+
+    #[test]
+    fn test_rope_insert_empty() {
+        let mut rope = EditRope::from("world");
+        let cursor = Cursor::new(0, 2);
+        let style = InsertStyle::Insert;
+
+        let choice = rope.insert(&cursor, MoveDir1D::Next, "".into(), style).0;
+        assert_eq!(rope.to_string(), "world");
+        assert_eq!(choice, CursorChoice::Single(Cursor::new(0, 2)));
+
+        let choice = rope.insert(&cursor, MoveDir1D::Previous, "".into(), style).0;
+        assert_eq!(rope.to_string(), "world");
+        assert_eq!(choice, CursorChoice::Single(Cursor::new(0, 2)));
+    }
+
+    #[test]
     fn test_rope_insert() {
         let mut rope = EditRope::from("world");
         let mut cursor = rope.first();
         let style = InsertStyle::Insert;
 
-        cursor = rope.insert(&cursor, MoveDir1D::Previous, "h".into(), style).0;
+        let choice = rope.insert(&cursor, MoveDir1D::Previous, "h".into(), style).0;
         assert_eq!(rope.to_string(), "hworld");
+        assert_eq!(
+            choice,
+            CursorChoice::Range(Cursor::new(0, 0), Cursor::new(0, 1), Cursor::new(0, 1))
+        );
+
+        cursor = choice.resolve(CursorEnd::Auto).unwrap();
         assert_eq!(cursor, Cursor::new(0, 1));
 
-        cursor = rope.insert(&cursor, MoveDir1D::Previous, "e".into(), style).0;
+        let choice = rope.insert(&cursor, MoveDir1D::Previous, "e".into(), style).0;
         assert_eq!(rope.to_string(), "heworld");
+
+        cursor = choice.resolve(CursorEnd::Auto).unwrap();
         assert_eq!(cursor, Cursor::new(0, 2));
 
-        cursor = rope.insert(&cursor, MoveDir1D::Previous, "l".into(), style).0;
+        let choice = rope.insert(&cursor, MoveDir1D::Previous, "l".into(), style).0;
         assert_eq!(rope.to_string(), "helworld");
+
+        cursor = choice.resolve(CursorEnd::Auto).unwrap();
         assert_eq!(cursor, Cursor::new(0, 3));
 
         cursor = Cursor::new(0, 2);
 
-        cursor = rope.insert(&cursor, MoveDir1D::Next, " ".into(), style).0;
+        let choice = rope.insert(&cursor, MoveDir1D::Next, " ".into(), style).0;
         assert_eq!(rope.to_string(), "hel world");
+
+        cursor = choice.resolve(CursorEnd::Auto).unwrap();
         assert_eq!(cursor, Cursor::new(0, 2));
 
-        cursor = rope.insert(&cursor, MoveDir1D::Next, "o".into(), style).0;
+        let choice = rope.insert(&cursor, MoveDir1D::Next, "o".into(), style).0;
         assert_eq!(rope.to_string(), "helo world");
+
+        cursor = choice.resolve(CursorEnd::Auto).unwrap();
         assert_eq!(cursor, Cursor::new(0, 2));
 
-        cursor = rope.insert(&cursor, MoveDir1D::Next, "l".into(), style).0;
+        let choice = rope.insert(&cursor, MoveDir1D::Next, "l".into(), style).0;
         assert_eq!(rope.to_string(), "hello world");
+
+        cursor = choice.resolve(CursorEnd::Auto).unwrap();
         assert_eq!(cursor, Cursor::new(0, 2));
     }
 
@@ -4880,5 +5031,217 @@ mod tests {
         assert_eq!(rope.cursor_to_offset(&Cursor::new(0, 0)).0, 0);
         assert_eq!(rope.cursor_to_offset(&Cursor::new(0, 1)).0, 2);
         assert_eq!(rope.cursor_to_offset(&Cursor::new(0, 2)).0, 3);
+    }
+
+    #[test]
+    fn test_diff_add_start() {
+        let rope1 = EditRope::from("1234 5678\nghijkl\n");
+        let rope2 = EditRope::from("def\n1234 5678\nghijkl\n");
+        let rope3 = EditRope::from("abcdef\n1234 5678\nghijkl\n");
+
+        assert_eq!(rope1.diff(&rope1), vec![]);
+
+        assert_eq!(rope1.diff(&rope2), vec![CursorAdjustment::Line {
+            line_start: 0,
+            line_end: usize::MAX,
+            amount: 1,
+            amount_after: 0,
+        }]);
+
+        assert_eq!(rope1.diff(&rope3), vec![CursorAdjustment::Line {
+            line_start: 0,
+            line_end: usize::MAX,
+            amount: 1,
+            amount_after: 0,
+        }]);
+
+        assert_eq!(rope2.diff(&rope3), vec![CursorAdjustment::Column {
+            line: 0,
+            column_start: 0,
+            amt_line: 0,
+            amt_col: 3,
+        }]);
+    }
+
+    #[test]
+    fn test_diff_del_start() {
+        let rope1 = EditRope::from("abcdef\n1234 5678\nghijkl\n");
+        let rope2 = EditRope::from("def\n1234 5678\nghijkl\n");
+        let rope3 = EditRope::from("1234 5678\nghijkl\n");
+
+        assert_eq!(rope1.diff(&rope1), vec![]);
+
+        assert_eq!(rope1.diff(&rope2), vec![CursorAdjustment::Column {
+            line: 0,
+            column_start: 0,
+            amt_line: 0,
+            amt_col: -3,
+        }]);
+
+        assert_eq!(rope1.diff(&rope3), vec![
+            CursorAdjustment::Column {
+                line: 0,
+                column_start: 0,
+                amt_line: 0,
+                amt_col: isize::MIN,
+            },
+            CursorAdjustment::Line {
+                line_start: 0,
+                line_end: 0,
+                amount: isize::MIN,
+                amount_after: -1,
+            }
+        ]);
+
+        assert_eq!(rope2.diff(&rope3), vec![
+            CursorAdjustment::Column {
+                line: 0,
+                column_start: 0,
+                amt_line: 0,
+                amt_col: isize::MIN,
+            },
+            CursorAdjustment::Line {
+                line_start: 0,
+                line_end: 0,
+                amount: isize::MIN,
+                amount_after: -1,
+            }
+        ]);
+    }
+
+    #[test]
+    fn test_diff_add_middle() {
+        let rope1 = EditRope::from("abcdef\nghijkl\n");
+        let rope2 = EditRope::from("abcdef\n1234\nghijkl\n");
+        let rope3 = EditRope::from("abcdef\n1234 5678\nghijkl\n");
+
+        assert_eq!(rope1.diff(&rope1), vec![]);
+
+        assert_eq!(rope1.diff(&rope2), vec![CursorAdjustment::Line {
+            line_start: 1,
+            line_end: usize::MAX,
+            amount: 1,
+            amount_after: 0,
+        }]);
+
+        assert_eq!(rope1.diff(&rope3), vec![CursorAdjustment::Line {
+            line_start: 1,
+            line_end: usize::MAX,
+            amount: 1,
+            amount_after: 0,
+        }]);
+
+        assert_eq!(rope2.diff(&rope3), vec![CursorAdjustment::Column {
+            line: 1,
+            column_start: 4,
+            amt_line: 0,
+            amt_col: 5,
+        }]);
+    }
+
+    #[test]
+    fn test_diff_del_middle() {
+        let rope1 = EditRope::from("abcdef\n1234 5678\nghijkl\n");
+        let rope2 = EditRope::from("abcdef\n1234\nghijkl\n");
+        let rope3 = EditRope::from("abcdef\nghijkl\n");
+
+        assert_eq!(rope1.diff(&rope1), vec![]);
+
+        assert_eq!(rope1.diff(&rope2), vec![CursorAdjustment::Column {
+            line: 1,
+            column_start: 4,
+            amt_line: 0,
+            amt_col: -5,
+        }]);
+
+        assert_eq!(rope1.diff(&rope3), vec![
+            CursorAdjustment::Column {
+                line: 1,
+                column_start: 0,
+                amt_line: 0,
+                amt_col: isize::MIN,
+            },
+            CursorAdjustment::Line {
+                line_start: 1,
+                line_end: 1,
+                amount: isize::MIN,
+                amount_after: -1,
+            },
+        ]);
+
+        assert_eq!(rope2.diff(&rope3), vec![
+            CursorAdjustment::Column {
+                line: 1,
+                column_start: 0,
+                amt_line: 0,
+                amt_col: isize::MIN,
+            },
+            CursorAdjustment::Line {
+                line_start: 1,
+                line_end: 1,
+                amount: isize::MIN,
+                amount_after: -1,
+            },
+        ]);
+    }
+
+    #[test]
+    fn test_diff_add_end() {
+        let rope1 = EditRope::from("hello world\nhello world\n");
+        let rope2 = EditRope::from("hello world\nhello world\nhello\n");
+        let rope3 = EditRope::from("hello world\nhello world\nhello world\n");
+
+        assert_eq!(rope1.diff(&rope1), vec![]);
+
+        assert_eq!(rope1.diff(&rope2), vec![CursorAdjustment::Line {
+            line_start: 2,
+            line_end: usize::MAX,
+            amount: 1,
+            amount_after: 0,
+        }]);
+
+        assert_eq!(rope1.diff(&rope3), vec![CursorAdjustment::Line {
+            line_start: 2,
+            line_end: usize::MAX,
+            amount: 1,
+            amount_after: 0,
+        }]);
+
+        assert_eq!(rope2.diff(&rope3), vec![CursorAdjustment::Column {
+            line: 2,
+            column_start: 5,
+            amt_line: 0,
+            amt_col: 6,
+        }]);
+    }
+
+    #[test]
+    fn test_diff_del_end() {
+        let rope1 = EditRope::from("hello world\nhello world\nhello world\n");
+        let rope2 = EditRope::from("hello world\nhello world\nhello\n");
+        let rope3 = EditRope::from("hello world\nhello world\n");
+
+        assert_eq!(rope1.diff(&rope1), vec![]);
+
+        assert_eq!(rope1.diff(&rope2), vec![CursorAdjustment::Column {
+            line: 2,
+            column_start: 5,
+            amt_line: 0,
+            amt_col: -6,
+        }]);
+
+        assert_eq!(rope1.diff(&rope3), vec![CursorAdjustment::Line {
+            line_start: 2,
+            line_end: 2,
+            amount: -1,
+            amount_after: isize::MIN,
+        }]);
+
+        assert_eq!(rope2.diff(&rope3), vec![CursorAdjustment::Line {
+            line_start: 2,
+            line_end: 2,
+            amount: -1,
+            amount_after: isize::MIN,
+        }]);
     }
 }

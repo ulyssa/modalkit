@@ -20,6 +20,7 @@ pub struct Cursor {
 }
 
 /// Represents changes to make to cursors after a document modification.
+#[derive(Debug, Eq, PartialEq)]
 pub enum CursorAdjustment {
     /// Adjust cursors located on a specific line.
     Column {
@@ -41,7 +42,7 @@ pub enum CursorAdjustment {
         /// The line at which to begin adjusting cursors.
         line_start: usize,
 
-        /// The line at which to stop adjusting cursors.
+        /// The line at which to stop adjusting cursors (inclusive).
         line_end: usize,
 
         /// The amount by which to adjust the line of cursors within the range.

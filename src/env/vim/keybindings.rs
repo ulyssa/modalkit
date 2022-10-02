@@ -62,6 +62,7 @@ use crate::editing::base::{
     CommandType,
     Count,
     CursorAction,
+    CursorEnd,
     EditAction,
     EditTarget,
     FocusChange,
@@ -195,6 +196,7 @@ impl MappedModes {
 
 #[derive(Clone, Debug)]
 enum InternalAction<P: Application> {
+    SetCursorEnd(CursorEnd),
     SetPostAction(Action<P>),
     SetSearchCharParams(MoveDir1D, bool),
     SetSearchChar,
@@ -213,6 +215,9 @@ enum InternalAction<P: Application> {
 impl<P: Application> InternalAction<P> {
     pub fn run(&self, ctx: &mut VimContext<P>) {
         match self {
+            InternalAction::SetCursorEnd(end) => {
+                ctx.action.cursor_end = Some(*end);
+            },
             InternalAction::SetSearchCharParams(dir, inclusive) => {
                 ctx.action.charsearch_params = Some((*dir, *inclusive));
             },
@@ -582,16 +587,12 @@ macro_rules! edit_selection_nocount {
 
 macro_rules! tilde {
     () => {
-        isv!(vec![], vec![
-            ExternalAction::Something(Action::Edit(
+        isv!(vec![InternalAction::SetCursorEnd(CursorEnd::End)], vec![ExternalAction::Something(
+            Action::Edit(
                 Specifier::Exact(EditAction::ChangeCase(Case::Toggle)),
                 EditTarget::Motion(MoveType::Column(MoveDir1D::Next, false), Count::Contextual),
-            )),
-            ExternalAction::Something(Action::Edit(
-                Specifier::Exact(EditAction::Motion),
-                EditTarget::Motion(MoveType::Column(MoveDir1D::Next, false), Count::Contextual),
-            )),
-        ])
+            )
+        )])
     };
 }
 
@@ -2682,13 +2683,14 @@ mod tests {
         assert_normal!(vm, ctx);
 
         let col = MoveType::Column(MoveDir1D::Next, false);
+        ctx.action.cursor_end = Some(CursorEnd::End);
         vm.input_key(key!('~'));
         assert_pop1!(vm, mvop!(EditAction::ChangeCase(Case::Toggle), col), ctx);
-        assert_pop1!(vm, mvop!(EditAction::Motion, col), ctx);
         assert_normal!(vm, ctx);
 
         let op = EditAction::Replace(false);
         let mov = mvop!(op, MoveType::Column(MoveDir1D::Next, false));
+        ctx.action.cursor_end = None;
         ctx.action.replace = Some('A'.into());
         ctx.action.any = Some(key!('A'));
         vm.input_key(key!('r'));

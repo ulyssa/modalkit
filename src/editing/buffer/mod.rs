@@ -33,6 +33,7 @@ use super::base::{
     Char,
     Count,
     CursorAction,
+    CursorChoice,
     CursorMovements,
     CursorMovementsContext,
     CursorSearch,
@@ -1018,7 +1019,7 @@ where
         &'a self,
         ctx: &CursorGroupIdContext<'b, 'c, C>,
     ) -> CursorContext<'a> {
-        let lastcol = ctx.2.get_insert_style().is_some();
+        let lastcol = ctx.2.get_last_column();
         let width = ctx.1.get_width();
 
         (&self.text, width, lastcol)
@@ -1028,7 +1029,7 @@ where
         &'d self,
         ctx: &CursorMovementsContext<'a, 'b, 'c, Cursor, C>,
     ) -> CursorContext<'d> {
-        let lastcol = ctx.context.get_insert_style().is_some();
+        let lastcol = ctx.context.get_last_column();
         let width = ctx.view.get_width();
 
         (&self.text, width, lastcol)
@@ -1104,9 +1105,10 @@ where
         }
 
         let ctx = &self._ctx_cgi2es(action, ictx);
+        let end = ctx.context.get_cursor_end();
 
         for member in self.get_group(ictx.0) {
-            let nc = match (self._target(member, target, ctx)?, action) {
+            let choice = match (self._target(member, target, ctx)?, action) {
                 (Some(range), EditAction::Delete) => self.delete(&range, ctx),
                 (Some(range), EditAction::Yank) => self.yank(&range, ctx),
                 (Some(range), EditAction::Replace(v)) => {
@@ -1133,10 +1135,10 @@ where
                 (Some(range), EditAction::Join(spaces)) => self.join(*spaces, &range, ctx),
                 (Some(range), EditAction::Indent(change)) => self.indent(change, &range, ctx),
                 (Some(_), EditAction::Motion) => panic!("Unexpected EditAction::Motion!"),
-                (None, _) => None,
+                (None, _) => CursorChoice::Empty,
             };
 
-            if let Some(mut nc) = nc {
+            if let Some(mut nc) = choice.resolve(end) {
                 self.clamp(&mut nc, ictx);
                 self.set_cursor(member, nc);
             }
