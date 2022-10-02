@@ -204,7 +204,9 @@ pub trait ModeKeys<Key, A, C>: Mode<A, C> {
 #[allow(unused_variables)]
 pub trait ModeSequence<S, A, C>: Mode<A, C> {
     /// Controls how and what gets included in the sequences of actions tracked by
-    /// [ModalMachine].
+    /// [ModalMachine]. When implementing, if there are actions that trigger calls to
+    /// [BindingMachine::repeat], be careful that they do not get included in a way that can
+    /// create cycles.
     ///
     /// By default, this will not place the action in any sequence.
     fn sequences(&self, action: &A, ctx: &C) -> Vec<(S, SequenceStatus)> {

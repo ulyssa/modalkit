@@ -31,6 +31,8 @@ use super::{
 
 use crate::util::idx_offset;
 
+use crate::editing::action::{EditResult, UIResult, WindowAction};
+
 use crate::editing::base::{
     Axis,
     Axis::{Horizontal, Vertical},
@@ -38,14 +40,12 @@ use crate::editing::base::{
     CloseTarget,
     Count,
     EditContext,
-    EditResult,
     FocusChange,
     MoveDir1D,
     MoveDir2D,
     MoveDir2D::{Down, Left, Right, Up},
     MovePosition,
     SizeChange,
-    WindowAction,
 };
 
 fn windex<C: EditContext>(count: &Count, ctx: &C) -> usize {
@@ -188,8 +188,13 @@ where
     /// Collapse this tree to just the [Window] located at the given index.
     fn collapse(self, at: usize) -> Option<W>;
 
+    /// Get a reference to the [Window] at the given index and the area it occupies.
+    fn get_area(&self, at: usize) -> Option<(&W, Rect)>;
+
     /// Get a reference to the [Window] at the given index.
-    fn get(&self, at: usize) -> Option<&W>;
+    fn get(&self, at: usize) -> Option<&W> {
+        self.get_area(at).map(|(w, _)| w)
+    }
 
     /// Get a mutable reference to the [Window] at the given index.
     fn get_mut(&mut self, at: usize) -> Option<&mut W>;
@@ -270,17 +275,17 @@ impl<W: Window, X: AxisT, Y: AxisT> LayoutOps<W, X, Y> for Value<W, X, Y> {
         }
     }
 
-    fn get(&self, at: usize) -> Option<&W> {
+    fn get_area(&self, at: usize) -> Option<(&W, Rect)> {
         match self {
-            Value::Window(ref window, _) => {
+            Value::Window(ref window, info) => {
                 if at == 0 {
-                    Some(window)
+                    Some((window, info.area))
                 } else {
                     None
                 }
             },
             Value::Tree(ref tree, _) => {
-                return tree.get(at);
+                return tree.get_area(at);
             },
         }
     }
@@ -533,14 +538,14 @@ impl<W: Window, X: AxisT, Y: AxisT> LayoutOps<W, X, Y> for AxisTreeNode<W, X, Y>
         }
     }
 
-    fn get(&self, at: usize) -> Option<&W> {
+    fn get_area(&self, at: usize) -> Option<(&W, Rect)> {
         let lsize = self.left.size();
         let vsize = self.value.size();
 
         match winnr_cmp(at, lsize, vsize) {
-            (Ordering::Less, idx) => self.left.get(idx),
-            (Ordering::Equal, idx) => self.value.get(idx),
-            (Ordering::Greater, idx) => self.right.get(idx),
+            (Ordering::Less, idx) => self.left.get_area(idx),
+            (Ordering::Equal, idx) => self.value.get_area(idx),
+            (Ordering::Greater, idx) => self.right.get_area(idx),
         }
     }
 
@@ -883,8 +888,8 @@ impl<W: Window, X: AxisT, Y: AxisT> LayoutOps<W, X, Y> for AxisTreeNode<W, X, Y>
     }
 
     fn neighbor(&self, at: usize, dir: MoveDir2D, count: usize) -> Option<usize> {
-        let w = self.get(at)?;
-        let c = w.get_term_cursor();
+        let (w, r) = self.get_area(at)?;
+        let c = w.get_term_cursor().unwrap_or((r.x, r.y));
         self._neighbor_of(0, at, c, dir, count).map(|current| current.0)
     }
 }
@@ -941,8 +946,8 @@ impl<W: Window, X: AxisT, Y: AxisT> LayoutOps<W, X, Y> for AxisTree<W, X, Y> {
         self.and_then(|node| node.collapse(at))
     }
 
-    fn get(&self, at: usize) -> Option<&W> {
-        self.as_ref().and_then(|node| node.get(at))
+    fn get_area(&self, at: usize) -> Option<(&W, Rect)> {
+        self.as_ref().and_then(|node| node.get_area(at))
     }
 
     fn get_mut(&mut self, at: usize) -> Option<&mut W> {
@@ -1066,6 +1071,7 @@ impl<W: Window> WindowLayoutState<W> {
         }
     }
 
+    /// Create a new instance without any windows.
     pub fn empty() -> Self {
         WindowLayoutState {
             root: None,
@@ -1363,7 +1369,7 @@ impl<W: Window, C: EditContext> WindowContainer<W, C> for WindowLayoutState<W> {
         rel: MoveDir1D,
         count: Option<Count>,
         ctx: &C,
-    ) -> EditResult {
+    ) -> UIResult {
         let count = count.map(|count| ctx.resolve(&count) as u16);
 
         self.open(window, count, axis, rel);
@@ -1371,18 +1377,20 @@ impl<W: Window, C: EditContext> WindowContainer<W, C> for WindowLayoutState<W> {
         return Ok(None);
     }
 
-    fn window_command(&mut self, action: WindowAction, ctx: &C) -> EditResult {
-        match action {
-            WindowAction::Focus(target) => self.window_focus(&target, ctx),
-            WindowAction::MoveSide(dir) => self.window_move_side(dir, ctx),
-            WindowAction::Exchange(target) => self.window_exchange(&target, ctx),
-            WindowAction::Rotate(dir) => self.window_rotate(dir, ctx),
-            WindowAction::Split(axis, rel, count) => self.window_split(axis, rel, count, ctx),
-            WindowAction::ClearSizes => self.window_clear_sizes(ctx),
-            WindowAction::Resize(axis, size) => self.window_resize(axis, size, ctx),
-            WindowAction::Close(target, flags) => self.window_close(target, flags, ctx),
-            WindowAction::ZoomToggle => self.window_zoom_toggle(ctx),
-        }
+    fn window_command(&mut self, action: WindowAction, ctx: &C) -> UIResult {
+        let info = match action {
+            WindowAction::Focus(target) => self.window_focus(&target, ctx)?,
+            WindowAction::MoveSide(dir) => self.window_move_side(dir, ctx)?,
+            WindowAction::Exchange(target) => self.window_exchange(&target, ctx)?,
+            WindowAction::Rotate(dir) => self.window_rotate(dir, ctx)?,
+            WindowAction::Split(axis, rel, count) => self.window_split(axis, rel, count, ctx)?,
+            WindowAction::ClearSizes => self.window_clear_sizes(ctx)?,
+            WindowAction::Resize(axis, size) => self.window_resize(axis, size, ctx)?,
+            WindowAction::Close(target, flags) => self.window_close(target, flags, ctx)?,
+            WindowAction::ZoomToggle => self.window_zoom_toggle(ctx)?,
+        };
+
+        return Ok(info);
     }
 }
 
@@ -1393,10 +1401,12 @@ pub struct WindowLayout<W: Window> {
 }
 
 impl<W: Window> WindowLayout<W> {
+    /// Create a new widget for displaying window layouts.
     pub fn new() -> Self {
         WindowLayout { focused: false, _pw: PhantomData }
     }
 
+    /// Indicate whether the window layout tree is currently focused.
     pub fn focus(mut self, focused: bool) -> Self {
         self.focused = focused;
         self
@@ -1516,8 +1526,8 @@ mod tests {
     }
 
     impl TerminalCursor for TestWindow {
-        fn get_term_cursor(&self) -> (u16, u16) {
-            (self.term_area.left(), self.term_area.top())
+        fn get_term_cursor(&self) -> Option<(u16, u16)> {
+            (self.term_area.left(), self.term_area.top()).into()
         }
     }
 

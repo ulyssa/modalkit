@@ -27,7 +27,7 @@ pub enum CommandStep<C: Command> {
 
 /// Errors that can be encountered during command processing.
 #[derive(thiserror::Error, Debug, Eq, PartialEq)]
-pub enum CommandError<C: Command> {
+pub enum CommandError {
     /// Error for unmapped commands.
     #[error("Invalid command: {0}")]
     InvalidCommand(String),
@@ -42,7 +42,7 @@ pub enum CommandError<C: Command> {
 
     /// Error for command parse failures.
     #[error("Failed to parse command: {0}")]
-    ParseFailed(<C::Parsed as FromStr>::Err),
+    ParseFailed(String),
 
     /// Generic error.
     #[error("Error: {0}")]
@@ -50,7 +50,7 @@ pub enum CommandError<C: Command> {
 }
 
 /// Result type for individual, mapped commands.
-pub type CommandResult<C> = Result<CommandStep<C>, CommandError<C>>;
+pub type CommandResult<C> = Result<CommandStep<C>, CommandError>;
 
 /// Trait for result type of parsing commands.
 pub trait ParsedCommand: Debug + FromStr<Err = String> {
@@ -67,7 +67,7 @@ pub trait Command: Clone {
     type Action;
 
     /// Context provided with each command string.
-    type Context;
+    type Context: InputContext;
 
     /// Context to be passed to [Command::exec].
     type CommandContext: InputCmdContext + From<Self::Context>;
@@ -86,16 +86,19 @@ pub trait DefaultCommands<C: Command>: Default {
 }
 
 /// Track mapped commands and handle their execution.
+#[derive(Debug)]
 pub struct CommandMachine<C: Command> {
     commands: HashMap<String, C>,
+    last_cmd: String,
 }
 
 impl<C: Command> CommandMachine<C> {
     /// Create a new instance.
     pub fn new() -> Self {
         let commands = HashMap::new();
+        let last_cmd = "".to_string();
 
-        CommandMachine { commands }
+        CommandMachine { commands, last_cmd }
     }
 
     /// Map a command under its names.
@@ -105,20 +108,27 @@ impl<C: Command> CommandMachine<C> {
         }
     }
 
+    /// Get the previously executed command.
+    pub fn get_last_command(&self) -> String {
+        self.last_cmd.clone()
+    }
+
     /// Parse and execute a command string.
     pub fn input_cmd<T: Into<String>>(
-        &self,
+        &mut self,
         input: T,
         ctx: C::Context,
-    ) -> Result<Vec<(C::Action, C::Context)>, CommandError<C>> {
+    ) -> Result<Vec<(C::Action, C::Context)>, CommandError> {
         let mut input: String = input.into();
         let mut results = Vec::new();
         let mut ctx = C::CommandContext::from(ctx);
 
+        self.last_cmd = input.clone();
+
         loop {
             let cmd = match C::Parsed::from_str(&input) {
                 Ok(cmd) => cmd,
-                Err(e) => return Err(CommandError::ParseFailed(e)),
+                Err(e) => return Err(CommandError::ParseFailed(e.into())),
             };
             let name = cmd.name();
 

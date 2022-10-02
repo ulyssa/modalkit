@@ -26,4 +26,5 @@ pub use crossterm;
 pub use tui;
 
 #[cfg(feature = "widgets")]
+#[deny(missing_docs)]
 pub mod widgets;

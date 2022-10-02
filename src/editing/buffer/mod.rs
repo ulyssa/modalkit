@@ -28,30 +28,36 @@ use crate::{
     util::IdGenerator,
 };
 
+use super::action::{
+    CursorAction,
+    EditAction,
+    EditError,
+    EditResult,
+    Editable,
+    HistoryAction,
+    InsertTextAction,
+    Searchable,
+    SelectionAction,
+    UIResult,
+};
+
 use super::base::{
     Application,
     Char,
     Count,
-    CursorAction,
     CursorChoice,
     CursorMovements,
     CursorMovementsContext,
     CursorSearch,
-    EditAction,
     EditContext,
-    EditError,
     EditRange,
-    EditResult,
     EditTarget,
-    HistoryAction,
-    InsertTextAction,
     Mark,
     MoveDir1D,
     MoveDirMod,
     MoveTerminus,
     Register,
     SearchType,
-    SelectionAction,
     SelectionResizeStyle,
     Specifier,
     TargetShape,
@@ -129,27 +135,6 @@ trait HistoryActions<C> {
     fn redo(&mut self, count: Count, ctx: &C) -> EditResult;
     fn undo(&mut self, count: Count, ctx: &C) -> EditResult;
     fn checkpoint(&mut self) -> EditResult;
-}
-
-/// An object capable of performing editing operations.
-pub trait Editable<C> {
-    /// Perform an editing operation over the targeted text.
-    fn edit(&mut self, action: &EditAction, target: &EditTarget, ctx: &C) -> EditResult;
-
-    /// Create or update a cursor mark.
-    fn mark(&mut self, name: Mark, ctx: &C) -> EditResult;
-
-    /// Insert text relative to the current cursor position.
-    fn insert_text(&mut self, act: InsertTextAction, ctx: &C) -> EditResult;
-
-    /// Modify the current selection.
-    fn selection_command(&mut self, act: SelectionAction, ctx: &C) -> EditResult;
-
-    /// Perform an action over a cursor group.
-    fn cursor_command(&mut self, act: CursorAction, ctx: &C) -> EditResult;
-
-    /// Move to a different point in the buffer's editing history.
-    fn history_command(&mut self, act: HistoryAction, ctx: &C) -> EditResult;
 }
 
 /// A selection is an extendable range of text within a buffer.
@@ -711,6 +696,17 @@ where
         store.registers.put(register, cell, append, del)
     }
 
+    /// Indicates whether this buffer contains only whitespace.
+    pub fn is_blank(&self) -> bool {
+        for c in self.text.chars(0.into()) {
+            if !c.is_ascii_whitespace() {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
     /// Return a reference to the contents of this buffer.
     pub fn get(&self) -> &EditRope {
         &self.text
@@ -1261,6 +1257,38 @@ where
         ctx: &CursorGroupIdContext<'a, 'b, C>,
     ) -> EditResult {
         self.write().unwrap().history_command(act, ctx)
+    }
+}
+
+impl<'a, 'b, C, P> Searchable<CursorGroupIdContext<'a, 'b, C>> for EditBuffer<C, P>
+where
+    C: EditContext,
+    P: Application,
+{
+    fn search(
+        &mut self,
+        dir: MoveDirMod,
+        count: Count,
+        ctx: &CursorGroupIdContext<'a, 'b, C>,
+    ) -> UIResult {
+        let search = EditTarget::Search(SearchType::Regex, dir, count);
+
+        Ok(self.motion(&search, ctx)?)
+    }
+}
+
+impl<'a, 'b, C, P> Searchable<CursorGroupIdContext<'a, 'b, C>> for SharedBuffer<C, P>
+where
+    C: EditContext,
+    P: Application,
+{
+    fn search(
+        &mut self,
+        dir: MoveDirMod,
+        count: Count,
+        ctx: &CursorGroupIdContext<'a, 'b, C>,
+    ) -> UIResult {
+        self.write().unwrap().search(dir, count, ctx)
     }
 }
 

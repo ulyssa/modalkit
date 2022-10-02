@@ -16,20 +16,17 @@ use crate::{
     util::{keycode_to_num, option_muladd_u32, option_muladd_usize},
 };
 
+use crate::editing::action::{Action, CursorAction, EditAction, HistoryAction, InsertTextAction};
+
 use crate::editing::base::{
-    Action,
     Application,
     Char,
     Count,
-    CursorAction,
     CursorCloseTarget,
     CursorEnd,
-    EditAction,
     EditContext,
     EditTarget,
-    HistoryAction,
     InsertStyle,
-    InsertTextAction,
     Mark,
     MoveDir1D,
     MoveType,
@@ -353,13 +350,24 @@ pub(crate) struct PersistentContext {
 }
 
 /// This wraps both action specific context, and persistent context.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Debug, Eq, PartialEq)]
 pub struct VimContext<P: Application = ()> {
     pub(crate) action: ActionContext,
     pub(crate) persist: PersistentContext,
     pub(self) ch: CharacterContext,
 
     _p: PhantomData<P>,
+}
+
+impl<P: Application> Clone for VimContext<P> {
+    fn clone(&self) -> Self {
+        Self {
+            action: self.action.clone(),
+            persist: self.persist.clone(),
+            ch: self.ch.clone(),
+            _p: PhantomData,
+        }
+    }
 }
 
 impl<P: Application> InputContext for VimContext<P> {

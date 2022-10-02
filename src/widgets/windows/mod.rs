@@ -14,12 +14,13 @@ use std::marker::PhantomData;
 
 use tui::layout::Rect;
 
+use crate::editing::action::EditResult;
+
 use crate::editing::base::{
     Axis,
     CloseFlags,
     CloseTarget,
     Count,
-    EditResult,
     FocusChange,
     MoveDir1D,
     MoveDir2D,

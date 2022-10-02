@@ -11,6 +11,7 @@
 //! [widgets]: crate::widgets
 //!
 
+pub mod action;
 pub mod base;
 pub mod buffer;
 pub mod cursor;

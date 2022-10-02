@@ -48,37 +48,48 @@ use tui::{
     widgets::{Block, StatefulWidget, Widget},
 };
 
+use crate::editing::action::{
+    CursorAction,
+    EditAction,
+    EditError,
+    EditResult,
+    Editable,
+    HistoryAction,
+    InsertTextAction,
+    PromptAction,
+    Promptable,
+    Scrollable,
+    Searchable,
+    SelectionAction,
+    UIResult,
+};
+
 use crate::editing::base::{
     Application,
     Axis,
     CloseFlags,
     Count,
-    CursorAction,
-    EditAction,
     EditContext,
-    EditResult,
     EditTarget,
-    HistoryAction,
-    InsertTextAction,
     Mark,
     MoveDir2D,
+    MoveDirMod,
     MovePosition,
     ScrollSize,
     ScrollStyle,
-    SelectionAction,
     TargetShape,
     ViewportContext,
     Wrappable,
 };
 
 use crate::editing::{
-    buffer::{CursorGroupId, Editable, FollowersInfo, HighlightInfo},
+    buffer::{CursorGroupId, FollowersInfo, HighlightInfo},
     cursor::Cursor,
     rope::EditRope,
     store::SharedBuffer,
 };
 
-use super::{Focusable, TerminalCursor, Window};
+use super::{TerminalCursor, Window};
 
 /// Line annotation shown in the left gutter.
 pub struct LeftGutterInfo {
@@ -87,6 +98,7 @@ pub struct LeftGutterInfo {
 }
 
 impl LeftGutterInfo {
+    /// Create a new instance.
     pub fn new(text: String, style: Style) -> Self {
         LeftGutterInfo { text, style }
     }
@@ -103,6 +115,7 @@ pub struct RightGutterInfo {
 }
 
 impl RightGutterInfo {
+    /// Create a new instance.
     pub fn new(text: String, style: Style) -> Self {
         RightGutterInfo { text, style }
     }
@@ -113,7 +126,7 @@ impl RightGutterInfo {
 }
 
 /// Persistent state for [TextBox].
-pub struct TextBoxState<C: EditContext, P: Application> {
+pub struct TextBoxState<C: EditContext, P: Application = ()> {
     buffer: SharedBuffer<C, P>,
     group_id: CursorGroupId,
 
@@ -123,7 +136,7 @@ pub struct TextBoxState<C: EditContext, P: Application> {
 }
 
 /// Widget for rendering a multi-line text box.
-pub struct TextBox<'a, C: EditContext, P: Application> {
+pub struct TextBox<'a, C: EditContext, P: Application = ()> {
     block: Option<Block<'a>>,
     prompt: &'a str,
 
@@ -214,6 +227,11 @@ where
             term_area: Rect::default(),
             term_cursor: (0, 0),
         }
+    }
+
+    /// Get the contents of the underlying buffer as an [EditRope].
+    pub fn get(&self) -> EditRope {
+        self.buffer.read().unwrap().get().clone()
     }
 
     /// Get the contents of the underlying buffer as a [String].
@@ -465,7 +483,29 @@ where
     }
 }
 
-impl<C, P> Focusable<C> for TextBoxState<C, P>
+impl<A, C, P> Promptable<A, C> for TextBoxState<C, P>
+where
+    C: EditContext,
+    P: Application,
+{
+    fn prompt(&mut self, _: PromptAction, _: &C) -> EditResult<Vec<(A, C)>> {
+        Err(EditError::Failure("Not at a prompt".to_string()))
+    }
+}
+
+impl<C, P> Searchable<C> for TextBoxState<C, P>
+where
+    C: EditContext,
+    P: Application,
+{
+    fn search(&mut self, dir: MoveDirMod, count: Count, ctx: &C) -> UIResult {
+        let ctx = (self.group_id, &self.viewctx, ctx);
+
+        self.buffer.search(dir, count, &ctx)
+    }
+}
+
+impl<C, P> Scrollable<C> for TextBoxState<C, P>
 where
     C: EditContext,
     P: Application,
@@ -490,8 +530,8 @@ where
     C: EditContext,
     P: Application,
 {
-    fn get_term_cursor(&self) -> (u16, u16) {
-        self.term_cursor
+    fn get_term_cursor(&self) -> Option<(u16, u16)> {
+        self.term_cursor.into()
     }
 }
 
@@ -528,6 +568,7 @@ where
     C: EditContext,
     P: Application,
 {
+    /// Create a new widget.
     pub fn new() -> Self {
         TextBox {
             block: None,
@@ -1214,7 +1255,7 @@ mod tests {
 
         assert_eq!(tbox.viewctx.corner, Cursor::new(0, 0));
         assert_eq!(tbox.get_cursor(), Cursor::new(0, 0));
-        assert_eq!(tbox.get_term_cursor(), (2, 8));
+        assert_eq!(tbox.get_term_cursor(), (2, 8).into());
 
         // Move the cursor to the fourth line, thereby moving corner.
         let mov = mv!(MoveType::BufferLineOffset, 4);
@@ -1224,7 +1265,7 @@ mod tests {
 
         assert_eq!(tbox.viewctx.corner, Cursor::new(2, 0));
         assert_eq!(tbox.get_cursor(), Cursor::new(3, 0));
-        assert_eq!(tbox.get_term_cursor(), (2, 9));
+        assert_eq!(tbox.get_term_cursor(), (2, 9).into());
 
         // Move the cursor to the end of the fourth line, again moving corner.
         let mov = mv!(MoveType::LineColumnOffset, 14);
@@ -1234,7 +1275,7 @@ mod tests {
 
         assert_eq!(tbox.viewctx.corner, Cursor::new(2, 6));
         assert_eq!(tbox.get_cursor(), Cursor::new(3, 13));
-        assert_eq!(tbox.get_term_cursor(), (9, 9));
+        assert_eq!(tbox.get_term_cursor(), (9, 9).into());
 
         // Now move back to the top-left corner.
         let mov = mv!(MoveType::BufferByteOffset, 0);
@@ -1244,6 +1285,6 @@ mod tests {
 
         assert_eq!(tbox.viewctx.corner, Cursor::new(0, 0));
         assert_eq!(tbox.get_cursor(), Cursor::new(0, 0));
-        assert_eq!(tbox.get_term_cursor(), (2, 8));
+        assert_eq!(tbox.get_term_cursor(), (2, 8).into());
     }
 }

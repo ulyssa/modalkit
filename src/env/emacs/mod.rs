@@ -15,16 +15,14 @@ use crate::input::{
     InputContext,
 };
 
+use crate::editing::action::{Action, EditAction, InsertTextAction, PromptAction};
+
 use crate::editing::base::{
-    Action,
     Application,
     Char,
-    CommandBarAction,
     Count,
-    EditAction,
     EditContext,
     InsertStyle,
-    InsertTextAction,
     Mark,
     MoveDir1D,
     Register,
@@ -153,7 +151,7 @@ impl<P: Application> ModeKeys<TerminalKey, Action<P>, EmacsContext<P>> for Emacs
 
                     (vec![it.into()], None)
                 } else {
-                    (vec![CommandBarAction::Abort.into()], Some(EmacsMode::Insert))
+                    (vec![PromptAction::Abort(false).into()], Some(EmacsMode::Insert))
                 }
             },
         }
@@ -198,13 +196,25 @@ impl Default for PersistentContext {
 }
 
 /// This wraps both action specific context, and persistent context.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Debug, Eq, PartialEq)]
 pub struct EmacsContext<P: Application = ()> {
     pub(crate) action: ActionContext,
     pub(crate) persist: PersistentContext,
     pub(self) ch: CharacterContext,
 
     _p: PhantomData<P>,
+}
+
+impl<P: Application> Clone for EmacsContext<P> {
+    fn clone(&self) -> Self {
+        Self {
+            action: self.action.clone(),
+            persist: self.persist.clone(),
+            ch: self.ch.clone(),
+
+            _p: PhantomData,
+        }
+    }
 }
 
 impl<P: Application> InputContext for EmacsContext<P> {

@@ -14,40 +14,31 @@ use crossterm::{
 use crate::util::is_newline;
 
 use crate::editing::{
-    base::{
-        Application,
+    action::{
         CursorAction,
         EditAction,
-        EditContext,
         EditResult,
-        EditTarget,
+        Editable,
         HistoryAction,
         InsertTextAction,
+        SelectionAction,
+    },
+    base::{
+        Application,
+        EditContext,
+        EditTarget,
         Mark,
         MoveDir1D,
-        SelectionAction,
         TargetShape,
         ViewportContext,
         Wrappable,
     },
-    buffer::{CursorGroupId, EditBuffer, Editable},
+    buffer::{CursorGroupId, EditBuffer},
     cursor::Cursor,
-    history::HistoryList,
+    history::{HistoryList, ScrollbackState},
     rope::EditRope,
     store::{BufferId, SharedStore},
 };
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum Scrollback {
-    /// User has not yet started scrolling through history.
-    Pending,
-
-    /// User started scrolling through history after typing something.
-    Typed,
-
-    /// User started scrolling through history without typing anything.
-    Empty,
-}
 
 pub struct EditorContext {
     pub stdout: BufWriter<Stdout>,
@@ -69,7 +60,7 @@ where
     P: Application,
 {
     buffer: EditBuffer<C, P>,
-    scrollback: Scrollback,
+    scrollback: ScrollbackState,
 
     viewctx: ViewportContext<Cursor>,
     gid: CursorGroupId,
@@ -90,7 +81,7 @@ where
 
         Editor {
             buffer,
-            scrollback: Scrollback::Pending,
+            scrollback: ScrollbackState::Pending,
             viewctx,
             gid,
         }
@@ -98,6 +89,10 @@ where
 
     pub fn resize(&mut self, width: u16, height: u16) {
         self.viewctx.dimensions = (width.into(), height.into());
+    }
+
+    pub fn is_blank(&self) -> bool {
+        self.buffer.is_blank()
     }
 
     fn _highlight_ranges(
@@ -315,7 +310,7 @@ where
     }
 
     pub fn reset(&mut self) -> EditRope {
-        self.scrollback = Scrollback::Pending;
+        self.scrollback = ScrollbackState::Pending;
         self.buffer.reset()
     }
 
@@ -326,15 +321,15 @@ where
         dir: MoveDir1D,
         inc: bool,
     ) -> Option<EditRope> {
-        if self.scrollback == Scrollback::Pending {
+        if self.scrollback == ScrollbackState::Pending {
             let rope = self.get_trim();
 
             if rope.len() > 0 {
-                self.scrollback = Scrollback::Typed;
+                self.scrollback = ScrollbackState::Typed;
 
                 history.append(rope);
             } else {
-                self.scrollback = Scrollback::Empty;
+                self.scrollback = ScrollbackState::Empty;
             }
         }
 
@@ -347,48 +342,7 @@ where
         dir: MoveDir1D,
         count: usize,
     ) -> Option<EditRope> {
-        if count == 0 {
-            return None;
-        }
-
-        match (self.scrollback, dir) {
-            (Scrollback::Pending, MoveDir1D::Previous) => {
-                let rope = self.get_trim();
-
-                if rope.len() > 0 {
-                    self.scrollback = Scrollback::Typed;
-
-                    history.append(rope);
-
-                    return history.prev(count).clone().into();
-                } else {
-                    self.scrollback = Scrollback::Empty;
-
-                    return history.prev(count - 1).clone().into();
-                }
-            },
-            (Scrollback::Pending, MoveDir1D::Next) => {
-                return None;
-            },
-            (Scrollback::Typed, MoveDir1D::Previous) => {
-                return history.prev(count).clone().into();
-            },
-            (Scrollback::Typed, MoveDir1D::Next) => {
-                return history.next(count).clone().into();
-            },
-            (Scrollback::Empty, MoveDir1D::Previous) => {
-                return history.prev(count).clone().into();
-            },
-            (Scrollback::Empty, MoveDir1D::Next) => {
-                if history.future_len() < count {
-                    history.next(count);
-                    self.scrollback = Scrollback::Pending;
-                    return EditRope::from("").into();
-                } else {
-                    return history.next(count).clone().into();
-                }
-            },
-        }
+        history.recall(self.buffer.get(), &mut self.scrollback, dir, count)
     }
 
     pub fn line_leftover(&self, dir: MoveDir1D, count: usize) -> usize {
@@ -514,22 +468,22 @@ mod tests {
 
         let v = vec!["hello world", "foo", "help me", "bar", "writhe", "baz"];
 
-        assert_eq!(ed.scrollback, Scrollback::Pending);
+        assert_eq!(ed.scrollback, ScrollbackState::Pending);
         assert_eq!(history.strs(), v);
 
         let res = ed.find(&mut history, &needle, MoveDir1D::Previous, false).unwrap();
         assert_eq!(res, EditRope::from("writhe"));
-        assert_eq!(ed.scrollback, Scrollback::Empty);
+        assert_eq!(ed.scrollback, ScrollbackState::Empty);
         assert_eq!(history.strs(), v);
 
         let res = ed.find(&mut history, &needle, MoveDir1D::Previous, false).unwrap();
         assert_eq!(res, EditRope::from("help me"));
-        assert_eq!(ed.scrollback, Scrollback::Empty);
+        assert_eq!(ed.scrollback, ScrollbackState::Empty);
         assert_eq!(history.strs(), v);
 
         let res = ed.find(&mut history, &needle, MoveDir1D::Next, false).unwrap();
         assert_eq!(res, EditRope::from("writhe"));
-        assert_eq!(ed.scrollback, Scrollback::Empty);
+        assert_eq!(ed.scrollback, ScrollbackState::Empty);
         assert_eq!(history.strs(), v);
     }
 
@@ -547,7 +501,7 @@ mod tests {
 
         let v = vec!["hello world", "foo", "help me", "bar", "writhe", "baz"];
 
-        assert_eq!(ed.scrollback, Scrollback::Pending);
+        assert_eq!(ed.scrollback, ScrollbackState::Pending);
         assert_eq!(history.strs(), v);
 
         let v = vec![
@@ -562,17 +516,17 @@ mod tests {
 
         let res = ed.find(&mut history, &needle, MoveDir1D::Previous, false).unwrap();
         assert_eq!(res, EditRope::from("writhe"));
-        assert_eq!(ed.scrollback, Scrollback::Typed);
+        assert_eq!(ed.scrollback, ScrollbackState::Typed);
         assert_eq!(history.strs(), v);
 
         let res = ed.find(&mut history, &needle, MoveDir1D::Previous, false).unwrap();
         assert_eq!(res, EditRope::from("help me"));
-        assert_eq!(ed.scrollback, Scrollback::Typed);
+        assert_eq!(ed.scrollback, ScrollbackState::Typed);
         assert_eq!(history.strs(), v);
 
         let res = ed.find(&mut history, &needle, MoveDir1D::Next, false).unwrap();
         assert_eq!(res, EditRope::from("writhe"));
-        assert_eq!(ed.scrollback, Scrollback::Typed);
+        assert_eq!(ed.scrollback, ScrollbackState::Typed);
         assert_eq!(history.strs(), v);
     }
 
@@ -589,22 +543,22 @@ mod tests {
 
         let v = vec!["hello world", "foo", "help me", "bar", "writhe", "baz"];
 
-        assert_eq!(ed.scrollback, Scrollback::Pending);
+        assert_eq!(ed.scrollback, ScrollbackState::Pending);
         assert_eq!(history.strs(), v);
 
         let res = ed.recall(&mut history, MoveDir1D::Previous, 3).unwrap();
         assert_eq!(res, EditRope::from("bar"));
-        assert_eq!(ed.scrollback, Scrollback::Empty);
+        assert_eq!(ed.scrollback, ScrollbackState::Empty);
         assert_eq!(history.strs(), v);
 
         let res = ed.recall(&mut history, MoveDir1D::Next, 1).unwrap();
         assert_eq!(res, EditRope::from("writhe"));
-        assert_eq!(ed.scrollback, Scrollback::Empty);
+        assert_eq!(ed.scrollback, ScrollbackState::Empty);
         assert_eq!(history.strs(), v);
 
         let res = ed.recall(&mut history, MoveDir1D::Next, 2).unwrap();
         assert_eq!(res, EditRope::from(""));
-        assert_eq!(ed.scrollback, Scrollback::Pending);
+        assert_eq!(ed.scrollback, ScrollbackState::Pending);
         assert_eq!(history.strs(), v);
     }
 
@@ -621,7 +575,7 @@ mod tests {
 
         let v = vec!["hello world", "foo", "help me", "bar", "writhe", "baz"];
 
-        assert_eq!(ed.scrollback, Scrollback::Pending);
+        assert_eq!(ed.scrollback, ScrollbackState::Pending);
         assert_eq!(history.strs(), v);
 
         let v = vec![
@@ -636,17 +590,17 @@ mod tests {
 
         let res = ed.recall(&mut history, MoveDir1D::Previous, 3).unwrap();
         assert_eq!(res, EditRope::from("bar"));
-        assert_eq!(ed.scrollback, Scrollback::Typed);
+        assert_eq!(ed.scrollback, ScrollbackState::Typed);
         assert_eq!(history.strs(), v);
 
         let res = ed.recall(&mut history, MoveDir1D::Next, 1).unwrap();
         assert_eq!(res, EditRope::from("writhe"));
-        assert_eq!(ed.scrollback, Scrollback::Typed);
+        assert_eq!(ed.scrollback, ScrollbackState::Typed);
         assert_eq!(history.strs(), v);
 
         let res = ed.recall(&mut history, MoveDir1D::Next, 2).unwrap();
         assert_eq!(res, EditRope::from("quux"));
-        assert_eq!(ed.scrollback, Scrollback::Typed);
+        assert_eq!(ed.scrollback, ScrollbackState::Typed);
         assert_eq!(history.strs(), v);
     }
 }

@@ -20,6 +20,7 @@ use xi_rope::rope::{BaseMetric, LinesMetric, Utf16CodeUnitsMetric};
 use xi_rope::rope::{Rope, RopeInfo};
 use xi_rope::tree::Cursor as RopeCursor;
 
+use crate::editing::action::EditAction;
 use crate::editing::cursor::{Cursor, CursorAdjustment};
 
 use crate::editing::base::{
@@ -31,7 +32,6 @@ use crate::editing::base::{
     CursorMovements,
     CursorMovementsContext,
     CursorSearch,
-    EditAction,
     EditContext,
     EditRange,
     InsertStyle,

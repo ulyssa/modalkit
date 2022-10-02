@@ -4,14 +4,13 @@ use crate::editing::cursor::{block_cursors, Cursor};
 use crate::editing::rope::PrivateCursorOps;
 use crate::util::sort2;
 
+use crate::editing::action::{EditAction, EditError, EditResult};
+
 use crate::editing::base::{
     Application,
     Count,
     CursorMovements,
-    EditAction,
     EditContext,
-    EditError,
-    EditResult,
     EditTarget,
     MoveDir1D,
     MoveTerminus,

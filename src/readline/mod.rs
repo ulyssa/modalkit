@@ -55,25 +55,28 @@ use crossterm::{
 };
 
 use crate::editing::{
-    base::{
+    action::{
         Action,
-        Application,
         CommandBarAction,
-        CommandType,
-        Count,
         EditAction,
-        EditContext,
         EditError,
         EditResult,
-        EditTarget,
+        Editable,
         InsertTextAction,
+        PromptAction,
+    },
+    base::{
+        Application,
+        CommandType,
+        Count,
+        EditContext,
+        EditTarget,
         MoveDir1D,
         MoveDirMod,
         MoveType,
         Register,
         RepeatType,
     },
-    buffer::Editable,
     history::HistoryList,
     key::KeyManager,
     rope::EditRope,
@@ -290,26 +293,36 @@ where
     fn command_bar(
         &mut self,
         act: CommandBarAction,
-        ctx: C,
+        _: C,
     ) -> Result<InternalResult, ReadLineError> {
         match act {
-            CommandBarAction::Submit => {
-                let res = self.submit();
-                self.ct = None;
-
-                return res;
-            },
             CommandBarAction::Focus(ct) => {
                 self.ct = Some(ct);
 
                 Ok(InternalResult::Nothing)
             },
-            CommandBarAction::Abort => {
-                self.abort();
+            CommandBarAction::Unfocus => {
+                self.ct = None;
 
                 Ok(InternalResult::Nothing)
             },
-            CommandBarAction::Recall(dir, count) => {
+        }
+    }
+
+    fn prompt(&mut self, act: PromptAction, ctx: C) -> Result<InternalResult, ReadLineError> {
+        match act {
+            PromptAction::Submit => {
+                let res = self.submit();
+                self.ct = None;
+
+                return res;
+            },
+            PromptAction::Abort(empty) => {
+                self.abort(empty);
+
+                Ok(InternalResult::Nothing)
+            },
+            PromptAction::Recall(dir, count) => {
                 self.recall(dir, ctx.resolve(&count));
 
                 Ok(InternalResult::Nothing)
@@ -317,23 +330,24 @@ where
         }
     }
 
-    fn abort(&mut self) {
+    fn abort(&mut self, empty: bool) {
         match self.ct {
             None => {},
             Some(CommandType::Search(_, _)) => {
-                let entry = self.reset_cmd();
-                let mut locked = self.store.write().unwrap();
-
-                if entry.len() > 0 {
-                    locked.searches.select(entry);
-                } else {
-                    let _ = locked.searches.end();
+                if empty && !self.cmd.is_blank() {
+                    return;
                 }
+
+                Store::set_aborted_search(self.reset_cmd(), &self.store);
 
                 self.ct = None;
             },
             Some(CommandType::Command) => {
-                let _ = self.reset_cmd();
+                if empty && !self.cmd.is_blank() {
+                    return;
+                }
+
+                Store::set_aborted_cmd(self.reset_cmd(), &self.store);
 
                 self.ct = None;
             },
@@ -406,7 +420,7 @@ where
         return Ok(re);
     }
 
-    fn search(&mut self, flip: MoveDirMod, count: Count, ctx: C) -> EditResult {
+    fn search(&mut self, flip: MoveDirMod, count: Count, ctx: &C) -> EditResult {
         let count = ctx.resolve(&count);
         let needle = self.get_regex()?;
         let dir = ctx.get_search_regex_dir();
@@ -578,6 +592,7 @@ where
             },
 
             Action::CommandBar(cb) => return self.command_bar(cb, ctx),
+            Action::Prompt(p) => return self.prompt(p, ctx),
             Action::Suspend => return self.suspend(),
 
             // Simple delegations.
@@ -587,7 +602,7 @@ where
             Action::Cursor(act) => self.focused_mut().cursor_command(act, &ctx)?,
             Action::Selection(act) => self.focused_mut().selection_command(act, &ctx)?,
             Action::History(act) => self.focused_mut().history_command(act, &ctx)?,
-            Action::Search(flip, count) => self.search(flip, count, ctx)?,
+            Action::Search(flip, count) => self.search(flip, count, &ctx)?,
 
             Action::RedrawScreen => {
                 self.context.top = 0;

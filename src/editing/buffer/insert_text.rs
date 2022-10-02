@@ -1,4 +1,5 @@
 use crate::editing::{
+    action::EditResult,
     base::{
         Application,
         Char,
@@ -6,7 +7,6 @@ use crate::editing::{
         CursorChoice,
         CursorEnd,
         EditContext,
-        EditResult,
         InsertStyle,
         MoveDir1D,
         TargetShape,

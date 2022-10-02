@@ -16,7 +16,6 @@ use tui::{
 };
 
 use crate::{
-    editing::buffer::Editable,
     editing::store::SharedStore,
     input::InputContext,
     util::{idx_move, idx_offset},
@@ -26,58 +25,68 @@ use super::{
     cmdbar::{CommandBar, CommandBarState},
     util::{rect_down, rect_zero_height},
     windows::{WindowActions, WindowLayout, WindowLayoutState},
-    Focusable,
-    Submitable,
-    TabContainer,
     TerminalCursor,
     Window,
     WindowContainer,
 };
 
-use crate::editing::base::{
+use crate::editing::action::{
     Action,
+    CommandBarAction,
+    CursorAction,
+    EditAction,
+    EditError,
+    EditInfo,
+    EditResult,
+    Editable,
+    HistoryAction,
+    InsertTextAction,
+    PromptAction,
+    Promptable,
+    Scrollable,
+    Searchable,
+    SelectionAction,
+    TabAction,
+    TabContainer,
+    UIError,
+    UIResult,
+    WindowAction,
+};
+
+use crate::editing::base::{
     Application,
     Axis,
     CloseFlags,
     CloseTarget,
     CommandType,
     Count,
-    CursorAction,
-    EditAction,
     EditContext,
-    EditError,
-    EditInfo,
-    EditResult,
     EditTarget,
     FocusChange,
-    HistoryAction,
-    InsertTextAction,
     Mark,
     MoveDir1D,
     MoveDir2D,
+    MoveDirMod,
     MovePosition,
     ScrollStyle,
-    SelectionAction,
-    TabAction,
-    WindowAction,
 };
 
 trait TabActions<C> {
     /// Close one or more tabs, and all of their [Windows](Window).
-    fn tab_close(&mut self, target: &CloseTarget, flags: CloseFlags, ctx: &C) -> EditResult;
+    fn tab_close(&mut self, target: &CloseTarget, flags: CloseFlags, ctx: &C) -> UIResult;
 
     /// Extract the currently focused [Window] from the currently focused tab, and place it in a
     /// new tab.
-    fn tab_extract(&mut self, change: &FocusChange, side: MoveDir1D, ctx: &C) -> EditResult;
+    fn tab_extract(&mut self, change: &FocusChange, side: MoveDir1D, ctx: &C) -> UIResult;
 
     /// Switch focus to another tab.
-    fn tab_focus(&mut self, change: &FocusChange, ctx: &C) -> EditResult;
+    fn tab_focus(&mut self, change: &FocusChange, ctx: &C) -> UIResult;
 
     /// Move the current tab to another position.
-    fn tab_move(&mut self, change: &FocusChange, ctx: &C) -> EditResult;
+    fn tab_move(&mut self, change: &FocusChange, ctx: &C) -> UIResult;
 
     /// Open a new tab after the tab targeted by [FocusChange].
-    fn tab_open(&mut self, change: &FocusChange, ctx: &C) -> EditResult;
+    fn tab_open(&mut self, change: &FocusChange, ctx: &C) -> UIResult;
 }
 
 fn bold<'a>(s: String) -> Span<'a> {
@@ -95,7 +104,12 @@ pub enum CurrentFocus {
 }
 
 /// Persistent state for [Screen].
-pub struct ScreenState<W: Window, C: EditContext + InputContext, P: Application> {
+pub struct ScreenState<W, C, P = ()>
+where
+    W: Window,
+    C: EditContext + InputContext,
+    P: Application,
+{
     focused: CurrentFocus,
     cmdbar: CommandBarState<C, P>,
     tabs: Vec<WindowLayoutState<W>>,
@@ -112,7 +126,7 @@ where
     C: EditContext + InputContext,
     P: Application,
 {
-    /// Create a new instance.
+    /// Create state for a [Screen] widget.
     pub fn new(win: W, store: SharedStore<C, P>) -> Self {
         let cmdbar = CommandBarState::new(store.clone());
         let tab = WindowLayoutState::new(win);
@@ -129,27 +143,37 @@ where
         }
     }
 
+    /// Push a new error or status message.
     pub fn push_message<T: Into<String>>(&mut self, msg: T, style: Style) {
         self.messages.push((msg.into(), style));
         self.last_message = true;
     }
 
+    /// Clear the displayed error or status message.
     pub fn clear_message(&mut self) {
         self.last_message = false;
     }
 
-    pub fn focus_command(&mut self, ct: CommandType) -> EditResult {
+    fn focus_command(&mut self, ct: CommandType) -> EditResult {
         self.focused = CurrentFocus::Command;
         self.cmdbar.set_type(ct);
 
         Ok(None)
     }
 
-    pub fn focus_window(&mut self) -> EditResult {
+    fn focus_window(&mut self) -> EditResult {
         self.focused = CurrentFocus::Window;
         self.cmdbar.reset();
 
         Ok(None)
+    }
+
+    /// Perform a command bar action.
+    pub fn command_bar(&mut self, act: CommandBarAction, _: &C) -> EditResult {
+        match act {
+            CommandBarAction::Focus(ct) => self.focus_command(ct),
+            CommandBarAction::Unfocus => self.focus_window(),
+        }
     }
 
     fn _focus_tab(&mut self, idx: usize) {
@@ -185,8 +209,8 @@ where
     }
 
     /// Get a mutable reference to the window layout for the current tab.
-    pub fn current_tab_mut(&mut self) -> &mut WindowLayoutState<W> {
-        self.tabs.get_mut(self.tabidx).unwrap()
+    pub fn current_tab_mut(&mut self) -> UIResult<&mut WindowLayoutState<W>> {
+        self.tabs.get_mut(self.tabidx).ok_or(UIError::NoTab)
     }
 
     /// Get a reference to the currently focused window.
@@ -195,8 +219,8 @@ where
     }
 
     /// Get a mutable reference to the currently focused window.
-    pub fn current_window_mut(&mut self) -> Option<&mut W> {
-        self.current_tab_mut().get_mut()
+    pub fn current_window_mut(&mut self) -> UIResult<&mut W> {
+        self.current_tab_mut()?.get_mut().ok_or(UIError::NoWindow)
     }
 
     fn _max_idx(&self) -> usize {
@@ -258,7 +282,7 @@ where
     C: EditContext + InputContext,
     P: Application,
 {
-    fn tab_close(&mut self, target: &CloseTarget, flags: CloseFlags, ctx: &C) -> EditResult {
+    fn tab_close(&mut self, target: &CloseTarget, flags: CloseFlags, ctx: &C) -> UIResult {
         match target {
             CloseTarget::All => {
                 let mut old = vec![];
@@ -283,9 +307,10 @@ where
                 if self.tabs.len() == 0 {
                     return Ok(None);
                 } else {
-                    return Err(EditError::Failure(
-                        "unable to close all windows in some tabs".into(),
-                    ));
+                    let msg = "unable to close all windows in some tabs".into();
+                    let err = EditError::Failure(msg);
+
+                    return Err(err.into());
                 }
             },
             CloseTarget::AllBut(fc) => {
@@ -314,9 +339,10 @@ where
                     let _ = self.tabs[idx].window_close(CloseTarget::All, flags, ctx)?;
 
                     if WindowContainer::<W, C>::windows(&self.tabs[idx]) > 0 {
-                        return Err(EditError::Failure(
-                            "unable to close all windows in tab".into(),
-                        ));
+                        let msg = "unable to close all windows in tab".into();
+                        let err = EditError::Failure(msg);
+
+                        return Err(err.into());
                     }
 
                     self._remove_tab(idx);
@@ -327,12 +353,12 @@ where
         return Ok(None);
     }
 
-    fn tab_extract(&mut self, change: &FocusChange, side: MoveDir1D, ctx: &C) -> EditResult {
+    fn tab_extract(&mut self, change: &FocusChange, side: MoveDir1D, ctx: &C) -> UIResult {
         if self.windows() <= 1 {
             return Ok(Some(EditInfo::new("Already one window")));
         }
 
-        let tab = self.current_tab_mut().extract();
+        let tab = self.current_tab_mut()?.extract();
 
         let (idx, side) = if let Some(idx) = self._target(change, ctx) {
             (idx, side)
@@ -352,7 +378,7 @@ where
         return Ok(None);
     }
 
-    fn tab_focus(&mut self, change: &FocusChange, ctx: &C) -> EditResult {
+    fn tab_focus(&mut self, change: &FocusChange, ctx: &C) -> UIResult {
         if let Some(target) = self._target(change, ctx) {
             self._focus_tab(target);
         }
@@ -360,7 +386,7 @@ where
         Ok(None)
     }
 
-    fn tab_move(&mut self, change: &FocusChange, ctx: &C) -> EditResult {
+    fn tab_move(&mut self, change: &FocusChange, ctx: &C) -> UIResult {
         if let Some(idx) = self._target(change, ctx) {
             idx_move(&mut self.tabs, &mut self.tabidx, idx, &mut self.tabidx_last);
         }
@@ -368,7 +394,7 @@ where
         return Ok(None);
     }
 
-    fn tab_open(&mut self, change: &FocusChange, ctx: &C) -> EditResult {
+    fn tab_open(&mut self, change: &FocusChange, ctx: &C) -> UIResult {
         let idx = self._target(change, ctx).unwrap_or(self.tabidx);
         let tab = WindowLayoutState::empty();
 
@@ -388,7 +414,7 @@ where
         self.tabs.len()
     }
 
-    fn tab_command(&mut self, act: TabAction, ctx: &C) -> EditResult {
+    fn tab_command(&mut self, act: TabAction, ctx: &C) -> UIResult {
         match act {
             TabAction::Close(target, flags) => self.tab_close(&target, flags, ctx),
             TabAction::Extract(target, side) => self.tab_extract(&target, side, ctx),
@@ -416,12 +442,12 @@ where
         rel: MoveDir1D,
         count: Option<Count>,
         ctx: &C,
-    ) -> EditResult {
-        self.current_tab_mut().window_open(window, axis, rel, count, ctx)
+    ) -> UIResult {
+        self.current_tab_mut()?.window_open(window, axis, rel, count, ctx)
     }
 
-    fn window_command(&mut self, act: WindowAction, ctx: &C) -> EditResult {
-        let tab = self.current_tab_mut();
+    fn window_command(&mut self, act: WindowAction, ctx: &C) -> UIResult {
+        let tab = self.current_tab_mut()?;
         let ret = tab.window_command(act, ctx);
 
         if WindowContainer::<W, C>::windows(tab) == 0 {
@@ -432,6 +458,24 @@ where
     }
 }
 
+macro_rules! delegate_focus {
+    ($s: expr, $id: ident => $invoke: expr) => {
+        match $s.focused {
+            CurrentFocus::Command => {
+                let $id = &mut $s.cmdbar;
+                $invoke
+            },
+            CurrentFocus::Window => {
+                if let Ok($id) = $s.current_window_mut() {
+                    $invoke
+                } else {
+                    Ok(Default::default())
+                }
+            },
+        }
+    };
+}
+
 impl<W, C, P> Editable<C> for ScreenState<W, C, P>
 where
     W: Window + Editable<C>,
@@ -439,81 +483,27 @@ where
     P: Application,
 {
     fn edit(&mut self, action: &EditAction, target: &EditTarget, ctx: &C) -> EditResult {
-        match self.focused {
-            CurrentFocus::Command => self.cmdbar.edit(action, target, ctx),
-            CurrentFocus::Window => {
-                if let Some(w) = self.current_window_mut() {
-                    w.edit(action, target, ctx)
-                } else {
-                    Ok(None)
-                }
-            },
-        }
+        delegate_focus!(self, f => f.edit(action, target, ctx))
     }
 
     fn insert_text(&mut self, act: InsertTextAction, ctx: &C) -> EditResult {
-        match self.focused {
-            CurrentFocus::Command => self.cmdbar.insert_text(act, ctx),
-            CurrentFocus::Window => {
-                if let Some(w) = self.current_window_mut() {
-                    w.insert_text(act, ctx)
-                } else {
-                    Ok(None)
-                }
-            },
-        }
+        delegate_focus!(self, f => f.insert_text(act, ctx))
     }
 
     fn cursor_command(&mut self, act: CursorAction, ctx: &C) -> EditResult {
-        match self.focused {
-            CurrentFocus::Command => self.cmdbar.cursor_command(act, ctx),
-            CurrentFocus::Window => {
-                if let Some(w) = self.current_window_mut() {
-                    w.cursor_command(act, ctx)
-                } else {
-                    Ok(None)
-                }
-            },
-        }
+        delegate_focus!(self, f => f.cursor_command(act, ctx))
     }
 
     fn selection_command(&mut self, act: SelectionAction, ctx: &C) -> EditResult {
-        match self.focused {
-            CurrentFocus::Command => self.cmdbar.selection_command(act, ctx),
-            CurrentFocus::Window => {
-                if let Some(w) = self.current_window_mut() {
-                    w.selection_command(act, ctx)
-                } else {
-                    Ok(None)
-                }
-            },
-        }
+        delegate_focus!(self, f => f.selection_command(act, ctx))
     }
 
     fn mark(&mut self, name: Mark, ctx: &C) -> EditResult {
-        match self.focused {
-            CurrentFocus::Command => self.cmdbar.mark(name, ctx),
-            CurrentFocus::Window => {
-                if let Some(w) = self.current_window_mut() {
-                    w.mark(name, ctx)
-                } else {
-                    Ok(None)
-                }
-            },
-        }
+        delegate_focus!(self, f => f.mark(name, ctx))
     }
 
     fn history_command(&mut self, act: HistoryAction, ctx: &C) -> EditResult {
-        match self.focused {
-            CurrentFocus::Command => self.cmdbar.history_command(act, ctx),
-            CurrentFocus::Window => {
-                if let Some(w) = self.current_window_mut() {
-                    w.history_command(act, ctx)
-                } else {
-                    Ok(None)
-                }
-            },
-        }
+        delegate_focus!(self, f => f.history_command(act, ctx))
     }
 }
 
@@ -523,64 +513,60 @@ where
     C: EditContext + InputContext,
     P: Application,
 {
-    fn get_term_cursor(&self) -> (u16, u16) {
+    fn get_term_cursor(&self) -> Option<(u16, u16)> {
         match self.focused {
             CurrentFocus::Command => self.cmdbar.get_term_cursor(),
             CurrentFocus::Window => {
                 if let Some(w) = self.current_window() {
                     w.get_term_cursor()
                 } else {
-                    // XXX: make get_term_cursor() return an Option?
-                    (0, 0)
+                    None
                 }
             },
         }
     }
 }
 
-impl<W, C, P> Focusable<C> for ScreenState<W, C, P>
+impl<W, C, P> Promptable<Action<P>, C> for ScreenState<W, C, P>
 where
-    W: Window + Focusable<C>,
+    W: Window + Promptable<Action<P>, C>,
+    C: EditContext + InputContext,
+    P: Application,
+{
+    fn prompt(&mut self, act: PromptAction, ctx: &C) -> EditResult<Vec<(Action<P>, C)>> {
+        delegate_focus!(self, f => f.prompt(act, ctx))
+    }
+}
+
+impl<W, C, P> Scrollable<C> for ScreenState<W, C, P>
+where
+    W: Window + Scrollable<C>,
     C: EditContext + InputContext,
     P: Application,
 {
     fn scroll(&mut self, style: &ScrollStyle, ctx: &C) -> EditResult {
-        match self.focused {
-            CurrentFocus::Command => self.cmdbar.scroll(style, ctx),
-            CurrentFocus::Window => {
-                if let Some(w) = self.current_window_mut() {
-                    w.scroll(style, ctx)
-                } else {
-                    Ok(None)
-                }
-            },
-        }
+        delegate_focus!(self, f => f.scroll(style, ctx))
     }
 }
 
-impl<W, C, P> Submitable<Action<P>, C> for ScreenState<W, C, P>
+impl<W, C, P> Searchable<C> for ScreenState<W, C, P>
 where
-    W: Window + Submitable<Action<P>, C>,
+    W: Window + Searchable<C>,
     C: EditContext + InputContext,
     P: Application,
 {
-    fn submit(&mut self, ctx: &mut C) -> Option<Action<P>> {
-        match self.focused {
-            CurrentFocus::Command => {
-                let res = self.cmdbar.submit(ctx);
-                let _ = self.focus_window();
-                res
-            },
-            CurrentFocus::Window => {
-                let w = self.current_window_mut()?;
-                w.submit(ctx)
-            },
-        }
+    fn search(&mut self, dir: MoveDirMod, count: Count, ctx: &C) -> UIResult {
+        self.current_window_mut()?.search(dir, count, ctx)
     }
 }
 
 /// Widget for displaying a tabbed window layout with a command bar.
-pub struct Screen<'a, W: Window, C: EditContext + InputContext, P: Application> {
+pub struct Screen<'a, W, C, P = ()>
+where
+    W: Window,
+    C: EditContext + InputContext,
+    P: Application,
+{
     showmode: Option<Span<'a>>,
     _p: PhantomData<(W, C, P)>,
 }
@@ -591,10 +577,12 @@ where
     C: EditContext + InputContext,
     P: Application,
 {
+    /// Create a new widget.
     pub fn new() -> Self {
         Screen { showmode: None, _p: PhantomData }
     }
 
+    /// Set the mode string to display.
     pub fn showmode(mut self, mode: Option<String>) -> Self {
         self.showmode = mode.map(bold);
         self
@@ -651,11 +639,11 @@ where
             .select(state.tabidx)
             .render(tabarea, buf);
 
-        WindowLayout::new().focus(focused == CurrentFocus::Window).render(
-            winarea,
-            buf,
-            state.current_tab_mut(),
-        );
+        if let Ok(tab) = state.current_tab_mut() {
+            WindowLayout::new()
+                .focus(focused == CurrentFocus::Window)
+                .render(winarea, buf, tab);
+        }
 
         let status = if self.showmode.is_some() || !state.last_message {
             state.last_message = false;

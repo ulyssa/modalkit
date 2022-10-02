@@ -3,7 +3,7 @@
 //! ## Overview
 //!
 //! This module handles mapping the keybindings used in Emacs onto the
-//! [Action](crate::editing::base::Action) type.
+//! [Action] type.
 //!
 //! ## Divergences
 //!
@@ -13,23 +13,29 @@
 //!
 use bitflags::bitflags;
 
-use crate::editing::base::{
+use crate::editing::action::{
     Action,
+    CommandBarAction,
+    EditAction,
+    HistoryAction,
+    InsertTextAction,
+    PromptAction,
+    SelectionAction,
+    WindowAction,
+};
+
+use crate::editing::base::{
     Application,
     Axis,
     Case,
     Char,
     CloseFlags,
     CloseTarget,
-    CommandBarAction,
     CommandType,
     Count,
-    EditAction,
     EditTarget,
     FocusChange,
-    HistoryAction,
     InsertStyle,
-    InsertTextAction,
     JoinStyle,
     MoveDir1D,
     MoveDir2D,
@@ -43,12 +49,10 @@ use crate::editing::base::{
     ScrollSize,
     ScrollStyle,
     SearchType,
-    SelectionAction,
     SelectionCursorChange,
     SelectionResizeStyle,
     Specifier,
     TargetShape,
-    WindowAction,
     WordStyle,
 };
 
@@ -155,7 +159,7 @@ impl InternalAction {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 enum ExternalAction<P: Application> {
     Something(Action<P>),
     Repeat(bool),
@@ -185,6 +189,15 @@ impl<P: Application> ExternalAction<P> {
     }
 }
 
+impl<P: Application> Clone for ExternalAction<P> {
+    fn clone(&self) -> Self {
+        match self {
+            ExternalAction::Something(act) => ExternalAction::Something(act.clone()),
+            ExternalAction::Repeat(reqrep) => ExternalAction::Repeat(*reqrep),
+        }
+    }
+}
+
 impl<P: Application> From<Action<P>> for ExternalAction<P> {
     fn from(act: Action<P>) -> Self {
         ExternalAction::Something(act)
@@ -192,7 +205,7 @@ impl<P: Application> From<Action<P>> for ExternalAction<P> {
 }
 
 /// Description of actions to take after an input sequence.
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct InputStep<P: Application> {
     internal: Vec<InternalAction>,
     external: Vec<ExternalAction<P>>,
@@ -209,6 +222,16 @@ impl<P: Application> InputStep<P> {
     pub fn actions(mut self, acts: Vec<Action<P>>) -> Self {
         self.external = acts.into_iter().map(ExternalAction::Something).collect();
         self
+    }
+}
+
+impl<P: Application> Clone for InputStep<P> {
+    fn clone(&self) -> Self {
+        Self {
+            internal: self.internal.clone(),
+            external: self.external.clone(),
+            nextm: self.nextm.clone(),
+        }
     }
 }
 
@@ -561,8 +584,11 @@ fn default_keys<P: Application>() -> Vec<(MappedModes, &'static str, InputStep<P
         ( IMAP, "<PageDown>", scroll2d!(MoveDir2D::Down, ScrollSize::Page) ),
         ( IMAP, "<PageUp>", scroll2d!(MoveDir2D::Up, ScrollSize::Page) ),
 
+        // Command mode keybindings.
+        ( CMAP, "<C-G>", prompt!(PromptAction::Abort(false), EmacsMode::Insert) ),
+
         // Search mode keybindings.
-        ( SMAP, "<C-G>", cmdbar!(CommandBarAction::Abort, EmacsMode::Insert) ),
+        ( SMAP, "<C-G>", prompt!(PromptAction::Abort(false), EmacsMode::Insert) ),
         ( SMAP, "<C-R>", search!(MoveDir1D::Previous) ),
         ( SMAP, "<C-S>", search!(MoveDir1D::Next) ),
     ].to_vec()
@@ -593,7 +619,7 @@ fn default_enter<P: Application>() -> Vec<(MappedModes, &'static str, InputStep<
         ( IMAP, "<Enter>", chartype!(Char::Single('\n')) ),
 
         // <Enter> in Command mode submits the commands.
-        ( CMAP, "<Enter>", cmdbar!(CommandBarAction::Submit, EmacsMode::Insert) ),
+        ( CMAP, "<Enter>", prompt!(PromptAction::Submit, EmacsMode::Insert) ),
     ].to_vec()
 }
 
@@ -601,7 +627,7 @@ fn default_enter<P: Application>() -> Vec<(MappedModes, &'static str, InputStep<
 fn submit_on_enter<P: Application>() -> Vec<(MappedModes, &'static str, InputStep<P>)> {
     [
         // <Enter> in Insert and Command mode submits the command.
-        ( ICMAP, "<Enter>", cmdbar!(CommandBarAction::Submit, EmacsMode::Insert) ),
+        ( ICMAP, "<Enter>", prompt!(PromptAction::Submit, EmacsMode::Insert) ),
     ].to_vec()
 }
 
@@ -644,7 +670,7 @@ pub struct EmacsBindings<P: Application> {
 }
 
 impl<P: Application> EmacsBindings<P> {
-    /// Remap the Enter key to [submit](CommandBarAction::Submit) instead.
+    /// Remap the Enter key to [submit](PromptAction::Submit) instead.
     pub fn submit_on_enter(mut self) -> Self {
         self.enter = submit_on_enter();
         self
@@ -714,7 +740,7 @@ mod tests {
         };
     }
 
-    const CMDBAR_ABORT: Action = Action::CommandBar(CommandBarAction::Abort);
+    const CMDBAR_ABORT: Action = Action::Prompt(PromptAction::Abort(false));
     const CMDBAR_SEARCH_NEXT: Action =
         Action::CommandBar(CommandBarAction::Focus(CommandType::Search(MoveDir1D::Next, true)));
     const CMDBAR_SEARCH_PREV: Action =

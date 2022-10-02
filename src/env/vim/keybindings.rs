@@ -3,7 +3,7 @@
 //! ## Overview
 //!
 //! This module handles mapping the keybindings used in Vim onto the
-//! [Action](crate::editing::base::Action) type.
+//! [Action] type.
 //!
 //! ## Example
 //!
@@ -11,8 +11,9 @@
 //! use modalkit::env::vim::VimMode;
 //! use modalkit::env::vim::keybindings::VimMachine;
 //!
+//! use modalkit::editing::action::{Action, EditAction, HistoryAction};
 //! use modalkit::editing::base::{Count, Resolve};
-//! use modalkit::editing::base::{Action, EditAction, EditTarget, HistoryAction, RangeType};
+//! use modalkit::editing::base::{EditTarget, RangeType};
 //!
 //! use modalkit::input::{bindings::BindingMachine, key::TerminalKey};
 //!
@@ -47,29 +48,36 @@
 //! ```
 use bitflags::bitflags;
 
-use crate::editing::base::{
+use crate::editing::action::{
     Action,
+    CommandAction,
+    CommandBarAction,
+    CursorAction,
+    EditAction,
+    HistoryAction,
+    InsertTextAction,
+    MacroAction,
+    PromptAction,
+    SelectionAction,
+    TabAction,
+    WindowAction,
+};
+
+use crate::editing::base::{
     Application,
     Axis,
     Case,
     Char,
     CloseFlags,
     CloseTarget,
-    CommandAction,
-    CommandBarAction,
     CommandType,
     Count,
-    CursorAction,
     CursorEnd,
-    EditAction,
     EditTarget,
     FocusChange,
-    HistoryAction,
     IndentChange,
     InsertStyle,
-    InsertTextAction,
     JoinStyle,
-    MacroAction,
     MoveDir1D,
     MoveDir2D,
     MoveDirMod,
@@ -84,16 +92,13 @@ use crate::editing::base::{
     ScrollSize,
     ScrollStyle,
     SearchType,
-    SelectionAction,
     SelectionCursorChange,
     SelectionResizeStyle,
     SelectionSplitStyle,
     SizeChange,
     Specifier,
-    TabAction,
     TargetShape,
     TargetShapeFilter,
-    WindowAction,
     WordStyle,
 };
 
@@ -1185,7 +1190,7 @@ macro_rules! search {
 
 macro_rules! command_unfocus {
     () => {
-        cmdbar!(CommandBarAction::Abort, VimMode::Normal)
+        prompt!(PromptAction::Abort(false), VimMode::Normal)
     };
 }
 
@@ -1288,7 +1293,6 @@ fn default_keys<P: Application>() -> Vec<(MappedModes, &'static str, InputStep<P
 
         // Normal, Visual, Select mode keys
         ( NVMAP, "<C-B>", scroll2d!(MoveDir2D::Up, ScrollSize::Page) ),
-        ( NVMAP, "<C-D>", scroll2d!(MoveDir2D::Down, ScrollSize::HalfPage) ),
         ( NVMAP, "<C-E>", scroll2d!(MoveDir2D::Down, ScrollSize::Cell) ),
         ( NVMAP, "<C-F>", scroll2d!(MoveDir2D::Down, ScrollSize::Page) ),
         ( NVMAP, "<C-U>", scroll2d!(MoveDir2D::Up, ScrollSize::HalfPage) ),
@@ -1500,7 +1504,6 @@ fn default_keys<P: Application>() -> Vec<(MappedModes, &'static str, InputStep<P
         ( NMAP, "@:", command!(CommandAction::Repeat(Count::Contextual)) ),
         ( NMAP, "@@", act!(MacroAction::Repeat(Count::Contextual).into()) ),
         ( NMAP, "<C-A>", edit!(EditAction::ChangeNumber(NumberChange::IncreaseOne), MoveType::LinePos(MovePosition::End)) ),
-        ( NMAP, "<C-C>", normal!() ),
         ( NMAP, "<C-I>", jump!(PositionList::JumpList, MoveDir1D::Next) ),
         ( NMAP, "<C-G>", unmapped!() ),
         ( NMAP, "<C-L>", act!(Action::RedrawScreen) ),
@@ -1516,6 +1519,7 @@ fn default_keys<P: Application>() -> Vec<(MappedModes, &'static str, InputStep<P
 
         // Visual, Select mode keys
         ( VMAP, "<C-A>", edit_selection!(EditAction::ChangeNumber(NumberChange::IncreaseOne)) ),
+        ( VMAP, "<C-D>", scroll2d!(MoveDir2D::Down, ScrollSize::HalfPage) ),
         ( VMAP, "<C-C>", normal!() ),
         ( VMAP, "<C-L>", act!(Action::RedrawScreen) ),
         ( VMAP, "<C-X>", edit_selection!(EditAction::ChangeNumber(NumberChange::DecreaseOne)) ),
@@ -1599,8 +1603,6 @@ fn default_keys<P: Application>() -> Vec<(MappedModes, &'static str, InputStep<P
         // Insert Mode
         ( IMAP, "<C-@>", paste_register!(MoveDir1D::Previous, Register::LastInserted, VimMode::Normal) ),
         ( IMAP, "<C-A>", paste_register!(MoveDir1D::Previous, Register::LastInserted) ),
-        ( IMAP, "<C-C>", normal!() ),
-        ( IMAP, "<C-D>", edit_lines!(EditAction::Indent(IndentChange::Decrease(Count::Exact(1)))) ),
         ( IMAP, "<C-E>", chartype!(Char::CopyLine(MoveDir1D::Next)) ),
         ( IMAP, "<C-G>j", unmapped!() ),
         ( IMAP, "<C-G>k", unmapped!() ),
@@ -1653,12 +1655,12 @@ fn default_keys<P: Application>() -> Vec<(MappedModes, &'static str, InputStep<P
         ( CMAP, "<C-Left>", edit!(EditAction::Motion, MoveType::WordBegin(WordStyle::Big, MoveDir1D::Previous)) ),
         ( CMAP, "<S-Right>", edit!(EditAction::Motion, MoveType::WordBegin(WordStyle::Big, MoveDir1D::Next)) ),
         ( CMAP, "<C-Right>", edit!(EditAction::Motion, MoveType::WordBegin(WordStyle::Big, MoveDir1D::Next)) ),
-        ( CMAP, "<Up>", cmdbar!(CommandBarAction::Recall(MoveDir1D::Previous, Count::Contextual)) ),
-        ( CMAP, "<Down>", cmdbar!(CommandBarAction::Recall(MoveDir1D::Next, Count::Contextual)) ),
-        ( CMAP, "<S-Up>", cmdbar!(CommandBarAction::Recall(MoveDir1D::Previous, Count::Contextual)) ),
-        ( CMAP, "<S-Down>", cmdbar!(CommandBarAction::Recall(MoveDir1D::Next, Count::Contextual)) ),
-        ( CMAP, "<PageUp>", cmdbar!(CommandBarAction::Recall(MoveDir1D::Previous, Count::Contextual)) ),
-        ( CMAP, "<PageDown>", cmdbar!(CommandBarAction::Recall(MoveDir1D::Next, Count::Contextual)) ),
+        ( CMAP, "<Up>", prompt!(PromptAction::Recall(MoveDir1D::Previous, Count::Contextual)) ),
+        ( CMAP, "<Down>", prompt!(PromptAction::Recall(MoveDir1D::Next, Count::Contextual)) ),
+        ( CMAP, "<S-Up>", prompt!(PromptAction::Recall(MoveDir1D::Previous, Count::Contextual)) ),
+        ( CMAP, "<S-Down>", prompt!(PromptAction::Recall(MoveDir1D::Next, Count::Contextual)) ),
+        ( CMAP, "<PageUp>", prompt!(PromptAction::Recall(MoveDir1D::Previous, Count::Contextual)) ),
+        ( CMAP, "<PageDown>", prompt!(PromptAction::Recall(MoveDir1D::Next, Count::Contextual)) ),
         ( CMAP, "<Insert>", iact!(InternalAction::SetInsertStyle(InsertStyle::Replace)) ),
 
         // Operator-Pending mode
@@ -1721,7 +1723,7 @@ fn default_enter<P: Application>() -> Vec<(MappedModes, &'static str, InputStep<
         ( IMAP, "<Enter>", chartype!(Char::Single('\n')) ),
 
         // <Enter> in Command mode submits the command.
-        ( CMAP, "<Enter>", cmdbar!(CommandBarAction::Submit, VimMode::Normal) ),
+        ( CMAP, "<Enter>", prompt!(PromptAction::Submit, VimMode::Normal) ),
     ].to_vec()
 }
 
@@ -1734,16 +1736,27 @@ fn default_search<P: Application>() -> Vec<(MappedModes, &'static str, InputStep
 }
 
 #[rustfmt::skip]
+fn default_ctrlcd<P: Application>() -> Vec<(MappedModes, &'static str, InputStep<P>)> {
+    [
+        ( NMAP, "<C-C>", normal!() ),
+        ( NMAP, "<C-D>", scroll2d!(MoveDir2D::Down, ScrollSize::HalfPage) ),
+
+        ( IMAP, "<C-C>", normal!() ),
+        ( IMAP, "<C-D>", edit_lines!(EditAction::Indent(IndentChange::Decrease(Count::Exact(1)))) ),
+    ].to_vec()
+}
+
+#[rustfmt::skip]
 fn submit_on_enter<P: Application>() -> Vec<(MappedModes, &'static str, InputStep<P>)> {
     [
         // <Enter> in Normal and Visual mode submits contents.
-        ( NVMAP, "<Enter>", cmdbar!(CommandBarAction::Submit, VimMode::Normal) ),
+        ( NVMAP, "<Enter>", prompt!(PromptAction::Submit, VimMode::Normal) ),
 
         // <Enter> in Insert mode submits contents and stays in Insert mode.
-        ( IMAP, "<Enter>", cmdbar!(CommandBarAction::Submit, VimMode::Insert) ),
+        ( IMAP, "<Enter>", prompt!(PromptAction::Submit, VimMode::Insert) ),
 
         // <Enter> in Command mode submits the command.
-        ( CMAP, "<Enter>", cmdbar!(CommandBarAction::Submit, VimMode::Normal) ),
+        ( CMAP, "<Enter>", prompt!(PromptAction::Submit, VimMode::Normal) ),
 
         // <Enter> in Operator-Pending mode moves to the next line.
         ( OMAP, "<Enter>", edit_end!(MoveType::FirstWord(MoveDir1D::Next)) ),
@@ -1764,6 +1777,17 @@ fn search_is_action<P: Application>() -> Vec<(MappedModes, &'static str, InputSt
         // Perform text search in Visual mode.
         ( XMAP, "n", edit_search_end!(SearchType::Regex, MoveDirMod::Same) ),
         ( XMAP, "N", edit_search_end!(SearchType::Regex, MoveDirMod::Flip) ),
+    ].to_vec()
+}
+
+#[rustfmt::skip]
+fn ctrlcd_is_abort<P: Application>() -> Vec<(MappedModes, &'static str, InputStep<P>)> {
+    [
+        // Abort if prompt is empty in both Normal and Insert mode.
+        ( NMAP, "<C-C>", prompt!(PromptAction::Abort(true)) ),
+        ( NMAP, "<C-D>", prompt!(PromptAction::Abort(true)) ),
+        ( IMAP, "<C-C>", prompt!(PromptAction::Abort(true)) ),
+        ( IMAP, "<C-D>", prompt!(PromptAction::Abort(true)) ),
     ].to_vec()
 }
 
@@ -1804,11 +1828,12 @@ pub struct VimBindings<P: Application> {
     mappings: Vec<(MappedModes, &'static str, InputStep<P>)>,
     enter: Vec<(MappedModes, &'static str, InputStep<P>)>,
     search: Vec<(MappedModes, &'static str, InputStep<P>)>,
+    ctrlcd: Vec<(MappedModes, &'static str, InputStep<P>)>,
 }
 
 impl<P: Application> VimBindings<P> {
     /// Remap the Enter key in Normal, Visual, Select, and Insert mode to
-    /// [submit](CommandBarAction::Submit) instead.
+    /// [submit](PromptAction::Submit) instead.
     pub fn submit_on_enter(mut self) -> Self {
         self.enter = submit_on_enter();
         self
@@ -1817,6 +1842,12 @@ impl<P: Application> VimBindings<P> {
     /// Remap `n` and `N` in Normal mode to perform [Action::Search] instead.
     pub fn search_is_action(mut self) -> Self {
         self.search = search_is_action();
+        self
+    }
+
+    /// Remap `<C-D>` in Normal and Insert mode to abort entry when the prompt is empty.
+    pub fn ctrlcd_is_abort(mut self) -> Self {
+        self.search = ctrlcd_is_abort();
         self
     }
 }
@@ -1828,6 +1859,7 @@ impl<P: Application> Default for VimBindings<P> {
             mappings: default_keys(),
             enter: default_enter(),
             search: default_search(),
+            ctrlcd: default_ctrlcd(),
         }
     }
 }
@@ -1847,6 +1879,10 @@ impl<P: Application> InputBindings<TerminalKey, InputStep<P>> for VimBindings<P>
         }
 
         for (modes, keys, action) in self.search.iter() {
+            add_mapping(machine, modes, keys, action);
+        }
+
+        for (modes, keys, action) in self.ctrlcd.iter() {
             add_mapping(machine, modes, keys, action);
         }
     }
@@ -1957,7 +1993,7 @@ mod tests {
     );
     const CHECKPOINT: Action = Action::History(HistoryAction::Checkpoint);
     const CMDBAR: Action = Action::CommandBar(CommandBarAction::Focus(CommandType::Command));
-    const CMDBAR_ABORT: Action = Action::CommandBar(CommandBarAction::Abort);
+    const CMDBAR_ABORT: Action = Action::Prompt(PromptAction::Abort(false));
     const CMDBAR_SEARCH_NEXT: Action =
         Action::CommandBar(CommandBarAction::Focus(CommandType::Search(MoveDir1D::Next, false)));
     const CMDBAR_SEARCH_PREV: Action = Action::CommandBar(CommandBarAction::Focus(

@@ -29,7 +29,8 @@ use std::collections::VecDeque;
 use crate::input::{bindings::BindingMachine, key::InputKey, InputContext};
 
 use super::{
-    base::{Application, EditContext, EditError, EditResult, MacroAction, Register},
+    action::{EditError, EditResult, MacroAction},
+    base::{Application, EditContext, Register},
     rope::EditRope,
     store::SharedStore,
 };

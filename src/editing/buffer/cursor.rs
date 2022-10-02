@@ -1,11 +1,6 @@
-use crate::editing::base::{
-    Application,
-    Count,
-    CursorCloseTarget,
-    EditContext,
-    EditResult,
-    MoveDir1D,
-};
+use crate::editing::action::EditResult;
+
+use crate::editing::base::{Application, Count, CursorCloseTarget, EditContext, MoveDir1D};
 
 use crate::util::idx_offset;
 

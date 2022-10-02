@@ -300,6 +300,10 @@ impl RegisterStore {
         }
     }
 
+    pub(super) fn set_last_cmd<T: Into<EditRope>>(&mut self, rope: T) {
+        self.last_command = RegisterCell::from(rope.into());
+    }
+
     pub(super) fn set_last_search<T: Into<EditRope>>(&mut self, rope: T) {
         self.last_search = RegisterCell::from(rope.into());
     }

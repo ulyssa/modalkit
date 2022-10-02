@@ -6,7 +6,21 @@ use regex::Regex;
 use super::{
     base::{CursorSearch, MoveDir1D},
     cursor::Cursor,
+    rope::EditRope,
 };
+
+/// Current status of scrolling through a prompt's previous values.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ScrollbackState {
+    /// User has not yet started scrolling through history.
+    Pending,
+
+    /// User started scrolling through history after typing something.
+    Typed,
+
+    /// User started scrolling through history without typing anything.
+    Empty,
+}
 
 /// Iterator over historical values.
 pub struct HistoryIterator<'a, T> {
@@ -239,6 +253,60 @@ where
                     return Some(&self.current);
                 } else {
                     return None;
+                }
+            },
+        }
+    }
+}
+
+impl HistoryList<EditRope> {
+    /// Handle scrolling through prompt history.
+    pub fn recall(
+        &mut self,
+        current: &EditRope,
+        scrollback: &mut ScrollbackState,
+        dir: MoveDir1D,
+        count: usize,
+    ) -> Option<EditRope> {
+        if count == 0 {
+            return None;
+        }
+
+        match (*scrollback, dir) {
+            (ScrollbackState::Pending, MoveDir1D::Previous) => {
+                let rope = current.trim();
+
+                if rope.len() > 0 {
+                    *scrollback = ScrollbackState::Typed;
+
+                    self.append(rope);
+
+                    return self.prev(count).clone().into();
+                } else {
+                    *scrollback = ScrollbackState::Empty;
+
+                    return self.prev(count - 1).clone().into();
+                }
+            },
+            (ScrollbackState::Pending, MoveDir1D::Next) => {
+                return None;
+            },
+            (ScrollbackState::Typed, MoveDir1D::Previous) => {
+                return self.prev(count).clone().into();
+            },
+            (ScrollbackState::Typed, MoveDir1D::Next) => {
+                return self.next(count).clone().into();
+            },
+            (ScrollbackState::Empty, MoveDir1D::Previous) => {
+                return self.prev(count).clone().into();
+            },
+            (ScrollbackState::Empty, MoveDir1D::Next) => {
+                if self.future_len() < count {
+                    self.next(count);
+                    *scrollback = ScrollbackState::Pending;
+                    return EditRope::from("").into();
+                } else {
+                    return self.next(count).clone().into();
                 }
             },
         }

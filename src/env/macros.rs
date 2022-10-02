@@ -46,6 +46,15 @@ macro_rules! goto {
     };
 }
 
+macro_rules! prompt {
+    ($act: expr) => {
+        act!(Action::Prompt($act))
+    };
+    ($act: expr, $ns: expr) => {
+        act!(Action::Prompt($act), $ns)
+    };
+}
+
 macro_rules! cmdbar {
     ($type: expr) => {
         act!(Action::CommandBar($type))

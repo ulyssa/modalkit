@@ -39,6 +39,7 @@ pub use self::cursor::{CursorStore, MarkStore};
 pub use self::digraph::DigraphStore;
 pub use self::register::{RegisterCell, RegisterStore};
 
+const COMMAND_HISTORY_LEN: usize = 50;
 const SEARCH_HISTORY_LEN: usize = 50;
 
 /// Global editing context
@@ -55,6 +56,9 @@ pub struct Store<C: EditContext, P: Application> {
     /// Tracks the buffer- and global-specific information of each
     /// [Mark](crate::editing::base::Mark).
     pub marks: MarkStore,
+
+    /// Tracks previous commands.
+    pub commands: HistoryList<EditRope>,
 
     /// Tracks previous search expressions.
     pub searches: HistoryList<EditRope>,
@@ -78,6 +82,8 @@ where
             digraphs: DigraphStore::default(),
             registers: RegisterStore::default(),
             marks: MarkStore::default(),
+
+            commands: HistoryList::new("".into(), COMMAND_HISTORY_LEN),
             searches: HistoryList::new("".into(), SEARCH_HISTORY_LEN),
 
             application: P::Store::default(),
@@ -96,6 +102,54 @@ where
     /// Get a buffer via its identifier.
     pub fn get_buffer(id: BufferId, store: &SharedStore<C, P>) -> SharedBuffer<C, P> {
         store.read().unwrap().buffers.get_buffer(&id)
+    }
+
+    /// Add a command to the command history after the prompt has been aborted.
+    ///
+    /// This will not update [Register::LastCommand].
+    ///
+    /// [Register::LastCommand]: super::base::Register::LastCommand
+    pub fn set_aborted_cmd<T: Into<EditRope>>(text: T, store: &SharedStore<C, P>) {
+        let mut locked = store.write().unwrap();
+        let rope = text.into();
+
+        if rope.len() > 0 {
+            locked.commands.select(rope);
+        } else {
+            let _ = locked.commands.end();
+        }
+    }
+
+    /// Add a search query to the search history after the prompt has been aborted.
+    ///
+    /// This will not update [Register::LastSearch].
+    ///
+    /// [Register::LastSearch]: super::base::Register::LastSearch
+    pub fn set_aborted_search<T: Into<EditRope>>(text: T, store: &SharedStore<C, P>) {
+        let mut locked = store.write().unwrap();
+        let rope = text.into();
+
+        if rope.len() > 0 {
+            locked.searches.select(rope);
+        } else {
+            let _ = locked.searches.end();
+        }
+    }
+
+    /// Add a command to the command history, and set [Register::LastCommand].
+    ///
+    /// [Register::LastCommand]: super::base::Register::LastCommand
+    pub fn set_last_cmd<T: Into<EditRope>>(text: T, store: &SharedStore<C, P>) {
+        let rope = text.into();
+
+        if rope.len() == 0 {
+            // Disallow empty commands.
+            return;
+        }
+
+        let mut locked = store.write().unwrap();
+        locked.commands.select(rope.clone());
+        locked.registers.set_last_cmd(rope);
     }
 
     /// Add a search query to the search history, and set [Register::LastSearch].

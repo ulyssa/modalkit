@@ -18,21 +18,9 @@ use crossterm::{
     terminal::{EnterAlternateScreen, LeaveAlternateScreen},
 };
 
-use crate::input::InputContext;
+use crate::editing::action::{EditInfo, EditResult, UIResult, WindowAction};
 
-use crate::editing::buffer::Editable;
-
-use crate::editing::base::{
-    Axis,
-    CloseFlags,
-    Count,
-    EditInfo,
-    EditResult,
-    MoveDir1D,
-    ScrollStyle,
-    TabAction,
-    WindowAction,
-};
+use crate::editing::base::{Axis, CloseFlags, Count, EditContext, MoveDir1D};
 
 pub mod cmdbar;
 pub mod screen;
@@ -41,31 +29,29 @@ pub mod windows;
 
 mod util;
 
+/// An offset from the upper-left corner of the terminal.
 pub type TermOffset = (u16, u16);
 
 /// A widget that the user's cursor can be placed into.
 pub trait TerminalCursor {
     /// Returns the current offset of the cursor, relative to the upper left corner of the
     /// terminal.
-    fn get_term_cursor(&self) -> TermOffset;
+    fn get_term_cursor(&self) -> Option<TermOffset>;
 }
 
 /// A widget that contains content that can be converted into an action when the user is done
 /// entering text.
-pub trait Submitable<A, C: InputContext> {
-    fn submit(&mut self, ctx: &mut C) -> Option<A>;
-}
+pub trait PromptActions<A, C: EditContext> {
+    /// Submit the currently entered text.
+    fn submit(&mut self, ctx: &C) -> EditResult<Vec<(A, C)>>;
 
-/// A widget that the user can switch focus of keyboard input to.
-pub trait Focusable<C>: Editable<C> + TerminalCursor {
-    /// Scroll the viewable content in this widget.
-    fn scroll(&mut self, style: &ScrollStyle, ctx: &C) -> EditResult;
-}
+    /// Abort command entry and reset the current contents.
+    ///
+    /// If `empty` is true, and there is currently entered text, do nothing.
+    fn abort(&mut self, empty: bool, ctx: &C) -> EditResult<Vec<(A, C)>>;
 
-/// A widget that contains tabbed content.
-pub trait TabContainer<C> {
-    fn tabs(&self) -> usize;
-    fn tab_command(&mut self, act: TabAction, ctx: &C) -> EditResult;
+    /// Recall previously entered text.
+    fn recall(&mut self, dir: &MoveDir1D, count: &Count, ctx: &C) -> EditResult<Vec<(A, C)>>;
 }
 
 /// A widget that the user can open and close on the screen.
@@ -85,6 +71,7 @@ pub trait Window: TerminalCursor {
 
 /// A widget that contains [Windows](Window).
 pub trait WindowContainer<W: Window, C> {
+    /// Number of currently open windows.
     fn windows(&self) -> usize;
 
     /// Open a new [Window] with height or width [*n*](Count) (depending on the [Axis]).
@@ -95,14 +82,18 @@ pub trait WindowContainer<W: Window, C> {
         rel: MoveDir1D,
         open: Option<Count>,
         ctx: &C,
-    ) -> EditResult;
+    ) -> UIResult;
 
-    fn window_command(&mut self, action: WindowAction, ctx: &C) -> EditResult;
+    /// Execute a window action.
+    fn window_command(&mut self, action: WindowAction, ctx: &C) -> UIResult;
 }
 
+/// Extended operations for [Terminal].
 pub trait TerminalExtOps {
+    /// Result type for terminal operations.
     type Result;
 
+    /// Suspend the process.
     fn program_suspend(&mut self) -> Self::Result;
 }
 

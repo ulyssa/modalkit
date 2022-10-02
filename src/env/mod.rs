@@ -4,6 +4,8 @@
 //!
 //! This module contains components for recreating different flavors of editing environments.
 //!
+use crossterm::event::KeyModifiers;
+
 use crate::{
     editing::base::Char,
     input::{
@@ -18,6 +20,7 @@ mod macros;
 mod keyparse;
 
 pub mod emacs;
+pub mod mixed;
 pub mod vim;
 
 pub(crate) type CommonEdgeEvent = EdgeEvent<TerminalKey, CommonKeyClass>;
@@ -56,11 +59,13 @@ impl InputKeyClass<TerminalKey> for CommonKeyClass {
     fn memberships(ke: &TerminalKey) -> Vec<Self> {
         let mut classes = Vec::new();
 
-        if let Some(c) = ke.get_char() {
-            if let '0'..='9' = c {
+        if let Some(('0'..='9', mods)) = ke.get_char_mods() {
+            if !mods.contains(KeyModifiers::CONTROL) {
                 classes.push(CommonKeyClass::Count);
             }
+        }
 
+        if let Some(c) = ke.get_char() {
             if is_register_char(c) {
                 classes.push(CommonKeyClass::Register);
             }
