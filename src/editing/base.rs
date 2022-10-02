@@ -38,6 +38,7 @@ use regex::Regex;
 
 use crate::{
     input::commands::{Command, CommandError},
+    input::key::MacroError,
     util::{is_horizontal_space, is_keyword, is_newline, is_space_char, is_word_char, sort2},
 };
 
@@ -1313,11 +1314,11 @@ pub enum Action<P: Application = ()> {
     /// Perform the specified [action](EditAction) on [a target](EditTarget).
     Edit(Specifier<EditAction>, EditTarget),
 
+    /// Repeat the last edit [*n*](Count) times.
+    EditRepeat(Count),
+
     /// Insert text.
     InsertText(InsertTextAction),
-
-    /// Repeat the last editing action [*n*](Count) times.
-    EditRepeat(Count),
 
     /// Navigate through the cursor positions in [the specified list](PositionList).
     Jump(PositionList, MoveDir1D, Count),
@@ -1479,6 +1480,11 @@ pub enum Register {
     ///
     /// For example, `""` in Vim.
     Unnamed,
+
+    /// The default macro register.
+    ///
+    /// For example `"@` in Kakoune.
+    UnnamedMacro,
 
     /// Recently deleted text.
     ///
@@ -2023,6 +2029,10 @@ pub enum EditError {
     #[error("No word underneath cursor")]
     NoCursorWord,
 
+    /// Failure to determine a macro register to use.
+    #[error("No macro previously executed")]
+    NoMacro,
+
     /// Failure to determine a search expression to use.
     #[error("No current search specified")]
     NoSearch,
@@ -2058,6 +2068,10 @@ pub enum EditError {
     /// Failure due to an unimplemented feature.
     #[error("Unimplemented: {0}")]
     Unimplemented(String),
+
+    /// Generic failure.
+    #[error("Macro error: {0}")]
+    MacroFailure(#[from] MacroError),
 
     /// Generic failure.
     #[error("Error: {0}")]

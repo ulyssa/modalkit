@@ -1,26 +1,42 @@
 use std::cmp::Ordering;
 
-use crate::editing::base::MoveDir1D;
+use crate::{editing::base::MoveDir1D, input::key::TerminalKey};
+
+#[allow(unused)]
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
-macro_rules! key {
+#[allow(unused_macros)]
+macro_rules! key_event {
     ($ch: literal) => {
-        KeyEvent {
-            code: KeyCode::Char($ch),
-            modifiers: match $ch.is_ascii_uppercase() {
-                true => KeyModifiers::SHIFT,
-                false => KeyModifiers::NONE,
-            },
-        }
+        KeyEvent::new(KeyCode::Char($ch), match $ch.is_ascii_uppercase() {
+            true => crossterm::event::KeyModifiers::SHIFT,
+            false => crossterm::event::KeyModifiers::NONE,
+        })
     };
     ($kc: expr) => {
-        KeyEvent { code: $kc, modifiers: KeyModifiers::NONE }
+        KeyEvent::new($kc, crossterm::event::KeyModifiers::NONE)
     };
     ($kc: literal, $km: expr) => {
-        KeyEvent { code: KeyCode::Char($kc), modifiers: $km }
+        KeyEvent::new(KeyCode::Char($kc), $km)
     };
     ($kc: expr, $km: expr) => {
-        KeyEvent { code: $kc, modifiers: $km }
+        KeyEvent::new($kc, $km)
+    };
+}
+
+#[allow(unused_macros)]
+macro_rules! key {
+    ($ch: literal) => {
+        TerminalKey::from(key_event!($ch))
+    };
+    ($kc: expr) => {
+        TerminalKey::from(key_event!($kc))
+    };
+    ($kc: literal, $km: expr) => {
+        TerminalKey::from(key_event!($kc, $km))
+    };
+    ($kc: expr, $km: expr) => {
+        TerminalKey::from(key_event!($kc, $km))
     };
 }
 
@@ -171,59 +187,8 @@ pub fn idx_move<T>(els: &mut Vec<T>, fidx: &mut usize, tidx: usize, idx_last: &m
 }
 
 #[inline]
-pub fn get_char(ke: &KeyEvent) -> Option<char> {
-    if let KeyCode::Char(c) = ke.code {
-        if (ke.modifiers - KeyModifiers::SHIFT).is_empty() {
-            return Some(c);
-        }
-    }
-
-    None
-}
-
-pub fn get_literal_char(ke: &KeyEvent) -> Option<char> {
-    match ke.code {
-        KeyCode::Char(c) => {
-            if (ke.modifiers - KeyModifiers::SHIFT).is_empty() {
-                return Some(c);
-            }
-
-            if ke.modifiers == KeyModifiers::CONTROL {
-                let cp = match c {
-                    'a'..='z' => c as u32 - b'a' as u32 + 0x01,
-                    ' ' | '@' => 0x0,
-                    '4'..='7' => c as u32 - b'4' as u32 + 0x1C,
-                    _ => {
-                        panic!("unknown control key")
-                    },
-                };
-
-                return char::from_u32(cp);
-            }
-
-            return None;
-        },
-        KeyCode::Tab if ke.modifiers.is_empty() => {
-            return Some('\u{09}');
-        },
-        KeyCode::Enter => {
-            return Some('\u{0D}');
-        },
-        KeyCode::Esc => {
-            return Some('\u{1B}');
-        },
-        KeyCode::Backspace => {
-            return Some('\u{7F}');
-        },
-        _ => {
-            return None;
-        },
-    }
-}
-
-#[inline]
-pub fn keycode_to_num(ke: &KeyEvent, radix: u32) -> Option<u32> {
-    if let Some(c) = get_char(ke) {
+pub fn keycode_to_num(ke: &TerminalKey, radix: u32) -> Option<u32> {
+    if let Some(c) = ke.get_char() {
         c.to_digit(radix)
     } else {
         None

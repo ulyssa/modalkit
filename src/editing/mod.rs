@@ -15,6 +15,7 @@ pub mod base;
 pub mod buffer;
 pub mod cursor;
 pub mod history;
+pub mod key;
 pub mod lineinfo;
 pub mod rope;
 pub mod store;

@@ -5,12 +5,13 @@
 //! This module contains components to help with building applications that mimic Vim's user
 //! interfaces.
 //!
-use crossterm::event::KeyEvent;
 use regex::Regex;
 
 use crate::{
     input::bindings::{EdgeEvent, InputKeyContext, Mode, ModeKeys},
+    input::key::TerminalKey,
     input::InputContext,
+    util::{keycode_to_num, option_muladd_u32, option_muladd_usize},
 };
 
 use crate::editing::base::{
@@ -36,15 +37,7 @@ use crate::editing::base::{
     TargetShape,
 };
 
-use crate::util::{
-    get_char,
-    get_literal_char,
-    keycode_to_num,
-    option_muladd_u32,
-    option_muladd_usize,
-};
-
-use super::CommonKeyClass;
+use super::{CharacterContext, CommonKeyClass};
 
 pub mod command;
 pub mod keybindings;
@@ -176,57 +169,55 @@ impl<P: Application> Mode<Action<P>, VimContext<P>> for VimMode {
     }
 
     fn show(&self, ctx: &VimContext<P>) -> Option<String> {
-        match self {
-            VimMode::Normal => {
-                return None;
-            },
+        let recording = ctx.persist.recording.map(register_to_char);
+
+        let msg = match self {
             VimMode::Visual => {
-                let msg = match ctx.persist.shape {
+                match ctx.persist.shape {
                     None | Some(TargetShape::CharWise) => "-- VISUAL --",
                     Some(TargetShape::LineWise) => "-- VISUAL LINE --",
                     Some(TargetShape::BlockWise) => "-- VISUAL BLOCK --",
-                };
-
-                return Some(msg.to_string());
+                }
+                .into()
             },
             VimMode::Select => {
-                let msg = match ctx.persist.shape {
+                match ctx.persist.shape {
                     None | Some(TargetShape::CharWise) => "-- SELECT --",
                     Some(TargetShape::LineWise) => "-- SELECT LINE --",
                     Some(TargetShape::BlockWise) => "-- SELECT BLOCK --",
-                };
-
-                return Some(msg.to_string());
+                }
+                .into()
             },
             VimMode::Insert => {
-                let msg = match ctx.persist.insert {
+                match ctx.persist.insert {
                     None | Some(InsertStyle::Insert) => "-- INSERT --",
                     Some(InsertStyle::Replace) => "-- REPLACE --",
-                };
+                }
+                .into()
+            },
+            VimMode::Normal => None,
+            VimMode::OperationPending => None,
+            VimMode::CharReplaceSuffix => None,
+            VimMode::CharSearchSuffix => None,
+            VimMode::LangArg => None,
+            VimMode::Command => None,
+        };
 
-                return Some(msg.to_string());
-            },
-            VimMode::OperationPending => {
-                return None;
-            },
-            VimMode::LangArg => {
-                return None;
-            },
-            VimMode::Command => {
-                return None;
-            },
-            VimMode::CharReplaceSuffix => {
-                return None;
-            },
-            VimMode::CharSearchSuffix => {
-                return None;
-            },
+        match (recording, msg) {
+            (Some(c), Some(msg)) => format!("{} (recording @{})", msg, c).into(),
+            (Some(c), None) => format!("recording @{}", c).into(),
+            (None, Some(msg)) => format!("{}", msg).into(),
+            (None, None) => None,
         }
     }
 }
 
-impl<P: Application> ModeKeys<KeyEvent, Action<P>, VimContext<P>> for VimMode {
-    fn unmapped(&self, ke: &KeyEvent, ctx: &mut VimContext<P>) -> (Vec<Action<P>>, Option<Self>) {
+impl<P: Application> ModeKeys<TerminalKey, Action<P>, VimContext<P>> for VimMode {
+    fn unmapped(
+        &self,
+        ke: &TerminalKey,
+        ctx: &mut VimContext<P>,
+    ) -> (Vec<Action<P>>, Option<Self>) {
         match self {
             VimMode::Normal => {
                 return (vec![], None);
@@ -235,7 +226,7 @@ impl<P: Application> ModeKeys<KeyEvent, Action<P>, VimContext<P>> for VimMode {
                 return (vec![], None);
             },
             VimMode::Select => {
-                if let Some(c) = get_char(ke) {
+                if let Some(c) = ke.get_char() {
                     ctx.persist.insert = Some(InsertStyle::Insert);
 
                     let delete = Action::Edit(EditAction::Delete.into(), EditTarget::Selection);
@@ -249,7 +240,7 @@ impl<P: Application> ModeKeys<KeyEvent, Action<P>, VimContext<P>> for VimMode {
                 }
             },
             VimMode::Insert => {
-                if let Some(c) = get_char(ke) {
+                if let Some(c) = ke.get_char() {
                     let ch = Char::Single(c).into();
                     let it = InsertTextAction::Type(ch, MoveDir1D::Previous, 1.into());
 
@@ -265,7 +256,7 @@ impl<P: Application> ModeKeys<KeyEvent, Action<P>, VimContext<P>> for VimMode {
                 return (vec![], None);
             },
             VimMode::Command => {
-                if let Some(c) = get_char(ke) {
+                if let Some(c) = ke.get_char() {
                     let ch = Char::Single(c).into();
                     let it = InsertTextAction::Type(ch, MoveDir1D::Previous, 1.into());
 
@@ -292,14 +283,6 @@ pub(crate) struct ActionContext<P: Application> {
     // Fields for managing entered counts.
     pub(crate) count: Option<usize>,
     pub(crate) counting: Option<usize>,
-
-    // Fields for storing entered codepoints, literals and digraphs.
-    pub(crate) dec: Option<u32>,
-    pub(crate) oct: Option<u32>,
-    pub(crate) hex: Option<u32>,
-    pub(crate) any: Option<KeyEvent>,
-    pub(crate) digraph1: Option<char>,
-    pub(crate) digraph2: Option<char>,
 
     // Other arguments to key sequences.
     pub(crate) replace: Option<Char>,
@@ -333,6 +316,7 @@ pub(crate) struct PersistentContext {
     pub(crate) charsearch: Option<Char>,
     pub(crate) shape: Option<TargetShape>,
     pub(crate) insert: Option<InsertStyle>,
+    pub(crate) recording: Option<(Register, bool)>,
 }
 
 /// This wraps both action specific context, and persistent context.
@@ -340,6 +324,7 @@ pub(crate) struct PersistentContext {
 pub struct VimContext<P: Application = ()> {
     pub(crate) action: ActionContext<P>,
     pub(crate) persist: PersistentContext,
+    pub(self) ch: CharacterContext,
 }
 
 impl<P: Application> InputContext for VimContext<P> {
@@ -351,63 +336,16 @@ impl<P: Application> InputContext for VimContext<P> {
         Self {
             persist: self.persist.clone(),
             action: std::mem::take(&mut self.action),
+            ch: std::mem::take(&mut self.ch),
         }
     }
 }
 
-impl<P: Application> VimContext<P> {
-    fn get_typed(&self) -> Option<Char> {
-        if let Some((d1, d2)) = self.get_digraph() {
-            let c = Char::Digraph(d1, d2);
-
-            Some(c)
-        } else if let Some(cp) = self.get_codepoint() {
-            let c = char::from_u32(cp)?;
-            let c = Char::Single(c);
-
-            Some(c)
-        } else if let Some(c) = self.get_literal_char() {
-            let c = Char::Single(c);
-
-            Some(c)
-        } else if let Some(s) = self.get_literal_string() {
-            let c = Char::CtrlSeq(s);
-
-            Some(c)
-        } else {
-            None
-        }
-    }
-
-    fn get_digraph(&self) -> Option<(char, char)> {
-        if let (Some(a), Some(b)) = (self.action.digraph1, self.action.digraph2) {
-            Some((a, b))
-        } else {
-            None
-        }
-    }
-
-    fn get_codepoint(&self) -> Option<u32> {
-        self.action.hex.or(self.action.dec).or(self.action.oct)
-    }
-
-    fn get_literal_char(&self) -> Option<char> {
-        self.action.any.as_ref().and_then(get_literal_char)
-    }
-
-    fn get_literal_string(&self) -> Option<String> {
-        unimplemented!();
-    }
-}
-
-impl<P: Application> InputKeyContext<KeyEvent, CommonKeyClass> for VimContext<P> {
-    fn event(&mut self, ev: &EdgeEvent<KeyEvent, CommonKeyClass>, ke: &KeyEvent) {
+impl<P: Application> InputKeyContext<TerminalKey, CommonKeyClass> for VimContext<P> {
+    fn event(&mut self, ev: &EdgeEvent<TerminalKey, CommonKeyClass>, ke: &TerminalKey) {
         match ev {
             EdgeEvent::Key(_) | EdgeEvent::Fallthrough => {
                 // Do nothing.
-            },
-            EdgeEvent::Any => {
-                self.action.any = Some(ke.clone());
             },
             EdgeEvent::Class(CommonKeyClass::Count) => {
                 if let Some(n) = keycode_to_num(ke, 10) {
@@ -416,39 +354,8 @@ impl<P: Application> InputKeyContext<KeyEvent, CommonKeyClass> for VimContext<P>
                     self.action.counting = Some(new);
                 }
             },
-            EdgeEvent::Class(CommonKeyClass::Octal) => {
-                if let Some(n) = keycode_to_num(ke, 8) {
-                    let new = option_muladd_u32(&self.action.oct, 8, n);
-
-                    self.action.oct = Some(new);
-                }
-            },
-            EdgeEvent::Class(CommonKeyClass::Decimal) => {
-                if let Some(n) = keycode_to_num(ke, 10) {
-                    let new = option_muladd_u32(&self.action.dec, 10, n);
-
-                    self.action.dec = Some(new);
-                }
-            },
-            EdgeEvent::Class(CommonKeyClass::Hexadecimal) => {
-                if let Some(n) = keycode_to_num(ke, 16) {
-                    let new = option_muladd_u32(&self.action.hex, 16, n);
-
-                    self.action.hex = Some(new);
-                }
-            },
-            EdgeEvent::Class(CommonKeyClass::Digraph1) => {
-                if let Some(c) = get_char(ke) {
-                    self.action.digraph1 = Some(c);
-                }
-            },
-            EdgeEvent::Class(CommonKeyClass::Digraph2) => {
-                if let Some(c) = get_char(ke) {
-                    self.action.digraph2 = Some(c);
-                }
-            },
             EdgeEvent::Class(CommonKeyClass::Mark) => {
-                if let Some(c) = get_char(ke) {
+                if let Some(c) = ke.get_char() {
                     self.action.mark = char_to_mark(c);
                 }
             },
@@ -456,6 +363,42 @@ impl<P: Application> InputKeyContext<KeyEvent, CommonKeyClass> for VimContext<P>
                 if let Some((reg, append)) = key_to_register(ke) {
                     self.action.register = Some(reg);
                     self.action.register_append = append;
+                }
+            },
+
+            // Track literals, codepoints, etc.
+            EdgeEvent::Any => {
+                self.ch.any = Some(ke.clone());
+            },
+            EdgeEvent::Class(CommonKeyClass::Octal) => {
+                if let Some(n) = keycode_to_num(ke, 8) {
+                    let new = option_muladd_u32(&self.ch.oct, 8, n);
+
+                    self.ch.oct = Some(new);
+                }
+            },
+            EdgeEvent::Class(CommonKeyClass::Decimal) => {
+                if let Some(n) = keycode_to_num(ke, 10) {
+                    let new = option_muladd_u32(&self.ch.dec, 10, n);
+
+                    self.ch.dec = Some(new);
+                }
+            },
+            EdgeEvent::Class(CommonKeyClass::Hexadecimal) => {
+                if let Some(n) = keycode_to_num(ke, 16) {
+                    let new = option_muladd_u32(&self.ch.hex, 16, n);
+
+                    self.ch.hex = Some(new);
+                }
+            },
+            EdgeEvent::Class(CommonKeyClass::Digraph1) => {
+                if let Some(c) = ke.get_char() {
+                    self.ch.digraph1 = Some(c);
+                }
+            },
+            EdgeEvent::Class(CommonKeyClass::Digraph2) => {
+                if let Some(c) = ke.get_char() {
+                    self.ch.digraph2 = Some(c);
                 }
             },
         }
@@ -520,13 +463,6 @@ impl<P: Application> Default for ActionContext<P> {
             count: None,
             counting: None,
 
-            dec: None,
-            oct: None,
-            hex: None,
-            any: None,
-            digraph1: None,
-            digraph2: None,
-
             replace: None,
             register: None,
             register_append: false,
@@ -554,6 +490,7 @@ impl Default for PersistentContext {
             charsearch: None,
             insert: None,
             shape: None,
+            recording: None,
         }
     }
 }
@@ -563,6 +500,7 @@ impl<P: Application> Default for VimContext<P> {
         VimContext {
             action: ActionContext::default(),
             persist: PersistentContext::default(),
+            ch: CharacterContext::default(),
         }
     }
 }
@@ -580,7 +518,7 @@ impl<P: Application> Resolve<Count, usize> for VimContext<P> {
 impl<P: Application> Resolve<Specifier<Char>, Option<Char>> for VimContext<P> {
     fn resolve(&self, c: &Specifier<Char>) -> Option<Char> {
         match c {
-            Specifier::Contextual => self.get_typed(),
+            Specifier::Contextual => self.ch.get_typed(),
             Specifier::Exact(c) => Some(c.clone()),
         }
     }
@@ -602,6 +540,36 @@ impl<P: Application> Resolve<Specifier<EditAction>, EditAction> for VimContext<P
             Specifier::Exact(a) => a.clone(),
         }
     }
+}
+
+fn register_to_char((reg, append): (Register, bool)) -> String {
+    let c = match reg {
+        Register::Named(c) => {
+            if append {
+                return c.to_uppercase().to_string();
+            } else {
+                return c.to_string();
+            }
+        },
+        Register::RecentlyDeleted(n) => {
+            return n.to_string();
+        },
+
+        Register::Unnamed => '"',
+        Register::UnnamedMacro => '@',
+        Register::SmallDelete => '-',
+        Register::LastCommand => ':',
+        Register::LastInserted => '.',
+        Register::LastSearch => '/',
+        Register::LastYanked => '0',
+        Register::AltBufName => '#',
+        Register::CurBufName => '%',
+        Register::Blackhole => '_',
+        Register::SelectionPrimary => '*',
+        Register::SelectionClipboard => '+',
+    };
+
+    return c.to_string();
 }
 
 fn char_to_register(c: char) -> Option<(Register, bool)> {
@@ -642,8 +610,8 @@ fn char_to_register(c: char) -> Option<(Register, bool)> {
     return Some((r, false));
 }
 
-fn key_to_register(ke: &KeyEvent) -> Option<(Register, bool)> {
-    char_to_register(get_char(ke)?)
+fn key_to_register(ke: &TerminalKey) -> Option<(Register, bool)> {
+    ke.get_char().and_then(char_to_register)
 }
 
 fn char_to_mark(c: char) -> Option<Mark> {

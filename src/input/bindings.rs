@@ -32,16 +32,21 @@
 //! quit the program, and the Insert mode supports Escape to return to Normal mode.
 //!
 //! ```
-//! use modalkit::input::InputContext;
-//! use modalkit::input::bindings::{
-//!     EmptyKeyClass,
-//!     EmptyKeyContext,
-//!     InputBindings,
-//!     Mode,
-//!     ModeKeys,
-//!     ModalMachine,
-//!     Step
+//! use modalkit::input::{
+//!     InputContext,
+//!     bindings::{
+//!         BindingMachine,
+//!         EmptyKeyClass,
+//!         EmptyKeyContext,
+//!         InputBindings,
+//!         Mode,
+//!         ModeKeys,
+//!         ModalMachine,
+//!         Step
+//!     },
+//!     key::TerminalKey,
 //! };
+//!
 //! use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 //!
 //! #[derive(Clone, Copy, Debug, Hash, Eq, PartialEq)]
@@ -67,17 +72,15 @@
 //!
 //! impl Mode<ProgAction, EmptyKeyContext> for ProgMode { }
 //!
-//! impl ModeKeys<KeyEvent, ProgAction, EmptyKeyContext> for ProgMode {
-//!     fn unmapped(&self, key: &KeyEvent, _: &mut EmptyKeyContext) -> (Vec<ProgAction>, Option<ProgMode>) {
+//! impl ModeKeys<TerminalKey, ProgAction, EmptyKeyContext> for ProgMode {
+//!     fn unmapped(&self, key: &TerminalKey, _: &mut EmptyKeyContext) -> (Vec<ProgAction>, Option<ProgMode>) {
 //!         match self {
 //!             ProgMode::Normal => {
 //!                 return (vec![], None);
 //!             },
 //!             ProgMode::Insert => {
-//!                 if let KeyCode::Char(c) = key.code {
-//!                     if (key.modifiers - KeyModifiers::SHIFT).is_empty() {
-//!                         return (vec![ProgAction::Type(c)], None);
-//!                     }
+//!                 if let Some(c) = key.get_char() {
+//!                     return (vec![ProgAction::Type(c)], None);
 //!                 }
 //!
 //!                 return (vec![], None);
@@ -86,36 +89,33 @@
 //!     }
 //! }
 //!
-//! const fn key(code: KeyCode, modifiers: KeyModifiers) -> KeyEvent {
-//!     KeyEvent {
-//!         code,
-//!         modifiers,
-//!     }
-//! }
-//!
-//! impl InputBindings<KeyEvent, ProgStep> for ProgBindings {
+//! impl InputBindings<TerminalKey, ProgStep> for ProgBindings {
 //!     fn setup(&self, machine: &mut ProgMachine) {
 //!         use modalkit::input::bindings::EdgeRepeat::Once;
 //!         use modalkit::input::bindings::EdgeEvent::Key;
 //!
 //!         // Insert mode mappings
 //!         machine.add_mapping(ProgMode::Insert, &vec![
-//!             (Once, Key(key(KeyCode::Esc, KeyModifiers::NONE)))
+//!             (Once, Key("<Esc>".parse().unwrap()))
 //!         ], &(None, Some(ProgMode::Normal)));
 //!
 //!         // Normal mode mappings
 //!         machine.add_mapping(ProgMode::Normal, &vec![
-//!             (Once, Key(key(KeyCode::Char('i'), KeyModifiers::NONE)))
+//!             (Once, Key("i".parse().unwrap()))
 //!         ], &(None, Some(ProgMode::Insert)));
 //!         machine.add_mapping(ProgMode::Normal, &vec![
-//!             (Once, Key(key(KeyCode::Char('q'), KeyModifiers::NONE))),
-//!             (Once, Key(key(KeyCode::Char('q'), KeyModifiers::NONE))),
+//!             (Once, Key("q".parse().unwrap())),
+//!             (Once, Key("q".parse().unwrap())),
 //!         ], &(Some(ProgAction::Quit), None));
 //!     }
 //! }
 //!
 //! type ProgStep = (Option<ProgAction>, Option<ProgMode>);
-//! type ProgMachine = ModalMachine<KeyEvent, ProgStep>;
+//! type ProgMachine = ModalMachine<TerminalKey, ProgStep>;
+//!
+//! const fn key(code: KeyCode, modifiers: KeyModifiers) -> KeyEvent {
+//!     KeyEvent::new(code, modifiers)
+//! }
 //!
 //! fn main() {
 //!     let mut pm = ProgMachine::from_bindings::<ProgBindings>();
@@ -125,27 +125,27 @@
 //!     assert_eq!(pm.mode(), ProgMode::Normal);
 //!
 //!     // Pressing "i" takes us to Insert mode.
-//!     pm.input_key(key(KeyCode::Char('i'), KeyModifiers::NONE));
+//!     pm.input_key(key(KeyCode::Char('i'), KeyModifiers::NONE).into());
 //!     assert_eq!(pm.pop(), None);
 //!     assert_eq!(pm.mode(), ProgMode::Insert);
 //!
 //!     // "q" is unmapped in Insert mode, and types a key.
-//!     pm.input_key(key(KeyCode::Char('q'), KeyModifiers::NONE));
+//!     pm.input_key(key(KeyCode::Char('q'), KeyModifiers::NONE).into());
 //!     assert_eq!(pm.pop(), Some((ProgAction::Type('q'), ctx.clone())));
 //!     assert_eq!(pm.mode(), ProgMode::Insert);
 //!
 //!     // Escape takes us back to Normal mode.
-//!     pm.input_key(key(KeyCode::Esc, KeyModifiers::NONE));
+//!     pm.input_key(key(KeyCode::Esc, KeyModifiers::NONE).into());
 //!     assert_eq!(pm.pop(), None);
 //!     assert_eq!(pm.mode(), ProgMode::Normal);
 //!
 //!     // A single "q" does nothing.
-//!     pm.input_key(key(KeyCode::Char('q'), KeyModifiers::NONE));
+//!     pm.input_key(key(KeyCode::Char('q'), KeyModifiers::NONE).into());
 //!     assert_eq!(pm.pop(), None);
 //!     assert_eq!(pm.mode(), ProgMode::Normal);
 //!
 //!     // A second "q" produces the Quit action.
-//!     pm.input_key(key(KeyCode::Char('q'), KeyModifiers::NONE));
+//!     pm.input_key(key(KeyCode::Char('q'), KeyModifiers::NONE).into());
 //!     assert_eq!(pm.pop(), Some((ProgAction::Quit, ctx.clone())));
 //!     assert_eq!(pm.mode(), ProgMode::Normal);
 //! }
@@ -157,21 +157,10 @@ use std::collections::VecDeque;
 use std::fmt::Debug;
 use std::hash::Hash;
 
-use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-
 use crate::util::IdGenerator;
 
+use super::key::{InputKey, MacroError};
 use super::InputContext;
-
-pub trait InputKey: Clone + Hash + Eq + PartialEq {
-    /// If the input that produced this key could possibly represent two keys, split out the first
-    /// key.
-    ///
-    /// For example, this can occur in Unix terminals where ^[ is used to represent when Alt has
-    /// been pressed. Rapidly typing Escape + "b" will produce ^[b, which may then be parsed as a
-    /// single Alt-b keypress.
-    fn decompose(&mut self) -> Option<Self>;
-}
 
 /// Trait for context objects used within [ModalMachine].
 #[allow(unused_variables)]
@@ -202,6 +191,7 @@ pub trait Mode<A, C>: Copy + Clone + Debug + Default + Hash + Eq + PartialEq {
     }
 }
 
+/// Key-specific behaviour associated with a [Mode].
 #[allow(unused_variables)]
 pub trait ModeKeys<Key, A, C>: Mode<A, C> {
     /// Return the default behaviour for the current mode when the given key is unmapped.
@@ -218,7 +208,7 @@ pub trait ModeKeys<Key, A, C>: Mode<A, C> {
 /// You can use [InputKeyContext::event] if you need to record what key was typed for a class
 /// during a sequence of input keys.
 pub trait InputKeyClass<T>: Clone + Debug + Hash + Eq + PartialEq {
-    /// Return the classes that the [KeyEvent] belongs to.
+    /// Return the classes that the [InputKey] belongs to.
     ///
     /// The order returned here is the order of priority for which [EdgeEvent::Class] edge to
     /// follow.
@@ -268,6 +258,28 @@ pub trait InputBindings<Key: InputKey, S: Step<Key>> {
     fn setup(&self, machine: &mut ModalMachine<Key, S>);
 }
 
+/// Trait for objects that can process input keys using previously mapped bindings.
+pub trait BindingMachine<K, A, C>
+where
+    K: InputKey,
+    C: InputContext,
+{
+    /// Process a typed key.
+    fn input_key(&mut self, input: K);
+
+    /// Fetch the next action produced by previously typed keys.
+    fn pop(&mut self) -> Option<(A, C)>;
+
+    /// Get a reference to the current context.
+    fn context(&self) -> C;
+
+    /// Returns a user-friendly string to display for the current mode.
+    fn showmode(&self) -> Option<String>;
+
+    /// Returns a character to show for the cursor.
+    fn get_cursor_indicator(&self) -> Option<char>;
+}
+
 /// A default [InputKeyClass] with no members.
 #[derive(Clone, Debug, Hash, Eq, PartialEq)]
 #[non_exhaustive]
@@ -313,20 +325,6 @@ where
         let act = self.0.clone().into_iter().collect();
 
         (act, self.1.clone())
-    }
-}
-
-impl InputKey for KeyEvent {
-    fn decompose(&mut self) -> Option<Self> {
-        if let KeyCode::Char(_) = self.code {
-            if self.modifiers.contains(KeyModifiers::ALT) {
-                self.modifiers -= KeyModifiers::ALT;
-
-                return Some(key!(KeyCode::Esc));
-            }
-        }
-
-        return None;
     }
 }
 
@@ -391,6 +389,7 @@ pub enum EdgeRepeat {
     Max(usize),
 }
 
+/// Part of a sequence of input keys that leads to a [Step].
 pub type EdgePathPart<Key, Class> = (EdgeRepeat, EdgeEvent<Key, Class>);
 
 /// A description of a sequence of input keys that leads to a [Step].
@@ -510,6 +509,36 @@ impl<Key: InputKey, S: Step<Key>> Default for Graph<Key, S> {
             modes: HashMap::new(),
             nodes: HashMap::new(),
             edges: HashMap::new(),
+        }
+    }
+}
+
+/// Iterate over the actions produced by [ModalMachine], feeding keys into it as needed.
+pub struct InputIterator<'a, Key: InputKey, S: Step<Key>> {
+    bindings: &'a mut ModalMachine<Key, S>,
+    keys: std::vec::IntoIter<Key>,
+}
+
+impl<'a, K, S> Iterator for InputIterator<'a, K, S>
+where
+    K: InputKey,
+    S: Step<K>,
+{
+    type Item = (S::A, S::C);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            let res = self.bindings.pop();
+
+            if res.is_some() {
+                return res;
+            }
+
+            if let Some(key) = self.keys.next() {
+                self.bindings.input_key(key);
+            } else {
+                return None;
+            }
         }
     }
 }
@@ -873,42 +902,27 @@ impl<Key: InputKey, S: Step<Key>> ModalMachine<Key, S> {
         }
     }
 
-    /// Process a typed key.
-    pub fn input_key(&mut self, input: Key) {
-        let mut stack = vec![input];
-
-        while let Some(mut ke) = stack.pop() {
-            loop {
-                match self.im.input(&ke, &mut self.ctx) {
-                    InputResult::NeedMore => {
-                        break;
-                    },
-                    InputResult::Unmapped => {
-                        if let Some(mut ke2) = ke.decompose() {
-                            std::mem::swap(&mut ke, &mut ke2);
-                            stack.push(ke2);
-                            continue;
-                        }
-
-                        self.unmapped(ke);
-                        break;
-                    },
-                    InputResult::RetryAfter(ref step) => {
-                        self.step(step);
-                        continue;
-                    },
-                    InputResult::Step(ref step) => {
-                        self.step(step);
-                        break;
-                    },
-                }
-            }
-        }
+    /// Process mutliple input keys.
+    pub fn execute(&mut self, input: Vec<Key>) -> InputIterator<'_, Key, S> {
+        InputIterator { bindings: self, keys: input.into_iter() }
     }
 
-    /// Fetch the next action produced by previously typed keys.
-    pub fn pop(&mut self) -> Option<(S::A, S::C)> {
-        self.actions.pop_front()
+    /// Interpret the given string as a macro, and process the keys it represents a given number of
+    /// times.
+    pub fn execute_macro(
+        &mut self,
+        mstr: &str,
+        count: usize,
+    ) -> Result<InputIterator<'_, Key, S>, MacroError> {
+        let mut keys = vec![];
+
+        for _ in 0..count {
+            let mut m = Key::from_macro_str(mstr)?;
+
+            keys.append(&mut m);
+        }
+
+        return Ok(self.execute(keys));
     }
 
     fn goto_mode(&mut self, mode: S::M) {
@@ -923,10 +937,6 @@ impl<Key: InputKey, S: Step<Key>> ModalMachine<Key, S> {
         for act in acts.into_iter() {
             self.push((act, res.clone()));
         }
-    }
-
-    pub fn context(&self) -> &S::C {
-        &self.ctx
     }
 
     fn step(&mut self, step: &S) {
@@ -963,14 +973,58 @@ impl<Key: InputKey, S: Step<Key>> ModalMachine<Key, S> {
     pub fn mode(&self) -> S::M {
         self.state
     }
+}
 
-    /// Returns a user-friendly string to display for the current mode.
-    pub fn showmode(&self) -> Option<String> {
+impl<Key, S> BindingMachine<Key, S::A, S::C> for ModalMachine<Key, S>
+where
+    Key: InputKey,
+    S: Step<Key>,
+{
+    fn input_key(&mut self, input: Key) {
+        let mut stack = vec![input.into()];
+
+        while let Some(mut ke) = stack.pop() {
+            loop {
+                match self.im.input(&ke, &mut self.ctx) {
+                    InputResult::NeedMore => {
+                        break;
+                    },
+                    InputResult::Unmapped => {
+                        if let Some(mut ke2) = ke.decompose() {
+                            std::mem::swap(&mut ke, &mut ke2);
+                            stack.push(ke2);
+                            continue;
+                        }
+
+                        self.unmapped(ke);
+                        break;
+                    },
+                    InputResult::RetryAfter(ref step) => {
+                        self.step(step);
+                        continue;
+                    },
+                    InputResult::Step(ref step) => {
+                        self.step(step);
+                        break;
+                    },
+                }
+            }
+        }
+    }
+
+    fn pop(&mut self) -> Option<(S::A, S::C)> {
+        self.actions.pop_front()
+    }
+
+    fn context(&self) -> S::C {
+        self.ctx.clone()
+    }
+
+    fn showmode(&self) -> Option<String> {
         self.state.show(&self.ctx)
     }
 
-    /// Returns a character to show for the cursor.
-    pub fn get_cursor_indicator(&self) -> Option<char> {
+    fn get_cursor_indicator(&self) -> Option<char> {
         self.ctx.get_cursor_indicator()
     }
 }
@@ -978,8 +1032,9 @@ impl<Key: InputKey, S: Step<Key>> ModalMachine<Key, S> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::util::{get_char, keycode_to_num};
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+    use crate::{input::key::TerminalKey, util::keycode_to_num};
 
     macro_rules! once {
         ($ee: expr) => {
@@ -989,7 +1044,7 @@ mod tests {
 
     macro_rules! keys {
         ($( $k: expr ),*) => {
-            vec![ $( once!(EdgeEvent::Key(key!($k))), )* ]
+            vec![ $( once!(EdgeEvent::Key(key!($k).into())), )* ]
         };
     }
 
@@ -1118,13 +1173,13 @@ mod tests {
 
     struct TestBindings {}
 
-    type TestEdgeEvent = EdgeEvent<KeyEvent, TestKeyClass>;
+    type TestEdgeEvent = EdgeEvent<TerminalKey, TestKeyClass>;
 
-    impl InputKeyClass<KeyEvent> for TestKeyClass {
-        fn memberships(ke: &KeyEvent) -> Vec<Self> {
+    impl InputKeyClass<TerminalKey> for TestKeyClass {
+        fn memberships(ke: &TerminalKey) -> Vec<Self> {
             let mut kcs = vec![];
 
-            if let Some(c) = get_char(ke) {
+            if let Some(c) = ke.get_char() {
                 if let '0'..='9' = c {
                     kcs.push(TestKeyClass::Count);
                 }
@@ -1150,11 +1205,15 @@ mod tests {
         }
     }
 
-    impl ModeKeys<KeyEvent, TestAction, TestContext> for TestMode {
-        fn unmapped(&self, ke: &KeyEvent, _: &mut TestContext) -> (Vec<TestAction>, Option<Self>) {
+    impl ModeKeys<TerminalKey, TestAction, TestContext> for TestMode {
+        fn unmapped(
+            &self,
+            ke: &TerminalKey,
+            _: &mut TestContext,
+        ) -> (Vec<TestAction>, Option<Self>) {
             match self {
                 TestMode::Insert => {
-                    if let Some(c) = get_char(ke) {
+                    if let Some(c) = ke.get_char() {
                         (vec![TestAction::Type(c)], None)
                     } else {
                         (vec![], None)
@@ -1179,8 +1238,8 @@ mod tests {
         }
     }
 
-    impl InputKeyContext<KeyEvent, TestKeyClass> for TestContext {
-        fn event(&mut self, ev: &TestEdgeEvent, ke: &KeyEvent) {
+    impl InputKeyContext<TerminalKey, TestKeyClass> for TestContext {
+        fn event(&mut self, ev: &TestEdgeEvent, ke: &TerminalKey) {
             match ev {
                 EdgeEvent::Any => {
                     // Do nothing.
@@ -1189,7 +1248,7 @@ mod tests {
                     // Do nothing.
                 },
                 EdgeEvent::Class(TestKeyClass::Register) => {
-                    if let Some(c) = get_char(ke) {
+                    if let Some(c) = ke.get_char() {
                         self.temp.register = Some(c);
                     }
                 },
@@ -1203,7 +1262,7 @@ mod tests {
                     }
                 },
                 EdgeEvent::Class(TestKeyClass::TillChar) => {
-                    if let Some(c) = get_char(ke) {
+                    if let Some(c) = ke.get_char() {
                         self.keep.tillchar = Some(c);
                     }
                 },
@@ -1218,7 +1277,7 @@ mod tests {
         }
     }
 
-    impl Step<KeyEvent> for TestStep {
+    impl Step<TerminalKey> for TestStep {
         type A = TestAction;
         type C = TestContext;
         type Class = TestKeyClass;
@@ -1257,8 +1316,8 @@ mod tests {
         }
     }
 
-    impl InputBindings<KeyEvent, TestStep> for TestBindings {
-        fn setup(&self, machine: &mut ModalMachine<KeyEvent, TestStep>) {
+    impl InputBindings<TerminalKey, TestStep> for TestBindings {
+        fn setup(&self, machine: &mut ModalMachine<TerminalKey, TestStep>) {
             // Insert mode mappings
             machine.add_mapping(
                 TestMode::Insert,
@@ -1282,23 +1341,23 @@ mod tests {
             );
             machine.add_mapping(
                 TestMode::Insert,
-                &vec![once!(EdgeEvent::Key(ctl!('l')))],
+                &vec![once!(EdgeEvent::Key(ctl!('l').into()))],
                 &goto!(TestMode::Normal),
             );
             machine.add_mapping(
                 TestMode::Insert,
-                &vec![once!(EdgeEvent::Key(ctl!('o')))],
+                &vec![once!(EdgeEvent::Key(ctl!('o').into()))],
                 &fall!(TestMode::Normal),
             );
             machine.add_mapping(
                 TestMode::Insert,
-                &vec![once!(EdgeEvent::Key(ctl!('r')))],
+                &vec![once!(EdgeEvent::Key(ctl!('r').into()))],
                 &op!(move |ctx| ctx.temp.cursor = Some('^')),
             );
             machine.add_mapping(
                 TestMode::Insert,
                 &vec![
-                    once!(EdgeEvent::Key(ctl!('r'))),
+                    once!(EdgeEvent::Key(ctl!('r').into())),
                     once!(EdgeEvent::Class(TestKeyClass::Register)),
                 ],
                 &action!(TestAction::Paste),
@@ -1332,7 +1391,7 @@ mod tests {
             machine.add_mapping(
                 TestMode::Suffix,
                 &vec![
-                    once!(EdgeEvent::Key(key!('t'))),
+                    once!(EdgeEvent::Key(key!('t').into())),
                     once!(EdgeEvent::Class(TestKeyClass::TillChar)),
                 ],
                 &action!(TestAction::EditTillChar),
@@ -1369,7 +1428,7 @@ mod tests {
      *     - "?", "$" and "!" in all modes
      *     - "d" and "y" in Suffix mode.
      */
-    type TestMachine = ModalMachine<KeyEvent, TestStep>;
+    type TestMachine = ModalMachine<TerminalKey, TestStep>;
 
     impl Default for TestMachine {
         fn default() -> Self {
@@ -1881,7 +1940,7 @@ mod tests {
         // Prefix Min(3)
         tm.add_prefix(
             TestMode::Suffix,
-            &vec![(EdgeRepeat::Min(3), EdgeEvent::Key(key!('!')))],
+            &vec![(EdgeRepeat::Min(3), EdgeEvent::Key(key!('!').into()))],
             &Some(op!(move |ctx| {
                 let count = ctx.temp.count.unwrap_or(0);
                 ctx.temp.count = Some(count.saturating_add(5));
@@ -1950,10 +2009,10 @@ mod tests {
         tm.add_mapping(
             TestMode::Normal,
             &vec![
-                (EdgeRepeat::Once, EdgeEvent::Key(key!('!'))),
-                (EdgeRepeat::Once, EdgeEvent::Key(key!('a'))),
-                (EdgeRepeat::Min(0), EdgeEvent::Key(key!('?'))),
-                (EdgeRepeat::Once, EdgeEvent::Key(key!('!'))),
+                (EdgeRepeat::Once, EdgeEvent::Key(key!('!').into())),
+                (EdgeRepeat::Once, EdgeEvent::Key(key!('a').into())),
+                (EdgeRepeat::Min(0), EdgeEvent::Key(key!('?').into())),
+                (EdgeRepeat::Once, EdgeEvent::Key(key!('!').into())),
             ],
             &action!(TestAction::Inveigle),
         );
@@ -1987,10 +2046,10 @@ mod tests {
         tm.add_mapping(
             TestMode::Normal,
             &vec![
-                (EdgeRepeat::Once, EdgeEvent::Key(key!('!'))),
-                (EdgeRepeat::Once, EdgeEvent::Key(key!('b'))),
-                (EdgeRepeat::Min(3), EdgeEvent::Key(key!('?'))),
-                (EdgeRepeat::Once, EdgeEvent::Key(key!('!'))),
+                (EdgeRepeat::Once, EdgeEvent::Key(key!('!').into())),
+                (EdgeRepeat::Once, EdgeEvent::Key(key!('b').into())),
+                (EdgeRepeat::Min(3), EdgeEvent::Key(key!('?').into())),
+                (EdgeRepeat::Once, EdgeEvent::Key(key!('!').into())),
             ],
             &action!(TestAction::Inveigle),
         );
@@ -2024,9 +2083,9 @@ mod tests {
         tm.add_mapping(
             TestMode::Normal,
             &vec![
-                (EdgeRepeat::Once, EdgeEvent::Key(key!('!'))),
-                (EdgeRepeat::Once, EdgeEvent::Key(key!('c'))),
-                (EdgeRepeat::Min(0), EdgeEvent::Key(key!('?'))),
+                (EdgeRepeat::Once, EdgeEvent::Key(key!('!').into())),
+                (EdgeRepeat::Once, EdgeEvent::Key(key!('c').into())),
+                (EdgeRepeat::Min(0), EdgeEvent::Key(key!('?').into())),
             ],
             &action!(TestAction::Inveigle),
         );
@@ -2063,9 +2122,9 @@ mod tests {
         tm.add_mapping(
             TestMode::Normal,
             &vec![
-                (EdgeRepeat::Once, EdgeEvent::Key(key!('!'))),
-                (EdgeRepeat::Once, EdgeEvent::Key(key!('d'))),
-                (EdgeRepeat::Min(3), EdgeEvent::Key(key!('?'))),
+                (EdgeRepeat::Once, EdgeEvent::Key(key!('!').into())),
+                (EdgeRepeat::Once, EdgeEvent::Key(key!('d').into())),
+                (EdgeRepeat::Min(3), EdgeEvent::Key(key!('?').into())),
             ],
             &action!(TestAction::Inveigle),
         );
@@ -2110,14 +2169,14 @@ mod tests {
         // Add "!" to Normal mode so we can detect when we've fallen through.
         tm.add_mapping(
             TestMode::Normal,
-            &vec![(EdgeRepeat::Once, EdgeEvent::Key(key!('!')))],
+            &vec![(EdgeRepeat::Once, EdgeEvent::Key(key!('!').into()))],
             &action!(TestAction::Inveigle),
         );
 
         // Prefix Max(2)
         tm.add_prefix(
             TestMode::Suffix,
-            &vec![(EdgeRepeat::Max(2), EdgeEvent::Key(key!('!')))],
+            &vec![(EdgeRepeat::Max(2), EdgeEvent::Key(key!('!').into()))],
             &Some(op!(move |ctx| {
                 let count = ctx.temp.count.unwrap_or(0);
                 ctx.temp.count = Some(count.saturating_add(3));
@@ -2195,10 +2254,10 @@ mod tests {
         tm.add_mapping(
             TestMode::Normal,
             &vec![
-                (EdgeRepeat::Once, EdgeEvent::Key(key!('!'))),
-                (EdgeRepeat::Once, EdgeEvent::Key(key!('a'))),
-                (EdgeRepeat::Max(0), EdgeEvent::Key(key!('?'))),
-                (EdgeRepeat::Once, EdgeEvent::Key(key!('$'))),
+                (EdgeRepeat::Once, EdgeEvent::Key(key!('!').into())),
+                (EdgeRepeat::Once, EdgeEvent::Key(key!('a').into())),
+                (EdgeRepeat::Max(0), EdgeEvent::Key(key!('?').into())),
+                (EdgeRepeat::Once, EdgeEvent::Key(key!('$').into())),
             ],
             &action!(TestAction::Inveigle),
         );
@@ -2222,10 +2281,10 @@ mod tests {
         tm.add_mapping(
             TestMode::Normal,
             &vec![
-                (EdgeRepeat::Once, EdgeEvent::Key(key!('!'))),
-                (EdgeRepeat::Once, EdgeEvent::Key(key!('b'))),
-                (EdgeRepeat::Max(2), EdgeEvent::Key(key!('?'))),
-                (EdgeRepeat::Once, EdgeEvent::Key(key!('$'))),
+                (EdgeRepeat::Once, EdgeEvent::Key(key!('!').into())),
+                (EdgeRepeat::Once, EdgeEvent::Key(key!('b').into())),
+                (EdgeRepeat::Max(2), EdgeEvent::Key(key!('?').into())),
+                (EdgeRepeat::Once, EdgeEvent::Key(key!('$').into())),
             ],
             &action!(TestAction::Inveigle),
         );
@@ -2268,9 +2327,9 @@ mod tests {
         tm.add_mapping(
             TestMode::Normal,
             &vec![
-                (EdgeRepeat::Once, EdgeEvent::Key(key!('!'))),
-                (EdgeRepeat::Once, EdgeEvent::Key(key!('c'))),
-                (EdgeRepeat::Max(0), EdgeEvent::Key(key!('?'))),
+                (EdgeRepeat::Once, EdgeEvent::Key(key!('!').into())),
+                (EdgeRepeat::Once, EdgeEvent::Key(key!('c').into())),
+                (EdgeRepeat::Max(0), EdgeEvent::Key(key!('?').into())),
             ],
             &action!(TestAction::Inveigle),
         );
@@ -2295,9 +2354,9 @@ mod tests {
         tm.add_mapping(
             TestMode::Normal,
             &vec![
-                (EdgeRepeat::Once, EdgeEvent::Key(key!('!'))),
-                (EdgeRepeat::Once, EdgeEvent::Key(key!('d'))),
-                (EdgeRepeat::Max(2), EdgeEvent::Key(key!('?'))),
+                (EdgeRepeat::Once, EdgeEvent::Key(key!('!').into())),
+                (EdgeRepeat::Once, EdgeEvent::Key(key!('d').into())),
+                (EdgeRepeat::Max(2), EdgeEvent::Key(key!('?').into())),
             ],
             &action!(TestAction::Inveigle),
         );

@@ -13,6 +13,7 @@ mod util;
 pub mod editing;
 #[deny(missing_docs)]
 pub mod env;
+#[deny(missing_docs)]
 pub mod input;
 
 #[cfg(feature = "readline")]

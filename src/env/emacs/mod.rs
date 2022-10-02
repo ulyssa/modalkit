@@ -7,12 +7,12 @@
 //!
 use std::marker::PhantomData;
 
-use crossterm::event::KeyEvent;
 use regex::Regex;
 
-use crate::{
-    input::bindings::{EdgeEvent, InputKeyContext, Mode, ModeKeys},
-    input::InputContext,
+use crate::input::{
+    bindings::{EdgeEvent, InputKeyContext, Mode, ModeKeys},
+    key::TerminalKey,
+    InputContext,
 };
 
 use crate::editing::base::{
@@ -33,9 +33,9 @@ use crate::editing::base::{
     TargetShape,
 };
 
-use crate::util::{get_char, get_literal_char, keycode_to_num, option_muladd_u32};
+use crate::util::{keycode_to_num, option_muladd_u32};
 
-use super::CommonKeyClass;
+use super::{CharacterContext, CommonKeyClass};
 
 pub mod keybindings;
 
@@ -88,11 +88,15 @@ impl<P: Application> Mode<Action<P>, EmacsContext<P>> for EmacsMode {
     }
 }
 
-impl<P: Application> ModeKeys<KeyEvent, Action<P>, EmacsContext<P>> for EmacsMode {
-    fn unmapped(&self, ke: &KeyEvent, _: &mut EmacsContext<P>) -> (Vec<Action<P>>, Option<Self>) {
+impl<P: Application> ModeKeys<TerminalKey, Action<P>, EmacsContext<P>> for EmacsMode {
+    fn unmapped(
+        &self,
+        ke: &TerminalKey,
+        _: &mut EmacsContext<P>,
+    ) -> (Vec<Action<P>>, Option<Self>) {
         match self {
             EmacsMode::Insert => {
-                if let Some(c) = get_char(ke) {
+                if let Some(c) = ke.get_char() {
                     let ch = Char::Single(c).into();
                     let it = InsertTextAction::Type(ch, MoveDir1D::Previous, Count::Contextual);
 
@@ -102,7 +106,7 @@ impl<P: Application> ModeKeys<KeyEvent, Action<P>, EmacsContext<P>> for EmacsMod
                 }
             },
             EmacsMode::Search => {
-                if let Some(c) = get_char(ke) {
+                if let Some(c) = ke.get_char() {
                     let ch = Char::Single(c).into();
                     let it = InsertTextAction::Type(ch, MoveDir1D::Previous, Count::Contextual);
 
@@ -119,17 +123,13 @@ impl<P: Application> ModeKeys<KeyEvent, Action<P>, EmacsContext<P>> for EmacsMod
 /// keybindings is pressed.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct ActionContext {
-    // Fields for storing entered codepoints, literals and digraphs.
-    pub(crate) oct: Option<u32>,
-    pub(crate) any: Option<KeyEvent>,
-
     // Other arguments to key sequences.
     pub(crate) register: Option<Register>,
 }
 
 impl Default for ActionContext {
     fn default() -> Self {
-        Self { oct: None, any: None, register: None }
+        Self { register: None }
     }
 }
 
@@ -157,41 +157,9 @@ impl Default for PersistentContext {
 pub struct EmacsContext<P: Application = ()> {
     pub(crate) action: ActionContext,
     pub(crate) persist: PersistentContext,
+    pub(self) ch: CharacterContext,
 
     _p: PhantomData<P>,
-}
-
-impl<P: Application> EmacsContext<P> {
-    fn get_typed(&self) -> Option<Char> {
-        if let Some(cp) = self.get_codepoint() {
-            let c = char::from_u32(cp)?;
-            let c = Char::Single(c);
-
-            Some(c)
-        } else if let Some(c) = self.get_literal_char() {
-            let c = Char::Single(c);
-
-            Some(c)
-        } else if let Some(s) = self.get_literal_string() {
-            let c = Char::CtrlSeq(s);
-
-            Some(c)
-        } else {
-            None
-        }
-    }
-
-    fn get_codepoint(&self) -> Option<u32> {
-        self.action.oct
-    }
-
-    fn get_literal_char(&self) -> Option<char> {
-        self.action.any.as_ref().and_then(get_literal_char)
-    }
-
-    fn get_literal_string(&self) -> Option<String> {
-        unimplemented!();
-    }
 }
 
 impl<P: Application> InputContext for EmacsContext<P> {
@@ -203,6 +171,7 @@ impl<P: Application> InputContext for EmacsContext<P> {
         Self {
             persist: self.persist.clone(),
             action: std::mem::take(&mut self.action),
+            ch: std::mem::take(&mut self.ch),
 
             _p: PhantomData,
         }
@@ -252,6 +221,7 @@ impl<P: Application> Default for EmacsContext<P> {
         Self {
             action: ActionContext::default(),
             persist: PersistentContext::default(),
+            ch: CharacterContext::default(),
 
             _p: PhantomData,
         }
@@ -271,7 +241,7 @@ impl<P: Application> Resolve<Count, usize> for EmacsContext<P> {
 impl<P: Application> Resolve<Specifier<Char>, Option<Char>> for EmacsContext<P> {
     fn resolve(&self, c: &Specifier<Char>) -> Option<Char> {
         match c {
-            Specifier::Contextual => self.get_typed(),
+            Specifier::Contextual => self.ch.get_typed(),
             Specifier::Exact(c) => Some(c.clone()),
         }
     }
@@ -295,24 +265,52 @@ impl<P: Application> Resolve<Specifier<EditAction>, EditAction> for EmacsContext
     }
 }
 
-impl<P: Application> InputKeyContext<KeyEvent, CommonKeyClass> for EmacsContext<P> {
-    fn event(&mut self, ev: &EdgeEvent<KeyEvent, CommonKeyClass>, ke: &KeyEvent) {
+impl<P: Application> InputKeyContext<TerminalKey, CommonKeyClass> for EmacsContext<P> {
+    fn event(&mut self, ev: &EdgeEvent<TerminalKey, CommonKeyClass>, ke: &TerminalKey) {
         match ev {
             EdgeEvent::Key(_) | EdgeEvent::Fallthrough => {
                 // Do nothing.
             },
+
+            // Track literals, codepoints, etc.
             EdgeEvent::Any => {
-                self.action.any = Some(ke.clone());
+                self.ch.any = Some(ke.clone());
             },
             EdgeEvent::Class(CommonKeyClass::Octal) => {
                 if let Some(n) = keycode_to_num(ke, 8) {
-                    let new = option_muladd_u32(&self.action.oct, 8, n);
+                    let new = option_muladd_u32(&self.ch.oct, 8, n);
 
-                    self.action.oct = Some(new);
+                    self.ch.oct = Some(new);
                 }
             },
+            EdgeEvent::Class(CommonKeyClass::Decimal) => {
+                if let Some(n) = keycode_to_num(ke, 10) {
+                    let new = option_muladd_u32(&self.ch.dec, 10, n);
+
+                    self.ch.dec = Some(new);
+                }
+            },
+            EdgeEvent::Class(CommonKeyClass::Hexadecimal) => {
+                if let Some(n) = keycode_to_num(ke, 16) {
+                    let new = option_muladd_u32(&self.ch.hex, 16, n);
+
+                    self.ch.hex = Some(new);
+                }
+            },
+            EdgeEvent::Class(CommonKeyClass::Digraph1) => {
+                if let Some(c) = ke.get_char() {
+                    self.ch.digraph1 = Some(c);
+                }
+            },
+            EdgeEvent::Class(CommonKeyClass::Digraph2) => {
+                if let Some(c) = ke.get_char() {
+                    self.ch.digraph2 = Some(c);
+                }
+            },
+
+            // Other classes are currently unused.
             EdgeEvent::Class(_) => {
-                // Other classes are currently unused.
+                // Do nothing
             },
         }
     }

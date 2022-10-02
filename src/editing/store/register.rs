@@ -26,10 +26,12 @@ pub struct RegisterStore {
     last_search: RegisterCell,
     last_yanked: RegisterCell,
     last_deleted: Vec<RegisterCell>,
+    last_macro: Option<Register>,
 
     small_delete: RegisterCell,
 
     unnamed: RegisterCell,
+    unnamed_macro: RegisterCell,
     named: HashMap<char, RegisterCell>,
 }
 
@@ -126,10 +128,12 @@ impl RegisterStore {
             last_search: RegisterCell::default(),
             last_yanked: RegisterCell::default(),
             last_deleted: vec![RegisterCell::default(); 9],
+            last_macro: None,
 
             small_delete: RegisterCell::default(),
 
             unnamed: RegisterCell::default(),
+            unnamed_macro: RegisterCell::default(),
             named: HashMap::new(),
         }
     }
@@ -151,6 +155,7 @@ impl RegisterStore {
 
         match reg {
             Register::Unnamed => self.unnamed.clone(),
+            Register::UnnamedMacro => self.unnamed_macro.clone(),
             Register::RecentlyDeleted(off) => {
                 match self.last_deleted.get(off) {
                     Some(cell) => cell.clone(),
@@ -225,6 +230,10 @@ impl RegisterStore {
                 }
                 cell
             },
+            Register::UnnamedMacro => {
+                self.unnamed_macro = cell.clone();
+                cell
+            },
             Register::Named(name) => {
                 self.named.insert(name, cell.clone());
                 cell
@@ -273,6 +282,22 @@ impl RegisterStore {
         };
 
         self.unnamed = unnamed;
+    }
+
+    /// Return the contents of a register for macro execution.
+    pub fn get_macro(&mut self, reg: Register) -> EditRope {
+        self.last_macro = Some(reg);
+
+        return self.get(&Some(reg)).value;
+    }
+
+    /// Return the same contents as the last call to [RegisterStore::get_macro].
+    pub fn get_last_macro(&self) -> Option<EditRope> {
+        if self.last_macro.is_some() {
+            return Some(self.get(&self.last_macro).value);
+        } else {
+            return None;
+        }
     }
 
     pub(super) fn set_last_search<T: Into<EditRope>>(&mut self, rope: T) {

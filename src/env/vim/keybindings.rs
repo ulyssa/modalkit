@@ -14,25 +14,24 @@
 //! use modalkit::editing::base::{Count, Resolve};
 //! use modalkit::editing::base::{Action, EditAction, EditTarget, HistoryAction, RangeType};
 //!
+//! use modalkit::input::{bindings::BindingMachine, key::TerminalKey};
+//!
 //! use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 //!
 //! const fn key(code: KeyCode, modifiers: KeyModifiers) -> KeyEvent {
-//!     KeyEvent {
-//!         code,
-//!         modifiers,
-//!     }
+//!     KeyEvent::new(code, modifiers)
 //! }
 //!
 //! fn main() {
-//!     let mut keybindings: VimMachine<KeyEvent> = Default::default();
+//!     let mut keybindings: VimMachine<TerminalKey> = Default::default();
 //!
 //!     // Begins in Normal mode.
 //!     assert_eq!(keybindings.mode(), VimMode::Normal);
 //!
 //!     // Typing "5dd" deletes a line.
-//!     keybindings.input_key(key(KeyCode::Char('5'), KeyModifiers::NONE));
-//!     keybindings.input_key(key(KeyCode::Char('d'), KeyModifiers::NONE));
-//!     keybindings.input_key(key(KeyCode::Char('d'), KeyModifiers::NONE));
+//!     keybindings.input_key(key(KeyCode::Char('5'), KeyModifiers::NONE).into());
+//!     keybindings.input_key(key(KeyCode::Char('d'), KeyModifiers::NONE).into());
+//!     keybindings.input_key(key(KeyCode::Char('d'), KeyModifiers::NONE).into());
 //!
 //!     let (act, ctx) = keybindings.pop().unwrap();
 //!     assert_eq!(act, Action::Edit(EditAction::Delete.into(), RangeType::Line.into()));
@@ -47,7 +46,6 @@
 //! }
 //! ```
 use bitflags::bitflags;
-use crossterm::event::KeyEvent;
 
 use crate::editing::base::{
     Action,
@@ -104,7 +102,10 @@ use super::{
     VimMode,
 };
 
-use crate::input::bindings::{InputBindings, ModalMachine, Step};
+use crate::input::{
+    bindings::{InputBindings, ModalMachine, Step},
+    key::TerminalKey,
+};
 
 bitflags! {
     struct MappedModes: u32 {
@@ -226,7 +227,7 @@ impl<P: Application> InternalAction<P> {
                     ctx.persist.charsearch_params = (d, i);
                 }
 
-                ctx.persist.charsearch = ctx.get_typed();
+                ctx.persist.charsearch = ctx.ch.get_typed();
             },
             InternalAction::SetSearchRegexParams(dir) => {
                 ctx.persist.regexsearch_dir = *dir;
@@ -238,7 +239,7 @@ impl<P: Application> InternalAction<P> {
                 if c.is_some() {
                     ctx.action.replace = c.clone();
                 } else {
-                    ctx.action.replace = ctx.get_typed();
+                    ctx.action.replace = ctx.ch.get_typed();
                 }
             },
             InternalAction::SaveCounting => {
@@ -258,8 +259,8 @@ impl<P: Application> InternalAction<P> {
                 ctx.action.cursor = Some(*c);
             },
             InternalAction::SetCursorDigraph => {
-                if ctx.action.digraph1.is_some() {
-                    ctx.action.cursor = ctx.action.digraph1;
+                if ctx.ch.digraph1.is_some() {
+                    ctx.action.cursor = ctx.ch.digraph1;
                 }
             },
             InternalAction::SetInsertStyle(style) => {
@@ -304,7 +305,7 @@ impl<P: Application> InternalAction<P> {
 enum ExternalAction<P: Application> {
     Something(Action<P>),
     CountAlters(Vec<Action<P>>, Vec<Action<P>>),
-    MacroRecording(Action<P>),
+    MacroToggle(bool),
     PostAction,
 }
 
@@ -322,16 +323,21 @@ impl<P: Application> ExternalAction<P> {
             ExternalAction::PostAction => {
                 vec![context.action.postaction.take().unwrap_or(Action::NoOp)]
             },
-            ExternalAction::MacroRecording(act) => {
-                let recording = false;
+            ExternalAction::MacroToggle(reqrec) => {
+                let recording = context.persist.recording.is_some();
 
-                // XXX: implement
-
-                if recording {
-                    vec![act.clone()]
+                if *reqrec && !recording {
+                    return vec![];
+                } else if recording {
+                    context.persist.recording = None;
+                } else if let Some(reg) = context.action.register {
+                    let append = context.action.register_append;
+                    context.persist.recording = Some((reg, append));
                 } else {
-                    vec![]
+                    context.persist.recording = Some((Register::UnnamedMacro, false));
                 }
+
+                vec![MacroAction::ToggleRecording.into()]
             },
         }
     }
@@ -364,7 +370,7 @@ impl<P: Application> InputStep<P> {
     }
 }
 
-impl<P: Application> Step<KeyEvent> for InputStep<P> {
+impl<P: Application> Step<TerminalKey> for InputStep<P> {
     type A = Action<P>;
     type C = VimContext<P>;
     type Class = CommonKeyClass;
@@ -422,12 +428,6 @@ macro_rules! act {
     };
     ($ext: expr, $ns: expr) => {
         isv!(vec![], vec![ExternalAction::Something($ext)], $ns)
-    };
-}
-
-macro_rules! recording {
-    ($act: expr) => {
-        isv!(vec![], vec![ExternalAction::MacroRecording($act)])
     };
 }
 
@@ -1321,8 +1321,8 @@ fn default_keys<P: Application>() -> Vec<(MappedModes, &'static str, InputStep<P
         ( NXMAP, "gT", tab_focus!(FocusChange::Direction1D(MoveDir1D::Previous, Count::Contextual, true)) ),
         ( NXMAP, "g<C-H>", select!(TargetShape::BlockWise) ),
         ( NXMAP, "m{mark}", act!(Action::Mark(Specifier::Contextual)) ),
-        ( NXMAP, "q{register}", act!(MacroAction::ToggleRecording.into()) ),
-        ( NXMAP, "q", recording!(MacroAction::ToggleRecording.into()) ),
+        ( NXMAP, "q{register}", isv!(vec![], vec![ExternalAction::MacroToggle(false)]) ),
+        ( NXMAP, "q", isv!(vec![], vec![ExternalAction::MacroToggle(true)]) ),
         ( NXMAP, "v", visual!(TargetShape::CharWise) ),
         ( NXMAP, "V", visual!(TargetShape::LineWise) ),
         ( NXMAP, "zb", scrollcpv!(MovePosition::End, false) ),
@@ -1735,7 +1735,7 @@ fn search_is_action<P: Application>() -> Vec<(MappedModes, &'static str, InputSt
 
 #[inline]
 fn add_prefix<P: Application>(
-    machine: &mut VimMachine<KeyEvent, P>,
+    machine: &mut VimMachine<TerminalKey, P>,
     modes: &MappedModes,
     keys: &str,
     action: &Option<InputStep<P>>,
@@ -1750,7 +1750,7 @@ fn add_prefix<P: Application>(
 
 #[inline]
 fn add_mapping<P: Application>(
-    machine: &mut VimMachine<KeyEvent, P>,
+    machine: &mut VimMachine<TerminalKey, P>,
     modes: &MappedModes,
     keys: &str,
     action: &InputStep<P>,
@@ -1798,8 +1798,8 @@ impl<P: Application> Default for VimBindings<P> {
     }
 }
 
-impl<P: Application> InputBindings<KeyEvent, InputStep<P>> for VimBindings<P> {
-    fn setup(&self, machine: &mut VimMachine<KeyEvent, P>) {
+impl<P: Application> InputBindings<TerminalKey, InputStep<P>> for VimBindings<P> {
+    fn setup(&self, machine: &mut VimMachine<TerminalKey, P>) {
         for (modes, keys, action) in self.prefixes.iter() {
             add_prefix(machine, modes, keys, action);
         }
@@ -1821,7 +1821,7 @@ impl<P: Application> InputBindings<KeyEvent, InputStep<P>> for VimBindings<P> {
 /// Manage Vim keybindings and modes.
 pub type VimMachine<Key, T = ()> = ModalMachine<Key, InputStep<T>>;
 
-impl<P: Application> Default for VimMachine<KeyEvent, P> {
+impl<P: Application> Default for VimMachine<TerminalKey, P> {
     fn default() -> Self {
         ModalMachine::from_bindings::<VimBindings<P>>()
     }
@@ -1831,6 +1831,7 @@ impl<P: Application> Default for VimMachine<KeyEvent, P> {
 mod tests {
     use super::*;
     use crate::editing::base::{CursorCloseTarget, Mark, Register};
+    use crate::input::bindings::BindingMachine;
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
     macro_rules! assert_normal {
@@ -1958,7 +1959,7 @@ mod tests {
 
     #[test]
     fn test_transitions_normal() {
-        let mut vm: VimMachine<KeyEvent> = VimMachine::default();
+        let mut vm: VimMachine<TerminalKey> = VimMachine::default();
         let mut ctx = VimContext::default();
 
         let op = EditAction::Motion;
@@ -2100,7 +2101,7 @@ mod tests {
 
     #[test]
     fn test_transitions_command() {
-        let mut vm: VimMachine<KeyEvent> = VimMachine::default();
+        let mut vm: VimMachine<TerminalKey> = VimMachine::default();
         let mut ctx = VimContext::default();
 
         // Starts in Normal mode
@@ -2180,7 +2181,7 @@ mod tests {
 
     #[test]
     fn test_transitions_visual() {
-        let mut vm: VimMachine<KeyEvent> = VimMachine::default();
+        let mut vm: VimMachine<TerminalKey> = VimMachine::default();
         let mut ctx = VimContext::default();
 
         // Move to Visual mode (charwise) and back using "v".
@@ -2254,7 +2255,7 @@ mod tests {
 
     #[test]
     fn test_transitions_visual_select() {
-        let mut vm: VimMachine<KeyEvent> = VimMachine::default();
+        let mut vm: VimMachine<TerminalKey> = VimMachine::default();
         let mut ctx = VimContext::default();
 
         // Test charwise shapes.
@@ -2322,7 +2323,7 @@ mod tests {
 
     #[test]
     fn test_transitions_select() {
-        let mut vm: VimMachine<KeyEvent> = VimMachine::default();
+        let mut vm: VimMachine<TerminalKey> = VimMachine::default();
         let mut ctx = VimContext::default();
 
         // Enter Select mode (charwise) via "gh".
@@ -2407,7 +2408,7 @@ mod tests {
 
     #[test]
     fn test_count() {
-        let mut vm: VimMachine<KeyEvent> = VimMachine::default();
+        let mut vm: VimMachine<TerminalKey> = VimMachine::default();
         let mut ctx = VimContext::default();
 
         let mov = mv!(MoveType::WordBegin(WordStyle::Little, MoveDir1D::Next));
@@ -2495,7 +2496,7 @@ mod tests {
 
     #[test]
     fn test_register() {
-        let mut vm: VimMachine<KeyEvent> = VimMachine::default();
+        let mut vm: VimMachine<TerminalKey> = VimMachine::default();
         let mut ctx = VimContext::default();
 
         let op = EditAction::Yank;
@@ -2562,7 +2563,7 @@ mod tests {
 
     #[test]
     fn test_mark() {
-        let mut vm: VimMachine<KeyEvent> = VimMachine::default();
+        let mut vm: VimMachine<TerminalKey> = VimMachine::default();
         let mut ctx = VimContext::default();
 
         // Create local mark 'c.
@@ -2600,7 +2601,7 @@ mod tests {
 
     #[test]
     fn test_normal_ops() {
-        let mut vm: VimMachine<KeyEvent> = VimMachine::default();
+        let mut vm: VimMachine<TerminalKey> = VimMachine::default();
         let mut ctx = VimContext::default();
 
         let mov = mv!(MoveType::WordBegin(WordStyle::Little, MoveDir1D::Next));
@@ -2692,13 +2693,13 @@ mod tests {
         let mov = mvop!(op, MoveType::Column(MoveDir1D::Next, false));
         ctx.action.cursor_end = None;
         ctx.action.replace = Some('A'.into());
-        ctx.action.any = Some(key!('A'));
+        ctx.ch.any = Some(key!('A').into());
         vm.input_key(key!('r'));
         vm.input_key(key!('A'));
         assert_pop1!(vm, mov, ctx);
         assert_normal!(vm, ctx);
         ctx.action.replace = None;
-        ctx.action.any = None;
+        ctx.ch.any = None;
 
         let op = EditAction::ChangeNumber(NumberChange::IncreaseOne);
         let mov = mvop!(op, MoveType::LinePos(MovePosition::End));
@@ -2715,7 +2716,7 @@ mod tests {
 
     #[test]
     fn test_delete_ops() {
-        let mut vm: VimMachine<KeyEvent> = VimMachine::default();
+        let mut vm: VimMachine<TerminalKey> = VimMachine::default();
         let mut ctx = VimContext::default();
 
         let op = EditAction::Delete;
@@ -2752,7 +2753,7 @@ mod tests {
 
     #[test]
     fn test_change_ops() {
-        let mut vm: VimMachine<KeyEvent> = VimMachine::default();
+        let mut vm: VimMachine<TerminalKey> = VimMachine::default();
         let mut ctx = VimContext::default();
 
         // Change a word around the cursor with "caw".
@@ -2868,13 +2869,13 @@ mod tests {
 
     #[test]
     fn test_normal_motion_charsearch() {
-        let mut vm: VimMachine<KeyEvent> = VimMachine::default();
+        let mut vm: VimMachine<TerminalKey> = VimMachine::default();
         let mut ctx = VimContext::default();
 
         // "fa" should update search params, and then continue character search.
         ctx.persist.charsearch_params = (MoveDir1D::Next, true);
         ctx.persist.charsearch = Some('a'.into());
-        ctx.action.any = Some(key!('a'));
+        ctx.ch.any = Some(key!('a').into());
         vm.input_key(key!('f'));
         vm.input_key(key!('a'));
         assert_pop1!(vm, SEARCH_CHAR_SAME, ctx);
@@ -2883,7 +2884,7 @@ mod tests {
         // ";" should continue character search.
         ctx.persist.charsearch_params = (MoveDir1D::Next, true);
         ctx.persist.charsearch = Some('a'.into());
-        ctx.action.any = None;
+        ctx.ch.any = None;
         vm.input_key(key!(';'));
         assert_pop1!(vm, SEARCH_CHAR_SAME, ctx);
         assert_normal!(vm, ctx);
@@ -2891,7 +2892,7 @@ mod tests {
         // "," should continue character search in reverse direction.
         ctx.persist.charsearch_params = (MoveDir1D::Next, true);
         ctx.persist.charsearch = Some('a'.into());
-        ctx.action.any = None;
+        ctx.ch.any = None;
         vm.input_key(key!(','));
         assert_pop1!(vm, SEARCH_CHAR_FLIP, ctx);
         assert_normal!(vm, ctx);
@@ -2899,7 +2900,7 @@ mod tests {
         // "T<C-V>o125" should update params and continue search for codepoint.
         ctx.persist.charsearch_params = (MoveDir1D::Previous, false);
         ctx.persist.charsearch = Some('U'.into());
-        ctx.action.oct = Some(85);
+        ctx.ch.oct = Some(85);
         vm.input_key(key!('T'));
         vm.input_key(ctl!('v'));
         vm.input_key(key!('o'));
@@ -2912,7 +2913,7 @@ mod tests {
         // ";" should continue search.
         ctx.persist.charsearch_params = (MoveDir1D::Previous, false);
         ctx.persist.charsearch = Some('U'.into());
-        ctx.action.oct = None;
+        ctx.ch.oct = None;
         vm.input_key(key!(';'));
         assert_pop1!(vm, SEARCH_CHAR_SAME, ctx);
         assert_normal!(vm, ctx);
@@ -2920,8 +2921,8 @@ mod tests {
         // "F<C-K>Z<" should update params and continue search for digraph.
         ctx.persist.charsearch_params = (MoveDir1D::Previous, true);
         ctx.persist.charsearch = Some(Char::Digraph('Z', '<'));
-        ctx.action.digraph1 = Some('Z');
-        ctx.action.digraph2 = Some('<');
+        ctx.ch.digraph1 = Some('Z');
+        ctx.ch.digraph2 = Some('<');
         vm.input_key(key!('F'));
         vm.input_key(ctl!('k'));
         vm.input_key(key!('Z'));
@@ -2932,8 +2933,8 @@ mod tests {
         // "," should continue search in reverse direction.
         ctx.persist.charsearch_params = (MoveDir1D::Previous, true);
         ctx.persist.charsearch = Some(Char::Digraph('Z', '<'));
-        ctx.action.digraph1 = None;
-        ctx.action.digraph2 = None;
+        ctx.ch.digraph1 = None;
+        ctx.ch.digraph2 = None;
         vm.input_key(key!(','));
         assert_pop1!(vm, SEARCH_CHAR_FLIP, ctx);
         assert_normal!(vm, ctx);
@@ -2951,7 +2952,7 @@ mod tests {
 
     #[test]
     fn test_normal_motion_special_key() {
-        let mut vm: VimMachine<KeyEvent> = VimMachine::default();
+        let mut vm: VimMachine<TerminalKey> = VimMachine::default();
         let mut ctx = VimContext::default();
 
         // <C-H>
@@ -3060,7 +3061,7 @@ mod tests {
 
     #[test]
     fn test_visual_ops() {
-        let mut vm: VimMachine<KeyEvent> = VimMachine::default();
+        let mut vm: VimMachine<TerminalKey> = VimMachine::default();
         let mut ctx = VimContext::default();
 
         // Move into Visual mode (charwise)
@@ -3293,7 +3294,7 @@ mod tests {
 
     #[test]
     fn test_visual_block_insert() {
-        let mut vm: VimMachine<KeyEvent> = VimMachine::default();
+        let mut vm: VimMachine<TerminalKey> = VimMachine::default();
         let mut ctx = VimContext::default();
 
         // Move into Visual mode (blockwise)
@@ -3380,7 +3381,7 @@ mod tests {
 
     #[test]
     fn test_visual_motion() {
-        let mut vm: VimMachine<KeyEvent> = VimMachine::default();
+        let mut vm: VimMachine<TerminalKey> = VimMachine::default();
         let mut ctx = VimContext::default();
 
         ctx.persist.shape = Some(TargetShape::CharWise);
@@ -3457,7 +3458,7 @@ mod tests {
 
     #[test]
     fn test_force_motion() {
-        let mut vm: VimMachine<KeyEvent> = VimMachine::default();
+        let mut vm: VimMachine<TerminalKey> = VimMachine::default();
         let mut ctx = VimContext::default();
 
         let mov = mv!(MoveType::WordBegin(WordStyle::Little, MoveDir1D::Next));
@@ -3512,7 +3513,7 @@ mod tests {
 
     #[test]
     fn test_insert_mode() {
-        let mut vm: VimMachine<KeyEvent> = VimMachine::default();
+        let mut vm: VimMachine<TerminalKey> = VimMachine::default();
         let mut ctx = VimContext::default();
 
         ctx.persist.insert = Some(InsertStyle::Insert);
@@ -3549,8 +3550,8 @@ mod tests {
         assert_eq!(vm.get_cursor_indicator(), Some('L'));
 
         ctx.action.cursor = Some('L');
-        ctx.action.digraph1 = Some('L');
-        ctx.action.digraph2 = Some('i');
+        ctx.ch.digraph1 = Some('L');
+        ctx.ch.digraph2 = Some('i');
         vm.input_key(key!('i'));
         assert_pop1!(vm, TYPE_CONTEXTUAL, ctx);
         assert_eq!(vm.mode(), VimMode::Insert);
@@ -3560,17 +3561,17 @@ mod tests {
         assert_eq!(vm.get_cursor_indicator(), Some('^'));
 
         ctx.action.cursor = Some('^');
-        ctx.action.digraph1 = None;
-        ctx.action.digraph2 = None;
-        ctx.action.any = Some(ctl!('g'));
+        ctx.ch.digraph1 = None;
+        ctx.ch.digraph2 = None;
+        ctx.ch.any = Some(ctl!('g').into());
         vm.input_key(ctl!('g'));
         assert_pop1!(vm, TYPE_CONTEXTUAL, ctx);
         assert_eq!(vm.mode(), VimMode::Insert);
 
         // Type a codepoint.
         ctx.action.cursor = Some('^');
-        ctx.action.oct = Some(97);
-        ctx.action.any = None;
+        ctx.ch.oct = Some(97);
+        ctx.ch.any = None;
         vm.input_key(ctl!('v'));
         vm.input_key(key!('o'));
         vm.input_key(key!('1'));
@@ -3580,7 +3581,7 @@ mod tests {
         assert_eq!(vm.mode(), VimMode::Insert);
 
         ctx.action.cursor = None;
-        ctx.action.oct = None;
+        ctx.ch.oct = None;
 
         // Enter Replace mode by pressing <Ins>.
         ctx.persist.insert = Some(InsertStyle::Replace);
@@ -3631,7 +3632,7 @@ mod tests {
 
     #[test]
     fn test_override() {
-        let mut vm: VimMachine<KeyEvent> = VimMachine::default();
+        let mut vm: VimMachine<TerminalKey> = VimMachine::default();
         let mut ctx = VimContext::default();
 
         // Check the original Normal mode mapping.
@@ -3680,7 +3681,7 @@ mod tests {
 
     #[test]
     fn test_count_alters_motion() {
-        let mut vm: VimMachine<KeyEvent> = VimMachine::default();
+        let mut vm: VimMachine<TerminalKey> = VimMachine::default();
         let mut ctx = VimContext::default();
 
         // Without a count, "%" is ItemMatch.
@@ -3728,7 +3729,7 @@ mod tests {
 
     #[test]
     fn test_count_alters_window() {
-        let mut vm: VimMachine<KeyEvent> = VimMachine::default();
+        let mut vm: VimMachine<TerminalKey> = VimMachine::default();
         let mut ctx = VimContext::default();
 
         // Without a count, ^Wo closes all windows besides the currently focused one.
@@ -3791,7 +3792,7 @@ mod tests {
 
     #[test]
     fn test_scrollcp() {
-        let mut vm: VimMachine<KeyEvent> = VimMachine::default();
+        let mut vm: VimMachine<TerminalKey> = VimMachine::default();
         let mut ctx = VimContext::default();
 
         // Place cursored line at the top of the screen with "zt".
@@ -3841,7 +3842,7 @@ mod tests {
 
     #[test]
     fn test_literal() {
-        let mut vm: VimMachine<KeyEvent> = VimMachine::default();
+        let mut vm: VimMachine<TerminalKey> = VimMachine::default();
         let mut ctx = VimContext::default();
 
         ctx.persist.insert = Some(InsertStyle::Insert);
@@ -3856,7 +3857,7 @@ mod tests {
         assert_eq!(vm.get_cursor_indicator(), Some('^'));
 
         ctx.action.cursor = Some('^');
-        ctx.action.any = Some(key!(KeyCode::Esc));
+        ctx.ch.any = Some(key!(KeyCode::Esc).into());
         vm.input_key(key!(KeyCode::Esc));
         assert_pop2!(vm, TYPE_CONTEXTUAL, ctx);
         assert_eq!(vm.mode(), VimMode::Insert);
@@ -3864,8 +3865,8 @@ mod tests {
 
         // Test that typing in a full octal sequence works.
         ctx.action.cursor = Some('^');
-        ctx.action.oct = Some(127);
-        ctx.action.any = None;
+        ctx.ch.oct = Some(127);
+        ctx.ch.any = None;
         vm.input_key(ctl!('v'));
         vm.input_key(key!('o'));
         vm.input_key(key!('1'));
@@ -3876,7 +3877,7 @@ mod tests {
 
         // Test that valid octal character types normally afterwards.
         ctx.action.cursor = None;
-        ctx.action.oct = None;
+        ctx.ch.oct = None;
         vm.input_key(key!('7'));
         assert_pop2!(vm, typechar!('7'), ctx);
 
@@ -3887,11 +3888,11 @@ mod tests {
         vm.input_key(key!('8'));
 
         ctx.action.cursor = Some('^');
-        ctx.action.oct = Some(7);
+        ctx.ch.oct = Some(7);
         assert_pop1!(vm, TYPE_CONTEXTUAL, ctx);
 
         ctx.action.cursor = None;
-        ctx.action.oct = None;
+        ctx.ch.oct = None;
         assert_pop2!(vm, typechar!('8'), ctx);
         assert_eq!(vm.mode(), VimMode::Insert);
 
@@ -3903,11 +3904,11 @@ mod tests {
         vm.input_key(key!('4'));
 
         ctx.action.cursor = Some('^');
-        ctx.action.dec = Some(123);
+        ctx.ch.dec = Some(123);
         assert_pop1!(vm, TYPE_CONTEXTUAL, ctx);
 
         ctx.action.cursor = None;
-        ctx.action.dec = None;
+        ctx.ch.dec = None;
         assert_pop2!(vm, typechar!('4'), ctx);
         assert_eq!(vm.mode(), VimMode::Insert);
 
@@ -3921,11 +3922,11 @@ mod tests {
         vm.input_key(key!('3'));
 
         ctx.action.cursor = Some('^');
-        ctx.action.hex = Some(9731);
+        ctx.ch.hex = Some(9731);
         assert_pop1!(vm, TYPE_CONTEXTUAL, ctx);
 
         ctx.action.cursor = None;
-        ctx.action.hex = None;
+        ctx.ch.hex = None;
         assert_pop2!(vm, typechar!('3'), ctx);
         assert_eq!(vm.mode(), VimMode::Insert);
 
@@ -3943,11 +3944,11 @@ mod tests {
         vm.input_key(key!('a'));
 
         ctx.action.cursor = Some('^');
-        ctx.action.hex = Some(128862);
+        ctx.ch.hex = Some(128862);
         assert_pop1!(vm, TYPE_CONTEXTUAL, ctx);
 
         ctx.action.cursor = None;
-        ctx.action.hex = None;
+        ctx.ch.hex = None;
         assert_pop2!(vm, typechar!('a'), ctx);
         assert_eq!(vm.mode(), VimMode::Insert);
 
@@ -3962,18 +3963,18 @@ mod tests {
         vm.input_key(key!('G'));
 
         ctx.action.cursor = Some('^');
-        ctx.action.hex = Some(128109);
+        ctx.ch.hex = Some(128109);
         assert_pop1!(vm, TYPE_CONTEXTUAL, ctx);
 
         ctx.action.cursor = None;
-        ctx.action.hex = None;
+        ctx.ch.hex = None;
         assert_pop2!(vm, typechar!('G'), ctx);
         assert_eq!(vm.mode(), VimMode::Insert);
     }
 
     #[test]
     fn test_unmapped_reset() {
-        let mut vm: VimMachine<KeyEvent> = VimMachine::default();
+        let mut vm: VimMachine<TerminalKey> = VimMachine::default();
         let mut ctx = VimContext::default();
 
         /*
@@ -3992,7 +3993,7 @@ mod tests {
 
     #[test]
     fn test_count_nullifies() {
-        let mut vm: VimMachine<KeyEvent> = VimMachine::default();
+        let mut vm: VimMachine<TerminalKey> = VimMachine::default();
         let mut ctx = VimContext::default();
 
         // Without a count, Delete deletes one character.
@@ -4010,6 +4011,45 @@ mod tests {
         vm.input_key(key!('1'));
         vm.input_key(key!(KeyCode::Delete));
         assert_pop1!(vm, Action::NoOp, ctx);
+        assert_normal!(vm, ctx);
+    }
+
+    #[test]
+    fn test_macro_toggle() {
+        let mut vm: VimMachine<TerminalKey> = VimMachine::default();
+        let mut ctx = VimContext::default();
+
+        let toggle = Action::from(MacroAction::ToggleRecording);
+
+        // The first "q" does nothing.
+        vm.input_key(key!('q'));
+        assert_eq!(vm.pop(), None);
+        assert_eq!(vm.context(), ctx);
+
+        // The second "q" is treated as a register name, and recording starts.
+        ctx.persist.recording = Some((Register::Named('q'), false));
+        vm.input_key(key!('q'));
+
+        ctx.action.register = Some(Register::Named('q'));
+        assert_pop1!(vm, toggle, ctx);
+
+        ctx.action.register = None;
+        assert_normal!(vm, ctx);
+
+        // Type "gqq" to format.
+        let format = rangeop!(EditAction::Format, RangeType::Line);
+        ctx.action.operation = EditAction::Format.into();
+        vm.input_key(key!('g'));
+        vm.input_key(key!('q'));
+        vm.input_key(key!('q'));
+        assert_pop1!(vm, format, ctx);
+        assert_normal!(vm, ctx);
+
+        // Type "q" to end recording.
+        ctx.action.operation = EditAction::Motion;
+        ctx.persist.recording = None;
+        vm.input_key(key!('q'));
+        assert_pop1!(vm, toggle, ctx);
         assert_normal!(vm, ctx);
     }
 }

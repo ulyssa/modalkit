@@ -12,7 +12,6 @@
 //! - `C-_` and `C-x u` behave like `M-x undo-only`
 //!
 use bitflags::bitflags;
-use crossterm::event::KeyEvent;
 
 use crate::editing::base::{
     Action,
@@ -58,7 +57,10 @@ use super::{
     EmacsMode,
 };
 
-use crate::input::bindings::{InputBindings, ModalMachine, Step};
+use crate::input::{
+    bindings::{InputBindings, ModalMachine, Step},
+    key::TerminalKey,
+};
 
 bitflags! {
     struct MappedModes: u32 {
@@ -168,7 +170,7 @@ impl<P: Application> InputStep<P> {
     }
 }
 
-impl<P: Application> Step<KeyEvent> for InputStep<P> {
+impl<P: Application> Step<TerminalKey> for InputStep<P> {
     type A = Action<P>;
     type C = EmacsContext<P>;
     type M = EmacsMode;
@@ -520,7 +522,7 @@ fn submit_on_enter<P: Application>() -> Vec<(MappedModes, &'static str, InputSte
 
 #[inline]
 fn add_mapping<P: Application>(
-    machine: &mut EmacsMachine<KeyEvent, P>,
+    machine: &mut EmacsMachine<TerminalKey, P>,
     modes: &MappedModes,
     keys: &str,
     action: &InputStep<P>,
@@ -554,8 +556,8 @@ impl<P: Application> Default for EmacsBindings<P> {
     }
 }
 
-impl<P: Application> InputBindings<KeyEvent, InputStep<P>> for EmacsBindings<P> {
-    fn setup(&self, machine: &mut EmacsMachine<KeyEvent, P>) {
+impl<P: Application> InputBindings<TerminalKey, InputStep<P>> for EmacsBindings<P> {
+    fn setup(&self, machine: &mut EmacsMachine<TerminalKey, P>) {
         for (modes, keys, action) in self.mappings.iter() {
             add_mapping(machine, modes, keys, action);
         }
@@ -569,7 +571,7 @@ impl<P: Application> InputBindings<KeyEvent, InputStep<P>> for EmacsBindings<P> 
 /// Manage Emacs keybindings and modes.
 pub type EmacsMachine<Key, T = ()> = ModalMachine<Key, InputStep<T>>;
 
-impl<P: Application> Default for EmacsMachine<KeyEvent, P> {
+impl<P: Application> Default for EmacsMachine<TerminalKey, P> {
     fn default() -> Self {
         ModalMachine::from_bindings::<EmacsBindings<P>>()
     }
@@ -578,6 +580,7 @@ impl<P: Application> Default for EmacsMachine<KeyEvent, P> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::input::bindings::BindingMachine;
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
     macro_rules! mv {
@@ -600,7 +603,7 @@ mod tests {
 
     #[test]
     fn test_selection_shift() {
-        let mut vm: EmacsMachine<KeyEvent> = EmacsMachine::default();
+        let mut vm: EmacsMachine<TerminalKey> = EmacsMachine::default();
         let mut ctx = EmacsContext::default();
 
         // Start out in Insert mode.
@@ -627,7 +630,7 @@ mod tests {
 
     #[test]
     fn test_selection_no_shift() {
-        let mut vm: EmacsMachine<KeyEvent> = EmacsMachine::default();
+        let mut vm: EmacsMachine<TerminalKey> = EmacsMachine::default();
         let mut ctx = EmacsContext::default();
 
         ctx.persist.shape = Some(TargetShape::CharWise);
@@ -650,7 +653,7 @@ mod tests {
 
     #[test]
     fn test_search() {
-        let mut vm: EmacsMachine<KeyEvent> = EmacsMachine::default();
+        let mut vm: EmacsMachine<TerminalKey> = EmacsMachine::default();
         let ctx = EmacsContext::default();
 
         // Start out in Insert mode.

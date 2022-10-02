@@ -1,13 +1,9 @@
-use std::ops::BitOr;
-
-use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-
 use nom::{
     branch::alt,
     bytes::complete::tag,
-    character::complete::{anychar, char, digit1},
+    character::complete::{char, digit1},
     combinator::{eof, map_res, opt, value},
-    multi::{many0, many1},
+    multi::many1,
     IResult,
 };
 
@@ -15,232 +11,13 @@ use super::{CommonEdgeEvent, CommonEdgePath, CommonEdgePathPart, CommonKeyClass}
 
 use crate::input::bindings::{EdgeEvent, EdgeRepeat};
 
-fn parse_modifier(input: &str) -> IResult<&str, KeyModifiers> {
-    /*
-     * Parse the modifier prefixes in things like <C-...>, <S-...>, <A-...>, and <M-...>.
-     *
-     * Vim also has <D-...> for Apple's Command key, but terminals don't
-     * understand that, so it's not meaningful to parse it here (unless
-     * we were to map it to be the same as something else like <C-...>).
-     */
-    alt((
-        value(KeyModifiers::ALT, tag("A-")),
-        value(KeyModifiers::ALT, tag("M-")),
-        value(KeyModifiers::CONTROL, tag("C-")),
-        value(KeyModifiers::SHIFT, tag("S-")),
-    ))(input)
-}
-
-fn parse_left(input: &str) -> IResult<&str, KeyCode> {
-    let (input, _) = tag("Left")(input)?;
-    Ok((input, KeyCode::Left))
-}
-
-fn parse_right(input: &str) -> IResult<&str, KeyCode> {
-    let (input, _) = tag("Right")(input)?;
-    Ok((input, KeyCode::Right))
-}
-
-fn parse_up(input: &str) -> IResult<&str, KeyCode> {
-    let (input, _) = tag("Up")(input)?;
-    Ok((input, KeyCode::Up))
-}
-
-fn parse_down(input: &str) -> IResult<&str, KeyCode> {
-    let (input, _) = tag("Down")(input)?;
-    Ok((input, KeyCode::Down))
-}
-
-fn parse_page_up(input: &str) -> IResult<&str, KeyCode> {
-    let (input, _) = tag("PageUp")(input)?;
-    Ok((input, KeyCode::PageUp))
-}
-
-fn parse_page_down(input: &str) -> IResult<&str, KeyCode> {
-    let (input, _) = tag("PageDown")(input)?;
-    Ok((input, KeyCode::PageDown))
-}
-
-fn parse_home(input: &str) -> IResult<&str, KeyCode> {
-    let (input, _) = tag("Home")(input)?;
-    Ok((input, KeyCode::Home))
-}
-
-fn parse_end(input: &str) -> IResult<&str, KeyCode> {
-    let (input, _) = tag("End")(input)?;
-    Ok((input, KeyCode::End))
-}
-
-fn parse_insert(input: &str) -> IResult<&str, KeyCode> {
-    let (input, _) = alt((tag("Insert"), tag("Ins")))(input)?;
-    Ok((input, KeyCode::Insert))
-}
-
-fn parse_esc(input: &str) -> IResult<&str, KeyCode> {
-    let (input, _) = tag("Esc")(input)?;
-    Ok((input, KeyCode::Esc))
-}
-
-fn parse_tab(input: &str) -> IResult<&str, KeyCode> {
-    let (input, _) = tag("Tab")(input)?;
-    Ok((input, KeyCode::Tab))
-}
-
-fn parse_bs(input: &str) -> IResult<&str, KeyCode> {
-    let (input, _) = alt((tag("BS"), tag("BackSpace")))(input)?;
-    Ok((input, KeyCode::Backspace))
-}
-
-fn parse_nl(input: &str) -> IResult<&str, KeyCode> {
-    let (input, _) = alt((tag("NL"), tag("NewLine"), tag("LineFeed"), tag("LF")))(input)?;
-    Ok((input, KeyCode::Char('\n')))
-}
-
-fn parse_cr(input: &str) -> IResult<&str, KeyCode> {
-    let (input, _) = alt((tag("CR"), tag("Return"), tag("Enter")))(input)?;
-    Ok((input, KeyCode::Enter))
-}
-
-fn parse_del(input: &str) -> IResult<&str, KeyCode> {
-    let (input, _) = alt((tag("Delete"), tag("Del")))(input)?;
-    Ok((input, KeyCode::Delete))
-}
-
-fn parse_nul(input: &str) -> IResult<&str, KeyCode> {
-    let (input, _) = tag("Nul")(input)?;
-    Ok((input, KeyCode::Null))
-}
-
-fn parse_undo(input: &str) -> IResult<&str, KeyCode> {
-    let (input, _) = tag("Undo")(input)?;
-    Ok((input, KeyCode::F(14)))
-}
-
-fn parse_help(input: &str) -> IResult<&str, KeyCode> {
-    let (input, _) = tag("Help")(input)?;
-    Ok((input, KeyCode::F(15)))
-}
-
-fn parse_space(input: &str) -> IResult<&str, KeyCode> {
-    let (input, _) = tag("Space")(input)?;
-    Ok((input, KeyCode::Char(' ')))
-}
-
-fn parse_bar(input: &str) -> IResult<&str, KeyCode> {
-    let (input, _) = tag("Bar")(input)?;
-    Ok((input, KeyCode::Char('|')))
-}
-
-fn parse_bslash(input: &str) -> IResult<&str, KeyCode> {
-    let (input, _) = tag("Bslash")(input)?;
-    Ok((input, KeyCode::Char('\\')))
-}
-
-fn parse_lt(input: &str) -> IResult<&str, KeyCode> {
-    let (input, _) = tag("lt")(input)?;
-    Ok((input, KeyCode::Char('<')))
-}
-
-fn parse_arrow(input: &str) -> IResult<&str, KeyCode> {
-    alt((parse_left, parse_right, parse_up, parse_down))(input)
-}
-
-fn parse_named_ascii(input: &str) -> IResult<&str, KeyCode> {
-    alt((parse_space, parse_bar, parse_bslash, parse_lt))(input)
-}
-
-fn parse_named_ctl(input: &str) -> IResult<&str, KeyCode> {
-    alt((parse_esc, parse_tab, parse_bs, parse_nl, parse_cr, parse_nul))(input)
-}
-
-fn parse_keyname(input: &str) -> IResult<&str, KeyCode> {
-    alt((
-        parse_arrow,
-        parse_named_ascii,
-        parse_named_ctl,
-        parse_page_up,
-        parse_page_down,
-        parse_home,
-        parse_end,
-        parse_insert,
-        parse_del,
-        parse_undo,
-        parse_help,
-    ))(input)
-}
-
-fn parse_base10_u8(input: &str) -> Result<u8, std::num::ParseIntError> {
-    u8::from_str_radix(input, 10)
-}
-
 fn parse_base10_usize(input: &str) -> Result<usize, std::num::ParseIntError> {
     usize::from_str_radix(input, 10)
 }
 
-fn parse_function(input: &str) -> IResult<&str, KeyCode> {
-    let (input, _) = char('F')(input)?;
-    let (input, n) = map_res(digit1, parse_base10_u8)(input)?;
-
-    Ok((input, KeyCode::F(n)))
-}
-
-fn parse_anychar(input: &str) -> IResult<&str, KeyCode> {
-    let (input, c) = anychar(input)?;
-
-    Ok((input, KeyCode::Char(c)))
-}
-
 fn parse_special(input: &str) -> IResult<&str, CommonEdgePathPart> {
-    let (input, _) = char('<')(input)?;
-    let (input, m) = many0(parse_modifier)(input)?;
-    let (input, mut k) = alt((parse_keyname, parse_function, parse_anychar))(input)?;
-    let (input, _) = char('>')(input)?;
-
-    let mut m = m.into_iter().fold(KeyModifiers::NONE, BitOr::bitor);
-    let rep = EdgeRepeat::Once;
-
-    if let KeyCode::Char(c) = k {
-        if m.contains(KeyModifiers::CONTROL) {
-            m -= KeyModifiers::SHIFT;
-
-            let k = match c.to_ascii_lowercase() {
-                'i' => key!(KeyCode::Tab),
-                'j' => key!(KeyCode::Char('\n')),
-                'm' => key!(KeyCode::Enter),
-                '[' => key!(KeyCode::Esc),
-                '?' => key!(KeyCode::Backspace),
-                '\\' => key!(KeyCode::Char('4'), m),
-                ']' => key!(KeyCode::Char('5'), m),
-                '^' => key!(KeyCode::Char('6'), m),
-                '_' => key!(KeyCode::Char('7'), m),
-                '@' => key!(KeyCode::Char(' '), m),
-                c => key!(KeyCode::Char(c), m),
-            };
-
-            let key = EdgeEvent::Key(k);
-            let ret = (rep, key);
-
-            return Ok((input, ret));
-        }
-
-        if m.contains(KeyModifiers::SHIFT) {
-            k = KeyCode::Char(c.to_ascii_uppercase());
-        }
-
-        if m.contains(KeyModifiers::ALT) && c.is_uppercase() {
-            m |= KeyModifiers::SHIFT;
-        }
-    } else if let KeyCode::Tab = k {
-        if m == KeyModifiers::SHIFT {
-            let key = EdgeEvent::Key(key!(KeyCode::BackTab));
-            let ret = (rep, key);
-
-            return Ok((input, ret));
-        }
-    }
-
-    let key = EdgeEvent::Key(key!(k, m));
-    let ret = (rep, key);
+    let (input, k) = crate::input::key::parse::parse_special(input)?;
+    let ret = (EdgeRepeat::Once, EdgeEvent::Key(k));
 
     return Ok((input, ret));
 }
@@ -298,16 +75,9 @@ fn parse_edgename(input: &str) -> IResult<&str, CommonEdgePathPart> {
 }
 
 fn parse_key_simple(input: &str) -> IResult<&str, CommonEdgePathPart> {
-    let (input, c) = anychar(input)?;
-    let kc = KeyCode::Char(c);
-    let km = if c.is_ascii_uppercase() {
-        KeyModifiers::SHIFT
-    } else {
-        KeyModifiers::NONE
-    };
-
+    let (input, k) = crate::input::key::parse::parse_simple(input)?;
     let rep = EdgeRepeat::Once;
-    let key = EdgeEvent::Key(key!(kc, km));
+    let key = EdgeEvent::Key(k);
 
     Ok((input, (rep, key)))
 }
@@ -326,6 +96,8 @@ pub fn parse(input: &str) -> IResult<&str, CommonEdgePath> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::input::key::TerminalKey;
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
     macro_rules! once {
         ($ev: expr) => {
