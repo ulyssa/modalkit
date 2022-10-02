@@ -13,15 +13,30 @@ macro_rules! insert_text {
     };
 }
 
+macro_rules! paste {
+    ($dir: expr) => {
+        insert_text!(InsertTextAction::Paste($dir, Count::Contextual))
+    };
+    ($dir: expr, $c: literal) => {
+        insert_text!(InsertTextAction::Paste($dir, Count::Exact($c)))
+    };
+    ($dir: expr, $c: expr) => {
+        insert_text!(InsertTextAction::Paste($dir, $c))
+    };
+    ($dir: expr, $c: expr, $nm: expr) => {
+        insert_text!(InsertTextAction::Paste($dir, $c), $nm)
+    };
+}
+
 macro_rules! chartype {
     () => {
-        insert_text!(InsertTextAction::Type(Specifier::Contextual, MoveDir1D::Previous))
+        insert_text!(InsertTextAction::Type(Specifier::Contextual, MoveDir1D::Previous, 1.into()))
     };
     ($c: expr) => {
-        insert_text!(InsertTextAction::Type(Specifier::Exact($c), MoveDir1D::Previous))
+        insert_text!(InsertTextAction::Type(Specifier::Exact($c), MoveDir1D::Previous, 1.into()))
     };
     ($c: expr, $dir: expr) => {
-        insert_text!(InsertTextAction::Type(Specifier::Exact($c), $dir))
+        insert_text!(InsertTextAction::Type(Specifier::Exact($c), $dir, 1.into()))
     };
 }
 

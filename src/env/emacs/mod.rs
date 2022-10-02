@@ -93,7 +93,8 @@ impl<P: Application> ModeKeys<KeyEvent, Action<P>, EmacsContext<P>> for EmacsMod
         match self {
             EmacsMode::Insert => {
                 if let Some(c) = get_char(ke) {
-                    let it = InsertTextAction::Type(Char::Single(c).into(), MoveDir1D::Previous);
+                    let ch = Char::Single(c).into();
+                    let it = InsertTextAction::Type(ch, MoveDir1D::Previous, Count::Contextual);
 
                     (vec![it.into()], None)
                 } else {
@@ -102,7 +103,8 @@ impl<P: Application> ModeKeys<KeyEvent, Action<P>, EmacsContext<P>> for EmacsMod
             },
             EmacsMode::Search => {
                 if let Some(c) = get_char(ke) {
-                    let it = InsertTextAction::Type(Char::Single(c).into(), MoveDir1D::Previous);
+                    let ch = Char::Single(c).into();
+                    let it = InsertTextAction::Type(ch, MoveDir1D::Previous, Count::Contextual);
 
                     (vec![it.into()], None)
                 } else {

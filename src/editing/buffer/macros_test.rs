@@ -22,16 +22,45 @@ macro_rules! edit {
     };
 }
 
+macro_rules! paste {
+    ($ebuf: expr, $dir: expr, $c: expr, $ctx: expr) => {
+        $ebuf.paste($dir, $c, $ctx).unwrap()
+    };
+}
+
 macro_rules! ctx {
     ($curid: expr, $vwctx: expr, $vctx: expr) => {
         &($curid, &$vwctx, &$vctx)
     };
 }
 
+macro_rules! cell {
+    ($shape: expr, $str: expr) => {
+        RegisterCell::new($shape, EditRope::from($str))
+    };
+}
+
+macro_rules! set_reg {
+    ($ebuf: expr, $reg: expr, $shape: expr, $txt: expr) => {
+        $ebuf.set_register(&Some($reg), cell!($shape, $txt), false, false);
+    };
+}
+
+macro_rules! set_named_reg {
+    ($ebuf: expr, $reg: expr, $shape: expr, $txt: expr) => {
+        set_reg!($ebuf, Register::Named($reg), $shape, $txt);
+    };
+}
+
 macro_rules! type_char {
     ($ebuf: expr, $c: expr, $curid: expr, $vwctx: expr, $vctx: expr) => {
         $ebuf
-            .type_char(Char::Single($c).into(), MoveDir1D::Previous, ctx!($curid, $vwctx, $vctx))
+            .type_char(
+                Char::Single($c).into(),
+                MoveDir1D::Previous,
+                1.into(),
+                ctx!($curid, $vwctx, $vctx),
+            )
             .unwrap()
     };
 }

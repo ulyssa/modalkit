@@ -311,8 +311,12 @@ macro_rules! just_one_space {
                 RangeType::Word(WordStyle::Whitespace(false)).into()
             )
             .into(),
-            Action::from(InsertTextAction::Type(Char::Single(' ').into(), MoveDir1D::Previous))
-                .into()
+            Action::from(InsertTextAction::Type(
+                Char::Single(' ').into(),
+                MoveDir1D::Previous,
+                Count::Contextual
+            ))
+            .into()
         ])
     };
 }
@@ -399,7 +403,7 @@ macro_rules! start_shift_selection {
 fn default_keys<P: Application>() -> Vec<(MappedModes, &'static str, InputStep<P>)> {
     [
         // Insert and Search mode keybindings.
-        ( MAP, "<C-Y>", insert_text!(InsertTextAction::Paste(MoveDir1D::Next, Count::Contextual)) ),
+        ( MAP, "<C-Y>", paste!(MoveDir1D::Previous) ),
         ( MAP, "<M-BS>", kill!(MoveType::WordBegin(WordStyle::Little, MoveDir1D::Previous)) ),
         ( MAP, "<M-Del>", kill!(MoveType::WordBegin(WordStyle::Little, MoveDir1D::Previous)) ),
         ( MAP, "<BS>", erase!(MoveType::Column(MoveDir1D::Previous, true)) ),
@@ -415,7 +419,7 @@ fn default_keys<P: Application>() -> Vec<(MappedModes, &'static str, InputStep<P
         ( IMAP, "<C-K>", kill!(MoveType::LinePos(MovePosition::End), 0) ),
         ( IMAP, "<C-L>", scroll!(ScrollStyle::CursorPos(MovePosition::Middle, Axis::Vertical)) ),
         ( IMAP, "<C-N>", motion!(MoveType::Line(MoveDir1D::Next)) ),
-        ( IMAP, "<C-O>", insert_text!(InsertTextAction::OpenLine(TargetShape::CharWise, MoveDir1D::Previous)) ),
+        ( IMAP, "<C-O>", insert_text!(InsertTextAction::OpenLine(TargetShape::CharWise, MoveDir1D::Previous, 1.into())) ),
         ( IMAP, "<C-P>", motion!(MoveType::Line(MoveDir1D::Previous)) ),
         ( IMAP, "<C-Q>{oct<=3}", chartype!() ),
         ( IMAP, "<C-Q>{any}", chartype!() ),
@@ -656,8 +660,9 @@ mod tests {
         assert_pop2!(vm, CMDBAR_SEARCH_PREV, ctx);
         assert_eq!(vm.mode(), EmacsMode::Search);
 
-        // Unmapped, typable character moves back to Insert mode.
-        let it = InsertTextAction::Type(Char::from('r').into(), MoveDir1D::Previous);
+        // Unmapped, typable character types a character.
+        let it =
+            InsertTextAction::Type(Char::from('r').into(), MoveDir1D::Previous, Count::Contextual);
         vm.input_key(key!('r'));
         assert_pop2!(vm, Action::from(it), ctx);
         assert_eq!(vm.mode(), EmacsMode::Search);

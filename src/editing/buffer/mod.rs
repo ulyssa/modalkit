@@ -67,9 +67,11 @@ use super::base::{
 mod macros_test;
 
 mod cursor;
+mod insert_text;
 mod selection;
 
 use self::cursor::*;
+use self::insert_text::*;
 use self::selection::*;
 
 #[cfg(feature = "intervaltree")]
@@ -139,17 +141,6 @@ trait HistoryActions<C> {
     fn redo(&mut self, count: Count, ctx: &C) -> EditResult;
     fn undo(&mut self, count: Count, ctx: &C) -> EditResult;
     fn checkpoint(&mut self) -> EditResult;
-}
-
-trait InsertTextActions<C> {
-    /// Open a new blank line before or after the cursor.
-    fn open_line(&mut self, shape: TargetShape, dir: MoveDir1D, ctx: &C) -> EditResult;
-
-    /// Paste text into the buffer.
-    fn paste(&mut self, dir: MoveDir1D, count: Count, ctx: &C) -> EditResult;
-
-    /// Enter a new character at the cursor position.
-    fn type_char(&mut self, ch: Char, dir: MoveDir1D, ctx: &C) -> EditResult;
 }
 
 /// An object capable of performing editing operations.
@@ -1411,80 +1402,6 @@ where
     }
 }
 
-impl<'a, 'b, C, P> InsertTextActions<CursorGroupIdContext<'a, 'b, C>> for EditBuffer<C, P>
-where
-    C: EditContext,
-    P: Application,
-{
-    fn paste(
-        &mut self,
-        dir: MoveDir1D,
-        count: Count,
-        ctx: &CursorGroupIdContext<'a, 'b, C>,
-    ) -> EditResult {
-        let count = ctx.2.resolve(&count);
-        let style = ctx.2.get_insert_style();
-        let cell = self.get_register(&ctx.2.get_register());
-        let text = cell.value.repeat(cell.shape, count);
-
-        for member in self.get_group(ctx.0) {
-            let cursor = self.get_cursor(member);
-            let (mut cursor, adjs) = if let Some(style) = style {
-                self.text.insert(&cursor, dir, text.clone(), style)
-            } else {
-                self.text.paste(&cursor, dir, text.clone(), cell.shape)
-            };
-
-            // XXX: remove this and do it right in .paste()
-            self.clamp(&mut cursor, ctx);
-
-            self._adjust_all(adjs);
-            self.set_cursor(member, cursor);
-        }
-
-        Ok(None)
-    }
-
-    fn open_line(
-        &mut self,
-        shape: TargetShape,
-        dir: MoveDir1D,
-        ctx: &CursorGroupIdContext<'a, 'b, C>,
-    ) -> EditResult {
-        let text = EditRope::from("\n");
-
-        for member in self.get_group(ctx.0) {
-            let cursor = self.get_cursor(member);
-            let (mut cursor, adjs) = self.text.paste(&cursor, dir, text.clone(), shape);
-
-            self._adjust_all(adjs);
-            self.clamp(&mut cursor, ctx);
-            self.set_cursor(member, cursor);
-        }
-
-        Ok(None)
-    }
-
-    fn type_char(
-        &mut self,
-        ch: Char,
-        dir: MoveDir1D,
-        ctx: &CursorGroupIdContext<'a, 'b, C>,
-    ) -> EditResult {
-        let style = ctx.2.get_insert_style().unwrap_or(InsertStyle::Insert);
-
-        for (member, cursor) in self.get_group_cursors(ctx.0).into_iter().rev() {
-            let s = self._str(ch.clone(), &cursor)?;
-            let (cursor, adjs) = self.text.insert(&cursor, dir, EditRope::from(s.as_str()), style);
-
-            self._adjust_all(adjs);
-            self.set_cursor(member, cursor);
-        }
-
-        Ok(None)
-    }
-}
-
 impl<'a, 'b, C, P> Editable<CursorGroupIdContext<'a, 'b, C>> for EditBuffer<C, P>
 where
     C: EditContext,
@@ -1556,11 +1473,12 @@ where
         ctx: &CursorGroupIdContext<'a, 'b, C>,
     ) -> EditResult {
         match act {
-            InsertTextAction::OpenLine(shape, dir) => self.open_line(shape, dir, ctx),
+            InsertTextAction::OpenLine(shape, dir, count) => self.open_line(shape, dir, count, ctx),
             InsertTextAction::Paste(dir, count) => self.paste(dir, count, ctx),
-            InsertTextAction::Type(c, dir) => {
+            InsertTextAction::Transcribe(s, dir, count) => self.transcribe(s, dir, count, ctx),
+            InsertTextAction::Type(c, dir, count) => {
                 if let Some(c) = ctx.2.resolve(&c) {
-                    self.type_char(c, dir, &ctx)
+                    self.type_char(c, dir, count, &ctx)
                 } else {
                     Ok(None)
                 }
@@ -1667,24 +1585,6 @@ mod tests {
     pub use crate::editing::store::Store;
     pub use crate::env::vim::VimContext;
 
-    macro_rules! cell {
-        ($shape: expr, $str: expr) => {
-            RegisterCell::new($shape, EditRope::from($str))
-        };
-    }
-
-    macro_rules! open_line {
-        ($ebuf: expr, $shape: expr, $dir: expr, $ctx: expr) => {
-            $ebuf.open_line($shape, $dir, $ctx).unwrap()
-        };
-    }
-
-    macro_rules! paste {
-        ($ebuf: expr, $dir: expr, $c: expr, $ctx: expr) => {
-            $ebuf.paste($dir, $c, $ctx).unwrap()
-        };
-    }
-
     macro_rules! mark {
         ($c: expr) => {
             Mark::BufferNamed($c)
@@ -1724,30 +1624,6 @@ mod tests {
         };
     }
 
-    macro_rules! type_digraph {
-        ($ebuf: expr, $d1: expr, $d2: expr, $curid: expr, $vwctx: expr, $vctx: expr) => {
-            $ebuf
-                .type_char(
-                    Char::Digraph($d1, $d2).into(),
-                    MoveDir1D::Previous,
-                    ctx!($curid, $vwctx, $vctx),
-                )
-                .unwrap()
-        };
-    }
-
-    macro_rules! type_copy_line {
-        ($ebuf: expr, $dir: expr, $curid: expr, $vwctx: expr, $vctx: expr) => {
-            $ebuf
-                .type_char(
-                    Char::CopyLine($dir).into(),
-                    MoveDir1D::Previous,
-                    ctx!($curid, $vwctx, $vctx),
-                )
-                .unwrap()
-        };
-    }
-
     macro_rules! get_reg {
         ($ebuf: expr, $reg: expr) => {
             $ebuf.get_register(&Some($reg))
@@ -1763,18 +1639,6 @@ mod tests {
     macro_rules! get_recent_del_reg {
         ($ebuf: expr, $n: expr) => {
             get_reg!($ebuf, Register::RecentlyDeleted($n))
-        };
-    }
-
-    macro_rules! set_reg {
-        ($ebuf: expr, $reg: expr, $shape: expr, $txt: expr) => {
-            $ebuf.set_register(&Some($reg), cell!($shape, $txt), false, false);
-        };
-    }
-
-    macro_rules! set_named_reg {
-        ($ebuf: expr, $reg: expr, $shape: expr, $txt: expr) => {
-            set_reg!($ebuf, Register::Named($reg), $shape, $txt);
         };
     }
 
@@ -2110,136 +1974,6 @@ mod tests {
     }
 
     #[test]
-    fn test_typing_insert_char() {
-        let mut ebuf = mkbuf();
-        let curid = ebuf.create_group();
-        let vwctx = ViewportContext::default();
-        let vctx = VimContext::default();
-
-        type_char!(ebuf, 'h', curid, vwctx, vctx);
-        type_char!(ebuf, 'e', curid, vwctx, vctx);
-        type_char!(ebuf, 'l', curid, vwctx, vctx);
-        type_char!(ebuf, 'l', curid, vwctx, vctx);
-        type_char!(ebuf, 'o', curid, vwctx, vctx);
-
-        assert_eq!(ebuf.get_text(), "hello\n");
-        assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 5));
-
-        type_char!(ebuf, ' ', curid, vwctx, vctx);
-        type_char!(ebuf, 'w', curid, vwctx, vctx);
-        type_char!(ebuf, 'o', curid, vwctx, vctx);
-        type_char!(ebuf, 'r', curid, vwctx, vctx);
-        type_char!(ebuf, 'l', curid, vwctx, vctx);
-        type_char!(ebuf, 'd', curid, vwctx, vctx);
-
-        assert_eq!(ebuf.get_text(), "hello world\n");
-        assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 11));
-
-        type_char!(ebuf, '\n', curid, vwctx, vctx);
-        type_char!(ebuf, '1', curid, vwctx, vctx);
-
-        assert_eq!(ebuf.get_text(), "hello world\n1\n");
-        assert_eq!(ebuf.get_leader(curid), Cursor::new(1, 1));
-    }
-
-    #[test]
-    fn test_typing_insert_digraph() {
-        let mut ebuf = mkbuf();
-        let curid = ebuf.create_group();
-        let vwctx = ViewportContext::default();
-        let vctx = VimContext::default();
-
-        type_digraph!(ebuf, '>', '>', curid, vwctx, vctx);
-
-        assert_eq!(ebuf.get_text(), "\u{00BB}\n");
-        assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 1));
-
-        type_digraph!(ebuf, '<', '<', curid, vwctx, vctx);
-
-        assert_eq!(ebuf.get_text(), "\u{00BB}\u{00AB}\n");
-        assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 2));
-    }
-
-    #[test]
-    fn test_typing_insert_copy_line() {
-        let mut ebuf = mkbufstr("abc\n_\n1234\n");
-        let curid = ebuf.create_group();
-        let vwctx = ViewportContext::default();
-        let vctx = VimContext::default();
-
-        let above = MoveDir1D::Previous;
-        let below = MoveDir1D::Next;
-
-        // Set cursor to (1, 1).
-        ebuf.set_leader(curid, Cursor::new(1, 1));
-
-        // Copy character above cursor ("^Y").
-        type_copy_line!(ebuf, above, curid, vwctx, vctx);
-        assert_eq!(ebuf.get_leader(curid), Cursor::new(1, 2));
-        assert_eq!(ebuf.get_text(), "abc\n_b\n1234\n");
-
-        // Copy character below cursor ("^E").
-        type_copy_line!(ebuf, below, curid, vwctx, vctx);
-        assert_eq!(ebuf.get_leader(curid), Cursor::new(1, 3));
-        assert_eq!(ebuf.get_text(), "abc\n_b3\n1234\n");
-
-        // There are no more characters above the cursor to copy ("^Y").
-        let res =
-            ebuf.type_char(Char::CopyLine(above), MoveDir1D::Previous, ctx!(curid, vwctx, vctx));
-        assert!(res.is_err());
-        assert_eq!(ebuf.get_leader(curid), Cursor::new(1, 3));
-        assert_eq!(ebuf.get_text(), "abc\n_b3\n1234\n");
-
-        // There is still a character below though ("^E").
-        type_copy_line!(ebuf, below, curid, vwctx, vctx);
-        assert_eq!(ebuf.get_leader(curid), Cursor::new(1, 4));
-        assert_eq!(ebuf.get_text(), "abc\n_b34\n1234\n");
-
-        // And now there's nothing below to copy ("^E").
-        let res =
-            ebuf.type_char(Char::CopyLine(below), MoveDir1D::Previous, ctx!(curid, vwctx, vctx));
-        assert!(res.is_err());
-        assert_eq!(ebuf.get_leader(curid), Cursor::new(1, 4));
-        assert_eq!(ebuf.get_text(), "abc\n_b34\n1234\n");
-    }
-
-    #[test]
-    fn test_typing_replace() {
-        let mut ebuf = mkbufstr("hello");
-        let curid = ebuf.create_group();
-        let vwctx = ViewportContext::default();
-        let mut vctx = VimContext::default();
-
-        vctx.persist.insert = Some(InsertStyle::Replace);
-
-        type_char!(ebuf, 'c', curid, vwctx, vctx);
-        assert_eq!(ebuf.get_text(), "cello\n");
-        assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 1));
-
-        type_char!(ebuf, 'a', curid, vwctx, vctx);
-        assert_eq!(ebuf.get_text(), "callo\n");
-        assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 2));
-
-        type_char!(ebuf, 'l', curid, vwctx, vctx);
-        assert_eq!(ebuf.get_text(), "callo\n");
-        assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 3));
-
-        type_char!(ebuf, 'y', curid, vwctx, vctx);
-        assert_eq!(ebuf.get_text(), "calyo\n");
-        assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 4));
-
-        type_char!(ebuf, 'x', curid, vwctx, vctx);
-        assert_eq!(ebuf.get_text(), "calyx\n");
-        assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 5));
-
-        let mov = MoveType::WordBegin(WordStyle::Little, MoveDir1D::Previous);
-
-        edit!(ebuf, EditAction::Delete, mv!(mov), ctx!(curid, vwctx, vctx));
-        assert_eq!(ebuf.get_text(), "hello\n");
-        assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 0));
-    }
-
-    #[test]
     fn test_replace() {
         let mut ebuf = mkbufstr("hello world\na b c d e\nfoo bar baz");
         let curid = ebuf.create_group();
@@ -2332,217 +2066,6 @@ mod tests {
         );
         assert_eq!(get_named_reg!(ebuf, 'a'), cell!(LineWise, "world\na b \nhello world\n"));
         assert_eq!(get_reg!(ebuf, Register::Blackhole), cell!(CharWise, ""));
-    }
-
-    #[test]
-    fn test_open_line() {
-        let mut ebuf = mkbufstr("hello world\nhello world\n");
-        let curid = ebuf.create_group();
-        let vwctx = ViewportContext::default();
-        let mut vctx = VimContext::default();
-
-        // Start out at (0, 6).
-        ebuf.set_leader(curid, Cursor::new(0, 6));
-
-        // Insert newline before cursor.
-        open_line!(ebuf, TargetShape::CharWise, MoveDir1D::Previous, ctx!(curid, vwctx, vctx));
-        assert_eq!(ebuf.get_text(), "hello \nworld\nhello world\n");
-        assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 5));
-
-        // Move to (2, 6).
-        ebuf.set_leader(curid, Cursor::new(2, 6));
-
-        // If there's an InsertStyle, cursor is left on the newline.
-        vctx.persist.insert = Some(InsertStyle::Insert);
-        open_line!(ebuf, TargetShape::CharWise, MoveDir1D::Previous, ctx!(curid, vwctx, vctx));
-        assert_eq!(ebuf.get_text(), "hello \nworld\nhello \nworld\n");
-        assert_eq!(ebuf.get_leader(curid), Cursor::new(2, 6));
-
-        // Move to (1, 2).
-        ebuf.set_leader(curid, Cursor::new(1, 2));
-        vctx.persist.insert = None;
-
-        // Insert newline above this line.
-        open_line!(ebuf, TargetShape::LineWise, MoveDir1D::Previous, ctx!(curid, vwctx, vctx));
-        assert_eq!(ebuf.get_text(), "hello \n\nworld\nhello \nworld\n");
-        assert_eq!(ebuf.get_leader(curid), Cursor::new(1, 0));
-    }
-
-    #[test]
-    fn test_paste() {
-        let mut ebuf = mkbuf();
-        let curid = ebuf.create_group();
-        let vwctx = ViewportContext::default();
-        let mut vctx = VimContext::default();
-
-        set_named_reg!(ebuf, 'a', TargetShape::CharWise, "hello");
-        set_named_reg!(ebuf, 'b', TargetShape::CharWise, " world");
-        set_named_reg!(ebuf, 'c', TargetShape::LineWise, "foo bar\n");
-        set_named_reg!(ebuf, 'd', TargetShape::LineWise, "three\nregister\nlines\n");
-        set_named_reg!(ebuf, 'e', TargetShape::BlockWise, "abcde\n12345");
-        set_named_reg!(ebuf, 'f', TargetShape::BlockWise, "1\n2\n3\n4\n5\n6\n7");
-
-        // Start with an empty buffer
-        assert_eq!(ebuf.get_text(), "\n");
-        assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 0));
-
-        // place "a ("hello") into the buffer
-        vctx.action.register = Some(Register::Named('a'));
-        paste!(ebuf, MoveDir1D::Previous, Count::Contextual, ctx!(curid, vwctx, vctx));
-        assert_eq!(ebuf.get_text(), "hello\n");
-        assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 4));
-
-        // place "b (" world") into the buffer
-        vctx.action.register = Some(Register::Named('b'));
-        paste!(ebuf, MoveDir1D::Next, Count::Contextual, ctx!(curid, vwctx, vctx));
-        assert_eq!(ebuf.get_text(), "hello world\n");
-        assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 10));
-
-        // place "c ("foo bar\n") on the line below
-        vctx.action.register = Some(Register::Named('c'));
-        paste!(ebuf, MoveDir1D::Next, Count::Contextual, ctx!(curid, vwctx, vctx));
-        assert_eq!(ebuf.get_text(), "hello world\nfoo bar\n");
-        assert_eq!(ebuf.get_leader(curid), Cursor::new(1, 0));
-
-        // place "d ("three\nregister\nlines\n") on the line above
-        vctx.action.register = Some(Register::Named('d'));
-        paste!(ebuf, MoveDir1D::Previous, Count::Contextual, ctx!(curid, vwctx, vctx));
-        assert_eq!(ebuf.get_text(), "hello world\nthree\nregister\nlines\nfoo bar\n");
-        assert_eq!(ebuf.get_leader(curid), Cursor::new(1, 0));
-
-        // place "c ("foo bar\n") on the line below, breaking up the "d text.
-        vctx.action.register = Some(Register::Named('c'));
-        paste!(ebuf, MoveDir1D::Next, Count::Contextual, ctx!(curid, vwctx, vctx));
-        assert_eq!(ebuf.get_text(), "hello world\nthree\nfoo bar\nregister\nlines\nfoo bar\n");
-        assert_eq!(ebuf.get_leader(curid), Cursor::new(2, 0));
-
-        // place "e ("abcde\n12345") twice before the next several lines.
-        vctx.action.register = Some(Register::Named('e'));
-        paste!(ebuf, MoveDir1D::Previous, Count::Exact(2), ctx!(curid, vwctx, vctx));
-        assert_eq!(
-            ebuf.get_text(),
-            "hello world\nthree\nabcdeabcdefoo bar\n1234512345register\nlines\nfoo bar\n"
-        );
-        assert_eq!(ebuf.get_leader(curid), Cursor::new(2, 0));
-
-        // place "f ("1\n2\n3\n4\n5\n6\n7") on the next several lines, adding new lines as needed.
-        vctx.action.register = Some(Register::Named('f'));
-        paste!(ebuf, MoveDir1D::Next, Count::Contextual, ctx!(curid, vwctx, vctx));
-        assert_eq!(ebuf.get_text(), "hello world\nthree\na1bcdeabcdefoo bar\n12234512345register\nl3ines\nf4oo bar\n5\n6\n7\n");
-        assert_eq!(ebuf.get_leader(curid), Cursor::new(2, 1));
-
-        // Move to the end of the line, and repeat pasting "f.
-        let mov = MoveType::LinePos(MovePosition::End);
-        edit!(ebuf, EditAction::Motion, mv!(mov, 0), ctx!(curid, vwctx, vctx));
-        assert_eq!(ebuf.get_leader(curid), Cursor::new(2, 17).goal(usize::MAX));
-
-        vctx.action.register = Some(Register::Named('f'));
-        paste!(ebuf, MoveDir1D::Next, Count::Contextual, ctx!(curid, vwctx, vctx));
-        assert_eq!(ebuf.get_text(), "hello world\nthree\na1bcdeabcdefoo bar1\n12234512345registe2r\nl3ines3\nf4oo bar4\n55\n66\n77\n");
-        assert_eq!(ebuf.get_leader(curid), Cursor::new(2, 18));
-    }
-
-    #[test]
-    fn test_paste_empty_charwise_next() {
-        let mut ebuf = mkbuf();
-        let curid = ebuf.create_group();
-        let vwctx = ViewportContext::default();
-        let mut vctx = VimContext::default();
-
-        set_named_reg!(ebuf, 'a', TargetShape::CharWise, "hello");
-
-        vctx.action.register = Some(Register::Named('a'));
-        paste!(ebuf, MoveDir1D::Next, Count::Contextual, ctx!(curid, vwctx, vctx));
-        assert_eq!(ebuf.get_text(), "hello\n");
-        assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 4));
-    }
-
-    #[test]
-    fn test_paste_empty_linewise_next() {
-        let mut ebuf = mkbuf();
-        let curid = ebuf.create_group();
-        let vwctx = ViewportContext::default();
-        let mut vctx = VimContext::default();
-
-        set_named_reg!(ebuf, 'a', TargetShape::LineWise, "hello\n");
-
-        vctx.action.register = Some(Register::Named('a'));
-        paste!(ebuf, MoveDir1D::Next, Count::Contextual, ctx!(curid, vwctx, vctx));
-        assert_eq!(ebuf.get_text(), "\nhello\n");
-        assert_eq!(ebuf.get_leader(curid), Cursor::new(1, 0));
-    }
-
-    #[test]
-    fn test_paste_empty_blockwise_next() {
-        let mut ebuf = mkbuf();
-        let curid = ebuf.create_group();
-        let vwctx = ViewportContext::default();
-        let mut vctx = VimContext::default();
-
-        set_named_reg!(ebuf, 'a', TargetShape::BlockWise, "hello\nworld");
-
-        vctx.action.register = Some(Register::Named('a'));
-        paste!(ebuf, MoveDir1D::Next, Count::Contextual, ctx!(curid, vwctx, vctx));
-        assert_eq!(ebuf.get_text(), "hello\nworld\n");
-        assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 0));
-    }
-
-    #[test]
-    fn test_paste_insert() {
-        let mut ebuf = mkbufstr("hello world\n");
-        let curid = ebuf.create_group();
-        let vwctx = ViewportContext::default();
-        let mut vctx = VimContext::default();
-
-        set_named_reg!(ebuf, 'a', TargetShape::LineWise, "foo\n");
-        set_named_reg!(ebuf, 'b', TargetShape::BlockWise, "a\nb\nc");
-
-        vctx.persist.insert = Some(InsertStyle::Insert);
-
-        // Start out at (0, 6).
-        ebuf.set_leader(curid, Cursor::new(0, 6));
-
-        // place "a ("foo\n") into the buffer as if it were CharWise.
-        vctx.action.register = Some(Register::Named('a'));
-        paste!(ebuf, MoveDir1D::Previous, Count::Contextual, ctx!(curid, vwctx, vctx));
-        assert_eq!(ebuf.get_text(), "hello foo\nworld\n");
-        assert_eq!(ebuf.get_leader(curid), Cursor::new(1, 0));
-
-        // place "b ("a\nb\nc") into the buffer as if it were CharWise.
-        vctx.action.register = Some(Register::Named('b'));
-        paste!(ebuf, MoveDir1D::Previous, Count::Contextual, ctx!(curid, vwctx, vctx));
-        assert_eq!(ebuf.get_text(), "hello foo\na\nb\ncworld\n");
-        assert_eq!(ebuf.get_leader(curid), Cursor::new(3, 1));
-    }
-
-    #[test]
-    fn test_paste_repeat() {
-        let mut ebuf = mkbuf();
-        let curid = ebuf.create_group();
-        let vwctx = ViewportContext::default();
-        let mut vctx = VimContext::default();
-
-        set_named_reg!(ebuf, 'a', TargetShape::CharWise, "hello");
-        set_named_reg!(ebuf, 'b', TargetShape::LineWise, "1 2 3\n");
-        set_named_reg!(ebuf, 'c', TargetShape::BlockWise, "a\nb\nc");
-
-        // Paste "hello" from "a 5 times.
-        vctx.action.register = Some(Register::Named('a'));
-        paste!(ebuf, MoveDir1D::Next, Count::Exact(5), ctx!(curid, vwctx, vctx));
-        assert_eq!(ebuf.get_text(), "hellohellohellohellohello\n");
-        assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 24));
-
-        // Paste "1 2 3\n" from "b 2 times.
-        vctx.action.register = Some(Register::Named('b'));
-        paste!(ebuf, MoveDir1D::Previous, Count::Exact(2), ctx!(curid, vwctx, vctx));
-        assert_eq!(ebuf.get_text(), "1 2 3\n1 2 3\nhellohellohellohellohello\n");
-        assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 0));
-
-        // Paste "a\nb\nc" from "c 4 times.
-        vctx.action.register = Some(Register::Named('c'));
-        paste!(ebuf, MoveDir1D::Next, Count::Exact(4), ctx!(curid, vwctx, vctx));
-        assert_eq!(ebuf.get_text(), "1aaaa 2 3\n1bbbb 2 3\nhccccellohellohellohellohello\n");
-        assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 1));
     }
 
     #[test]

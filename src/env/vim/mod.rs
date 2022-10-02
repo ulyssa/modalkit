@@ -240,7 +240,7 @@ impl<P: Application> ModeKeys<KeyEvent, Action<P>, VimContext<P>> for VimMode {
                     let delete = Action::Edit(EditAction::Delete.into(), EditTarget::Selection);
 
                     let ch = Char::Single(c).into();
-                    let it = InsertTextAction::Type(ch, MoveDir1D::Previous);
+                    let it = InsertTextAction::Type(ch, MoveDir1D::Previous, 1.into());
 
                     (vec![delete, it.into()], Some(VimMode::Insert))
                 } else {
@@ -250,7 +250,7 @@ impl<P: Application> ModeKeys<KeyEvent, Action<P>, VimContext<P>> for VimMode {
             VimMode::Insert => {
                 if let Some(c) = get_char(ke) {
                     let ch = Char::Single(c).into();
-                    let it = InsertTextAction::Type(ch, MoveDir1D::Previous);
+                    let it = InsertTextAction::Type(ch, MoveDir1D::Previous, 1.into());
 
                     (vec![it.into()], None)
                 } else {
@@ -266,7 +266,7 @@ impl<P: Application> ModeKeys<KeyEvent, Action<P>, VimContext<P>> for VimMode {
             VimMode::Command => {
                 if let Some(c) = get_char(ke) {
                     let ch = Char::Single(c).into();
-                    let it = InsertTextAction::Type(ch, MoveDir1D::Previous);
+                    let it = InsertTextAction::Type(ch, MoveDir1D::Previous, 1.into());
 
                     (vec![it.into()], None)
                 } else {

@@ -1022,13 +1022,16 @@ pub enum SelectionAction {
 #[non_exhaustive]
 pub enum InsertTextAction {
     /// Insert a new line [shape-wise](TargetShape) before or after the current position.
-    OpenLine(TargetShape, MoveDir1D),
+    OpenLine(TargetShape, MoveDir1D, Count),
 
     /// Paste before or after the current cursor position [*n*](Count) times.
     Paste(MoveDir1D, Count),
 
-    /// Type a [character](Char) on [either side](MoveDir1D) of the cursor.
-    Type(Specifier<Char>, MoveDir1D),
+    /// Insert the contents of a [String] on [either side](MoveDir1D) of the cursor.
+    Transcribe(String, MoveDir1D, Count),
+
+    /// Type a [character](Char) on [either side](MoveDir1D) of the cursor [*n*](Count) times.
+    Type(Specifier<Char>, MoveDir1D, Count),
 }
 
 /// Editing history actions
