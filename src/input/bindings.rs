@@ -58,7 +58,14 @@
 //! #[derive(Clone, Debug, Eq, PartialEq)]
 //! enum ProgAction {
 //!     Type(char),
+//!     NoOp,
 //!     Quit
+//! }
+//!
+//! impl Default for ProgAction {
+//!     fn default() -> Self {
+//!         ProgAction::NoOp
+//!     }
 //! }
 //!
 //! #[derive(Default)]
@@ -126,7 +133,7 @@
 //!
 //!     // Pressing "i" takes us to Insert mode.
 //!     pm.input_key(key(KeyCode::Char('i'), KeyModifiers::NONE).into());
-//!     assert_eq!(pm.pop(), None);
+//!     assert_eq!(pm.pop(), Some((ProgAction::NoOp, ctx.clone())));
 //!     assert_eq!(pm.mode(), ProgMode::Insert);
 //!
 //!     // "q" is unmapped in Insert mode, and types a key.
@@ -136,7 +143,7 @@
 //!
 //!     // Escape takes us back to Normal mode.
 //!     pm.input_key(key(KeyCode::Esc, KeyModifiers::NONE).into());
-//!     assert_eq!(pm.pop(), None);
+//!     assert_eq!(pm.pop(), Some((ProgAction::NoOp, ctx.clone())));
 //!     assert_eq!(pm.mode(), ProgMode::Normal);
 //!
 //!     // A single "q" does nothing.
@@ -181,6 +188,8 @@ pub trait Mode<A, C>: Copy + Clone + Debug + Default + Hash + Eq + PartialEq {
     ///
     /// This method is only called when a mode has been fully entered. Modes entered
     /// via [Fallthrough](EdgeEvent::Fallthrough) do not result in this method being called.
+    ///
+    /// If no actions are generated here, then the default action will be generated.
     fn enter(&self, previous_mode: Self, context: &mut C) -> Vec<A> {
         vec![]
     }
@@ -195,6 +204,8 @@ pub trait Mode<A, C>: Copy + Clone + Debug + Default + Hash + Eq + PartialEq {
 #[allow(unused_variables)]
 pub trait ModeKeys<Key, A, C>: Mode<A, C> {
     /// Return the default behaviour for the current mode when the given key is unmapped.
+    ///
+    /// If no actions are returned, then the [Default] value will be used.
     fn unmapped(&self, key: &Key, context: &mut C) -> (Vec<A>, Option<Self>) {
         (vec![], None)
     }
@@ -255,7 +266,7 @@ pub enum SequenceStatus {
 /// Trait for controlling the behaviour of [ModalMachine] during a sequence of input keys.
 pub trait Step<Key>: Clone {
     /// The type of output action produced after input.
-    type A: Clone;
+    type A: Clone + Default;
 
     /// A context object for managing state that accompanies actions.
     type C: InputKeyContext<Key, Self::Class>;
@@ -367,7 +378,7 @@ impl<Key: InputKey, Class: InputKeyClass<Key>> InputKeyContext<Key, Class> for E
 impl<Key, A, M> Step<Key> for (Option<A>, Option<M>)
 where
     Key: InputKey,
-    A: Clone,
+    A: Clone + Default,
     M: ModeKeys<Key, A, EmptyKeyContext>,
 {
     type A = A;
@@ -1006,27 +1017,18 @@ impl<Key: InputKey, S: Step<Key>> ModalMachine<Key, S> {
     }
 
     fn unmapped(&mut self, ke: Key) {
-        let (acts, ms) = self.im.mode().unmapped(&ke, &mut self.ctx);
+        let (mut acts, ms) = self.im.mode().unmapped(&ke, &mut self.ctx);
+        let res = self.ctx.take();
 
-        match (acts.len(), ms) {
-            (0, None) => {
-                self.ctx.reset();
-                self.goto_mode(self.state);
-            },
-            (0, Some(mode)) => {
-                self.ctx.reset();
-                self.goto_mode(mode);
-            },
-            (_, ms) => {
-                let res = self.ctx.take();
-
-                for act in acts.into_iter() {
-                    self.push((act, res.clone()));
-                }
-
-                self.goto_mode(ms.unwrap_or(self.state));
-            },
+        if acts.len() == 0 {
+            acts.push(S::A::default());
         }
+
+        for act in acts.into_iter() {
+            self.push((act, res.clone()));
+        }
+
+        self.goto_mode(ms.unwrap_or(self.state));
     }
 
     /// Process mutliple input keys.
@@ -1072,6 +1074,9 @@ impl<Key: InputKey, S: Step<Key>> ModalMachine<Key, S> {
         match (acts.len(), nexts) {
             (0, None) => {},
             (0, Some(mode)) => {
+                let res = self.ctx.take();
+
+                self.push((S::A::default(), res));
                 self.goto_mode(mode);
             },
             (_, ms) => {
@@ -1326,6 +1331,12 @@ mod tests {
     type TestEdgeEvent = EdgeEvent<TerminalKey, TestKeyClass>;
 
     impl SequenceClass for TestSequence {}
+
+    impl Default for TestAction {
+        fn default() -> Self {
+            TestAction::NoOp
+        }
+    }
 
     impl InputKeyClass<TerminalKey> for TestKeyClass {
         fn memberships(ke: &TerminalKey) -> Vec<Self> {
@@ -1668,7 +1679,7 @@ mod tests {
 
         // Typing ^L goes to Normal mode, allowing multiple commands to be typed.
         tm.input_key(ctl!('l'));
-        assert_eq!(tm.pop(), None);
+        assert_pop2!(tm, TestAction::NoOp, ctx);
         assert_eq!(tm.mode(), TestMode::Normal);
 
         // Pressing "yy" yanks a line.
@@ -1681,7 +1692,7 @@ mod tests {
         // Pressing Escape goes back to Insert mode.
         ctx.temp.operation = None;
         tm.input_key(key!(KeyCode::Esc));
-        assert_eq!(tm.pop(), None);
+        assert_pop2!(tm, TestAction::NoOp, ctx);
         assert_eq!(tm.mode(), TestMode::Insert);
 
         // Right arrow key moves right.
@@ -1700,7 +1711,7 @@ mod tests {
 
         // Go to Normal mode.
         tm.input_key(ctl!('l'));
-        assert_eq!(tm.pop(), None);
+        assert_pop2!(tm, TestAction::NoOp, ctx);
         assert_eq!(tm.mode(), TestMode::Normal);
 
         // Delete 257 words ("257dw")
@@ -1741,7 +1752,7 @@ mod tests {
     #[test]
     fn test_input_unmapped() {
         let mut tm = TestMachine::default();
-        let ctx = TestContext::default();
+        let mut ctx = TestContext::default();
 
         // Start out in Insert mode.
         assert_eq!(tm.mode(), TestMode::Insert);
@@ -1754,39 +1765,46 @@ mod tests {
         // Unmapped key in Normal mode via ^O does nothing, and resets to Insert mode.
         tm.input_key(ctl!('o'));
         tm.input_key(key!('?'));
-        assert_eq!(tm.pop(), None);
+        assert_pop2!(tm, TestAction::NoOp, ctx);
         assert_eq!(tm.mode(), TestMode::Insert);
 
         // Unmapped key when falling through to Suffix mode via ^Od does nothing, and resets to
         // Insert mode.
+        ctx.temp.operation = Some(TestOperation::Delete);
         tm.input_key(ctl!('o'));
         tm.input_key(key!('d'));
         tm.input_key(key!('?'));
-        assert_eq!(tm.pop(), None);
+        assert_pop2!(tm, TestAction::NoOp, ctx);
         assert_eq!(tm.mode(), TestMode::Insert);
 
         // Unmapped key in Normal mode via ^L does nothing, and resets to Normal mode.
+        ctx.temp.operation = None;
         tm.input_key(ctl!('l'));
         tm.input_key(key!('?'));
-        assert_eq!(tm.pop(), None);
+        assert_pop1!(tm, TestAction::NoOp, ctx);
+        assert_pop2!(tm, TestAction::NoOp, ctx);
         assert_eq!(tm.mode(), TestMode::Normal);
 
         // Back to Insert mode.
         tm.input_key(key!(KeyCode::Esc));
-        assert_eq!(tm.pop(), None);
+        assert_pop2!(tm, TestAction::NoOp, ctx);
         assert_eq!(tm.mode(), TestMode::Insert);
 
         // Unmapped key when falling through to Suffix mode via ^Ld does nothing, and resets to
         // Normal mode.
         tm.input_key(ctl!('l'));
+        assert_pop1!(tm, TestAction::NoOp, ctx);
+
+        ctx.temp.operation = Some(TestOperation::Delete);
         tm.input_key(key!('d'));
         tm.input_key(key!('?'));
-        assert_eq!(tm.pop(), None);
+        assert_pop2!(tm, TestAction::NoOp, ctx);
         assert_eq!(tm.mode(), TestMode::Normal);
 
         // Back to Insert mode.
+        ctx.temp.operation = None;
         tm.input_key(key!(KeyCode::Esc));
-        assert_eq!(tm.pop(), None);
+        assert_pop2!(tm, TestAction::NoOp, ctx);
         assert_eq!(tm.mode(), TestMode::Insert);
 
         // Add an explicit, unmapped step for "?" to Normal mode.
@@ -1800,7 +1818,7 @@ mod tests {
         // Access the explicitly unmapped "?" via ^O?
         tm.input_key(ctl!('o'));
         tm.input_key(key!('?'));
-        assert_eq!(tm.pop(), None);
+        assert_pop2!(tm, TestAction::NoOp, ctx);
         assert_eq!(tm.mode(), TestMode::Insert);
     }
 
@@ -1827,12 +1845,12 @@ mod tests {
 
         // Go to Normal mode.
         tm.input_key(ctl!('l'));
-        assert_eq!(tm.pop(), None);
+        assert_pop2!(tm, TestAction::NoOp, ctx);
         assert_eq!(tm.mode(), TestMode::Normal);
 
         // Unmapped "?" does nothing.
         tm.input_key(key!('?'));
-        assert_eq!(tm.pop(), None);
+        assert_pop2!(tm, TestAction::NoOp, ctx);
         assert_eq!(tm.mode(), TestMode::Normal);
 
         // Add "?" to Normal mode.
@@ -1844,15 +1862,17 @@ mod tests {
         assert_eq!(tm.mode(), TestMode::Normal);
 
         // Pressing "y?" does nothing.
+        ctx.temp.operation = Some(TestOperation::Yank);
         tm.input_key(key!('y'));
         tm.input_key(key!('?'));
-        assert_eq!(tm.pop(), None);
+        assert_pop2!(tm, TestAction::NoOp, ctx);
         assert_eq!(tm.mode(), TestMode::Normal);
 
         // Pressing "d?" also does nothing.
+        ctx.temp.operation = Some(TestOperation::Delete);
         tm.input_key(key!('d'));
         tm.input_key(key!('?'));
-        assert_eq!(tm.pop(), None);
+        assert_pop2!(tm, TestAction::NoOp, ctx);
         assert_eq!(tm.mode(), TestMode::Normal);
 
         // Add "?" to Suffix mode.
@@ -1928,7 +1948,7 @@ mod tests {
 
         // Go to Normal mode.
         tm.input_key(ctl!('l'));
-        assert_eq!(tm.pop(), None);
+        assert_pop2!(tm, TestAction::NoOp, ctx);
         assert_eq!(tm.mode(), TestMode::Normal);
 
         // Test using "??"
@@ -1942,10 +1962,12 @@ mod tests {
         assert_eq!(tm.mode(), TestMode::Normal);
 
         // "?" is not a valid prefix
+        ctx.temp.operation = Some(TestOperation::Delete);
+        ctx.temp.count = None;
         tm.input_key(key!('d'));
         tm.input_key(key!('?'));
         tm.input_key(key!('w'));
-        assert_eq!(tm.pop(), None);
+        assert_pop2!(tm, TestAction::NoOp, ctx);
         assert_eq!(tm.mode(), TestMode::Normal);
 
         // Test using "??" multiple times.
@@ -2017,7 +2039,7 @@ mod tests {
 
         // Go to Normal mode.
         tm.input_key(ctl!('l'));
-        assert_eq!(tm.pop(), None);
+        assert_pop2!(tm, TestAction::NoOp, ctx);
         assert_eq!(tm.mode(), TestMode::Normal);
 
         // Typing "yy" produces overriding action.
@@ -2035,10 +2057,10 @@ mod tests {
         assert_eq!(tm.mode(), TestMode::Normal);
 
         // "y" has not been mapped in Suffix mode.
-        ctx.temp.operation = Some(TestOperation::Yank);
+        ctx.temp.operation = Some(TestOperation::Delete);
         tm.input_key(key!('d'));
         tm.input_key(key!('y'));
-        assert_eq!(tm.pop(), None);
+        assert_pop2!(tm, TestAction::NoOp, ctx);
         assert_eq!(tm.mode(), TestMode::Normal);
     }
 
@@ -2052,7 +2074,7 @@ mod tests {
 
         // Go to Normal mode.
         tm.input_key(ctl!('l'));
-        assert_eq!(tm.pop(), None);
+        assert_pop2!(tm, TestAction::NoOp, ctx);
         assert_eq!(tm.mode(), TestMode::Normal);
 
         // Using "d;" has no tillchar set.
@@ -2121,6 +2143,7 @@ mod tests {
 
         // Go to Normal mode.
         tm.input_key(ctl!('l'));
+        assert_pop2!(tm, TestAction::NoOp, ctx);
 
         // Feed a sequence.
         ctx.temp.operation = Some(TestOperation::Delete);
@@ -2173,14 +2196,14 @@ mod tests {
         assert_pop2!(tm, TestAction::EditWord, ctx);
 
         // Move back to Insert mode.
+        ctx.keep.tillchar = Some('a');
         ctx.temp.operation = None;
         ctx.temp.count = None;
         tm.input_key(key!(KeyCode::Esc));
-        assert_eq!(tm.pop(), None);
+        assert_pop2!(tm, TestAction::NoOp, ctx);
         assert_eq!(tm.mode(), TestMode::Insert);
 
         // Paste twice.
-        ctx.keep.tillchar = Some('a');
         ctx.temp.register = Some('b');
         ctx.temp.cursor = Some('^');
         tm.input_key(ctl!('r'));
@@ -2219,7 +2242,7 @@ mod tests {
 
         // Enter normal mode.
         tm.input_key(ctl!('l'));
-        assert_eq!(tm.pop(), None);
+        assert_pop2!(tm, TestAction::NoOp, ctx);
         assert_eq!(tm.mode(), TestMode::Normal);
 
         // Prefix Min(3)
@@ -2233,17 +2256,19 @@ mod tests {
         );
 
         // Typing once fails.
+        ctx.temp.operation = Some(TestOperation::Yank);
         tm.input_key(key!('y'));
         tm.input_key(key!('!'));
         tm.input_key(key!('w'));
-        assert_eq!(tm.pop(), None);
+        assert_pop2!(tm, TestAction::NoOp, ctx);
 
         // Typing twice fails.
+        ctx.temp.operation = Some(TestOperation::Yank);
         tm.input_key(key!('y'));
         tm.input_key(key!('!'));
         tm.input_key(key!('!'));
         tm.input_key(key!('w'));
-        assert_eq!(tm.pop(), None);
+        assert_pop2!(tm, TestAction::NoOp, ctx);
 
         // Typing thrice succeeds.
         ctx.temp.count = Some(5);
@@ -2287,7 +2312,7 @@ mod tests {
 
         // Enter normal mode.
         tm.input_key(ctl!('l'));
-        assert_eq!(tm.pop(), None);
+        assert_pop2!(tm, TestAction::NoOp, ctx);
         assert_eq!(tm.mode(), TestMode::Normal);
 
         // Intermediate Min(0)
@@ -2343,7 +2368,7 @@ mod tests {
         tm.input_key(key!('!'));
         tm.input_key(key!('b'));
         tm.input_key(key!('!'));
-        assert_eq!(tm.pop(), None);
+        assert_pop2!(tm, TestAction::NoOp, ctx);
         assert_eq!(tm.mode(), TestMode::Normal);
 
         // Typing it once fails.
@@ -2351,7 +2376,7 @@ mod tests {
         tm.input_key(key!('b'));
         tm.input_key(key!('?'));
         tm.input_key(key!('!'));
-        assert_eq!(tm.pop(), None);
+        assert_pop2!(tm, TestAction::NoOp, ctx);
         assert_eq!(tm.mode(), TestMode::Normal);
 
         // Typing it thrice succeeds.
@@ -2418,7 +2443,7 @@ mod tests {
         tm.input_key(key!('!'));
         tm.input_key(key!('d'));
         tm.input_key(key!('n'));
-        assert_eq!(tm.pop(), None);
+        assert_pop2!(tm, TestAction::NoOp, ctx);
         assert_eq!(tm.mode(), TestMode::Normal);
 
         // Typing it once fails, and "n" is considered unmapped.
@@ -2426,7 +2451,7 @@ mod tests {
         tm.input_key(key!('d'));
         tm.input_key(key!('?'));
         tm.input_key(key!('n'));
-        assert_eq!(tm.pop(), None);
+        assert_pop2!(tm, TestAction::NoOp, ctx);
         assert_eq!(tm.mode(), TestMode::Normal);
 
         // Typing it thrice succeeds.
@@ -2448,7 +2473,7 @@ mod tests {
 
         // Enter normal mode.
         tm.input_key(ctl!('l'));
-        assert_eq!(tm.pop(), None);
+        assert_pop2!(tm, TestAction::NoOp, ctx);
         assert_eq!(tm.mode(), TestMode::Normal);
 
         // Add "!" to Normal mode so we can detect when we've fallen through.
@@ -2532,7 +2557,7 @@ mod tests {
 
         // Enter normal mode.
         tm.input_key(ctl!('l'));
-        assert_eq!(tm.pop(), None);
+        assert_pop2!(tm, TestAction::NoOp, ctx);
         assert_eq!(tm.mode(), TestMode::Normal);
 
         // Intermediate Max(0)
@@ -2559,6 +2584,7 @@ mod tests {
         tm.input_key(key!('a'));
         tm.input_key(key!('?'));
         tm.input_key(key!('$'));
+        assert_pop1!(tm, TestAction::NoOp, ctx);
         assert_pop2!(tm, TestAction::Palaver, ctx);
         assert_eq!(tm.mode(), TestMode::Normal);
 
@@ -2605,6 +2631,7 @@ mod tests {
         tm.input_key(key!('?'));
         tm.input_key(key!('?'));
         tm.input_key(key!('$'));
+        assert_pop1!(tm, TestAction::NoOp, ctx);
         assert_pop2!(tm, TestAction::Palaver, ctx);
         assert_eq!(tm.mode(), TestMode::Normal);
 
@@ -2689,11 +2716,12 @@ mod tests {
 
         // Enter normal mode.
         tm.input_key(ctl!('l'));
-        assert_eq!(tm.pop(), None);
+        assert_pop2!(tm, TestAction::NoOp, ctx);
         assert_eq!(tm.mode(), TestMode::Normal);
 
         // Alt-b should be translated into Esc + "b"
         tm.input_key(key!(KeyCode::Char('b'), KeyModifiers::ALT));
+        assert_pop1!(tm, TestAction::NoOp, ctx);
         assert_pop2!(tm, TestAction::Type('b'), ctx);
         assert_eq!(tm.mode(), TestMode::Insert);
     }

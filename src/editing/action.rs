@@ -566,6 +566,12 @@ impl<P: Application> Action<P> {
     }
 }
 
+impl<P: Application> Default for Action<P> {
+    fn default() -> Self {
+        Action::NoOp
+    }
+}
+
 impl<P: Application> Clone for Action<P> {
     fn clone(&self) -> Self {
         match self {
