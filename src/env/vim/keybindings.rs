@@ -1014,6 +1014,27 @@ macro_rules! insert_visual {
             VimMode::Insert
         )
     };
+    ($cursor: expr, $mt: expr, $c: expr) => {
+        isv!(
+            vec![InternalAction::SetInsertStyle(InsertStyle::Insert)],
+            vec![
+                ExternalAction::Something(
+                    SelectionAction::Split(SelectionSplitStyle::Lines, TargetShapeFilter::BLOCK)
+                        .into()
+                ),
+                ExternalAction::Something(SelectionAction::CursorSet($cursor).into()),
+                ExternalAction::Something(CursorAction::Split(Count::Contextual).into()),
+                ExternalAction::Something(Action::Edit(
+                    EditAction::Motion.into(),
+                    EditTarget::Motion($mt, $c)
+                )),
+            ],
+            VimMode::Insert
+        )
+    };
+}
+
+macro_rules! change_visual {
     ($cursor: expr, $et: expr) => {
         isv!(
             vec![InternalAction::SetInsertStyle(InsertStyle::Insert)],
@@ -1528,8 +1549,8 @@ fn default_keys<P: Application>() -> Vec<(MappedModes, &'static str, InputStep<P
         ( VMAP, "<Esc>", normal!() ),
 
         // Visual mode keys
-        ( XMAP, "A", insert_visual!(SelectionCursorChange::End) ),
-        ( XMAP, "c", insert_visual!(SelectionCursorChange::Beginning, EditTarget::Selection) ),
+        ( XMAP, "A", insert_visual!(SelectionCursorChange::End, MoveType::Column(MoveDir1D::Next, false), 1.into()) ),
+        ( XMAP, "c", change_visual!(SelectionCursorChange::Beginning, EditTarget::Selection) ),
         ( XMAP, "C", change_selection_nochar!(SelectionCursorChange::Beginning, EditTarget::Motion(MoveType::LinePos(MovePosition::End), Count::Exact(0))) ),
         ( XMAP, "d", edit_selection!(EditAction::Delete) ),
         ( XMAP, "D", delete_selection_nochar!(SelectionCursorChange::Beginning, EditTarget::Motion(MoveType::LinePos(MovePosition::End), Count::Exact(0))) ),
@@ -2018,6 +2039,10 @@ mod tests {
 
     const CURRENT_POS: Action =
         Action::Edit(Specifier::Exact(EditAction::Motion), EditTarget::CurrentPosition);
+    const COLUMN_NEXT: Action = Action::Edit(
+        Specifier::Exact(EditAction::Motion),
+        EditTarget::Motion(MoveType::Column(MoveDir1D::Next, false), Count::Exact(1)),
+    );
     const COLUMN_PREV: Action = Action::Edit(
         Specifier::Exact(EditAction::Motion),
         EditTarget::Motion(MoveType::Column(MoveDir1D::Previous, false), Count::Exact(1)),
@@ -3361,6 +3386,7 @@ mod tests {
         assert_pop1!(vm, BLOCK_SPLIT, ctx);
         assert_pop1!(vm, BLOCK_END, ctx);
         assert_pop1!(vm, CURSOR_SPLIT, ctx);
+        assert_pop1!(vm, COLUMN_NEXT, ctx);
 
         // Moves into Insert mode after "A".
         ctx.persist.shape = None;
