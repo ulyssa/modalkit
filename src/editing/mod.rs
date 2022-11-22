@@ -12,8 +12,10 @@
 //!
 
 pub mod action;
+pub mod application;
 pub mod base;
 pub mod buffer;
+pub mod context;
 pub mod cursor;
 pub mod history;
 pub mod key;

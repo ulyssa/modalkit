@@ -67,29 +67,19 @@ use crate::editing::{
         PromptAction,
         UIError,
     },
-    base::{
-        Application,
-        CommandType,
-        Count,
-        EditContext,
-        EditTarget,
-        MoveDir1D,
-        MoveDirMod,
-        MoveType,
-        Register,
-        RepeatType,
-    },
+    application::ApplicationInfo,
+    base::{CommandType, Count, EditTarget, MoveDir1D, MoveDirMod, MoveType, Register, RepeatType},
+    context::EditContext,
     history::HistoryList,
     key::KeyManager,
     rope::EditRope,
-    store::{SharedStore, Store},
+    store::Store,
 };
 
 use crate::{
     input::{
         bindings::BindingMachine,
         key::{MacroError, TerminalKey},
-        InputContext,
     },
     util::is_newline,
 };
@@ -117,6 +107,16 @@ fn command_to_str(ct: &CommandType) -> Option<String> {
             return ":".to_string().into();
         },
     }
+}
+
+macro_rules! focused_mut {
+    ($s: expr) => {
+        if $s.ct.is_some() {
+            &mut $s.cmd
+        } else {
+            &mut $s.line
+        }
+    };
 }
 
 /// Error type for [ReadLine] editor.
@@ -148,13 +148,13 @@ pub enum ReadLineError {
 pub type ReadLineResult = Result<String, ReadLineError>;
 
 /// Simple editor for collecting user input.
-pub struct ReadLine<C, P>
+pub struct ReadLine<C, I>
 where
-    C: EditContext + InputContext,
-    P: Application,
+    C: EditContext,
+    I: ApplicationInfo,
 {
-    bindings: KeyManager<TerminalKey, Action<P>, RepeatType, C, P>,
-    store: SharedStore<C, P>,
+    bindings: KeyManager<TerminalKey, Action<I>, RepeatType, C>,
+    store: Store<I>,
 
     history: HistoryList<EditRope>,
 
@@ -162,30 +162,33 @@ where
     dimensions: (u16, u16),
     ct: Option<CommandType>,
 
-    line: Editor<C, P>,
-    cmd: Editor<C, P>,
+    line: Editor<I>,
+    cmd: Editor<I>,
 }
 
-impl<C, P> ReadLine<C, P>
+impl<C, I> ReadLine<C, I>
 where
-    C: EditContext + InputContext,
-    P: Application,
+    C: EditContext,
+    I: ApplicationInfo,
 {
     /// Create a new instance.
-    pub fn new<B: BindingMachine<TerminalKey, Action<P>, RepeatType, C> + 'static>(
+    pub fn new<B: BindingMachine<TerminalKey, Action<I>, RepeatType, C> + 'static>(
         bindings: B,
-    ) -> Result<Self, std::io::Error> {
+    ) -> Result<Self, std::io::Error>
+    where
+        I::Store: Default,
+    {
         let dimensions = crossterm::terminal::size()?;
         let context = EditorContext::default();
 
-        let store = Store::<C, P>::new();
+        let store = Store::<I>::default();
 
-        let mut line = Editor::new(store.clone());
-        let mut cmd = Editor::new(store.clone());
+        let mut line = Editor::new();
+        let mut cmd = Editor::new();
         line.resize(dimensions.0, dimensions.1);
         cmd.resize(dimensions.0, dimensions.1);
 
-        let bindings = KeyManager::new(bindings, store.clone());
+        let bindings = KeyManager::new(bindings);
         let history = HistoryList::new("".into(), HISTORY_LENGTH);
 
         let rl = ReadLine {
@@ -263,7 +266,7 @@ where
                     // Reset action-specific state.
                     ctx.reset();
 
-                    let _ = self.focused_mut().insert_text(act, &ctx)?;
+                    let _ = focused_mut!(self).insert_text(act, &ctx, &mut self.store)?;
                 },
                 Event::Resize(width, height) => {
                     self.resize(width, height);
@@ -344,8 +347,8 @@ where
                     return;
                 }
 
-                Store::set_aborted_search(self.reset_cmd(), &self.store);
-
+                let txt = self.reset_cmd();
+                self.store.set_aborted_search(txt);
                 self.ct = None;
             },
             Some(CommandType::Command) => {
@@ -353,8 +356,8 @@ where
                     return;
                 }
 
-                Store::set_aborted_cmd(self.reset_cmd(), &self.store);
-
+                let txt = self.reset_cmd();
+                self.store.set_aborted_cmd(txt);
                 self.ct = None;
             },
         }
@@ -370,10 +373,7 @@ where
                 }
             },
             Some(CommandType::Search(_, _)) => {
-                let text = {
-                    let mut locked = self.store.write().unwrap();
-                    self.cmd.recall(&mut locked.searches, dir, count)
-                };
+                let text = self.cmd.recall(&mut self.store.searches, dir, count);
 
                 if let Some(text) = text {
                     self.cmd.set_text(text);
@@ -399,12 +399,10 @@ where
         // If the search bar is focused, but nothing has been typed, we move backwards to the
         // previously typed search and use that.
 
-        let text = {
-            let mut locked = self.store.write().unwrap();
-            let text = self.cmd.recall(&mut locked.searches, MoveDir1D::Previous, 1);
-
-            text.ok_or(EditError::NoSearch)?
-        };
+        let text = self
+            .cmd
+            .recall(&mut self.store.searches, MoveDir1D::Previous, 1)
+            .ok_or(EditError::NoSearch)?;
 
         let re = Regex::new(text.to_string().as_ref())?;
 
@@ -417,8 +415,7 @@ where
         let re = if let Some(CommandType::Search(_, _)) = self.ct {
             self.get_cmd_regex()?
         } else {
-            let locked = self.store.write().unwrap();
-            let text = locked.registers.get(&Register::LastSearch).value;
+            let text = self.store.registers.get(&Register::LastSearch).value;
 
             Regex::new(text.to_string().as_ref())?
         };
@@ -463,7 +460,7 @@ where
     fn edit(&mut self, action: EditAction, mov: EditTarget, ctx: C) -> EditResult {
         match (action, mov) {
             (ea @ EditAction::Motion, EditTarget::Motion(MoveType::Line(dir), count)) => {
-                let n = self.focused_mut().line_leftover(dir, ctx.resolve(&count));
+                let n = focused_mut!(self).line_leftover(dir, ctx.resolve(&count));
 
                 if n > 0 {
                     // If we move by more lines than there are in the buffer, then we
@@ -474,11 +471,11 @@ where
                 } else {
                     let mov = EditTarget::Motion(MoveType::Line(dir), count);
 
-                    self.focused_mut().edit(&ea, &mov, &ctx)
+                    focused_mut!(self).edit(&ea, &mov, &ctx, &mut self.store)
                 }
             },
             (ea, mov) => {
-                let res = self.focused_mut().edit(&ea, &mov, &ctx)?;
+                let res = focused_mut!(self).edit(&ea, &mov, &ctx, &mut self.store)?;
 
                 // Perform an incremental search if we need to.
                 self.incsearch()?;
@@ -491,7 +488,7 @@ where
     fn submit(&mut self) -> Result<InternalResult, ReadLineError> {
         match self.ct {
             None => {
-                let text = self.focused_mut().reset();
+                let text = focused_mut!(self).reset();
 
                 self.history.select(text.clone());
 
@@ -504,7 +501,7 @@ where
                     Ok(r) => r,
                 };
 
-                Store::set_last_search(text, &self.store);
+                self.store.set_last_search(text);
 
                 if let Some(text) = self.line.find(&mut self.history, &needle, dir, false) {
                     self.line.set_text(text);
@@ -586,7 +583,9 @@ where
         }
     }
 
-    fn act(&mut self, action: Action<P>, ctx: C) -> Result<InternalResult, ReadLineError> {
+    fn act(&mut self, action: Action<I>, ctx: C) -> Result<InternalResult, ReadLineError> {
+        let store = &mut self.store;
+
         let _ = match action {
             // Do nothing.
             Action::NoOp => None,
@@ -603,11 +602,11 @@ where
 
             // Simple delegations.
             Action::Edit(action, mov) => self.edit(ctx.resolve(&action), mov, ctx)?,
-            Action::Macro(act) => self.bindings.macro_command(act, &ctx)?,
-            Action::Mark(mark) => self.focused_mut().mark(ctx.resolve(&mark), &ctx)?,
-            Action::Cursor(act) => self.focused_mut().cursor_command(&act, &ctx)?,
-            Action::Selection(act) => self.focused_mut().selection_command(act, &ctx)?,
-            Action::History(act) => self.focused_mut().history_command(act, &ctx)?,
+            Action::Macro(act) => self.bindings.macro_command(act, &ctx, store)?,
+            Action::Mark(mark) => focused_mut!(self).mark(ctx.resolve(&mark), &ctx, store)?,
+            Action::Cursor(act) => focused_mut!(self).cursor_command(&act, &ctx, store)?,
+            Action::Selection(act) => focused_mut!(self).selection_command(act, &ctx, store)?,
+            Action::History(act) => focused_mut!(self).history_command(act, &ctx, store)?,
             Action::Search(flip, count) => self.search(flip, count, &ctx)?,
 
             Action::RedrawScreen => {
@@ -617,7 +616,7 @@ where
             },
 
             Action::InsertText(act) => {
-                let res = self.focused_mut().insert_text(act, &ctx)?;
+                let res = focused_mut!(self).insert_text(act, &ctx, store)?;
 
                 // Perform an incremental search if we need to.
                 self.incsearch()?;
@@ -625,7 +624,7 @@ where
                 res
             },
             Action::Jump(list, dir, ref count) => {
-                let _ = self.focused_mut().jump(list, dir, ctx.resolve(count), &ctx)?;
+                let _ = focused_mut!(self).jump(list, dir, ctx.resolve(count), &ctx)?;
 
                 None
             },
@@ -656,13 +655,5 @@ where
         };
 
         return Ok(InternalResult::Nothing);
-    }
-
-    fn focused_mut(&mut self) -> &mut Editor<C, P> {
-        if self.ct.is_some() {
-            return &mut self.cmd;
-        } else {
-            return &mut self.line;
-        }
     }
 }

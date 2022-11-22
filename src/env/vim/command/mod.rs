@@ -10,23 +10,24 @@ use std::fmt;
 use crate::input::commands::{Command, CommandError, CommandMachine, CommandStep, InputCmdContext};
 use crate::input::InputContext;
 
-use crate::editing::action::{Action, TabAction, WindowAction};
-
-use crate::editing::base::{
-    Application,
-    Axis,
-    CloseFlags,
-    CloseTarget,
-    Count,
-    EditContext,
-    Flip,
-    FocusChange,
-    MoveDir1D,
-    MovePosition,
-    RangeEnding,
-    RangeEndingModifier,
-    RangeEndingType,
-    RangeSpec,
+use crate::editing::{
+    action::{Action, TabAction, WindowAction},
+    application::{ApplicationInfo, EmptyInfo},
+    base::{
+        Axis,
+        CloseFlags,
+        CloseTarget,
+        Count,
+        Flip,
+        FocusChange,
+        MoveDir1D,
+        MovePosition,
+        RangeEnding,
+        RangeEndingModifier,
+        RangeEndingType,
+        RangeSpec,
+    },
+    context::EditContext,
 };
 
 use super::VimContext;
@@ -36,34 +37,34 @@ mod parse;
 pub use self::parse::CommandDescription;
 
 /// Result type for a processed command.
-pub type CommandResult<C, P> = Result<CommandStep<VimCommand<C, P>>, CommandError>;
+pub type CommandResult<C, I> = Result<CommandStep<VimCommand<C, I>>, CommandError>;
 
 /// Handler for a mapped command.
-pub type CommandFunc<C, P> = fn(CommandDescription, &mut CommandContext<C>) -> CommandResult<C, P>;
+pub type CommandFunc<C, I> = fn(CommandDescription, &mut CommandContext<C>) -> CommandResult<C, I>;
 
 /// Description of a mapped Vim command.
-pub struct VimCommand<C: EditContext, P: Application = ()> {
+pub struct VimCommand<C: EditContext, I: ApplicationInfo = EmptyInfo> {
     /// Aliases for this command.
     pub names: Vec<String>,
 
     /// Function that handles command.
-    pub f: CommandFunc<C, P>,
+    pub f: CommandFunc<C, I>,
 }
 
-impl<C, P> Clone for VimCommand<C, P>
+impl<C, I> Clone for VimCommand<C, I>
 where
     C: EditContext,
-    P: Application,
+    I: ApplicationInfo,
 {
     fn clone(&self) -> Self {
         Self { names: self.names.clone(), f: self.f }
     }
 }
 
-impl<C, P> fmt::Debug for VimCommand<C, P>
+impl<C, I> fmt::Debug for VimCommand<C, I>
 where
     C: EditContext,
-    P: Application,
+    I: ApplicationInfo,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("VimCommand")
@@ -72,13 +73,13 @@ where
     }
 }
 
-impl<C, P> Command for VimCommand<C, P>
+impl<C, I> Command for VimCommand<C, I>
 where
     C: EditContext,
-    P: Application,
+    I: ApplicationInfo,
 {
     type Parsed = CommandDescription;
-    type Action = Action<P>;
+    type Action = Action<I>;
     type Context = C;
     type CommandContext = CommandContext<C>;
 
@@ -86,7 +87,7 @@ where
         self.names.clone()
     }
 
-    fn exec(&self, cmd: Self::Parsed, ctx: &mut Self::CommandContext) -> CommandResult<C, P> {
+    fn exec(&self, cmd: Self::Parsed, ctx: &mut Self::CommandContext) -> CommandResult<C, I> {
         (self.f)(cmd, ctx)
     }
 }
@@ -246,10 +247,10 @@ fn window_range_target<C: EditContext>(
         .unwrap_or(Ok(FocusChange::Current))
 }
 
-fn window_close<C: EditContext, P: Application>(
+fn window_close<C: EditContext, I: ApplicationInfo>(
     desc: CommandDescription,
     ctx: &mut CommandContext<C>,
-) -> CommandResult<C, P> {
+) -> CommandResult<C, I> {
     let flags = if desc.bang {
         CloseFlags::FORCE
     } else {
@@ -263,10 +264,10 @@ fn window_close<C: EditContext, P: Application>(
     Ok(CommandStep::Continue(action, ctx.context.take()))
 }
 
-fn window_only<C: EditContext, P: Application>(
+fn window_only<C: EditContext, I: ApplicationInfo>(
     desc: CommandDescription,
     ctx: &mut CommandContext<C>,
-) -> CommandResult<C, P> {
+) -> CommandResult<C, I> {
     let flags = if desc.bang {
         CloseFlags::QUIT | CloseFlags::FORCE
     } else {
@@ -280,10 +281,10 @@ fn window_only<C: EditContext, P: Application>(
     Ok(CommandStep::Continue(action, ctx.context.take()))
 }
 
-fn window_quit<C: EditContext, P: Application>(
+fn window_quit<C: EditContext, I: ApplicationInfo>(
     desc: CommandDescription,
     ctx: &mut CommandContext<C>,
-) -> CommandResult<C, P> {
+) -> CommandResult<C, I> {
     let flags = if desc.bang {
         CloseFlags::QUIT | CloseFlags::FORCE
     } else {
@@ -297,10 +298,10 @@ fn window_quit<C: EditContext, P: Application>(
     Ok(CommandStep::Continue(action, ctx.context.take()))
 }
 
-fn window_quitall<C: EditContext, P: Application>(
+fn window_quitall<C: EditContext, I: ApplicationInfo>(
     desc: CommandDescription,
     ctx: &mut CommandContext<C>,
-) -> CommandResult<C, P> {
+) -> CommandResult<C, I> {
     let flags = if desc.bang {
         CloseFlags::QUIT | CloseFlags::FORCE
     } else {
@@ -313,10 +314,10 @@ fn window_quitall<C: EditContext, P: Application>(
     Ok(CommandStep::Continue(action, ctx.context.take()))
 }
 
-fn window_split_horizontal<C: EditContext, P: Application>(
+fn window_split_horizontal<C: EditContext, I: ApplicationInfo>(
     _: CommandDescription,
     ctx: &mut CommandContext<C>,
-) -> CommandResult<C, P> {
+) -> CommandResult<C, I> {
     let rel = ctx.rel.unwrap_or(MoveDir1D::Previous);
     let axis = ctx.axis.unwrap_or(Axis::Horizontal);
     let action = WindowAction::Split(axis, rel, Count::Exact(1)).into();
@@ -324,10 +325,10 @@ fn window_split_horizontal<C: EditContext, P: Application>(
     Ok(CommandStep::Continue(action, ctx.context.take()))
 }
 
-fn window_split_vertical<C: EditContext, P: Application>(
+fn window_split_vertical<C: EditContext, I: ApplicationInfo>(
     _: CommandDescription,
     ctx: &mut CommandContext<C>,
-) -> CommandResult<C, P> {
+) -> CommandResult<C, I> {
     let rel = ctx.rel.unwrap_or(MoveDir1D::Previous);
     let axis = ctx.axis.unwrap_or(Axis::Vertical);
     let action = WindowAction::Split(axis, rel, Count::Exact(1)).into();
@@ -335,10 +336,10 @@ fn window_split_vertical<C: EditContext, P: Application>(
     Ok(CommandStep::Continue(action, ctx.context.take()))
 }
 
-fn tab_next<C: EditContext, P: Application>(
+fn tab_next<C: EditContext, I: ApplicationInfo>(
     desc: CommandDescription,
     ctx: &mut CommandContext<C>,
-) -> CommandResult<C, P> {
+) -> CommandResult<C, I> {
     let range = match (desc.range, desc.arg.text.len() > 0) {
         (None, true) => {
             if let Ok((_, range)) = desc.arg.range() {
@@ -363,10 +364,10 @@ fn tab_next<C: EditContext, P: Application>(
     Ok(CommandStep::Continue(action, ctx.context.take()))
 }
 
-fn tab_prev<C: EditContext, P: Application>(
+fn tab_prev<C: EditContext, I: ApplicationInfo>(
     desc: CommandDescription,
     ctx: &mut CommandContext<C>,
-) -> CommandResult<C, P> {
+) -> CommandResult<C, I> {
     let range = match (desc.range, desc.arg.text.len() > 0) {
         (None, true) => {
             if let Ok((_, range)) = desc.arg.range() {
@@ -405,30 +406,30 @@ fn tab_prev<C: EditContext, P: Application>(
     Ok(CommandStep::Continue(action, ctx.context.take()))
 }
 
-fn tab_first<C: EditContext, P: Application>(
+fn tab_first<C: EditContext, I: ApplicationInfo>(
     _: CommandDescription,
     ctx: &mut CommandContext<C>,
-) -> CommandResult<C, P> {
+) -> CommandResult<C, I> {
     let change = FocusChange::Position(MovePosition::Beginning);
     let action = TabAction::Focus(change).into();
 
     Ok(CommandStep::Continue(action, ctx.context.take()))
 }
 
-fn tab_last<C: EditContext, P: Application>(
+fn tab_last<C: EditContext, I: ApplicationInfo>(
     _: CommandDescription,
     ctx: &mut CommandContext<C>,
-) -> CommandResult<C, P> {
+) -> CommandResult<C, I> {
     let change = FocusChange::Position(MovePosition::End);
     let action = TabAction::Focus(change).into();
 
     Ok(CommandStep::Continue(action, ctx.context.take()))
 }
 
-fn tab_new<C: EditContext, P: Application>(
+fn tab_new<C: EditContext, I: ApplicationInfo>(
     desc: CommandDescription,
     ctx: &mut CommandContext<C>,
-) -> CommandResult<C, P> {
+) -> CommandResult<C, I> {
     let change = desc
         .range
         .map(|r| range_to_fc(&r, false, &ctx.context))
@@ -438,10 +439,10 @@ fn tab_new<C: EditContext, P: Application>(
     Ok(CommandStep::Continue(action.into(), ctx.context.take()))
 }
 
-fn tab_close<C: EditContext, P: Application>(
+fn tab_close<C: EditContext, I: ApplicationInfo>(
     desc: CommandDescription,
     ctx: &mut CommandContext<C>,
-) -> CommandResult<C, P> {
+) -> CommandResult<C, I> {
     let change = desc
         .range
         .map(|r| range_to_fc(&r, false, &ctx.context))
@@ -457,10 +458,10 @@ fn tab_close<C: EditContext, P: Application>(
     Ok(CommandStep::Continue(action.into(), ctx.context.take()))
 }
 
-fn tab_only<C: EditContext, P: Application>(
+fn tab_only<C: EditContext, I: ApplicationInfo>(
     desc: CommandDescription,
     ctx: &mut CommandContext<C>,
-) -> CommandResult<C, P> {
+) -> CommandResult<C, I> {
     let change = desc
         .range
         .map(|r| range_to_fc(&r, false, &ctx.context))
@@ -476,10 +477,10 @@ fn tab_only<C: EditContext, P: Application>(
     Ok(CommandStep::Continue(action.into(), ctx.context.take()))
 }
 
-fn tab_move<C: EditContext, P: Application>(
+fn tab_move<C: EditContext, I: ApplicationInfo>(
     desc: CommandDescription,
     ctx: &mut CommandContext<C>,
-) -> CommandResult<C, P> {
+) -> CommandResult<C, I> {
     let change = desc
         .range
         .map(|r| range_to_fc(&r, false, &ctx.context))
@@ -489,69 +490,69 @@ fn tab_move<C: EditContext, P: Application>(
     Ok(CommandStep::Continue(action, ctx.context.take()))
 }
 
-fn run_split_before<C: EditContext, P: Application>(
+fn run_split_before<C: EditContext, I: ApplicationInfo>(
     desc: CommandDescription,
     ctx: &mut CommandContext<C>,
-) -> CommandResult<C, P> {
+) -> CommandResult<C, I> {
     ctx.rel = Some(MoveDir1D::Previous);
 
     Ok(CommandStep::Again(desc.arg.text))
 }
 
-fn run_split_after<C: EditContext, P: Application>(
+fn run_split_after<C: EditContext, I: ApplicationInfo>(
     desc: CommandDescription,
     ctx: &mut CommandContext<C>,
-) -> CommandResult<C, P> {
+) -> CommandResult<C, I> {
     ctx.rel = Some(MoveDir1D::Next);
 
     Ok(CommandStep::Again(desc.arg.text))
 }
 
-fn run_vertical<C: EditContext, P: Application>(
+fn run_vertical<C: EditContext, I: ApplicationInfo>(
     desc: CommandDescription,
     ctx: &mut CommandContext<C>,
-) -> CommandResult<C, P> {
+) -> CommandResult<C, I> {
     ctx.axis = Some(Axis::Vertical);
 
     Ok(CommandStep::Again(desc.arg.text))
 }
 
-fn filter<C: EditContext, P: Application>(
+fn filter<C: EditContext, I: ApplicationInfo>(
     _: CommandDescription,
     _: &mut CommandContext<C>,
-) -> CommandResult<C, P> {
+) -> CommandResult<C, I> {
     Err(CommandError::Error("filtering is not yet implemented".into()))
 }
 
-fn read<C: EditContext, P: Application>(
+fn read<C: EditContext, I: ApplicationInfo>(
     _: CommandDescription,
     _: &mut CommandContext<C>,
-) -> CommandResult<C, P> {
+) -> CommandResult<C, I> {
     Err(CommandError::Error("read is not yet implemented".into()))
 }
 
-fn print<C: EditContext, P: Application>(
+fn print<C: EditContext, I: ApplicationInfo>(
     _: CommandDescription,
     _: &mut CommandContext<C>,
-) -> CommandResult<C, P> {
+) -> CommandResult<C, I> {
     Err(CommandError::Error("print is not yet implemented".into()))
 }
 
-fn substitute<C: EditContext, P: Application>(
+fn substitute<C: EditContext, I: ApplicationInfo>(
     _: CommandDescription,
     _: &mut CommandContext<C>,
-) -> CommandResult<C, P> {
+) -> CommandResult<C, I> {
     Err(CommandError::Error("substitution is not yet implemented".into()))
 }
 
-fn substitute_repeat<C: EditContext, P: Application>(
+fn substitute_repeat<C: EditContext, I: ApplicationInfo>(
     _: CommandDescription,
     _: &mut CommandContext<C>,
-) -> CommandResult<C, P> {
+) -> CommandResult<C, I> {
     Err(CommandError::Error("substitution repetition is not yet implemented".into()))
 }
 
-fn default_cmds<C: EditContext, P: Application>() -> Vec<VimCommand<C, P>> {
+fn default_cmds<C: EditContext, I: ApplicationInfo>() -> Vec<VimCommand<C, I>> {
     vec![
         VimCommand { names: strs!["!"], f: filter },
         VimCommand {
@@ -606,9 +607,9 @@ fn default_cmds<C: EditContext, P: Application>() -> Vec<VimCommand<C, P>> {
 }
 
 /// Manage parsing and mapping Vim commands.
-pub type VimCommandMachine<C = VimContext, P = ()> = CommandMachine<VimCommand<C, P>>;
+pub type VimCommandMachine<C = VimContext, I = EmptyInfo> = CommandMachine<VimCommand<C, I>>;
 
-impl<C: EditContext, P: Application> Default for VimCommandMachine<C, P> {
+impl<C: EditContext, I: ApplicationInfo> Default for VimCommandMachine<C, I> {
     fn default() -> Self {
         let mut m = Self::new();
 

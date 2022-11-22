@@ -16,8 +16,7 @@ use tui::{
 };
 
 use crate::{
-    editing::store::SharedStore,
-    input::InputContext,
+    editing::store::Store,
     util::{idx_move, idx_offset},
 };
 
@@ -30,47 +29,48 @@ use super::{
     WindowContainer,
 };
 
-use crate::editing::action::{
-    Action,
-    CommandBarAction,
-    CursorAction,
-    EditAction,
-    EditError,
-    EditInfo,
-    EditResult,
-    Editable,
-    HistoryAction,
-    InsertTextAction,
-    Jumpable,
-    PromptAction,
-    Promptable,
-    Scrollable,
-    Searchable,
-    SelectionAction,
-    TabAction,
-    TabContainer,
-    UIError,
-    UIResult,
-    WindowAction,
-};
-
-use crate::editing::base::{
-    Application,
-    Axis,
-    CloseFlags,
-    CloseTarget,
-    CommandType,
-    Count,
-    EditContext,
-    EditTarget,
-    FocusChange,
-    Mark,
-    MoveDir1D,
-    MoveDir2D,
-    MoveDirMod,
-    MovePosition,
-    PositionList,
-    ScrollStyle,
+use crate::editing::{
+    action::{
+        Action,
+        CommandBarAction,
+        CursorAction,
+        EditAction,
+        EditError,
+        EditInfo,
+        EditResult,
+        Editable,
+        HistoryAction,
+        InsertTextAction,
+        Jumpable,
+        PromptAction,
+        Promptable,
+        Scrollable,
+        Searchable,
+        SelectionAction,
+        TabAction,
+        TabContainer,
+        UIError,
+        UIResult,
+        WindowAction,
+    },
+    application::{ApplicationInfo, EmptyInfo},
+    base::{
+        Axis,
+        CloseFlags,
+        CloseTarget,
+        CommandType,
+        Count,
+        EditTarget,
+        FocusChange,
+        Mark,
+        MoveDir1D,
+        MoveDir2D,
+        MoveDirMod,
+        MovePosition,
+        PositionList,
+        ScrollStyle,
+    },
+    context::EditContext,
 };
 
 trait TabActions<C> {
@@ -106,14 +106,13 @@ pub enum CurrentFocus {
 }
 
 /// Persistent state for [Screen].
-pub struct ScreenState<W, C, P = ()>
+pub struct ScreenState<W, I = EmptyInfo>
 where
     W: Window,
-    C: EditContext + InputContext,
-    P: Application,
+    I: ApplicationInfo,
 {
     focused: CurrentFocus,
-    cmdbar: CommandBarState<C, P>,
+    cmdbar: CommandBarState<I>,
     tabs: Vec<WindowLayoutState<W>>,
     tabidx: usize,
     tabidx_last: usize,
@@ -122,15 +121,14 @@ where
     last_message: bool,
 }
 
-impl<W, C, P> ScreenState<W, C, P>
+impl<W, I> ScreenState<W, I>
 where
     W: Window,
-    C: EditContext + InputContext,
-    P: Application,
+    I: ApplicationInfo,
 {
     /// Create state for a [Screen] widget.
-    pub fn new(win: W, store: SharedStore<C, P>) -> Self {
-        let cmdbar = CommandBarState::new(store.clone());
+    pub fn new(win: W, store: &mut Store<I>) -> Self {
+        let cmdbar = CommandBarState::new(store);
         let tab = WindowLayoutState::new(win);
 
         ScreenState {
@@ -171,7 +169,7 @@ where
     }
 
     /// Perform a command bar action.
-    pub fn command_bar(&mut self, act: CommandBarAction, _: &C) -> EditResult {
+    pub fn command_bar<C: EditContext>(&mut self, act: CommandBarAction, _: &C) -> EditResult {
         match act {
             CommandBarAction::Focus(ct) => self.focus_command(ct),
             CommandBarAction::Unfocus => self.focus_window(),
@@ -229,11 +227,11 @@ where
         self.tabs.len().saturating_sub(1)
     }
 
-    fn _tabnr(&self, count: &Count, ctx: &C) -> usize {
+    fn _tabnr<C: EditContext>(&self, count: &Count, ctx: &C) -> usize {
         ctx.resolve(count).saturating_sub(1)
     }
 
-    fn _target(&self, target: &FocusChange, ctx: &C) -> Option<usize> {
+    fn _target<C: EditContext>(&self, target: &FocusChange, ctx: &C) -> Option<usize> {
         let target = match target {
             FocusChange::Current => self.tabidx,
             FocusChange::Offset(count, false) => {
@@ -278,11 +276,11 @@ where
     }
 }
 
-impl<W, C, P> TabActions<C> for ScreenState<W, C, P>
+impl<W, C, I> TabActions<C> for ScreenState<W, I>
 where
     W: Window,
-    C: EditContext + InputContext,
-    P: Application,
+    C: EditContext,
+    I: ApplicationInfo,
 {
     fn tab_close(&mut self, target: &CloseTarget, flags: CloseFlags, ctx: &C) -> UIResult {
         match target {
@@ -356,7 +354,7 @@ where
     }
 
     fn tab_extract(&mut self, change: &FocusChange, side: MoveDir1D, ctx: &C) -> UIResult {
-        if self.windows() <= 1 {
+        if WindowContainer::<W, C>::windows(self) <= 1 {
             return Ok(Some(EditInfo::new("Already one window")));
         }
 
@@ -406,17 +404,17 @@ where
     }
 }
 
-impl<W, C, P> TabContainer<C> for ScreenState<W, C, P>
+impl<W, C, I> TabContainer<C, Store<I>> for ScreenState<W, I>
 where
     W: Window,
-    C: EditContext + InputContext,
-    P: Application,
+    C: EditContext,
+    I: ApplicationInfo,
 {
     fn tabs(&self) -> usize {
         self.tabs.len()
     }
 
-    fn tab_command(&mut self, act: TabAction, ctx: &C) -> UIResult {
+    fn tab_command(&mut self, act: TabAction, ctx: &C, _: &mut Store<I>) -> UIResult {
         match act {
             TabAction::Close(target, flags) => self.tab_close(&target, flags, ctx),
             TabAction::Extract(target, side) => self.tab_extract(&target, side, ctx),
@@ -427,11 +425,11 @@ where
     }
 }
 
-impl<W, C, P> WindowContainer<W, C> for ScreenState<W, C, P>
+impl<W, C, I> WindowContainer<W, C> for ScreenState<W, I>
 where
     W: Window,
-    C: EditContext + InputContext,
-    P: Application,
+    C: EditContext,
+    I: ApplicationInfo,
 {
     fn windows(&self) -> usize {
         WindowContainer::<W, C>::windows(self.current_tab())
@@ -478,42 +476,52 @@ macro_rules! delegate_focus {
     };
 }
 
-impl<W, C, P> Editable<C> for ScreenState<W, C, P>
+impl<'a, W, C, I> Editable<C, I> for ScreenState<W, I>
 where
-    W: Window + Editable<C>,
-    C: EditContext + InputContext,
-    P: Application,
+    W: Window + Editable<C, I>,
+    C: EditContext,
+    I: ApplicationInfo,
 {
-    fn edit(&mut self, action: &EditAction, target: &EditTarget, ctx: &C) -> EditResult {
-        delegate_focus!(self, f => f.edit(action, target, ctx))
+    fn edit(
+        &mut self,
+        action: &EditAction,
+        target: &EditTarget,
+        ctx: &C,
+        store: &mut Store<I>,
+    ) -> EditResult {
+        delegate_focus!(self, f => f.edit(action, target, ctx, store))
     }
 
-    fn insert_text(&mut self, act: InsertTextAction, ctx: &C) -> EditResult {
-        delegate_focus!(self, f => f.insert_text(act, ctx))
+    fn insert_text(&mut self, act: InsertTextAction, ctx: &C, store: &mut Store<I>) -> EditResult {
+        delegate_focus!(self, f => f.insert_text(act, ctx, store))
     }
 
-    fn cursor_command(&mut self, act: &CursorAction, ctx: &C) -> EditResult {
-        delegate_focus!(self, f => f.cursor_command(act, ctx))
+    fn cursor_command(&mut self, act: &CursorAction, ctx: &C, store: &mut Store<I>) -> EditResult {
+        delegate_focus!(self, f => f.cursor_command(act, ctx, store))
     }
 
-    fn selection_command(&mut self, act: SelectionAction, ctx: &C) -> EditResult {
-        delegate_focus!(self, f => f.selection_command(act, ctx))
+    fn selection_command(
+        &mut self,
+        act: SelectionAction,
+        ctx: &C,
+        store: &mut Store<I>,
+    ) -> EditResult {
+        delegate_focus!(self, f => f.selection_command(act, ctx, store))
     }
 
-    fn mark(&mut self, name: Mark, ctx: &C) -> EditResult {
-        delegate_focus!(self, f => f.mark(name, ctx))
+    fn mark(&mut self, name: Mark, ctx: &C, store: &mut Store<I>) -> EditResult {
+        delegate_focus!(self, f => f.mark(name, ctx, store))
     }
 
-    fn history_command(&mut self, act: HistoryAction, ctx: &C) -> EditResult {
-        delegate_focus!(self, f => f.history_command(act, ctx))
+    fn history_command(&mut self, act: HistoryAction, ctx: &C, store: &mut Store<I>) -> EditResult {
+        delegate_focus!(self, f => f.history_command(act, ctx, store))
     }
 }
 
-impl<W, C, P> TerminalCursor for ScreenState<W, C, P>
+impl<W, I> TerminalCursor for ScreenState<W, I>
 where
     W: Window + TerminalCursor,
-    C: EditContext + InputContext,
-    P: Application,
+    I: ApplicationInfo,
 {
     fn get_term_cursor(&self) -> Option<(u16, u16)> {
         match self.focused {
@@ -529,11 +537,10 @@ where
     }
 }
 
-impl<W, C, P> Jumpable<C> for ScreenState<W, C, P>
+impl<W, C, I> Jumpable<C> for ScreenState<W, I>
 where
     W: Window + Jumpable<C>,
-    C: EditContext + InputContext,
-    P: Application,
+    I: ApplicationInfo,
 {
     fn jump(
         &mut self,
@@ -546,55 +553,58 @@ where
     }
 }
 
-impl<W, C, P> Promptable<Action<P>, C> for ScreenState<W, C, P>
+impl<W, C, I> Promptable<Action<I>, C, Store<I>> for ScreenState<W, I>
 where
-    W: Window + Promptable<Action<P>, C>,
-    C: EditContext + InputContext,
-    P: Application,
+    W: Window + Promptable<Action<I>, C, Store<I>>,
+    C: EditContext,
+    I: ApplicationInfo,
 {
-    fn prompt(&mut self, act: PromptAction, ctx: &C) -> EditResult<Vec<(Action<P>, C)>> {
-        delegate_focus!(self, f => f.prompt(act, ctx))
+    fn prompt(
+        &mut self,
+        act: PromptAction,
+        ctx: &C,
+        store: &mut Store<I>,
+    ) -> EditResult<Vec<(Action<I>, C)>> {
+        delegate_focus!(self, f => f.prompt(act, ctx, store))
     }
 }
 
-impl<W, C, P> Scrollable<C> for ScreenState<W, C, P>
+impl<'a, W, C, I> Scrollable<C, Store<I>> for ScreenState<W, I>
 where
-    W: Window + Scrollable<C>,
-    C: EditContext + InputContext,
-    P: Application,
+    W: Window + Scrollable<C, Store<I>>,
+    C: EditContext,
+    I: ApplicationInfo,
 {
-    fn scroll(&mut self, style: &ScrollStyle, ctx: &C) -> EditResult {
-        delegate_focus!(self, f => f.scroll(style, ctx))
+    fn scroll(&mut self, style: &ScrollStyle, ctx: &C, store: &mut Store<I>) -> EditResult {
+        delegate_focus!(self, f => f.scroll(style, ctx, store))
     }
 }
 
-impl<W, C, P> Searchable<C> for ScreenState<W, C, P>
+impl<W, C, I> Searchable<C, Store<I>> for ScreenState<W, I>
 where
-    W: Window + Searchable<C>,
-    C: EditContext + InputContext,
-    P: Application,
+    W: Window + Searchable<C, Store<I>>,
+    C: EditContext,
+    I: ApplicationInfo,
 {
-    fn search(&mut self, dir: MoveDirMod, count: Count, ctx: &C) -> UIResult {
-        self.current_window_mut()?.search(dir, count, ctx)
+    fn search(&mut self, dir: MoveDirMod, count: Count, ctx: &C, store: &mut Store<I>) -> UIResult {
+        self.current_window_mut()?.search(dir, count, ctx, store)
     }
 }
 
 /// Widget for displaying a tabbed window layout with a command bar.
-pub struct Screen<'a, W, C, P = ()>
+pub struct Screen<'a, W, I = EmptyInfo>
 where
     W: Window,
-    C: EditContext + InputContext,
-    P: Application,
+    I: ApplicationInfo,
 {
     showmode: Option<Span<'a>>,
-    _p: PhantomData<(W, C, P)>,
+    _p: PhantomData<(W, I)>,
 }
 
-impl<'a, W, C, P> Screen<'a, W, C, P>
+impl<'a, W, I> Screen<'a, W, I>
 where
     W: Window,
-    C: EditContext + InputContext,
-    P: Application,
+    I: ApplicationInfo,
 {
     /// Create a new widget.
     pub fn new() -> Self {
@@ -608,24 +618,22 @@ where
     }
 }
 
-impl<'a, W, C, P> Default for Screen<'a, W, C, P>
+impl<'a, W, I> Default for Screen<'a, W, I>
 where
     W: Window,
-    C: EditContext + InputContext,
-    P: Application,
+    I: ApplicationInfo,
 {
     fn default() -> Self {
         Screen::new()
     }
 }
 
-impl<'a, W, C, P> StatefulWidget for Screen<'a, W, C, P>
+impl<'a, W, I> StatefulWidget for Screen<'a, W, I>
 where
     W: Window,
-    C: EditContext + InputContext,
-    P: Application,
+    I: ApplicationInfo,
 {
-    type State = ScreenState<W, C, P>;
+    type State = ScreenState<W, I>;
 
     fn render(self, area: Rect, buf: &mut Buffer, state: &mut Self::State) {
         if area.height == 0 {

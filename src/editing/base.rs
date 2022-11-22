@@ -11,12 +11,12 @@ use bitflags::bitflags;
 use regex::Regex;
 
 use crate::{
-    input::bindings::{SequenceClass, SequenceStatus},
-    input::InputContext,
+    input::bindings::SequenceClass,
     util::{is_horizontal_space, is_keyword, is_newline, is_space_char, is_word_char, sort2},
 };
 
 use super::action::EditAction;
+use super::context::EditContext;
 
 /// Specify how to change the case of a string.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -1032,62 +1032,6 @@ pub enum SelectionResizeStyle {
     Restart,
 }
 
-/// Trait for objects that describe application-specific actions.
-///
-/// Implementors of this trait can be used with [Action::Application]. This can then be used to
-/// create additional keybindings and commands on top of the defaults provided within
-/// [modalkit::env](crate::env).
-///
-/// [Action::Application]: super::action::Action::Application
-pub trait ApplicationAction: Clone + Debug + Eq + PartialEq {
-    /// Allows controlling how application-specific actions are included in
-    /// [RepeatType::EditSequence].
-    fn is_edit_sequence<C: EditContext>(&self, ctx: &C) -> SequenceStatus;
-
-    /// Allows controlling how application-specific actions are included in
-    /// [RepeatType::LastAction].
-    fn is_last_action<C: EditContext>(&self, ctx: &C) -> SequenceStatus;
-
-    /// Allows controlling how application-specific actions are included in
-    /// [RepeatType::LastSelection].
-    fn is_last_selection<C: EditContext>(&self, ctx: &C) -> SequenceStatus;
-}
-
-impl ApplicationAction for () {
-    fn is_edit_sequence<C: EditContext>(&self, _: &C) -> SequenceStatus {
-        SequenceStatus::Break
-    }
-
-    fn is_last_action<C: EditContext>(&self, _: &C) -> SequenceStatus {
-        SequenceStatus::Ignore
-    }
-
-    fn is_last_selection<C: EditContext>(&self, _: &C) -> SequenceStatus {
-        SequenceStatus::Ignore
-    }
-}
-
-/// Trait for objects that hold application-specific information.
-///
-/// Implementors of this trait can be embedded in [Store](super::store::Store).
-pub trait ApplicationStore: Default {}
-
-impl ApplicationStore for () {}
-
-/// Trait for objects that describe application-specific behaviour and types.
-pub trait Application {
-    /// The type for application-specific actions.
-    type Action: ApplicationAction;
-
-    /// The type for application-specific storage.
-    type Store: ApplicationStore;
-}
-
-impl Application for () {
-    type Action = ();
-    type Store = ();
-}
-
 /// When focusing on the command bar, this is the type of command that should be submitted.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum CommandType {
@@ -1360,57 +1304,6 @@ pub enum RangeSpec {
 
     /// A range specification where both ends of the range were given.
     Double(RangeEnding, RangeEnding, RangeSearchInit),
-}
-
-/// Trait for context objects used during editing operations.
-pub trait EditContext:
-    InputContext
-    + Resolve<Specifier<Char>, Option<Char>>
-    + Resolve<Specifier<Mark>, Mark>
-    + Resolve<Specifier<EditAction>, EditAction>
-    + Resolve<Count, usize>
-{
-    /// Indicates where to leave the cursor after editing text.
-    fn get_cursor_end(&self) -> CursorEnd {
-        CursorEnd::Auto
-    }
-
-    /// Indicates a shape to be applied to an [EditAction].
-    fn get_target_shape(&self) -> Option<TargetShape>;
-
-    /// Indicates the style by which text should be inserted into the buffer.
-    fn get_insert_style(&self) -> Option<InsertStyle>;
-
-    /// Indicates whether it is okay to move the cursor into the last column of a line.
-    fn get_last_column(&self) -> bool;
-
-    /// Indicates which register yanked and deleted text should go to.
-    fn get_register(&self) -> Option<Register>;
-
-    /// Indicates whether should be appended to the target register when yanking or deleting text.
-    fn get_register_append(&self) -> bool;
-
-    /// Returns a regular expression to search for in the buffer.
-    ///
-    /// If the context doesn't specify a search regex, then consumers should fall back to using
-    /// the contents of [Register::LastSearch].
-    fn get_search_regex(&self) -> Option<Regex>;
-
-    /// Get the direction in which to search.
-    fn get_search_regex_dir(&self) -> MoveDir1D;
-
-    /// Returns a character to search for on the current line, and the direction in
-    /// which to search.
-    fn get_search_char(&self) -> Option<(MoveDir1D, bool, Char)>;
-
-    /// Returns a [character](Char) to use when performing an [EditAction::Replace] operation.
-    fn get_replace_char(&self) -> Option<Char>;
-}
-
-/// Trait for values that can be converted by the [EditContext].
-pub trait Resolve<T, R> {
-    /// Use contextual information to convert a `T` into an `R`.
-    fn resolve(&self, t: &T) -> R;
 }
 
 /// Trait for objects that allow toggling line wrapping.

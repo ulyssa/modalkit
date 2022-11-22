@@ -15,21 +15,21 @@ use crate::input::{
     InputContext,
 };
 
-use crate::editing::action::{Action, EditAction, InsertTextAction, PromptAction};
-
-use crate::editing::base::{
-    Application,
-    Char,
-    Count,
-    EditContext,
-    InsertStyle,
-    Mark,
-    MoveDir1D,
-    Register,
-    RepeatType,
-    Resolve,
-    Specifier,
-    TargetShape,
+use crate::editing::{
+    action::{Action, EditAction, InsertTextAction, PromptAction},
+    application::{ApplicationInfo, EmptyInfo},
+    base::{
+        Char,
+        Count,
+        InsertStyle,
+        Mark,
+        MoveDir1D,
+        Register,
+        RepeatType,
+        Specifier,
+        TargetShape,
+    },
+    context::{EditContext, Resolve},
 };
 
 use crate::util::{keycode_to_num, option_muladd_u32, option_muladd_usize};
@@ -57,8 +57,8 @@ impl Default for EmacsMode {
     }
 }
 
-impl<P: Application> Mode<Action<P>, EmacsContext<P>> for EmacsMode {
-    fn enter(&self, _: Self, ctx: &mut EmacsContext<P>) -> Vec<Action<P>> {
+impl<I: ApplicationInfo> Mode<Action<I>, EmacsContext<I>> for EmacsMode {
+    fn enter(&self, _: Self, ctx: &mut EmacsContext<I>) -> Vec<Action<I>> {
         match self {
             EmacsMode::Insert => {
                 return vec![];
@@ -71,7 +71,7 @@ impl<P: Application> Mode<Action<P>, EmacsContext<P>> for EmacsMode {
         }
     }
 
-    fn show(&self, ctx: &EmacsContext<P>) -> Option<String> {
+    fn show(&self, ctx: &EmacsContext<I>) -> Option<String> {
         match self {
             EmacsMode::Insert => {
                 match ctx.persist.insert {
@@ -90,11 +90,11 @@ impl<P: Application> Mode<Action<P>, EmacsContext<P>> for EmacsMode {
     }
 }
 
-impl<P: Application> ModeSequence<RepeatType, Action<P>, EmacsContext<P>> for EmacsMode {
+impl<I: ApplicationInfo> ModeSequence<RepeatType, Action<I>, EmacsContext<I>> for EmacsMode {
     fn sequences(
         &self,
-        action: &Action<P>,
-        ctx: &EmacsContext<P>,
+        action: &Action<I>,
+        ctx: &EmacsContext<I>,
     ) -> Vec<(RepeatType, SequenceStatus)> {
         match self {
             EmacsMode::Insert | EmacsMode::Command => {
@@ -112,12 +112,12 @@ impl<P: Application> ModeSequence<RepeatType, Action<P>, EmacsContext<P>> for Em
     }
 }
 
-impl<P: Application> ModeKeys<TerminalKey, Action<P>, EmacsContext<P>> for EmacsMode {
+impl<I: ApplicationInfo> ModeKeys<TerminalKey, Action<I>, EmacsContext<I>> for EmacsMode {
     fn unmapped(
         &self,
         ke: &TerminalKey,
-        ctx: &mut EmacsContext<P>,
-    ) -> (Vec<Action<P>>, Option<Self>) {
+        ctx: &mut EmacsContext<I>,
+    ) -> (Vec<Action<I>>, Option<Self>) {
         ctx.persist.repeating = false;
 
         match self {
@@ -197,15 +197,15 @@ impl Default for PersistentContext {
 
 /// This wraps both action specific context, and persistent context.
 #[derive(Debug, Eq, PartialEq)]
-pub struct EmacsContext<P: Application = ()> {
+pub struct EmacsContext<I: ApplicationInfo = EmptyInfo> {
     pub(crate) action: ActionContext,
     pub(crate) persist: PersistentContext,
     pub(self) ch: CharacterContext,
 
-    _p: PhantomData<P>,
+    _p: PhantomData<I>,
 }
 
-impl<P: Application> Clone for EmacsContext<P> {
+impl<I: ApplicationInfo> Clone for EmacsContext<I> {
     fn clone(&self) -> Self {
         Self {
             action: self.action.clone(),
@@ -217,7 +217,7 @@ impl<P: Application> Clone for EmacsContext<P> {
     }
 }
 
-impl<P: Application> InputContext for EmacsContext<P> {
+impl<I: ApplicationInfo> InputContext for EmacsContext<I> {
     fn overrides(&mut self, other: &Self) {
         // Allow overriding count.
         if other.action.count.is_some() {
@@ -240,7 +240,7 @@ impl<P: Application> InputContext for EmacsContext<P> {
     }
 }
 
-impl<P: Application> EditContext for EmacsContext<P> {
+impl<I: ApplicationInfo> EditContext for EmacsContext<I> {
     fn get_replace_char(&self) -> Option<Char> {
         None
     }
@@ -278,7 +278,7 @@ impl<P: Application> EditContext for EmacsContext<P> {
     }
 }
 
-impl<P: Application> Default for EmacsContext<P> {
+impl<I: ApplicationInfo> Default for EmacsContext<I> {
     fn default() -> Self {
         Self {
             action: ActionContext::default(),
@@ -290,7 +290,7 @@ impl<P: Application> Default for EmacsContext<P> {
     }
 }
 
-impl<P: Application> Resolve<Count, usize> for EmacsContext<P> {
+impl<I: ApplicationInfo> Resolve<Count, usize> for EmacsContext<I> {
     fn resolve(&self, count: &Count) -> usize {
         match count {
             Count::Contextual => self.action.count.unwrap_or(1),
@@ -300,7 +300,7 @@ impl<P: Application> Resolve<Count, usize> for EmacsContext<P> {
     }
 }
 
-impl<P: Application> Resolve<Specifier<Char>, Option<Char>> for EmacsContext<P> {
+impl<I: ApplicationInfo> Resolve<Specifier<Char>, Option<Char>> for EmacsContext<I> {
     fn resolve(&self, c: &Specifier<Char>) -> Option<Char> {
         match c {
             Specifier::Contextual => self.ch.get_typed(),
@@ -309,7 +309,7 @@ impl<P: Application> Resolve<Specifier<Char>, Option<Char>> for EmacsContext<P> 
     }
 }
 
-impl<P: Application> Resolve<Specifier<Mark>, Mark> for EmacsContext<P> {
+impl<I: ApplicationInfo> Resolve<Specifier<Mark>, Mark> for EmacsContext<I> {
     fn resolve(&self, mark: &Specifier<Mark>) -> Mark {
         match mark {
             Specifier::Contextual => Mark::LastJump,
@@ -318,7 +318,7 @@ impl<P: Application> Resolve<Specifier<Mark>, Mark> for EmacsContext<P> {
     }
 }
 
-impl<P: Application> Resolve<Specifier<EditAction>, EditAction> for EmacsContext<P> {
+impl<I: ApplicationInfo> Resolve<Specifier<EditAction>, EditAction> for EmacsContext<I> {
     fn resolve(&self, mark: &Specifier<EditAction>) -> EditAction {
         match mark {
             Specifier::Contextual => EditAction::Motion,
@@ -327,7 +327,7 @@ impl<P: Application> Resolve<Specifier<EditAction>, EditAction> for EmacsContext
     }
 }
 
-impl<P: Application> InputKeyContext<TerminalKey, CommonKeyClass> for EmacsContext<P> {
+impl<I: ApplicationInfo> InputKeyContext<TerminalKey, CommonKeyClass> for EmacsContext<I> {
     fn event(&mut self, ev: &EdgeEvent<TerminalKey, CommonKeyClass>, ke: &TerminalKey) {
         match ev {
             EdgeEvent::Key(_) | EdgeEvent::Fallthrough => {

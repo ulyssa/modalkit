@@ -15,14 +15,14 @@
 //!
 //! ```
 //! use modalkit::{
+//!     editing::application::EmptyInfo,
 //!     editing::key::KeyManager,
-//!     editing::store::Store,
-//!     env::vim::{VimContext, keybindings::VimMachine},
+//!     env::vim::keybindings::VimMachine,
+//!     input::key::TerminalKey,
 //! };
 //!
-//! let store = Store::<VimContext, ()>::new();
-//! let bindings = VimMachine::default();
-//! let bindings = KeyManager::new(bindings, store);
+//! let bindings = VimMachine::<TerminalKey, EmptyInfo>::default();
+//! let bindings = KeyManager::new(bindings);
 //! ```
 use std::collections::VecDeque;
 
@@ -30,19 +30,19 @@ use crate::input::{bindings::BindingMachine, key::InputKey, InputContext};
 
 use super::{
     action::{EditError, EditResult, MacroAction},
-    base::{Application, EditContext, Register},
+    application::ApplicationInfo,
+    base::Register,
+    context::EditContext,
     rope::EditRope,
-    store::{RegisterPutFlags, SharedStore},
+    store::{RegisterPutFlags, Store},
 };
 
 /// Wraps keybindings so that they can be fed simulated keypresses from macros.
-pub struct KeyManager<K, A, S, C, P = ()>
+pub struct KeyManager<K, A, S, C>
 where
     K: InputKey,
     C: EditContext + InputContext,
-    P: Application,
 {
-    store: SharedStore<C, P>,
     bindings: Box<dyn BindingMachine<K, A, S, C>>,
     keystack: VecDeque<K>,
 
@@ -52,21 +52,16 @@ where
     pending: EditRope,
 }
 
-impl<K, A, S, C, P> KeyManager<K, A, S, C, P>
+impl<K, A, S, C> KeyManager<K, A, S, C>
 where
     K: InputKey,
     C: EditContext + InputContext,
-    P: Application,
 {
     /// Create a new instance.
-    pub fn new<B: BindingMachine<K, A, S, C> + 'static>(
-        bindings: B,
-        store: SharedStore<C, P>,
-    ) -> Self {
+    pub fn new<B: BindingMachine<K, A, S, C> + 'static>(bindings: B) -> Self {
         let bindings = Box::new(bindings);
 
         Self {
-            store,
             bindings,
             keystack: VecDeque::new(),
 
@@ -78,25 +73,27 @@ where
     }
 
     /// Process a macro action.
-    pub fn macro_command(&mut self, act: MacroAction, ctx: &C) -> EditResult {
+    pub fn macro_command<I: ApplicationInfo>(
+        &mut self,
+        act: MacroAction,
+        ctx: &C,
+        store: &mut Store<I>,
+    ) -> EditResult {
         let (mstr, count) = match act {
             MacroAction::Execute(count) => {
                 let reg = ctx.get_register().unwrap_or(Register::UnnamedMacro);
-                let mut locked = self.store.write().unwrap();
-                let rope = locked.registers.get_macro(reg);
+                let rope = store.registers.get_macro(reg);
 
                 (rope.to_string(), ctx.resolve(&count))
             },
             MacroAction::Repeat(count) => {
-                let locked = self.store.read().unwrap();
-                let rope = locked.registers.get_last_macro().ok_or(EditError::NoMacro)?;
+                let rope = store.registers.get_last_macro().ok_or(EditError::NoMacro)?;
 
                 (rope.to_string(), ctx.resolve(&count))
             },
             MacroAction::ToggleRecording => {
                 if let Some((reg, append)) = self.recording {
                     // Save macro to register.
-                    let mut locked = self.store.write().unwrap();
                     let mut rope = EditRope::from("");
                     std::mem::swap(&mut rope, &mut self.committed);
 
@@ -106,7 +103,7 @@ where
                         flags |= RegisterPutFlags::APPEND;
                     }
 
-                    locked.registers.put(&reg, rope.into(), flags);
+                    store.registers.put(&reg, rope.into(), flags);
 
                     // Stop recording.
                     self.recording = None;
@@ -132,11 +129,10 @@ where
     }
 }
 
-impl<K, A, S, C, P> BindingMachine<K, A, S, C> for KeyManager<K, A, S, C, P>
+impl<K, A, S, C> BindingMachine<K, A, S, C> for KeyManager<K, A, S, C>
 where
     K: InputKey,
     C: EditContext + InputContext,
-    P: Application,
 {
     fn input_key(&mut self, key: K) {
         if self.recording.is_some() {
@@ -194,8 +190,9 @@ mod tests {
     use crossterm::event::{KeyCode, KeyEvent};
 
     use crate::{
+        editing::application::EmptyInfo,
         editing::base::Count,
-        editing::store::{SharedStore, Store},
+        editing::store::Store,
         env::vim::VimContext,
         env::CommonKeyClass,
         input::{
@@ -205,7 +202,7 @@ mod tests {
         },
     };
 
-    type TestStore = SharedStore<VimContext, ()>;
+    type TestStore = Store<EmptyInfo>;
     type TestMachine = ModalMachine<TerminalKey, TestStep>;
     type TestKeyManager = KeyManager<TerminalKey, TestAction, EmptySequence, VimContext>;
 
@@ -297,7 +294,7 @@ mod tests {
         use crate::input::bindings::EdgeRepeat::{Min, Once};
 
         let mut bindings = TestMachine::empty();
-        let store = Store::new();
+        let store = Store::default();
 
         // Normal mode mappings
         bindings.add_mapping(
@@ -348,43 +345,47 @@ mod tests {
             &TestMode::Normal.into(),
         );
 
-        (TestKeyManager::new(bindings, store.clone()), store)
+        (TestKeyManager::new(bindings), store)
     }
 
     #[test]
     fn test_record_and_execute() {
-        let (mut bindings, store) = setup_bindings();
+        let (mut bindings, mut store) = setup_bindings();
         let mut s = String::new();
         let mut flag = false;
 
-        let get_register =
-            |reg: Register| -> EditRope { store.read().unwrap().registers.get(&reg).value };
+        macro_rules! get_register {
+            ($reg: expr) => {
+                store.registers.get(&$reg).value
+            };
+        }
 
-        let mut input = |key: TerminalKey, s: &mut String, flag: &mut bool| {
-            bindings.input_key(key);
+        let mut input =
+            |key: TerminalKey, store: &mut TestStore, s: &mut String, flag: &mut bool| {
+                bindings.input_key(key);
 
-            while let Some((act, ctx)) = bindings.pop() {
-                match act {
-                    TestAction::NoOp => continue,
-                    TestAction::Macro(act) => {
-                        let _ = bindings.macro_command(act, &ctx).unwrap();
-                    },
-                    TestAction::SetFlag => {
-                        *flag = true;
-                    },
-                    TestAction::Type(c) => s.push(c),
+                while let Some((act, ctx)) = bindings.pop() {
+                    match act {
+                        TestAction::NoOp => continue,
+                        TestAction::Macro(act) => {
+                            let _ = bindings.macro_command(act, &ctx, store).unwrap();
+                        },
+                        TestAction::SetFlag => {
+                            *flag = true;
+                        },
+                        TestAction::Type(c) => s.push(c),
+                    }
                 }
-            }
-        };
+            };
 
         macro_rules! input {
             ($key: expr) => {
-                input($key, &mut s, &mut flag)
+                input($key, &mut store, &mut s, &mut flag)
             };
         }
 
         // Register::UnnamedMacro is currently empty.
-        assert_eq!(get_register(Register::UnnamedMacro).to_string(), "");
+        assert_eq!(get_register!(Register::UnnamedMacro).to_string(), "");
 
         // Press an unmapped key before recording.
         input!(key!('l'));
@@ -418,7 +419,7 @@ mod tests {
         input!(key!('q'));
 
         // Register::Named('a') now contains macro text.
-        assert_eq!(get_register(Register::Named('a')).to_string(), "nzfiabc<Esc>");
+        assert_eq!(get_register!(Register::Named('a')).to_string(), "nzfiabc<Esc>");
         assert_eq!(s, "abc");
         assert_eq!(flag, true);
 
@@ -461,8 +462,8 @@ mod tests {
         input!(key!('q'));
 
         // Register::UnnamedMacro now contains macro text.
-        assert_eq!(get_register(Register::UnnamedMacro).to_string(), "idef<Esc>\"aQ");
-        assert_eq!(get_register(Register::Named('a')).to_string(), "nzfiabc<Esc>");
+        assert_eq!(get_register!(Register::UnnamedMacro).to_string(), "idef<Esc>\"aQ");
+        assert_eq!(get_register!(Register::Named('a')).to_string(), "nzfiabc<Esc>");
         assert_eq!(s, "abcabcabcabcdefabc");
         assert_eq!(flag, true);
 

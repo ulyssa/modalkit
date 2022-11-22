@@ -25,22 +25,14 @@ use crate::editing::{
         SelectionAction,
         UIResult,
     },
-    base::{
-        Application,
-        EditContext,
-        EditTarget,
-        Mark,
-        MoveDir1D,
-        PositionList,
-        TargetShape,
-        ViewportContext,
-        Wrappable,
-    },
+    application::ApplicationInfo,
+    base::{EditTarget, Mark, MoveDir1D, PositionList, TargetShape, ViewportContext, Wrappable},
     buffer::{CursorGroupId, EditBuffer},
+    context::EditContext,
     cursor::Cursor,
     history::{HistoryList, ScrollbackState},
     rope::EditRope,
-    store::{BufferId, SharedStore},
+    store::{BufferId, Store},
 };
 
 pub struct EditorContext {
@@ -57,26 +49,24 @@ impl Default for EditorContext {
     }
 }
 
-pub struct Editor<C, P>
+pub struct Editor<I>
 where
-    C: EditContext,
-    P: Application,
+    I: ApplicationInfo,
 {
-    buffer: EditBuffer<C, P>,
+    buffer: EditBuffer<I>,
     scrollback: ScrollbackState,
 
     viewctx: ViewportContext<Cursor>,
     gid: CursorGroupId,
 }
 
-impl<C, P> Editor<C, P>
+impl<I> Editor<I>
 where
-    C: EditContext,
-    P: Application,
+    I: ApplicationInfo,
 {
-    pub fn new(store: SharedStore<C, P>) -> Self {
+    pub fn new() -> Self {
         let id = BufferId(0);
-        let mut buffer = EditBuffer::new(id, store);
+        let mut buffer = EditBuffer::new(id);
         let mut viewctx = ViewportContext::default();
         viewctx.set_wrap(true);
 
@@ -353,74 +343,83 @@ where
     }
 }
 
-impl<C, P> Deref for Editor<C, P>
+impl<I> Deref for Editor<I>
 where
-    C: EditContext,
-    P: Application,
+    I: ApplicationInfo,
 {
-    type Target = EditBuffer<C, P>;
+    type Target = EditBuffer<I>;
 
     fn deref(&self) -> &Self::Target {
         &self.buffer
     }
 }
 
-impl<C, P> DerefMut for Editor<C, P>
+impl<I> DerefMut for Editor<I>
 where
-    C: EditContext,
-    P: Application,
+    I: ApplicationInfo,
 {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.buffer
     }
 }
 
-impl<C, P> Editable<C> for Editor<C, P>
+impl<C, I> Editable<C, I> for Editor<I>
 where
     C: EditContext,
-    P: Application,
+    I: ApplicationInfo,
 {
-    fn edit(&mut self, operation: &EditAction, motion: &EditTarget, ctx: &C) -> EditResult {
+    fn edit(
+        &mut self,
+        operation: &EditAction,
+        motion: &EditTarget,
+        ctx: &C,
+        store: &mut Store<I>,
+    ) -> EditResult {
         let ctx = (self.gid, &self.viewctx, ctx);
 
-        self.buffer.edit(operation, motion, &ctx)
+        self.buffer.edit(operation, motion, &ctx, store)
     }
 
-    fn mark(&mut self, name: Mark, ctx: &C) -> EditResult {
+    fn mark(&mut self, name: Mark, ctx: &C, store: &mut Store<I>) -> EditResult {
         let ctx = (self.gid, &self.viewctx, ctx);
 
-        self.buffer.mark(name, &ctx)
+        self.buffer.mark(name, &ctx, store)
     }
 
-    fn insert_text(&mut self, act: InsertTextAction, ctx: &C) -> EditResult {
+    fn insert_text(&mut self, act: InsertTextAction, ctx: &C, store: &mut Store<I>) -> EditResult {
         let ctx = (self.gid, &self.viewctx, ctx);
 
-        self.buffer.insert_text(act, &ctx)
+        self.buffer.insert_text(act, &ctx, store)
     }
 
-    fn selection_command(&mut self, act: SelectionAction, ctx: &C) -> EditResult {
+    fn selection_command(
+        &mut self,
+        act: SelectionAction,
+        ctx: &C,
+        store: &mut Store<I>,
+    ) -> EditResult {
         let ctx = (self.gid, &self.viewctx, ctx);
 
-        self.buffer.selection_command(act, &ctx)
+        self.buffer.selection_command(act, &ctx, store)
     }
 
-    fn history_command(&mut self, act: HistoryAction, ctx: &C) -> EditResult {
+    fn history_command(&mut self, act: HistoryAction, ctx: &C, store: &mut Store<I>) -> EditResult {
         let ctx = (self.gid, &self.viewctx, ctx);
 
-        self.buffer.history_command(act, &ctx)
+        self.buffer.history_command(act, &ctx, store)
     }
 
-    fn cursor_command(&mut self, act: &CursorAction, ctx: &C) -> EditResult {
+    fn cursor_command(&mut self, act: &CursorAction, ctx: &C, store: &mut Store<I>) -> EditResult {
         let ctx = (self.gid, &self.viewctx, ctx);
 
-        self.buffer.cursor_command(act, &ctx)
+        self.buffer.cursor_command(act, &ctx, store)
     }
 }
 
-impl<C, I> Jumpable<C> for Editor<C, I>
+impl<C, I> Jumpable<C> for Editor<I>
 where
     C: EditContext,
-    I: Application,
+    I: ApplicationInfo,
 {
     fn jump(
         &mut self,
@@ -438,15 +437,13 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{editing::store::Store, env::vim::VimContext};
+    use crate::editing::application::EmptyInfo;
 
-    fn mked() -> Editor<VimContext, ()> {
-        let store = Store::new();
-
-        Editor::new(store)
+    fn mked() -> Editor<EmptyInfo> {
+        Editor::new()
     }
 
-    fn mkedstr(s: &str) -> Editor<VimContext, ()> {
+    fn mkedstr(s: &str) -> Editor<EmptyInfo> {
         let mut ed = mked();
         ed.set_text(s);
 

@@ -31,21 +31,22 @@ use super::{
 
 use crate::util::idx_offset;
 
-use crate::editing::action::{EditResult, UIResult, WindowAction};
-
-use crate::editing::base::{
-    Axis,
-    Axis::{Horizontal, Vertical},
-    CloseFlags,
-    CloseTarget,
-    Count,
-    EditContext,
-    FocusChange,
-    MoveDir1D,
-    MoveDir2D,
-    MoveDir2D::{Down, Left, Right, Up},
-    MovePosition,
-    SizeChange,
+use crate::editing::{
+    action::{EditResult, UIResult, WindowAction},
+    base::{
+        Axis,
+        Axis::{Horizontal, Vertical},
+        CloseFlags,
+        CloseTarget,
+        Count,
+        FocusChange,
+        MoveDir1D,
+        MoveDir2D,
+        MoveDir2D::{Down, Left, Right, Up},
+        MovePosition,
+        SizeChange,
+    },
+    context::EditContext,
 };
 
 fn windex<C: EditContext>(count: &Count, ctx: &C) -> usize {

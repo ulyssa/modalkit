@@ -32,7 +32,9 @@ use modalkit::{
             TabContainer,
             UIResult,
         },
-        base::{Application, RepeatType, Resolve},
+        application::ApplicationInfo,
+        base::RepeatType,
+        context::Resolve,
         key::KeyManager,
         store::Store,
     },
@@ -50,20 +52,26 @@ use modalkit::{
     },
 };
 
-type Context = MixedContext;
-type EditorBox = TextBoxState<Context>;
+type Context = MixedContext<EditorInfo>;
+type EditorAction = Action<EditorInfo>;
+type EditorBox = TextBoxState<EditorInfo>;
+type EditorStore = Store<EditorInfo>;
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum EditorInfo {}
+
+impl ApplicationInfo for EditorInfo {
+    type Action = ();
+    type Store = ();
+}
 
 struct Editor {
     terminal: Terminal<CrosstermBackend<Stdout>>,
-    bindings: KeyManager<TerminalKey, Action, RepeatType, Context>,
-    actstack: VecDeque<(Action, Context)>,
-    cmds: VimCommandMachine<Context>,
-    screen: ScreenState<EditorBox, Context>,
-}
-
-impl Application for Editor {
-    type Action = ();
-    type Store = ();
+    bindings: KeyManager<TerminalKey, EditorAction, RepeatType, Context>,
+    actstack: VecDeque<(EditorAction, Context)>,
+    cmds: VimCommandMachine<Context, EditorInfo>,
+    screen: ScreenState<EditorBox, EditorInfo>,
+    store: EditorStore,
 }
 
 impl Editor {
@@ -77,24 +85,24 @@ impl Editor {
         let backend = CrosstermBackend::new(stdout);
         let terminal = Terminal::new(backend)?;
 
-        let store = Store::new();
-        let bindings = MixedBindings::from(env);
-        let bindings = KeyManager::new(bindings, store.clone());
+        let mut store = Store::default();
+        let bindings = MixedBindings::<TerminalKey, EditorInfo>::from(env);
+        let bindings = KeyManager::new(bindings);
         let cmds = VimCommandMachine::default();
 
-        let buf = Store::new_buffer(&store);
+        let buf = store.new_buffer();
         let win = TextBoxState::new(buf);
-        let screen = ScreenState::new(win, store);
+        let screen = ScreenState::new(win, &mut store);
 
         let actstack = VecDeque::new();
 
-        Ok(Editor { terminal, bindings, actstack, cmds, screen })
+        Ok(Editor { terminal, bindings, actstack, cmds, screen, store })
     }
 
     pub fn run(&mut self) -> Result<(), std::io::Error> {
         self.terminal.clear()?;
 
-        while self.screen.tabs() != 0 {
+        while TabContainer::<Context, EditorStore>::tabs(&self.screen) != 0 {
             let key = self.step()?;
 
             self.bindings.input_key(key);
@@ -165,13 +173,13 @@ impl Editor {
         }
     }
 
-    fn action_prepend(&mut self, acts: Vec<(Action, Context)>) {
+    fn action_prepend(&mut self, acts: Vec<(EditorAction, Context)>) {
         let mut acts = VecDeque::from(acts);
         acts.append(&mut self.actstack);
         self.actstack = acts;
     }
 
-    fn action_pop(&mut self, keyskip: bool) -> Option<(Action, Context)> {
+    fn action_pop(&mut self, keyskip: bool) -> Option<(EditorAction, Context)> {
         if let res @ Some(_) = self.actstack.pop_front() {
             return res;
         }
@@ -183,25 +191,27 @@ impl Editor {
         }
     }
 
-    fn action_run(&mut self, action: Action, ctx: Context) -> UIResult {
-        let _ = match action {
+    fn action_run(&mut self, action: EditorAction, ctx: Context) -> UIResult {
+        let info = match action {
             // Do nothing.
-            Action::Application(_) => None,
+            Action::Application(()) => None,
             Action::NoOp => None,
 
             // Simple delegations.
             Action::CommandBar(act) => self.screen.command_bar(act, &ctx)?,
-            Action::Cursor(act) => self.screen.cursor_command(&act, &ctx)?,
-            Action::Edit(action, mov) => self.screen.edit(&ctx.resolve(&action), &mov, &ctx)?,
-            Action::History(act) => self.screen.history_command(act, &ctx)?,
-            Action::InsertText(act) => self.screen.insert_text(act, &ctx)?,
-            Action::Macro(act) => self.bindings.macro_command(act, &ctx)?,
-            Action::Mark(mark) => self.screen.mark(ctx.resolve(&mark), &ctx)?,
-            Action::Scroll(style) => self.screen.scroll(&style, &ctx)?,
-            Action::Search(dir, count) => self.screen.search(dir, count, &ctx)?,
-            Action::Selection(act) => self.screen.selection_command(act, &ctx)?,
+            Action::Cursor(act) => self.screen.cursor_command(&act, &ctx, &mut self.store)?,
+            Action::Edit(action, mov) => {
+                self.screen.edit(&ctx.resolve(&action), &mov, &ctx, &mut self.store)?
+            },
+            Action::History(act) => self.screen.history_command(act, &ctx, &mut self.store)?,
+            Action::InsertText(act) => self.screen.insert_text(act, &ctx, &mut self.store)?,
+            Action::Macro(act) => self.bindings.macro_command(act, &ctx, &mut self.store)?,
+            Action::Mark(mark) => self.screen.mark(ctx.resolve(&mark), &ctx, &mut self.store)?,
+            Action::Scroll(style) => self.screen.scroll(&style, &ctx, &mut self.store)?,
+            Action::Search(dir, count) => self.screen.search(dir, count, &ctx, &mut self.store)?,
+            Action::Selection(act) => self.screen.selection_command(act, &ctx, &mut self.store)?,
             Action::Suspend => self.terminal.program_suspend()?,
-            Action::Tab(cmd) => self.screen.tab_command(cmd, &ctx)?,
+            Action::Tab(cmd) => self.screen.tab_command(cmd, &ctx, &mut self.store)?,
             Action::Window(cmd) => self.screen.window_command(cmd, &ctx)?,
 
             Action::Jump(l, dir, count) => {
@@ -220,7 +230,7 @@ impl Editor {
 
             // Actions that create more Actions.
             Action::Prompt(act) => {
-                let acts = self.screen.prompt(act, &ctx)?;
+                let acts = self.screen.prompt(act, &ctx, &mut self.store)?;
                 self.action_prepend(acts);
 
                 None
@@ -255,7 +265,7 @@ impl Editor {
             },
         };
 
-        return Ok(None);
+        return Ok(info);
     }
 
     fn redraw(&mut self, full: bool) -> Result<(), std::io::Error> {

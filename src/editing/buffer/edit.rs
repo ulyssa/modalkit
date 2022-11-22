@@ -1,10 +1,9 @@
 use crate::editing::{
+    application::ApplicationInfo,
     base::{
-        Application,
         Case,
         CursorMovements,
         CursorMovementsContext,
-        EditContext,
         IndentChange,
         InsertStyle,
         JoinStyle,
@@ -12,34 +11,70 @@ use crate::editing::{
         Register,
         TargetShape,
     },
+    context::EditContext,
     cursor::{Cursor, CursorChoice},
     rope::EditRope,
-    store::{RegisterCell, RegisterPutFlags},
+    store::{RegisterCell, RegisterPutFlags, Store},
 };
 
 use super::{CursorRange, EditBuffer};
 
-pub trait EditActions<C> {
-    fn delete(&mut self, range: &CursorRange, ctx: C) -> CursorChoice;
-    fn yank(&mut self, range: &CursorRange, ctx: C) -> CursorChoice;
-    fn replace(&mut self, c: char, virt: bool, range: &CursorRange, ctx: C) -> CursorChoice;
-    fn changecase(&mut self, case: &Case, range: &CursorRange, ctx: C) -> CursorChoice;
-    fn format(&mut self, range: &CursorRange, ctx: C) -> CursorChoice;
-    fn changenum(&mut self, change: &NumberChange, range: &CursorRange, ctx: C) -> CursorChoice;
-    fn join(&mut self, spaces: JoinStyle, range: &CursorRange, ctx: C) -> CursorChoice;
-    fn indent(&mut self, change: &IndentChange, range: &CursorRange, ctx: C) -> CursorChoice;
+pub trait EditActions<C, I>
+where
+    I: ApplicationInfo,
+{
+    fn delete(&mut self, range: &CursorRange, ctx: &C, store: &mut Store<I>) -> CursorChoice;
+    fn yank(&mut self, range: &CursorRange, ctx: &C, store: &mut Store<I>) -> CursorChoice;
+    fn replace(
+        &mut self,
+        c: char,
+        virt: bool,
+        range: &CursorRange,
+        ctx: &C,
+        store: &mut Store<I>,
+    ) -> CursorChoice;
+    fn changecase(
+        &mut self,
+        case: &Case,
+        range: &CursorRange,
+        ctx: &C,
+        store: &mut Store<I>,
+    ) -> CursorChoice;
+    fn format(&mut self, range: &CursorRange, ctx: &C, store: &mut Store<I>) -> CursorChoice;
+    fn changenum(
+        &mut self,
+        change: &NumberChange,
+        range: &CursorRange,
+        ctx: &C,
+        store: &mut Store<I>,
+    ) -> CursorChoice;
+    fn join(
+        &mut self,
+        spaces: JoinStyle,
+        range: &CursorRange,
+        ctx: &C,
+        store: &mut Store<I>,
+    ) -> CursorChoice;
+    fn indent(
+        &mut self,
+        change: &IndentChange,
+        range: &CursorRange,
+        ctx: &C,
+        store: &mut Store<I>,
+    ) -> CursorChoice;
 }
 
-impl<'a, 'b, 'c, C, P> EditActions<&CursorMovementsContext<'a, 'b, 'c, Cursor, C>>
-    for EditBuffer<C, P>
+impl<'a, 'b, 'c, C, I> EditActions<CursorMovementsContext<'a, 'b, 'c, Cursor, C>, I>
+    for EditBuffer<I>
 where
     C: EditContext,
-    P: Application,
+    I: ApplicationInfo,
 {
     fn delete(
         &mut self,
         range: &CursorRange,
         ctx: &CursorMovementsContext<'a, 'b, 'c, Cursor, C>,
+        store: &mut Store<I>,
     ) -> CursorChoice {
         let style = ctx.context.get_insert_style().unwrap_or(InsertStyle::Insert);
         let (shape, ranges) = self._effective(range, ctx.context.get_target_shape());
@@ -76,10 +111,10 @@ where
 
             if tlines == 0 {
                 let cstart = self.text.offset_to_cursor(start);
-                self._adjust_columns(cstart.y, cstart.x, 0, -tlen);
+                self._adjust_columns(cstart.y, cstart.x, 0, -tlen, store);
             } else {
                 let lend = lstart.saturating_add(tlines - 1);
-                self._adjust_lines(lstart, lend, isize::MAX, -(tlines as isize));
+                self._adjust_lines(lstart, lend, isize::MAX, -(tlines as isize), store);
             }
 
             coff = start;
@@ -95,7 +130,7 @@ where
             flags |= RegisterPutFlags::APPEND
         }
 
-        self.set_register(&register, cell, flags);
+        store.registers.put(&register, cell, flags);
 
         let cursor = self.text.offset_to_cursor(coff);
 
@@ -106,6 +141,7 @@ where
         &mut self,
         range: &CursorRange,
         ctx: &CursorMovementsContext<'a, 'b, 'c, Cursor, C>,
+        store: &mut Store<I>,
     ) -> CursorChoice {
         let (shape, ranges) = self._effective(range, ctx.context.get_target_shape());
         let mut yanked = EditRope::from("");
@@ -136,7 +172,7 @@ where
             flags |= RegisterPutFlags::APPEND;
         }
 
-        self.set_register(&register, cell, flags);
+        store.registers.put(&register, cell, flags);
 
         cursors
             .map(|(start, end)| {
@@ -163,6 +199,7 @@ where
         _virt: bool,
         range: &CursorRange,
         ctx: &CursorMovementsContext<'a, 'b, 'c, Cursor, C>,
+        _: &mut Store<I>,
     ) -> CursorChoice {
         let (_, ranges) = self._effective(range, ctx.context.get_target_shape());
         let mut cursor = None;
@@ -200,6 +237,7 @@ where
         case: &Case,
         range: &CursorRange,
         ctx: &CursorMovementsContext<'a, 'b, 'c, Cursor, C>,
+        _: &mut Store<I>,
     ) -> CursorChoice {
         let (shape, ranges) = self._effective(range, ctx.context.get_target_shape());
         let mut cursors = None;
@@ -242,6 +280,7 @@ where
         _: &IndentChange,
         _: &CursorRange,
         _: &CursorMovementsContext<'a, 'b, 'c, Cursor, C>,
+        _: &mut Store<I>,
     ) -> CursorChoice {
         // XXX: implement (:help <, :help >, :help v_b_<, :help v_b_>)
 
@@ -252,6 +291,7 @@ where
         &mut self,
         _: &CursorRange,
         _: &CursorMovementsContext<'a, 'b, 'c, Cursor, C>,
+        _: &mut Store<I>,
     ) -> CursorChoice {
         /*
          * Automatically formatting lines requires a whole lot of logic that just doesn't exist
@@ -266,6 +306,7 @@ where
         _: &NumberChange,
         _: &CursorRange,
         _: &CursorMovementsContext<'a, 'b, 'c, Cursor, C>,
+        _: &mut Store<I>,
     ) -> CursorChoice {
         // XXX: implement (:help nrformats)
 
@@ -277,6 +318,7 @@ where
         spaces: JoinStyle,
         range: &CursorRange,
         _: &CursorMovementsContext<'a, 'b, 'c, Cursor, C>,
+        store: &mut Store<I>,
     ) -> CursorChoice {
         // Joining is always forced into a LineWise movement.
         let (_, ranges) = self._effective(range, Some(TargetShape::LineWise));
@@ -334,8 +376,8 @@ where
                         let space = stop - nl - jtxt.len().into();
                         let camt = y0c as isize + jtxt.len() as isize - usize::from(space) as isize;
 
-                        self._adjust_columns(y1, 0, -1, camt);
-                        self._adjust_lines(y1, usize::MAX, -1, 0);
+                        self._adjust_columns(y1, 0, -1, camt, store);
+                        self._adjust_lines(y1, usize::MAX, -1, 0, store);
                         self.text.replace(nl, stop, false, jtxt);
 
                         space
@@ -343,8 +385,8 @@ where
                     JoinStyle::NewSpace => {
                         let camt = y0c as isize + 1;
 
-                        self._adjust_columns(y1, 0, -1, camt);
-                        self._adjust_lines(y1, usize::MAX, -1, 0);
+                        self._adjust_columns(y1, 0, -1, camt, store);
+                        self._adjust_lines(y1, usize::MAX, -1, 0, store);
                         self.text.replace(nl, nl, true, " ");
 
                         1.into()
@@ -352,8 +394,8 @@ where
                     JoinStyle::NoChange => {
                         let camt = y0c as isize;
 
-                        self._adjust_columns(y1, 0, -1, camt);
-                        self._adjust_lines(y1, usize::MAX, -1, 0);
+                        self._adjust_columns(y1, 0, -1, camt, store);
+                        self._adjust_lines(y1, usize::MAX, -1, 0, store);
                         self.text.replace(nl, nl, true, "");
 
                         1.into()
@@ -382,234 +424,240 @@ mod tests {
     use crate::editing::base::CursorEnd;
 
     macro_rules! get_reg {
-        ($ebuf: expr, $reg: expr) => {
-            $ebuf.get_register(&$reg)
+        ($store: expr, $reg: expr) => {
+            $store.registers.get(&$reg)
         };
     }
 
     macro_rules! get_named_reg {
-        ($ebuf: expr, $reg: expr) => {
-            get_reg!($ebuf, Register::Named($reg))
+        ($store: expr, $reg: expr) => {
+            get_reg!($store, Register::Named($reg))
         };
     }
 
     macro_rules! get_recent_del_reg {
-        ($ebuf: expr, $n: expr) => {
-            get_reg!($ebuf, Register::RecentlyDeleted($n))
+        ($store: expr, $n: expr) => {
+            get_reg!($store, Register::RecentlyDeleted($n))
         };
     }
 
     #[test]
     fn test_replace() {
-        let mut ebuf = mkbufstr("hello world\na b c d e\nfoo bar baz");
-        let curid = ebuf.create_group();
-        let vwctx = ViewportContext::default();
-        let mut vctx = VimContext::default();
+        let (mut ebuf, curid, vwctx, mut vctx, mut store) =
+            mkfivestr("hello world\na b c d e\nfoo bar baz");
 
         // 3r!
         let mov = MoveType::Column(MoveDir1D::Next, false);
         vctx.action.replace = Some('!'.into());
-        edit!(ebuf, EditAction::Replace(false), mv!(mov, 3), ctx!(curid, vwctx, vctx));
+        edit!(ebuf, EditAction::Replace(false), mv!(mov, 3), ctx!(curid, vwctx, vctx), store);
         assert_eq!(ebuf.get_text(), "!!!lo world\na b c d e\nfoo bar baz\n");
         assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 2));
 
         // replace three words ("!", "lo", "world") w/ "Q"
         let mov = MoveType::WordBegin(WordStyle::Little, MoveDir1D::Next);
         vctx.action.replace = Some('Q'.into());
-        edit!(ebuf, EditAction::Replace(false), mv!(mov, 3), ctx!(curid, vwctx, vctx));
+        edit!(ebuf, EditAction::Replace(false), mv!(mov, 3), ctx!(curid, vwctx, vctx), store);
         assert_eq!(ebuf.get_text(), "!!QQQQQQQQQ\na b c d e\nfoo bar baz\n");
         assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 10));
 
         // replace two lines w/ ":", leaving newlines intact.
         let mov = RangeType::Line;
         vctx.action.replace = Some(':'.into());
-        edit!(ebuf, EditAction::Replace(false), range!(mov, 2), ctx!(curid, vwctx, vctx));
+        edit!(ebuf, EditAction::Replace(false), range!(mov, 2), ctx!(curid, vwctx, vctx), store);
         assert_eq!(ebuf.get_text(), ":::::::::::\n:::::::::\nfoo bar baz\n");
         assert_eq!(ebuf.get_leader(curid), Cursor::new(1, 8));
     }
 
     #[test]
     fn test_yank() {
-        let mut ebuf = mkbufstr("hello world\na b c d e\nfoo bar baz");
-        let curid = ebuf.create_group();
-        let vwctx = ViewportContext::default();
-        let mut vctx = VimContext::default();
+        let (mut ebuf, curid, vwctx, mut vctx, mut store) =
+            mkfivestr("hello world\na b c d e\nfoo bar baz");
 
         let mov = MoveType::WordBegin(WordStyle::Little, MoveDir1D::Next);
 
         // Move forward to "world"
-        edit!(ebuf, EditAction::Motion, mv!(mov), ctx!(curid, vwctx, vctx));
+        edit!(ebuf, EditAction::Motion, mv!(mov), ctx!(curid, vwctx, vctx), store);
         assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 6));
 
         // Test that we use the unnamed register ("") by default.
-        edit!(ebuf, EditAction::Yank, mv!(mov), ctx!(curid, vwctx, vctx));
+        edit!(ebuf, EditAction::Yank, mv!(mov), ctx!(curid, vwctx, vctx), store);
         assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 6));
 
         // Both "" and "0 should now be updated.
-        assert_eq!(get_reg!(ebuf, Register::LastYanked), cell!(CharWise, "world"));
-        assert_eq!(get_reg!(ebuf, Register::Unnamed), cell!(CharWise, "world"));
+        assert_eq!(get_reg!(store, Register::LastYanked), cell!(CharWise, "world"));
+        assert_eq!(get_reg!(store, Register::Unnamed), cell!(CharWise, "world"));
 
         // Test using the named 'a' register ("a).
         vctx.action.count = Some(3);
         vctx.action.register = Some(Register::Named('a'));
-        edit!(ebuf, EditAction::Yank, mv!(mov), ctx!(curid, vwctx, vctx));
+        edit!(ebuf, EditAction::Yank, mv!(mov), ctx!(curid, vwctx, vctx), store);
         assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 6));
 
         // Both "" and "a should now be updated, and "0 untouched.
-        assert_eq!(get_reg!(ebuf, Register::LastYanked), cell!(CharWise, "world"));
-        assert_eq!(get_reg!(ebuf, Register::Unnamed), cell!(CharWise, "world\na b "));
-        assert_eq!(get_named_reg!(ebuf, 'a'), cell!(CharWise, "world\na b "));
+        assert_eq!(get_reg!(store, Register::LastYanked), cell!(CharWise, "world"));
+        assert_eq!(get_reg!(store, Register::Unnamed), cell!(CharWise, "world\na b "));
+        assert_eq!(get_named_reg!(store, 'a'), cell!(CharWise, "world\na b "));
 
         // Append a line to the 'a' register ("A).
         vctx.action.count = None;
         vctx.action.register = Some(Register::Named('a'));
         vctx.action.register_append = true;
-        edit!(ebuf, EditAction::Yank, range!(RangeType::Line), ctx!(curid, vwctx, vctx));
+        edit!(ebuf, EditAction::Yank, range!(RangeType::Line), ctx!(curid, vwctx, vctx), store);
         assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 6));
 
         // Both "" and "a should contain appended text, and "0 be untouched.
-        assert_eq!(get_reg!(ebuf, Register::LastYanked), cell!(CharWise, "world"));
+        assert_eq!(get_reg!(store, Register::LastYanked), cell!(CharWise, "world"));
         assert_eq!(
-            get_reg!(ebuf, Register::Unnamed),
+            get_reg!(store, Register::Unnamed),
             cell!(LineWise, "world\na b \nhello world\n")
         );
-        assert_eq!(get_named_reg!(ebuf, 'a'), cell!(LineWise, "world\na b \nhello world\n"));
+        assert_eq!(get_named_reg!(store, 'a'), cell!(LineWise, "world\na b \nhello world\n"));
 
         // The blackhole register ("_) discards the yanked text.
         vctx.action.count = None;
         vctx.action.register = Some(Register::Blackhole);
         vctx.action.register_append = false;
-        edit!(ebuf, EditAction::Yank, mv!(mov), ctx!(curid, vwctx, vctx));
+        edit!(ebuf, EditAction::Yank, mv!(mov), ctx!(curid, vwctx, vctx), store);
         assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 6));
 
         // All registers should be untouched, and "_ should not return the word "world".
-        assert_eq!(get_reg!(ebuf, Register::LastYanked), cell!(CharWise, "world"));
+        assert_eq!(get_reg!(store, Register::LastYanked), cell!(CharWise, "world"));
         assert_eq!(
-            get_reg!(ebuf, Register::Unnamed),
+            get_reg!(store, Register::Unnamed),
             cell!(LineWise, "world\na b \nhello world\n")
         );
-        assert_eq!(get_named_reg!(ebuf, 'a'), cell!(LineWise, "world\na b \nhello world\n"));
-        assert_eq!(get_reg!(ebuf, Register::Blackhole), cell!(CharWise, ""));
+        assert_eq!(get_named_reg!(store, 'a'), cell!(LineWise, "world\na b \nhello world\n"));
+        assert_eq!(get_reg!(store, Register::Blackhole), cell!(CharWise, ""));
     }
 
     #[test]
     fn test_delete() {
-        let mut ebuf = mkbufstr("hello world\na b c d e f\n\n\n1 2 3 4 5 6\n");
-        let curid = ebuf.create_group();
-        let vwctx = ViewportContext::default();
-        let vctx = VimContext::default();
+        let (mut ebuf, curid, vwctx, vctx, mut store) =
+            mkfivestr("hello world\na b c d e f\n\n\n1 2 3 4 5 6\n");
 
         // Test deleting a word.
         let mov = MoveType::WordBegin(WordStyle::Little, MoveDir1D::Next);
-        edit!(ebuf, EditAction::Delete, mv!(mov), ctx!(curid, vwctx, vctx));
+        edit!(ebuf, EditAction::Delete, mv!(mov), ctx!(curid, vwctx, vctx), store);
         assert_eq!(ebuf.get_text(), "world\na b c d e f\n\n\n1 2 3 4 5 6\n");
         assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 0));
-        assert_eq!(get_reg!(ebuf, Register::LastYanked), RegisterCell::default());
+        assert_eq!(get_reg!(store, Register::LastYanked), RegisterCell::default());
 
         // Less than a line was deleted, so this goes into "-, not "1.
-        assert_eq!(get_reg!(ebuf, Register::SmallDelete), cell!(CharWise, "hello "));
-        assert_eq!(get_recent_del_reg!(ebuf, 0), RegisterCell::default());
+        assert_eq!(get_reg!(store, Register::SmallDelete), cell!(CharWise, "hello "));
+        assert_eq!(get_recent_del_reg!(store, 0), RegisterCell::default());
 
         // Test that deleting multiple words crosses lines.
-        edit!(ebuf, EditAction::Delete, mv!(mov, 3), ctx!(curid, vwctx, vctx));
+        edit!(ebuf, EditAction::Delete, mv!(mov, 3), ctx!(curid, vwctx, vctx), store);
         assert_eq!(ebuf.get_text(), "c d e f\n\n\n1 2 3 4 5 6\n");
         assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 0));
 
         // More than a line was deleted, so this goes into "1 and "- is untouched.
-        assert_eq!(get_reg!(ebuf, Register::SmallDelete), cell!(CharWise, "hello "));
-        assert_eq!(get_recent_del_reg!(ebuf, 0), cell!(CharWise, "world\na b "));
+        assert_eq!(get_reg!(store, Register::SmallDelete), cell!(CharWise, "hello "));
+        assert_eq!(get_recent_del_reg!(store, 0), cell!(CharWise, "world\na b "));
 
         // Test that the behaviour changes if the last word is at the end of a line.
-        edit!(ebuf, EditAction::Delete, mv!(mov, 4), ctx!(curid, vwctx, vctx));
+        edit!(ebuf, EditAction::Delete, mv!(mov, 4), ctx!(curid, vwctx, vctx), store);
         assert_eq!(ebuf.get_text(), "\n\n\n1 2 3 4 5 6\n");
         assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 0));
 
         // Less than a line was deleted, so this goes into "- and "1 is untouched.
-        assert_eq!(get_reg!(ebuf, Register::SmallDelete), cell!(CharWise, "c d e f"));
-        assert_eq!(get_recent_del_reg!(ebuf, 0), cell!(CharWise, "world\na b "));
+        assert_eq!(get_reg!(store, Register::SmallDelete), cell!(CharWise, "c d e f"));
+        assert_eq!(get_recent_del_reg!(store, 0), cell!(CharWise, "world\na b "));
 
         // Test deleting blank lines.
-        edit!(ebuf, EditAction::Delete, range!(RangeType::Line, 3), ctx!(curid, vwctx, vctx));
+        edit!(
+            ebuf,
+            EditAction::Delete,
+            range!(RangeType::Line, 3),
+            ctx!(curid, vwctx, vctx),
+            store
+        );
         assert_eq!(ebuf.get_text(), "1 2 3 4 5 6\n");
         assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 0));
 
         // More than a line was deleted, so "1 shifts to "2, this goes into "1 and "- is untouched.
-        assert_eq!(get_reg!(ebuf, Register::SmallDelete), cell!(CharWise, "c d e f"));
-        assert_eq!(get_recent_del_reg!(ebuf, 0), cell!(LineWise, "\n\n\n"));
-        assert_eq!(get_recent_del_reg!(ebuf, 1), cell!(CharWise, "world\na b "));
+        assert_eq!(get_reg!(store, Register::SmallDelete), cell!(CharWise, "c d e f"));
+        assert_eq!(get_recent_del_reg!(store, 0), cell!(LineWise, "\n\n\n"));
+        assert_eq!(get_recent_del_reg!(store, 1), cell!(CharWise, "world\na b "));
 
         // Move forward two words and delete text in middle of line.
-        edit!(ebuf, EditAction::Motion, mv!(mov, 2), ctx!(curid, vwctx, vctx));
+        edit!(ebuf, EditAction::Motion, mv!(mov, 2), ctx!(curid, vwctx, vctx), store);
         assert_eq!(ebuf.get_text(), "1 2 3 4 5 6\n");
         assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 4));
 
         // Test deleting in middle of string.
-        edit!(ebuf, EditAction::Delete, mv!(mov, 2), ctx!(curid, vwctx, vctx));
+        edit!(ebuf, EditAction::Delete, mv!(mov, 2), ctx!(curid, vwctx, vctx), store);
         assert_eq!(ebuf.get_text(), "1 2 5 6\n");
         assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 4));
 
         // Less than a line was deleted, so "- is updated, other registers remain the same.
-        assert_eq!(get_reg!(ebuf, Register::SmallDelete), cell!(CharWise, "3 4 "));
-        assert_eq!(get_recent_del_reg!(ebuf, 0), cell!(LineWise, "\n\n\n"));
-        assert_eq!(get_recent_del_reg!(ebuf, 1), cell!(CharWise, "world\na b "));
+        assert_eq!(get_reg!(store, Register::SmallDelete), cell!(CharWise, "3 4 "));
+        assert_eq!(get_recent_del_reg!(store, 0), cell!(LineWise, "\n\n\n"));
+        assert_eq!(get_recent_del_reg!(store, 1), cell!(CharWise, "world\na b "));
 
         // Test that deleting more lines than exists deletes whole string.
-        edit!(ebuf, EditAction::Delete, range!(RangeType::Line, 3), ctx!(curid, vwctx, vctx));
+        edit!(
+            ebuf,
+            EditAction::Delete,
+            range!(RangeType::Line, 3),
+            ctx!(curid, vwctx, vctx),
+            store
+        );
         assert_eq!(ebuf.get_text(), "\n");
         assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 0));
 
         // "1 and "2 get shifted, "0 set, "- untouched.
-        assert_eq!(get_reg!(ebuf, Register::SmallDelete), cell!(CharWise, "3 4 "));
-        assert_eq!(get_recent_del_reg!(ebuf, 0), cell!(LineWise, "1 2 5 6\n"));
-        assert_eq!(get_recent_del_reg!(ebuf, 1), cell!(LineWise, "\n\n\n"));
-        assert_eq!(get_recent_del_reg!(ebuf, 2), cell!(CharWise, "world\na b "));
+        assert_eq!(get_reg!(store, Register::SmallDelete), cell!(CharWise, "3 4 "));
+        assert_eq!(get_recent_del_reg!(store, 0), cell!(LineWise, "1 2 5 6\n"));
+        assert_eq!(get_recent_del_reg!(store, 1), cell!(LineWise, "\n\n\n"));
+        assert_eq!(get_recent_del_reg!(store, 2), cell!(CharWise, "world\na b "));
     }
 
     #[test]
     fn test_delete_blockwise() {
-        let mut ebuf = mkbufstr("hello world\n1 2 3 4 5 6\n  a b c d e f\n");
-        let curid = ebuf.create_group();
-        let vwctx = ViewportContext::default();
-        let mut vctx = VimContext::default();
+        let (mut ebuf, curid, vwctx, mut vctx, mut store) =
+            mkfivestr("hello world\n1 2 3 4 5 6\n  a b c d e f\n");
 
         // Set cursor to (0, 7).
         ebuf.set_leader(curid, Cursor::new(0, 7));
 
         // Do a blockwise delete from here to the first word of the third line.
         vctx.persist.shape = Some(TargetShape::BlockWise);
-        edit!(ebuf, EditAction::Delete, range!(RangeType::Line, 3), ctx!(curid, vwctx, vctx));
+        edit!(
+            ebuf,
+            EditAction::Delete,
+            range!(RangeType::Line, 3),
+            ctx!(curid, vwctx, vctx),
+            store
+        );
         assert_eq!(ebuf.get_text(), "herld\n1 5 6\n  d e f\n");
 
         // Check that the deleted text went into "" and "1. "0 and "- should be untouched.
-        assert_eq!(get_recent_del_reg!(ebuf, 0), cell!(BlockWise, "llo wo\n2 3 4 \na b c "));
-        assert_eq!(get_reg!(ebuf, Register::Unnamed), cell!(BlockWise, "llo wo\n2 3 4 \na b c "));
-        assert_eq!(get_reg!(ebuf, Register::LastYanked), cell!(CharWise, ""));
-        assert_eq!(get_reg!(ebuf, Register::SmallDelete), cell!(CharWise, ""));
+        assert_eq!(get_recent_del_reg!(store, 0), cell!(BlockWise, "llo wo\n2 3 4 \na b c "));
+        assert_eq!(get_reg!(store, Register::Unnamed), cell!(BlockWise, "llo wo\n2 3 4 \na b c "));
+        assert_eq!(get_reg!(store, Register::LastYanked), cell!(CharWise, ""));
+        assert_eq!(get_reg!(store, Register::SmallDelete), cell!(CharWise, ""));
     }
 
     #[test]
     fn test_delete_eol() {
-        let mut ebuf = mkbufstr("hello world\na b c d e f\n\n\n1 2 3 4 5 6\n");
-        let curid = ebuf.create_group();
-        let vwctx = ViewportContext::default();
-        let vctx = VimContext::default();
+        let (mut ebuf, curid, vwctx, vctx, mut store) =
+            mkfivestr("hello world\na b c d e f\n\n\n1 2 3 4 5 6\n");
 
         // Set cursor to (0, 3).
         ebuf.set_leader(curid, Cursor::new(0, 3));
 
         // Delete from cursor to the end of the line ("d$").
         let mov = MoveType::LinePos(MovePosition::End);
-        edit!(ebuf, EditAction::Delete, mv!(mov, 0), ctx!(curid, vwctx, vctx));
+        edit!(ebuf, EditAction::Delete, mv!(mov, 0), ctx!(curid, vwctx, vctx), store);
         assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 2));
         assert_eq!(ebuf.get_text(), "hel\na b c d e f\n\n\n1 2 3 4 5 6\n");
     }
 
     #[test]
     fn test_change() {
-        let mut ebuf = mkbufstr("hello world\na b c d e f\n\n\n1 2 3 4 5 6\n");
-        let curid = ebuf.create_group();
-        let vwctx = ViewportContext::default();
-        let mut vctx = VimContext::default();
+        let (mut ebuf, curid, vwctx, mut vctx, mut store) =
+            mkfivestr("hello world\na b c d e f\n\n\n1 2 3 4 5 6\n");
 
         vctx.persist.insert = Some(InsertStyle::Insert);
 
@@ -618,25 +666,25 @@ mod tests {
 
         // Delete from cursor to the end of the line ("c$").
         let mov = MoveType::LinePos(MovePosition::End);
-        edit!(ebuf, EditAction::Delete, mv!(mov, 0), ctx!(curid, vwctx, vctx));
+        edit!(ebuf, EditAction::Delete, mv!(mov, 0), ctx!(curid, vwctx, vctx), store);
         assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 3));
         assert_eq!(ebuf.get_text(), "hel\na b c d e f\n\n\n1 2 3 4 5 6\n");
 
         // Delete previous character ("<BS>").
         let mov = MoveType::Column(MoveDir1D::Previous, true);
-        edit!(ebuf, EditAction::Delete, mv!(mov), ctx!(curid, vwctx, vctx));
+        edit!(ebuf, EditAction::Delete, mv!(mov), ctx!(curid, vwctx, vctx), store);
         assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 2));
         assert_eq!(ebuf.get_text(), "he\na b c d e f\n\n\n1 2 3 4 5 6\n");
 
         // Delete previous word ("^W").
         let mov = MoveType::WordBegin(WordStyle::Little, MoveDir1D::Previous);
-        edit!(ebuf, EditAction::Delete, mv!(mov), ctx!(curid, vwctx, vctx));
+        edit!(ebuf, EditAction::Delete, mv!(mov), ctx!(curid, vwctx, vctx), store);
         assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 0));
         assert_eq!(ebuf.get_text(), "\na b c d e f\n\n\n1 2 3 4 5 6\n");
 
         // Delete next character ("<Del>").
         let mov = MoveType::Column(MoveDir1D::Next, true);
-        edit!(ebuf, EditAction::Delete, mv!(mov), ctx!(curid, vwctx, vctx));
+        edit!(ebuf, EditAction::Delete, mv!(mov), ctx!(curid, vwctx, vctx), store);
         assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 0));
         assert_eq!(ebuf.get_text(), "a b c d e f\n\n\n1 2 3 4 5 6\n");
 
@@ -645,36 +693,34 @@ mod tests {
 
         // Delete previous newline character ("<BS>").
         let mov = MoveType::Column(MoveDir1D::Previous, true);
-        edit!(ebuf, EditAction::Delete, mv!(mov), ctx!(curid, vwctx, vctx));
+        edit!(ebuf, EditAction::Delete, mv!(mov), ctx!(curid, vwctx, vctx), store);
         assert_eq!(ebuf.get_leader(curid), Cursor::new(2, 0));
         assert_eq!(ebuf.get_text(), "a b c d e f\n\n1 2 3 4 5 6\n");
 
         // Delete two previous newline characters ("<BS>").
         let mov = MoveType::Column(MoveDir1D::Previous, true);
         vctx.action.count = Some(2);
-        edit!(ebuf, EditAction::Delete, mv!(mov), ctx!(curid, vwctx, vctx));
+        edit!(ebuf, EditAction::Delete, mv!(mov), ctx!(curid, vwctx, vctx), store);
         assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 11));
         assert_eq!(ebuf.get_text(), "a b c d e f1 2 3 4 5 6\n");
     }
 
     #[test]
     fn test_changecase() {
-        let mut ebuf = mkbufstr("thiS iS An eXaMpLE of mIxed cASE\n");
-        let curid = ebuf.create_group();
-        let vwctx = ViewportContext::default();
-        let vctx = VimContext::default();
+        let (mut ebuf, curid, vwctx, vctx, mut store) =
+            mkfivestr("thiS iS An eXaMpLE of mIxed cASE\n");
 
         let mov = MoveType::WordBegin(WordStyle::Little, MoveDir1D::Next);
 
         // Test Case::Toggle operations
         let operation = EditAction::ChangeCase(Case::Toggle);
 
-        edit!(ebuf, operation, mv!(mov), ctx!(curid, vwctx, vctx));
+        edit!(ebuf, operation, mv!(mov), ctx!(curid, vwctx, vctx), store);
         assert_eq!(ebuf.get_text(), "THIs iS An eXaMpLE of mIxed cASE\n");
         assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 0));
 
         // Running a second time toggles again
-        edit!(ebuf, operation, range!(RangeType::Line), ctx!(curid, vwctx, vctx));
+        edit!(ebuf, operation, range!(RangeType::Line), ctx!(curid, vwctx, vctx), store);
         assert_eq!(ebuf.get_text(), "thiS Is aN ExAmPle OF MiXED Case\n");
         assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 0));
 
@@ -682,22 +728,22 @@ mod tests {
         let operation = EditAction::ChangeCase(Case::Upper);
 
         // Make first word uppercase
-        edit!(ebuf, operation, mv!(mov), ctx!(curid, vwctx, vctx));
+        edit!(ebuf, operation, mv!(mov), ctx!(curid, vwctx, vctx), store);
         assert_eq!(ebuf.get_text(), "THIS Is aN ExAmPle OF MiXED Case\n");
         assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 0));
 
         // Uppercasing is idempotent
-        edit!(ebuf, operation, mv!(mov), ctx!(curid, vwctx, vctx));
+        edit!(ebuf, operation, mv!(mov), ctx!(curid, vwctx, vctx), store);
         assert_eq!(ebuf.get_text(), "THIS Is aN ExAmPle OF MiXED Case\n");
         assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 0));
 
         // Make whole line uppercase
-        edit!(ebuf, operation, range!(RangeType::Line), ctx!(curid, vwctx, vctx));
+        edit!(ebuf, operation, range!(RangeType::Line), ctx!(curid, vwctx, vctx), store);
         assert_eq!(ebuf.get_text(), "THIS IS AN EXAMPLE OF MIXED CASE\n");
         assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 0));
 
         // Uppercasing is idempotent
-        edit!(ebuf, operation, range!(RangeType::Line), ctx!(curid, vwctx, vctx));
+        edit!(ebuf, operation, range!(RangeType::Line), ctx!(curid, vwctx, vctx), store);
         assert_eq!(ebuf.get_text(), "THIS IS AN EXAMPLE OF MIXED CASE\n");
         assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 0));
 
@@ -705,22 +751,22 @@ mod tests {
         let operation = EditAction::ChangeCase(Case::Lower);
 
         // Make first word lowercase
-        edit!(ebuf, operation, mv!(mov), ctx!(curid, vwctx, vctx));
+        edit!(ebuf, operation, mv!(mov), ctx!(curid, vwctx, vctx), store);
         assert_eq!(ebuf.get_text(), "this IS AN EXAMPLE OF MIXED CASE\n");
         assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 0));
 
         // Operation is idempotent
-        edit!(ebuf, operation, mv!(mov), ctx!(curid, vwctx, vctx));
+        edit!(ebuf, operation, mv!(mov), ctx!(curid, vwctx, vctx), store);
         assert_eq!(ebuf.get_text(), "this IS AN EXAMPLE OF MIXED CASE\n");
         assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 0));
 
         // Make whole line lowercase
-        edit!(ebuf, operation, range!(RangeType::Line), ctx!(curid, vwctx, vctx));
+        edit!(ebuf, operation, range!(RangeType::Line), ctx!(curid, vwctx, vctx), store);
         assert_eq!(ebuf.get_text(), "this is an example of mixed case\n");
         assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 0));
 
         // Operation is idempotent
-        edit!(ebuf, operation, range!(RangeType::Line), ctx!(curid, vwctx, vctx));
+        edit!(ebuf, operation, range!(RangeType::Line), ctx!(curid, vwctx, vctx), store);
         assert_eq!(ebuf.get_text(), "this is an example of mixed case\n");
         assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 0));
 
@@ -729,10 +775,8 @@ mod tests {
 
     #[test]
     fn test_changecase_tilde() {
-        let mut ebuf = mkbufstr("thiS iS An eXaMpLE of mIxed cASE\nfoo bar\n");
-        let curid = ebuf.create_group();
-        let vwctx = ViewportContext::default();
-        let mut vctx = VimContext::default();
+        let (mut ebuf, curid, vwctx, mut vctx, mut store) =
+            mkfivestr("thiS iS An eXaMpLE of mIxed cASE\nfoo bar\n");
 
         let operation = EditAction::ChangeCase(Case::Toggle);
         let mov = MoveType::Column(MoveDir1D::Next, false);
@@ -743,17 +787,15 @@ mod tests {
         ebuf.set_leader(curid, Cursor::new(0, 11));
 
         // Toggle case to the end of the line ("100~").
-        edit!(ebuf, operation, mv!(mov, 100), ctx!(curid, vwctx, vctx));
+        edit!(ebuf, operation, mv!(mov, 100), ctx!(curid, vwctx, vctx), store);
         assert_eq!(ebuf.get_text(), "thiS iS An ExAmPle OF MiXED Case\nfoo bar\n");
         assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 31));
     }
 
     #[test]
     fn test_forced_motion_char() {
-        let mut ebuf = mkbufstr("hello\nworld\na b c d e\n    word\n");
-        let curid = ebuf.create_group();
-        let vwctx = ViewportContext::default();
-        let mut vctx = VimContext::default();
+        let (mut ebuf, curid, vwctx, mut vctx, mut store) =
+            mkfivestr("hello\nworld\na b c d e\n    word\n");
 
         let op = EditAction::Yank;
         vctx.persist.shape = Some(TargetShape::CharWise);
@@ -763,38 +805,36 @@ mod tests {
 
         // Forced linewise into charwise motion (2yvj)
         let mov = MoveType::Line(MoveDir1D::Next);
-        edit!(ebuf, op, mv!(mov, 2), ctx!(curid, vwctx, vctx));
+        edit!(ebuf, op, mv!(mov, 2), ctx!(curid, vwctx, vctx), store);
         assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 2));
-        assert_eq!(get_reg!(ebuf, Register::Unnamed), cell!(CharWise, "llo\nworld\na "));
+        assert_eq!(get_reg!(store, Register::Unnamed), cell!(CharWise, "llo\nworld\na "));
 
         // Forced linewise into charwise motion (4yvG)
         let mov = MoveType::BufferLineOffset;
-        edit!(ebuf, op, mv!(mov, 4), ctx!(curid, vwctx, vctx));
+        edit!(ebuf, op, mv!(mov, 4), ctx!(curid, vwctx, vctx), store);
         assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 2));
         assert_eq!(
-            get_reg!(ebuf, Register::Unnamed),
+            get_reg!(store, Register::Unnamed),
             cell!(CharWise, "llo\nworld\na b c d e\n    ")
         );
 
         // Forced linewise into charwise motion (yv'a)
         ebuf.set_leader(curid, Cursor::new(3, 6));
-        ebuf.mark(mark!('a'), ctx!(curid, vwctx, vctx)).unwrap();
+        ebuf.mark(mark!('a'), ctx!(curid, vwctx, vctx), &mut store).unwrap();
         ebuf.set_leader(curid, Cursor::new(0, 2));
 
-        edit_line_mark!(ebuf, op, 'a', curid, vwctx, vctx);
+        edit_line_mark!(ebuf, op, 'a', curid, vwctx, vctx, store);
         assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 2));
         assert_eq!(
-            get_reg!(ebuf, Register::Unnamed),
+            get_reg!(store, Register::Unnamed),
             cell!(CharWise, "llo\nworld\na b c d e\n    ")
         );
     }
 
     #[test]
     fn test_forced_motion_line() {
-        let mut ebuf = mkbufstr("hello\nworld\na b c d e\n1 2 3 4 5 6");
-        let curid = ebuf.create_group();
-        let vwctx = ViewportContext::default();
-        let mut vctx = VimContext::default();
+        let (mut ebuf, curid, vwctx, mut vctx, mut store) =
+            mkfivestr("hello\nworld\na b c d e\n1 2 3 4 5 6");
 
         let op = EditAction::Yank;
         vctx.persist.shape = Some(TargetShape::LineWise);
@@ -804,46 +844,47 @@ mod tests {
 
         // Force charwise into linewise motion (100yVl)
         let mov = MoveType::Column(MoveDir1D::Next, false);
-        edit!(ebuf, op, mv!(mov, 100), ctx!(curid, vwctx, vctx));
+        edit!(ebuf, op, mv!(mov, 100), ctx!(curid, vwctx, vctx), store);
         assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 2));
-        assert_eq!(get_reg!(ebuf, Register::Unnamed), cell!(LineWise, "hello\n"));
+        assert_eq!(get_reg!(store, Register::Unnamed), cell!(LineWise, "hello\n"));
 
         // Force charwise into linewise motion (2yVgj)
         let mov = MoveType::ScreenLine(MoveDir1D::Next);
-        edit!(ebuf, op, mv!(mov, 2), ctx!(curid, vwctx, vctx));
+        edit!(ebuf, op, mv!(mov, 2), ctx!(curid, vwctx, vctx), store);
         assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 2));
-        assert_eq!(get_reg!(ebuf, Register::Unnamed), cell!(LineWise, "hello\nworld\na b c d e\n"));
+        assert_eq!(
+            get_reg!(store, Register::Unnamed),
+            cell!(LineWise, "hello\nworld\na b c d e\n")
+        );
 
         // Force charwise into linewise motion (yV`a)
         ebuf.set_leader(curid, Cursor::new(1, 2));
-        ebuf.mark(mark!('a'), ctx!(curid, vwctx, vctx)).unwrap();
+        ebuf.mark(mark!('a'), ctx!(curid, vwctx, vctx), &mut store).unwrap();
         ebuf.set_leader(curid, Cursor::new(0, 2));
 
-        edit_char_mark!(ebuf, op, 'a', curid, vwctx, vctx);
+        edit_char_mark!(ebuf, op, 'a', curid, vwctx, vctx, store);
         assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 2));
-        assert_eq!(get_reg!(ebuf, Register::Unnamed), cell!(LineWise, "hello\nworld\n"));
+        assert_eq!(get_reg!(store, Register::Unnamed), cell!(LineWise, "hello\nworld\n"));
     }
 
     #[test]
     fn test_forced_motion_block() {
-        let mut ebuf = mkbufstr("hello\nworld\na b c d e\n1 2 3 4 5 6");
-        let curid = ebuf.create_group();
-        let vwctx = ViewportContext::default();
-        let mut vctx = VimContext::default();
+        let (mut ebuf, curid, vwctx, mut vctx, mut store) =
+            mkfivestr("hello\nworld\na b c d e\n1 2 3 4 5 6");
 
         vctx.persist.shape = Some(TargetShape::BlockWise);
 
         let mov = MoveType::Line(MoveDir1D::Next);
 
         // Forced linewise into blockwise motion ("1y<C-V>j")
-        edit!(ebuf, EditAction::Yank, mv!(mov, 1), ctx!(curid, vwctx, vctx));
+        edit!(ebuf, EditAction::Yank, mv!(mov, 1), ctx!(curid, vwctx, vctx), store);
         assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 0));
-        assert_eq!(get_reg!(ebuf, Register::Unnamed), cell!(BlockWise, "h\nw"));
+        assert_eq!(get_reg!(store, Register::Unnamed), cell!(BlockWise, "h\nw"));
 
         // Forced linewise into blockwise motion ("3y<C-V>j").
-        edit!(ebuf, EditAction::Yank, mv!(mov, 3), ctx!(curid, vwctx, vctx));
+        edit!(ebuf, EditAction::Yank, mv!(mov, 3), ctx!(curid, vwctx, vctx), store);
         assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 0));
-        assert_eq!(get_reg!(ebuf, Register::Unnamed), cell!(BlockWise, "h\nw\na\n1"));
+        assert_eq!(get_reg!(store, Register::Unnamed), cell!(BlockWise, "h\nw\na\n1"));
 
         // Move down and test from a position that skips chars.
         ebuf.set_leader(curid, Cursor::new(3, 6));
@@ -851,42 +892,40 @@ mod tests {
         let mov = MoveType::Line(MoveDir1D::Previous);
 
         // Force linewise into blockwise motion ("3y<C-V>k").
-        edit!(ebuf, EditAction::Yank, mv!(mov, 3), ctx!(curid, vwctx, vctx));
+        edit!(ebuf, EditAction::Yank, mv!(mov, 3), ctx!(curid, vwctx, vctx), store);
         assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 4));
-        assert_eq!(get_reg!(ebuf, Register::Unnamed), cell!(BlockWise, "o\nd\nc d\n3 4"));
+        assert_eq!(get_reg!(store, Register::Unnamed), cell!(BlockWise, "o\nd\nc d\n3 4"));
 
         // Mark (3, 6), and move to (0, 2) so we can make a wider block.
         ebuf.set_leader(curid, Cursor::new(3, 6));
-        ebuf.mark(mark!('a'), ctx!(curid, vwctx, vctx)).unwrap();
+        ebuf.mark(mark!('a'), ctx!(curid, vwctx, vctx), &mut store).unwrap();
         ebuf.set_leader(curid, Cursor::new(0, 2));
 
         // Force charwise into blockwise motion ("y<C-V>`a").
         let target = EditTarget::CharJump(Specifier::Exact(mark!('a')));
-        edit!(ebuf, EditAction::Yank, target, ctx!(curid, vwctx, vctx));
+        edit!(ebuf, EditAction::Yank, target, ctx!(curid, vwctx, vctx), store);
         assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 2));
-        assert_eq!(get_reg!(ebuf, Register::Unnamed), cell!(BlockWise, "llo\nrld\nb c d\n2 3 4"));
+        assert_eq!(get_reg!(store, Register::Unnamed), cell!(BlockWise, "llo\nrld\nb c d\n2 3 4"));
 
         // Mark (3, 0), and move to (0, 4) so we can make a wider block.
         ebuf.set_leader(curid, Cursor::new(3, 0));
-        ebuf.mark(mark!('a'), ctx!(curid, vwctx, vctx)).unwrap();
+        ebuf.mark(mark!('a'), ctx!(curid, vwctx, vctx), &mut store).unwrap();
         ebuf.set_leader(curid, Cursor::new(0, 4));
 
         // Test with a bottom cursor w/ a column that comes before the top cursor's column.
         let target = EditTarget::CharJump(Specifier::Exact(mark!('a')));
-        edit!(ebuf, EditAction::Yank, target, ctx!(curid, vwctx, vctx));
+        edit!(ebuf, EditAction::Yank, target, ctx!(curid, vwctx, vctx), store);
         assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 0));
         assert_eq!(
-            get_reg!(ebuf, Register::Unnamed),
+            get_reg!(store, Register::Unnamed),
             cell!(BlockWise, "hello\nworld\na b c\n1 2 3")
         );
     }
 
     #[test]
     fn test_join_spaces() {
-        let mut ebuf = mkbufstr("foo\n       hello world\n  a b c\n   d e\n    first\n");
-        let curid = ebuf.create_group();
-        let vwctx = ViewportContext::default();
-        let vctx = VimContext::default();
+        let (mut ebuf, curid, vwctx, vctx, mut store) =
+            mkfivestr("foo\n       hello world\n  a b c\n   d e\n    first\n");
 
         assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 0));
 
@@ -894,35 +933,33 @@ mod tests {
 
         // Joining with a count of 1 should still do something.
         let mov = RangeType::Line;
-        edit!(ebuf, operation, range!(mov, 1), ctx!(curid, vwctx, vctx));
+        edit!(ebuf, operation, range!(mov, 1), ctx!(curid, vwctx, vctx), store);
         assert_eq!(ebuf.get_text(), "foo hello world\n  a b c\n   d e\n    first\n");
         assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 3));
 
         // Join with a count of 2 joins the current and next line.
         let mov = RangeType::Line;
-        edit!(ebuf, operation, range!(mov, 3), ctx!(curid, vwctx, vctx));
+        edit!(ebuf, operation, range!(mov, 3), ctx!(curid, vwctx, vctx), store);
         assert_eq!(ebuf.get_text(), "foo hello world a b c d e\n    first\n");
         assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 21));
 
         // Try to join with four following lines, hitting the end of the buffer.
         let mov = RangeType::Line;
-        edit!(ebuf, operation, range!(mov, 5), ctx!(curid, vwctx, vctx));
+        edit!(ebuf, operation, range!(mov, 5), ctx!(curid, vwctx, vctx), store);
         assert_eq!(ebuf.get_text(), "foo hello world a b c d e first\n");
         assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 25));
 
         // Joining when there's only one line, should do nothing.
         let mov = RangeType::Line;
-        edit!(ebuf, operation, range!(mov), ctx!(curid, vwctx, vctx));
+        edit!(ebuf, operation, range!(mov), ctx!(curid, vwctx, vctx), store);
         assert_eq!(ebuf.get_text(), "foo hello world a b c d e first\n");
         assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 25));
     }
 
     #[test]
     fn test_join_nospaces() {
-        let mut ebuf = mkbufstr("foo\n       hello world\n  a b c\n   d e\n    first\n");
-        let curid = ebuf.create_group();
-        let vwctx = ViewportContext::default();
-        let vctx = VimContext::default();
+        let (mut ebuf, curid, vwctx, vctx, mut store) =
+            mkfivestr("foo\n       hello world\n  a b c\n   d e\n    first\n");
 
         assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 0));
 
@@ -930,35 +967,33 @@ mod tests {
 
         // Join with a count of 1 still joins 2 lines together.
         let mov = RangeType::Line;
-        edit!(ebuf, operation, range!(mov, 1), ctx!(curid, vwctx, vctx));
+        edit!(ebuf, operation, range!(mov, 1), ctx!(curid, vwctx, vctx), store);
         assert_eq!(ebuf.get_text(), "foo       hello world\n  a b c\n   d e\n    first\n");
         assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 3));
 
         // Join the current line with the following two lines.
         let mov = RangeType::Line;
-        edit!(ebuf, operation, range!(mov, 3), ctx!(curid, vwctx, vctx));
+        edit!(ebuf, operation, range!(mov, 3), ctx!(curid, vwctx, vctx), store);
         assert_eq!(ebuf.get_text(), "foo       hello world  a b c   d e\n    first\n");
         assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 28));
 
         // Try to join the next four lines, hitting the end of the buffer.
         let mov = RangeType::Line;
-        edit!(ebuf, operation, range!(mov, 4), ctx!(curid, vwctx, vctx));
+        edit!(ebuf, operation, range!(mov, 4), ctx!(curid, vwctx, vctx), store);
         assert_eq!(ebuf.get_text(), "foo       hello world  a b c   d e    first\n");
         assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 34));
 
         // Joining when there's only one line, should do nothing.
         let mov = RangeType::Line;
-        edit!(ebuf, operation, range!(mov), ctx!(curid, vwctx, vctx));
+        edit!(ebuf, operation, range!(mov), ctx!(curid, vwctx, vctx), store);
         assert_eq!(ebuf.get_text(), "foo       hello world  a b c   d e    first\n");
         assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 34));
     }
 
     #[test]
     fn test_join_new_spaces() {
-        let mut ebuf = mkbufstr("foo\n       hello world\n  a b c\n   d e\n    first\n");
-        let curid = ebuf.create_group();
-        let vwctx = ViewportContext::default();
-        let vctx = VimContext::default();
+        let (mut ebuf, curid, vwctx, vctx, mut store) =
+            mkfivestr("foo\n       hello world\n  a b c\n   d e\n    first\n");
 
         assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 0));
 
@@ -966,50 +1001,47 @@ mod tests {
 
         // Join with a count of 1 still joins 2 lines together.
         let mov = RangeType::Line;
-        edit!(ebuf, operation, range!(mov, 1), ctx!(curid, vwctx, vctx));
+        edit!(ebuf, operation, range!(mov, 1), ctx!(curid, vwctx, vctx), store);
         assert_eq!(ebuf.get_text(), "foo        hello world\n  a b c\n   d e\n    first\n");
         assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 3));
 
         // Join the current line with the following two lines.
         let mov = RangeType::Line;
-        edit!(ebuf, operation, range!(mov, 3), ctx!(curid, vwctx, vctx));
+        edit!(ebuf, operation, range!(mov, 3), ctx!(curid, vwctx, vctx), store);
         assert_eq!(ebuf.get_text(), "foo        hello world   a b c    d e\n    first\n");
         assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 29));
 
         // Try to join the next four lines, hitting the end of the buffer.
         let mov = RangeType::Line;
-        edit!(ebuf, operation, range!(mov, 4), ctx!(curid, vwctx, vctx));
+        edit!(ebuf, operation, range!(mov, 4), ctx!(curid, vwctx, vctx), store);
         assert_eq!(ebuf.get_text(), "foo        hello world   a b c    d e     first\n");
         assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 37));
 
         // Joining when there's only one line, should do nothing.
         let mov = RangeType::Line;
-        edit!(ebuf, operation, range!(mov), ctx!(curid, vwctx, vctx));
+        edit!(ebuf, operation, range!(mov), ctx!(curid, vwctx, vctx), store);
         assert_eq!(ebuf.get_text(), "foo        hello world   a b c    d e     first\n");
         assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 37));
     }
 
     #[test]
     fn test_join_blanks() {
-        let mut ebuf = mkbufstr("foo\n\n\n     \n    first\n");
-        let curid = ebuf.create_group();
-        let vwctx = ViewportContext::default();
-        let vctx = VimContext::default();
+        let (mut ebuf, curid, vwctx, vctx, mut store) = mkfivestr("foo\n\n\n     \n    first\n");
 
         assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 0));
 
         let operation = EditAction::Join(JoinStyle::OneSpace);
 
         // Join with the next empty line, adding no space.
-        edit!(ebuf, operation, range!(RangeType::Line, 2), ctx!(curid, vwctx, vctx));
+        edit!(ebuf, operation, range!(RangeType::Line, 2), ctx!(curid, vwctx, vctx), store);
         assert_eq!(ebuf.get_text(), "foo\n\n     \n    first\n");
 
         // Join with the blank line, and the all spaces line.
-        edit!(ebuf, operation, range!(RangeType::Line, 3), ctx!(curid, vwctx, vctx));
+        edit!(ebuf, operation, range!(RangeType::Line, 3), ctx!(curid, vwctx, vctx), store);
         assert_eq!(ebuf.get_text(), "foo\n    first\n");
 
         // Join with final line.
-        edit!(ebuf, operation, range!(RangeType::Line, 2), ctx!(curid, vwctx, vctx));
+        edit!(ebuf, operation, range!(RangeType::Line, 2), ctx!(curid, vwctx, vctx), store);
         assert_eq!(ebuf.get_text(), "foo first\n");
     }
 }

@@ -14,6 +14,7 @@
 //! See [Editable], [EditAction], and [EditTarget] for more on what can be done.
 use std::collections::hash_map::{Entry, HashMap};
 use std::collections::vec_deque::VecDeque;
+use std::marker::PhantomData;
 use std::ops::Range;
 
 use regex::Regex;
@@ -21,6 +22,42 @@ use regex::Regex;
 use crate::util::IdGenerator;
 
 use crate::editing::{
+    action::{
+        CursorAction,
+        EditAction,
+        EditError,
+        EditResult,
+        Editable,
+        HistoryAction,
+        InsertTextAction,
+        Jumpable,
+        Searchable,
+        SelectionAction,
+        UIResult,
+    },
+    application::ApplicationInfo,
+    base::{
+        Char,
+        Count,
+        CursorMovements,
+        CursorMovementsContext,
+        CursorSearch,
+        EditRange,
+        EditTarget,
+        Mark,
+        MoveDir1D,
+        MoveDirMod,
+        MoveTerminus,
+        PositionList,
+        Register,
+        SearchType,
+        SelectionResizeStyle,
+        Specifier,
+        TargetShape,
+        ViewportContext,
+        WordStyle,
+    },
+    context::EditContext,
     cursor::{
         block_cursors,
         Adjustable,
@@ -35,54 +72,7 @@ use crate::editing::{
     history::HistoryList,
     lineinfo::LineInfoStore,
     rope::{ByteOff, CursorContext, EditRope, PrivateCursorOps},
-    store::{
-        AdjustStore,
-        BufferId,
-        GlobalAdjustable,
-        RegisterCell,
-        RegisterPutFlags,
-        SharedBuffer,
-        SharedStore,
-        Store,
-    },
-};
-
-use super::action::{
-    CursorAction,
-    EditAction,
-    EditError,
-    EditResult,
-    Editable,
-    HistoryAction,
-    InsertTextAction,
-    Jumpable,
-    Searchable,
-    SelectionAction,
-    UIResult,
-};
-
-use super::base::{
-    Application,
-    Char,
-    Count,
-    CursorMovements,
-    CursorMovementsContext,
-    CursorSearch,
-    EditContext,
-    EditRange,
-    EditTarget,
-    Mark,
-    MoveDir1D,
-    MoveDirMod,
-    MoveTerminus,
-    PositionList,
-    Register,
-    SearchType,
-    SelectionResizeStyle,
-    Specifier,
-    TargetShape,
-    ViewportContext,
-    WordStyle,
+    store::{AdjustStore, BufferId, DigraphStore, GlobalAdjustable, SharedBuffer, Store},
 };
 
 #[cfg(test)]
@@ -112,7 +102,7 @@ pub struct CursorGroupId(u64);
 pub type CursorRange = EditRange<Cursor>;
 
 /// A text buffer.
-pub struct EditBuffer<C: EditContext, P: Application> {
+pub struct EditBuffer<I: ApplicationInfo> {
     /// A unique identifier for this buffer.
     id: BufferId,
 
@@ -134,15 +124,19 @@ pub struct EditBuffer<C: EditContext, P: Application> {
 
     history: HistoryList<EditRope>,
     lineinfo: LineInfoStore<usize>,
-    store: SharedStore<C, P>,
 
     push_next_change: bool,
+
+    _p: PhantomData<I>,
 }
 
-trait HistoryActions<C> {
-    fn redo(&mut self, count: Count, ctx: &C) -> EditResult;
-    fn undo(&mut self, count: Count, ctx: &C) -> EditResult;
-    fn checkpoint(&mut self) -> EditResult;
+trait HistoryActions<C, I>
+where
+    I: ApplicationInfo,
+{
+    fn redo(&mut self, count: Count, ctx: &C, store: &mut Store<I>) -> EditResult;
+    fn undo(&mut self, count: Count, ctx: &C, store: &mut Store<I>) -> EditResult;
+    fn checkpoint(&mut self, ctx: &C, store: &mut Store<I>) -> EditResult;
 }
 
 type CursorGroupIdContext<'a, 'b, T> = (CursorGroupId, &'a ViewportContext<Cursor>, &'b T);
@@ -153,14 +147,14 @@ pub(crate) type HighlightInfo = IntervalTree<usize, (Cursor, Cursor, TargetShape
 #[cfg(feature = "intervaltree")]
 pub(crate) type FollowersInfo = IntervalTree<(usize, usize), Cursor>;
 
-impl<C, P> EditBuffer<C, P>
+impl<I> EditBuffer<I>
 where
-    C: EditContext,
-    P: Application,
+    I: ApplicationInfo,
 {
-    /// Create a new buffer.
-    pub fn new(id: BufferId, store: SharedStore<C, P>) -> Self {
-        let text = EditRope::from("\n");
+    /// Create a new buffer given its initial contents as an [EditRope].
+    pub fn from_rope(id: BufferId, mut text: EditRope) -> Self {
+        text.trailing_newline();
+
         let cursors = AdjustStore::default();
         let history = HistoryList::new(text.clone(), 100);
         let lineinfo = LineInfoStore::new();
@@ -180,9 +174,19 @@ where
             jumped,
             history,
             lineinfo,
-            store,
             push_next_change: true,
+            _p: PhantomData,
         }
+    }
+
+    /// Create a new buffer given its initial contents.
+    pub fn from_str(id: BufferId, text: &str) -> Self {
+        EditBuffer::from_rope(id, text.into())
+    }
+
+    /// Create a new empty buffer.
+    pub fn new(id: BufferId) -> Self {
+        EditBuffer::from_str(id, "\n")
     }
 
     /// Get this buffer's ID.
@@ -190,18 +194,13 @@ where
         self.id
     }
 
-    /// Get a reference to the store.
-    pub fn store(&self) -> &SharedStore<C, P> {
-        &self.store
-    }
-
-    fn _char<'a, 'b, 'c>(&self, c: Char, cursor: &Cursor) -> EditResult<char> {
+    fn _char(&self, c: Char, cursor: &Cursor, digraphs: &DigraphStore) -> EditResult<char> {
         match c {
             Char::Single(c) => {
                 return Ok(c);
             },
             Char::Digraph(d1, d2) => {
-                if let Some(c) = self.store.read().unwrap().digraphs.get((d1, d2)) {
+                if let Some(c) = digraphs.get((d1, d2)) {
                     Ok(c)
                 } else {
                     Err(EditError::InvalidDigraph(d1, d2))
@@ -242,13 +241,13 @@ where
         }
     }
 
-    fn _str<'a, 'b, 'c>(&self, c: Char, cursor: &Cursor) -> EditResult<String> {
+    fn _str(&self, c: Char, cursor: &Cursor, digraphs: &DigraphStore) -> EditResult<String> {
         match c {
             Char::Single(c) => {
                 return Ok(c.to_string());
             },
             Char::Digraph(d1, d2) => {
-                if let Some(c) = self.store.read().unwrap().digraphs.get((d1, d2)) {
+                if let Some(c) = digraphs.get((d1, d2)) {
                     return Ok(c.to_string());
                 } else {
                     return Err(EditError::InvalidDigraph(d1, d2));
@@ -288,36 +287,39 @@ where
         }
     }
 
-    fn _charjump<'a, 'b, 'c>(
+    fn _charjump<'a, 'b, 'c, C: EditContext>(
         &self,
         mark: &Specifier<Mark>,
         ctx: &CursorMovementsContext<'a, 'b, 'c, Cursor, C>,
+        store: &mut Store<I>,
     ) -> EditResult<Cursor> {
-        self.get_mark(ctx.context.resolve(mark))
+        store.cursors.get_mark(self.id, ctx.context.resolve(mark))
     }
 
-    fn _linejump<'a, 'b, 'c>(
+    fn _linejump<'a, 'b, 'c, C: EditContext>(
         &self,
         mark: &Specifier<Mark>,
         ctx: &CursorMovementsContext<'a, 'b, 'c, Cursor, C>,
+        store: &mut Store<I>,
     ) -> EditResult<Cursor> {
-        let cursor = self.get_mark(ctx.context.resolve(mark))?;
+        let cursor = store.cursors.get_mark(self.id, ctx.context.resolve(mark))?;
         let cursor = self.text.first_word(&cursor, ctx);
 
         Ok(cursor)
     }
 
-    fn _charsearch<'a, 'b, 'c>(
+    fn _charsearch<C: EditContext>(
         &self,
         cursor: &Cursor,
         flip: &MoveDirMod,
         multiline: bool,
         count: &Count,
         ctx: &C,
+        store: &mut Store<I>,
     ) -> EditResult<Option<CursorRange>> {
         let res = match ctx.get_search_char() {
             Some((dir, inclusive, needle)) => {
-                let needle = self._char(needle, cursor)?;
+                let needle = self._char(needle, cursor, &store.digraphs)?;
                 let count = ctx.resolve(count);
                 let dir = flip.resolve(&dir);
 
@@ -331,14 +333,15 @@ where
         Ok(res)
     }
 
-    fn _regexsearch<'a, 'b, 'c>(
+    fn _regexsearch<C: EditContext>(
         &self,
         cursor: &Cursor,
         flip: &MoveDirMod,
         count: &Count,
         ctx: &C,
+        store: &Store<I>,
     ) -> EditResult<Option<CursorRange>> {
-        let needle = self._get_regex(ctx)?;
+        let needle = self._get_regex(ctx, store)?;
 
         let count = ctx.resolve(count);
         let dir = ctx.get_search_regex_dir();
@@ -349,7 +352,7 @@ where
         Ok(res)
     }
 
-    fn _wordsearch<'a, 'b, 'c>(
+    fn _wordsearch<C: EditContext>(
         &mut self,
         cursor: &Cursor,
         style: &WordStyle,
@@ -357,6 +360,7 @@ where
         flip: &MoveDirMod,
         count: &Count,
         ctx: &C,
+        store: &mut Store<I>,
     ) -> EditResult<Option<CursorRange>> {
         let mut cursor = cursor.clone();
         let count = ctx.resolve(count);
@@ -375,54 +379,52 @@ where
             Regex::new(word.as_str())
         }?;
 
-        Store::set_last_search(needle.to_string(), &self.store);
+        store.set_last_search(needle.to_string());
 
         let res = self.text.find_regex(&cursor, dir, &needle, count);
 
         Ok(res)
     }
 
-    fn _search(
+    fn _search<C: EditContext>(
         &mut self,
         cursor: &Cursor,
         search: &SearchType,
         flip: &MoveDirMod,
         count: &Count,
         ctx: &C,
+        store: &mut Store<I>,
     ) -> EditResult<Option<CursorRange>> {
         match search {
             SearchType::Char(multi) => {
-                return self._charsearch(cursor, flip, *multi, count, ctx);
+                return self._charsearch(cursor, flip, *multi, count, ctx, store);
             },
             SearchType::Regex => {
-                return self._regexsearch(cursor, flip, count, ctx);
+                return self._regexsearch(cursor, flip, count, ctx, store);
             },
             SearchType::Word(style, boundary) => {
-                return self._wordsearch(cursor, style, *boundary, flip, count, ctx);
+                return self._wordsearch(cursor, style, *boundary, flip, count, ctx, store);
             },
         }
     }
 
-    fn _get_last_search<'a, 'b, 'c>(&self) -> EditResult<Regex> {
-        let lsearch = self.get_register(&Register::LastSearch).value;
+    fn _get_regex<C: EditContext>(&self, ctx: &C, store: &Store<I>) -> EditResult<Regex> {
+        if let Some(regex) = ctx.get_search_regex() {
+            return Ok(regex);
+        }
+
+        let lsearch = store.registers.get(&Register::LastSearch).value;
         let regex = Regex::new(lsearch.to_string().as_ref())?;
 
         return Ok(regex);
     }
 
-    fn _get_regex<'a, 'b, 'c>(&self, ctx: &C) -> EditResult<Regex> {
-        if let Some(regex) = ctx.get_search_regex() {
-            return Ok(regex);
-        }
-
-        self._get_last_search()
-    }
-
-    fn _target<'a, 'b, 'c>(
+    fn _target<'a, 'b, 'c, C: EditContext>(
         &mut self,
         state: &CursorState,
         target: &EditTarget,
         ctx: &CursorMovementsContext<'a, 'b, 'c, Cursor, C>,
+        store: &mut Store<I>,
     ) -> EditResult<Option<CursorRange>> {
         let cursor = state.cursor().clone();
 
@@ -448,19 +450,19 @@ where
                 return Ok(Some(range));
             },
             EditTarget::CharJump(mark) => {
-                let nc = self._charjump(mark, ctx)?;
+                let nc = self._charjump(mark, ctx, store)?;
                 let range = CursorRange::exclusive(cursor, nc, TargetShape::CharWise);
 
                 return Ok(Some(range));
             },
             EditTarget::LineJump(mark) => {
-                let nc = self._linejump(mark, ctx)?;
+                let nc = self._linejump(mark, ctx, store)?;
                 let range = CursorRange::exclusive(cursor, nc, TargetShape::LineWise);
 
                 return Ok(Some(range));
             },
             EditTarget::Search(search, flip, count) => {
-                let range = self._search(&cursor, search, flip, count, ctx.context)?;
+                let range = self._search(&cursor, search, flip, count, ctx.context, store)?;
 
                 let range = range.map(|r| {
                     let shape = TargetShape::CharWise;
@@ -488,7 +490,7 @@ where
         }
     }
 
-    fn _effective<'a, 'b, 'c>(
+    fn _effective(
         &self,
         range: &CursorRange,
         forced: Option<TargetShape>,
@@ -546,26 +548,27 @@ where
         }
     }
 
-    fn _zero(&mut self) {
+    fn _zero_local(&mut self) {
         self.cursors.zero();
         self.changed.zero();
         self.jumped.zero();
-
-        let mut locked = self.store.write().unwrap();
-        locked.cursors.zero_id(self.id);
     }
 
-    fn _adjust(&mut self, adjs: &[CursorAdjustment]) {
+    fn _zero(&mut self, store: &mut Store<I>) {
+        self._zero_local();
+        store.cursors.zero_id(self.id);
+    }
+
+    fn _adjust(&mut self, adjs: &[CursorAdjustment], store: &mut Store<I>) {
         self.cursors.adjust(adjs);
         self.changed.adjust(adjs);
         self.jumped.adjust(adjs);
 
-        let mut locked = self.store.write().unwrap();
-        locked.cursors.adjust_id(self.id, adjs);
+        store.cursors.adjust_id(self.id, adjs);
     }
 
-    fn _adjust_all(&mut self, adjs: Vec<CursorAdjustment>) {
-        self._adjust(adjs.as_slice());
+    fn _adjust_all(&mut self, adjs: Vec<CursorAdjustment>, store: &mut Store<I>) {
+        self._adjust(adjs.as_slice(), store);
     }
 
     fn _adjust_columns(
@@ -574,10 +577,11 @@ where
         column_start: usize,
         amt_line: isize,
         amt_col: isize,
+        store: &mut Store<I>,
     ) {
         let adj = CursorAdjustment::Column { line, column_start, amt_line, amt_col };
 
-        self._adjust(&[adj]);
+        self._adjust(&[adj], store);
     }
 
     fn _adjust_lines(
@@ -586,10 +590,11 @@ where
         line_end: usize,
         amount: isize,
         amount_after: isize,
+        store: &mut Store<I>,
     ) {
         let adj = CursorAdjustment::Line { line_start, line_end, amount, amount_after };
 
-        self._adjust(&[adj]);
+        self._adjust(&[adj], store);
     }
 
     pub(crate) fn line_leftover(
@@ -612,15 +617,16 @@ where
         }
     }
 
-    pub(crate) fn motion<'a, 'b, 'c>(
+    pub(crate) fn motion<'a, 'b, C: EditContext>(
         &mut self,
         target: &EditTarget,
         ictx: &CursorGroupIdContext<'a, 'b, C>,
+        store: &mut Store<I>,
     ) -> EditResult {
         let shape = ictx.2.get_target_shape();
 
         if shape.is_some() {
-            return self.selection_resize(SelectionResizeStyle::Extend, target, ictx);
+            return self.selection_resize(SelectionResizeStyle::Extend, target, ictx, store);
         }
 
         let gid = ictx.0;
@@ -652,11 +658,11 @@ where
                     // Do nothing.
                 },
                 EditTarget::CharJump(mark) => {
-                    let nc = self._charjump(mark, &ctx)?;
+                    let nc = self._charjump(mark, &ctx, store)?;
                     state.set_cursor(nc);
                 },
                 EditTarget::LineJump(mark) => {
-                    let nc = self._linejump(mark, &ctx)?;
+                    let nc = self._linejump(mark, &ctx, store)?;
                     state.set_cursor(nc);
                 },
                 EditTarget::Motion(mv, count) => {
@@ -670,7 +676,9 @@ where
                     }
                 },
                 EditTarget::Search(search, flip, count) => {
-                    if let Some(r) = self._search(&cursor, search, flip, count, ctx.context)? {
+                    if let Some(r) =
+                        self._search(&cursor, search, flip, count, ctx.context, store)?
+                    {
                         state.set_cursor(r.start);
                     }
                 },
@@ -682,37 +690,9 @@ where
         Ok(None)
     }
 
-    /// Look up the location of a [Mark].
-    fn get_mark(&self, mark: Mark) -> EditResult<Cursor> {
-        self.store.read().unwrap().cursors.get_mark(self.id, mark)
-    }
-
-    /// Set the location of a [Mark].
-    fn set_mark(&mut self, mark: Mark, cursor: Cursor) {
-        self.store.write().unwrap().cursors.set_mark(self.id, mark, cursor);
-    }
-
-    /// Get the contents of a register.
-    fn get_register(&self, register: &Register) -> RegisterCell {
-        self.store.read().unwrap().registers.get(register)
-    }
-
-    /// Set the contents of a register.
-    fn set_register(&mut self, register: &Register, cell: RegisterCell, flags: RegisterPutFlags) {
-        let mut store = self.store.write().unwrap();
-
-        store.registers.put(register, cell, flags)
-    }
-
     /// Indicates whether this buffer contains only whitespace.
     pub fn is_blank(&self) -> bool {
-        for c in self.text.chars(0.into()) {
-            if !c.is_ascii_whitespace() {
-                return false;
-            }
-        }
-
-        return true;
+        self.text.is_blank()
     }
 
     /// Return a reference to the contents of this buffer.
@@ -734,7 +714,9 @@ where
 
         // Reinitialize history so that undo doesn't take us to old buffer state.
         self.history = HistoryList::new(self.text.clone(), BUFFER_HISTORY_LEN);
-        self._zero();
+
+        // XXX: Need to zero out global marks on rope change.
+        self._zero_local();
 
         return rope;
     }
@@ -768,6 +750,23 @@ where
     /// This also resets buffer-associated state, like marks and history.
     pub fn reset_text(&mut self) -> String {
         self.reset().to_string()
+    }
+
+    /// Returns the text currently that the cursor group's leader is currently positioned over.
+    pub fn get_cursor_word(&self, gid: CursorGroupId, style: &WordStyle) -> Option<String> {
+        let group = self.cursors.get(gid)?;
+        let cursor = group.leader.cursor();
+
+        self.text.get_cursor_word(cursor, style).map(|r| r.to_string())
+    }
+
+    /// Returns the text currently selected by the cursor group's leader.
+    pub fn get_selected_word(&self, gid: CursorGroupId) -> Option<String> {
+        let group = self.cursors.get(gid)?;
+        let start = self.text.cursor_to_offset(group.leader.start());
+        let end = self.text.cursor_to_offset(group.leader.end());
+
+        self.text.chars_until(start, end).collect::<String>().into()
     }
 
     fn push_change(&mut self, group: &CursorGroup) {
@@ -921,7 +920,7 @@ where
 
     /// Clamp the line and column of the cursors in a [CursorState] so that they refer to a valid
     /// point within the buffer.
-    pub fn clamp_state<'a, 'b>(
+    pub fn clamp_state<'a, 'b, 'c, C: EditContext>(
         &self,
         state: &mut CursorState,
         ctx: &CursorGroupIdContext<'a, 'b, C>,
@@ -938,11 +937,15 @@ where
     }
 
     /// Clamp the line and column of a cursor so that it refers to a valid point within the buffer.
-    pub fn clamp<'a, 'b>(&self, cursor: &mut Cursor, ctx: &CursorGroupIdContext<'a, 'b, C>) {
+    pub fn clamp<'a, 'b, 'c, C: EditContext>(
+        &self,
+        cursor: &mut Cursor,
+        ctx: &CursorGroupIdContext<'a, 'b, C>,
+    ) {
         PrivateCursorOps::clamp(cursor, &self._ctx_cgi2c(ctx));
     }
 
-    fn _ctx_cgi2es<'a, 'b, 'c>(
+    fn _ctx_cgi2es<'a, 'b, 'c, C: EditContext>(
         &self,
         action: &'a EditAction,
         ctx: &CursorGroupIdContext<'b, 'c, C>,
@@ -950,7 +953,7 @@ where
         CursorMovementsContext { action, view: ctx.1, context: ctx.2 }
     }
 
-    fn _ctx_cgi2c<'a, 'b, 'c>(
+    fn _ctx_cgi2c<'a, 'b, 'c, C: EditContext>(
         &'a self,
         ctx: &CursorGroupIdContext<'b, 'c, C>,
     ) -> CursorContext<'a> {
@@ -960,7 +963,7 @@ where
         (&self.text, width, lastcol)
     }
 
-    fn _ctx_es2c<'a, 'b, 'c, 'd>(
+    fn _ctx_es2c<'a, 'b, 'c, 'd, C: EditContext>(
         &'d self,
         ctx: &CursorMovementsContext<'a, 'b, 'c, Cursor, C>,
     ) -> CursorContext<'d> {
@@ -988,34 +991,44 @@ where
     }
 }
 
-impl<'a, 'b, C, P> HistoryActions<CursorGroupIdContext<'a, 'b, C>> for EditBuffer<C, P>
+impl<'a, 'b, 'c, C, I> HistoryActions<CursorGroupIdContext<'a, 'b, C>, I> for EditBuffer<I>
 where
     C: EditContext,
-    P: Application,
+    I: ApplicationInfo,
 {
-    fn undo(&mut self, count: Count, ctx: &CursorGroupIdContext<'a, 'b, C>) -> EditResult {
+    fn undo(
+        &mut self,
+        count: Count,
+        ctx: &CursorGroupIdContext<'a, 'b, C>,
+        store: &mut Store<I>,
+    ) -> EditResult {
         let count = ctx.2.resolve(&count);
         let older = self.history.prev(count);
 
         let adjs = self.text.diff(older);
         self.text = older.clone();
-        self._adjust_all(adjs);
+        self._adjust_all(adjs, store);
 
         Ok(None)
     }
 
-    fn redo(&mut self, count: Count, ctx: &CursorGroupIdContext<'a, 'b, C>) -> EditResult {
+    fn redo(
+        &mut self,
+        count: Count,
+        ctx: &CursorGroupIdContext<'a, 'b, C>,
+        store: &mut Store<I>,
+    ) -> EditResult {
         let count = ctx.2.resolve(&count);
         let newer = self.history.next(count);
 
         let adjs = self.text.diff(newer);
         self.text = newer.clone();
-        self._adjust_all(adjs);
+        self._adjust_all(adjs, store);
 
         Ok(None)
     }
 
-    fn checkpoint(&mut self) -> EditResult {
+    fn checkpoint(&mut self, _: &CursorGroupIdContext<'a, 'b, C>, _: &mut Store<I>) -> EditResult {
         if &self.text != self.history.current() {
             self.history.push(self.text.clone());
             self.push_next_change = true;
@@ -1025,36 +1038,38 @@ where
     }
 }
 
-impl<'a, 'b, C, P> Editable<CursorGroupIdContext<'a, 'b, C>> for EditBuffer<C, P>
+impl<'a, 'b, 'c, C, I> Editable<CursorGroupIdContext<'a, 'b, C>, I> for EditBuffer<I>
 where
     C: EditContext,
-    P: Application,
+    I: ApplicationInfo,
 {
     fn edit(
         &mut self,
         action: &EditAction,
         target: &EditTarget,
         ictx: &CursorGroupIdContext<'a, 'b, C>,
+        store: &mut Store<I>,
     ) -> EditResult {
         if let EditAction::Motion = action {
-            return self.motion(target, ictx);
+            return self.motion(target, ictx, store);
         }
 
         let ctx = &self._ctx_cgi2es(action, ictx);
-        let end = ctx.context.get_cursor_end();
         let gid = ictx.0;
+        let end = ctx.context.get_cursor_end();
+
         let mut group = self.get_group(gid);
 
         for state in group.iter_mut() {
-            let choice = match (self._target(state, target, ctx)?, action) {
-                (Some(range), EditAction::Delete) => self.delete(&range, ctx),
-                (Some(range), EditAction::Yank) => self.yank(&range, ctx),
+            let choice = match (self._target(state, target, ctx, store)?, action) {
+                (Some(range), EditAction::Delete) => self.delete(&range, ctx, store),
+                (Some(range), EditAction::Yank) => self.yank(&range, ctx, store),
                 (Some(range), EditAction::Replace(v)) => {
                     match ctx.context.get_replace_char() {
                         Some(c) => {
-                            let c = self._char(c, state.cursor())?;
+                            let c = self._char(c, state.cursor(), &store.digraphs)?;
 
-                            self.replace(c, *v, &range, ctx)
+                            self.replace(c, *v, &range, ctx, store)
                         },
                         None => {
                             let msg = "No replacement character".to_string();
@@ -1064,13 +1079,17 @@ where
                         },
                     }
                 },
-                (Some(range), EditAction::Format) => self.format(&range, ctx),
-                (Some(range), EditAction::ChangeCase(case)) => self.changecase(case, &range, ctx),
-                (Some(range), EditAction::ChangeNumber(change)) => {
-                    self.changenum(change, &range, ctx)
+                (Some(range), EditAction::Format) => self.format(&range, ctx, store),
+                (Some(range), EditAction::ChangeCase(case)) => {
+                    self.changecase(case, &range, ctx, store)
                 },
-                (Some(range), EditAction::Join(spaces)) => self.join(*spaces, &range, ctx),
-                (Some(range), EditAction::Indent(change)) => self.indent(change, &range, ctx),
+                (Some(range), EditAction::ChangeNumber(change)) => {
+                    self.changenum(change, &range, ctx, store)
+                },
+                (Some(range), EditAction::Join(spaces)) => self.join(*spaces, &range, ctx, store),
+                (Some(range), EditAction::Indent(change)) => {
+                    self.indent(change, &range, ctx, store)
+                },
                 (Some(_), EditAction::Motion) => panic!("Unexpected EditAction::Motion!"),
                 (None, _) => CursorChoice::Empty,
             };
@@ -1087,10 +1106,15 @@ where
         Ok(None)
     }
 
-    fn mark(&mut self, name: Mark, ctx: &CursorGroupIdContext<'a, 'b, C>) -> EditResult {
+    fn mark(
+        &mut self,
+        name: Mark,
+        ctx: &CursorGroupIdContext<'a, 'b, C>,
+        store: &mut Store<I>,
+    ) -> EditResult {
         let leader = self.get_leader(ctx.0);
 
-        self.set_mark(name, leader);
+        store.cursors.set_mark(self.id, name, leader);
 
         Ok(None)
     }
@@ -1099,14 +1123,19 @@ where
         &mut self,
         act: InsertTextAction,
         ctx: &CursorGroupIdContext<'a, 'b, C>,
+        store: &mut Store<I>,
     ) -> EditResult {
         match act {
-            InsertTextAction::OpenLine(shape, dir, count) => self.open_line(shape, dir, count, ctx),
-            InsertTextAction::Paste(dir, count) => self.paste(dir, count, ctx),
-            InsertTextAction::Transcribe(s, dir, count) => self.transcribe(s, dir, count, ctx),
+            InsertTextAction::OpenLine(shape, dir, count) => {
+                self.open_line(shape, dir, count, ctx, store)
+            },
+            InsertTextAction::Paste(dir, count) => self.paste(dir, count, ctx, store),
+            InsertTextAction::Transcribe(s, dir, count) => {
+                self.transcribe(s, dir, count, ctx, store)
+            },
             InsertTextAction::Type(c, dir, count) => {
                 if let Some(c) = ctx.2.resolve(&c) {
-                    self.type_char(c, dir, count, &ctx)
+                    self.type_char(c, dir, count, &ctx, store)
                 } else {
                     Ok(None)
                 }
@@ -1118,13 +1147,20 @@ where
         &mut self,
         act: SelectionAction,
         ctx: &CursorGroupIdContext<'a, 'b, C>,
+        store: &mut Store<I>,
     ) -> EditResult {
         match act {
-            SelectionAction::CursorSet(change) => self.selection_cursor_set(&change, ctx),
-            SelectionAction::Duplicate(dir, count) => self.selection_duplicate(dir, count, ctx),
-            SelectionAction::Resize(style, target) => self.selection_resize(style, &target, ctx),
-            SelectionAction::Split(style, filter) => self.selection_split(style, filter, ctx),
-            SelectionAction::Trim(filter) => self.selection_trim(filter, ctx),
+            SelectionAction::CursorSet(change) => self.selection_cursor_set(&change, ctx, store),
+            SelectionAction::Duplicate(dir, count) => {
+                self.selection_duplicate(dir, count, ctx, store)
+            },
+            SelectionAction::Resize(style, target) => {
+                self.selection_resize(style, &target, ctx, store)
+            },
+            SelectionAction::Split(style, filter) => {
+                self.selection_split(style, filter, ctx, store)
+            },
+            SelectionAction::Trim(filter) => self.selection_trim(filter, ctx, store),
         }
     }
 
@@ -1132,13 +1168,14 @@ where
         &mut self,
         act: &CursorAction,
         ctx: &CursorGroupIdContext<'a, 'b, C>,
+        store: &mut Store<I>,
     ) -> EditResult {
         match act {
-            CursorAction::Close(target) => self.cursor_close(&target, ctx),
-            CursorAction::Split(count) => self.cursor_split(count, ctx),
-            CursorAction::Restore(style) => self.cursor_restore(style, ctx),
-            CursorAction::Rotate(dir, count) => self.cursor_rotate(*dir, count, ctx),
-            CursorAction::Save(style) => self.cursor_save(style, ctx),
+            CursorAction::Close(target) => self.cursor_close(&target, ctx, store),
+            CursorAction::Split(count) => self.cursor_split(count, ctx, store),
+            CursorAction::Restore(style) => self.cursor_restore(style, ctx, store),
+            CursorAction::Rotate(dir, count) => self.cursor_rotate(*dir, count, ctx, store),
+            CursorAction::Save(style) => self.cursor_save(style, ctx, store),
         }
     }
 
@@ -1146,19 +1183,20 @@ where
         &mut self,
         act: HistoryAction,
         ctx: &CursorGroupIdContext<'a, 'b, C>,
+        store: &mut Store<I>,
     ) -> EditResult {
         match act {
-            HistoryAction::Checkpoint => self.checkpoint(),
-            HistoryAction::Undo(count) => self.undo(count, ctx),
-            HistoryAction::Redo(count) => self.redo(count, ctx),
+            HistoryAction::Checkpoint => self.checkpoint(ctx, store),
+            HistoryAction::Undo(count) => self.undo(count, ctx, store),
+            HistoryAction::Redo(count) => self.redo(count, ctx, store),
         }
     }
 }
 
-impl<'a, 'b, C, P> Jumpable<CursorGroupIdContext<'a, 'b, C>> for EditBuffer<C, P>
+impl<'a, 'b, 'c, C, I> Jumpable<CursorGroupIdContext<'a, 'b, C>> for EditBuffer<I>
 where
     C: EditContext,
-    P: Application,
+    I: ApplicationInfo,
 {
     fn jump(
         &mut self,
@@ -1249,61 +1287,89 @@ where
     }
 }
 
-impl<'a, 'b, C, P> Editable<CursorGroupIdContext<'a, 'b, C>> for SharedBuffer<C, P>
+impl<'a, 'b, 'c, C, I> Editable<CursorGroupIdContext<'a, 'b, C>, I> for SharedBuffer<I>
 where
     C: EditContext,
-    P: Application,
+    I: ApplicationInfo,
 {
     fn edit(
         &mut self,
         operation: &EditAction,
         motion: &EditTarget,
         ctx: &CursorGroupIdContext<'a, 'b, C>,
+        store: &mut Store<I>,
     ) -> EditResult {
-        self.write().unwrap().edit(operation, motion, ctx)
+        self.write().unwrap().edit(operation, motion, ctx, store)
     }
 
-    fn mark(&mut self, name: Mark, ctx: &CursorGroupIdContext<'a, 'b, C>) -> EditResult {
-        self.write().unwrap().mark(name, ctx)
+    fn mark(
+        &mut self,
+        name: Mark,
+        ctx: &CursorGroupIdContext<'a, 'b, C>,
+        store: &mut Store<I>,
+    ) -> EditResult {
+        self.write().unwrap().mark(name, ctx, store)
     }
 
     fn insert_text(
         &mut self,
         act: InsertTextAction,
         ctx: &CursorGroupIdContext<'a, 'b, C>,
+        store: &mut Store<I>,
     ) -> EditResult {
-        self.write().unwrap().insert_text(act, ctx)
+        self.write().unwrap().insert_text(act, ctx, store)
     }
 
     fn selection_command(
         &mut self,
         act: SelectionAction,
         ctx: &CursorGroupIdContext<'a, 'b, C>,
+        store: &mut Store<I>,
     ) -> EditResult {
-        self.write().unwrap().selection_command(act, ctx)
+        self.write().unwrap().selection_command(act, ctx, store)
     }
 
     fn cursor_command(
         &mut self,
         act: &CursorAction,
         ctx: &CursorGroupIdContext<'a, 'b, C>,
+        store: &mut Store<I>,
     ) -> EditResult {
-        self.write().unwrap().cursor_command(act, ctx)
+        self.write().unwrap().cursor_command(act, ctx, store)
     }
 
     fn history_command(
         &mut self,
         act: HistoryAction,
         ctx: &CursorGroupIdContext<'a, 'b, C>,
+        store: &mut Store<I>,
     ) -> EditResult {
-        self.write().unwrap().history_command(act, ctx)
+        self.write().unwrap().history_command(act, ctx, store)
     }
 }
 
-impl<'a, 'b, C, P> Jumpable<CursorGroupIdContext<'a, 'b, C>> for SharedBuffer<C, P>
+impl<'a, 'b, 'c, C, I> Searchable<CursorGroupIdContext<'a, 'b, C>, Store<I>> for EditBuffer<I>
 where
     C: EditContext,
-    P: Application,
+    I: ApplicationInfo,
+{
+    fn search(
+        &mut self,
+        dir: MoveDirMod,
+        count: Count,
+        ctx: &CursorGroupIdContext<'a, 'b, C>,
+        store: &mut Store<I>,
+    ) -> UIResult {
+        let search = EditTarget::Search(SearchType::Regex, dir, count);
+
+        Ok(self.motion(&search, ctx, store)?)
+    }
+}
+
+impl<'a, 'b, 'c, C, I> Jumpable<CursorGroupIdContext<'a, 'b, C>> for SharedBuffer<I>
+where
+    C: EditContext,
+    I: ApplicationInfo,
 {
     fn jump(
         &mut self,
@@ -1316,35 +1382,19 @@ where
     }
 }
 
-impl<'a, 'b, C, P> Searchable<CursorGroupIdContext<'a, 'b, C>> for EditBuffer<C, P>
+impl<'a, 'b, 'c, C, I> Searchable<CursorGroupIdContext<'a, 'b, C>, Store<I>> for SharedBuffer<I>
 where
     C: EditContext,
-    P: Application,
+    I: ApplicationInfo,
 {
     fn search(
         &mut self,
         dir: MoveDirMod,
         count: Count,
         ctx: &CursorGroupIdContext<'a, 'b, C>,
+        store: &mut Store<I>,
     ) -> UIResult {
-        let search = EditTarget::Search(SearchType::Regex, dir, count);
-
-        Ok(self.motion(&search, ctx)?)
-    }
-}
-
-impl<'a, 'b, C, P> Searchable<CursorGroupIdContext<'a, 'b, C>> for SharedBuffer<C, P>
-where
-    C: EditContext,
-    P: Application,
-{
-    fn search(
-        &mut self,
-        dir: MoveDirMod,
-        count: Count,
-        ctx: &CursorGroupIdContext<'a, 'b, C>,
-    ) -> UIResult {
-        self.write().unwrap().search(dir, count, ctx)
+        self.write().unwrap().search(dir, count, ctx, store)
     }
 }
 
@@ -1352,6 +1402,7 @@ where
 #[macro_use]
 mod tests {
     pub use super::*;
+    pub use crate::editing::application::EmptyInfo;
     pub use crate::editing::base::TargetShape::{BlockWise, CharWise, LineWise};
     pub use crate::editing::base::{
         InsertStyle,
@@ -1362,35 +1413,65 @@ mod tests {
         Specifier,
         WordStyle,
     };
-    pub use crate::editing::store::Store;
+    pub use crate::editing::store::{RegisterCell, RegisterPutFlags, Store};
     pub use crate::env::vim::VimContext;
 
     macro_rules! get_mark {
-        ($ebuf: expr, $c: expr) => {
-            $ebuf.get_mark(mark!($c))
+        ($store: expr, $c: expr) => {
+            $store.cursors.get_mark(BufferId(0), mark!($c))
         };
     }
 
     macro_rules! assert_mark {
-        ($ebuf: expr, $c: expr, $cursor: expr) => {
-            assert_eq!(get_mark!($ebuf, $c).unwrap(), $cursor)
+        ($store: expr, $c: expr, $cursor: expr) => {
+            assert_eq!(get_mark!($store, $c).unwrap(), $cursor)
         };
     }
 
-    pub(super) fn mkbuf() -> EditBuffer<VimContext, ()> {
-        EditBuffer::new(BufferId(0), Store::new())
+    pub(super) fn mkctx() -> VimContext {
+        VimContext::default()
     }
 
-    pub(super) fn mkbufstr(s: &str) -> EditBuffer<VimContext, ()> {
+    pub(super) fn mkbuf() -> EditBuffer<EmptyInfo> {
+        EditBuffer::new(BufferId(0))
+    }
+
+    pub(super) fn mkfive() -> (
+        EditBuffer<EmptyInfo>,
+        CursorGroupId,
+        ViewportContext<Cursor>,
+        VimContext,
+        Store<EmptyInfo>,
+    ) {
         let mut buf = mkbuf();
+        let gid = buf.create_group();
+        let vwctx = ViewportContext::default();
+        let vctx = mkctx();
+        let store = Store::default();
+
+        return (buf, gid, vwctx, vctx, store);
+    }
+
+    pub(super) fn mkfivestr(
+        s: &str,
+    ) -> (
+        EditBuffer<EmptyInfo>,
+        CursorGroupId,
+        ViewportContext<Cursor>,
+        VimContext,
+        Store<EmptyInfo>,
+    ) {
+        let (mut buf, gid, vwctx, vctx, mut store) = mkfive();
+
         buf.set_text(s);
-        buf.checkpoint().unwrap();
-        return buf;
+        buf.checkpoint(ctx!(gid, vwctx, vctx), &mut store).unwrap();
+
+        return (buf, gid, vwctx, vctx, store);
     }
 
     #[test]
     fn test_marks() {
-        let mut ebuf = mkbufstr(
+        let (mut ebuf, gid, vwctx, mut vctx, mut store) = mkfivestr(
             "12345\n\
             67890\n\
             abcde\n\
@@ -1399,486 +1480,475 @@ mod tests {
             pqrst\n\
             uvwxy\n",
         );
-        let curid = ebuf.create_group();
-        let vwctx = ViewportContext::default();
-        let mut vctx = VimContext::default();
 
         // Set up a bunch of marks to check.
-        ebuf.set_leader(curid, Cursor::new(0, 4));
-        ebuf.mark(mark!('a'), ctx!(curid, vwctx, vctx)).unwrap();
-        ebuf.set_leader(curid, Cursor::new(1, 3));
-        ebuf.mark(mark!('b'), ctx!(curid, vwctx, vctx)).unwrap();
-        ebuf.set_leader(curid, Cursor::new(2, 1));
-        ebuf.mark(mark!('c'), ctx!(curid, vwctx, vctx)).unwrap();
-        ebuf.set_leader(curid, Cursor::new(2, 4));
-        ebuf.mark(mark!('d'), ctx!(curid, vwctx, vctx)).unwrap();
-        ebuf.set_leader(curid, Cursor::new(4, 1));
-        ebuf.mark(mark!('e'), ctx!(curid, vwctx, vctx)).unwrap();
-        ebuf.set_leader(curid, Cursor::new(4, 3));
-        ebuf.mark(mark!('f'), ctx!(curid, vwctx, vctx)).unwrap();
-        ebuf.set_leader(curid, Cursor::new(5, 3));
-        ebuf.mark(mark!('g'), ctx!(curid, vwctx, vctx)).unwrap();
-        ebuf.set_leader(curid, Cursor::new(5, 2));
-        ebuf.mark(mark!('h'), ctx!(curid, vwctx, vctx)).unwrap();
-        ebuf.set_leader(curid, Cursor::new(6, 0));
-        ebuf.mark(mark!('i'), ctx!(curid, vwctx, vctx)).unwrap();
-        ebuf.set_leader(curid, Cursor::new(6, 4));
-        ebuf.mark(mark!('j'), ctx!(curid, vwctx, vctx)).unwrap();
+        ebuf.set_leader(gid, Cursor::new(0, 4));
+        ebuf.mark(mark!('a'), ctx!(gid, vwctx, vctx), &mut store).unwrap();
+        ebuf.set_leader(gid, Cursor::new(1, 3));
+        ebuf.mark(mark!('b'), ctx!(gid, vwctx, vctx), &mut store).unwrap();
+        ebuf.set_leader(gid, Cursor::new(2, 1));
+        ebuf.mark(mark!('c'), ctx!(gid, vwctx, vctx), &mut store).unwrap();
+        ebuf.set_leader(gid, Cursor::new(2, 4));
+        ebuf.mark(mark!('d'), ctx!(gid, vwctx, vctx), &mut store).unwrap();
+        ebuf.set_leader(gid, Cursor::new(4, 1));
+        ebuf.mark(mark!('e'), ctx!(gid, vwctx, vctx), &mut store).unwrap();
+        ebuf.set_leader(gid, Cursor::new(4, 3));
+        ebuf.mark(mark!('f'), ctx!(gid, vwctx, vctx), &mut store).unwrap();
+        ebuf.set_leader(gid, Cursor::new(5, 3));
+        ebuf.mark(mark!('g'), ctx!(gid, vwctx, vctx), &mut store).unwrap();
+        ebuf.set_leader(gid, Cursor::new(5, 2));
+        ebuf.mark(mark!('h'), ctx!(gid, vwctx, vctx), &mut store).unwrap();
+        ebuf.set_leader(gid, Cursor::new(6, 0));
+        ebuf.mark(mark!('i'), ctx!(gid, vwctx, vctx), &mut store).unwrap();
+        ebuf.set_leader(gid, Cursor::new(6, 4));
+        ebuf.mark(mark!('j'), ctx!(gid, vwctx, vctx), &mut store).unwrap();
 
         // Move to the third line, so we can verify that earlier marks go untouched.
-        ebuf.set_leader(curid, Cursor::new(2, 3));
+        ebuf.set_leader(gid, Cursor::new(2, 3));
 
         // Test that typing 'q' moves 'd right.
-        type_char!(ebuf, 'q', curid, vwctx, vctx);
+        type_char!(ebuf, 'q', gid, vwctx, vctx, store);
         assert_eq!(ebuf.get_text(), "12345\n67890\nabcqde\nfghij\nklmno\npqrst\nuvwxy\n");
-        assert_eq!(ebuf.get_leader(curid), Cursor::new(2, 4));
-        assert_mark!(ebuf, 'a', Cursor::new(0, 4));
-        assert_mark!(ebuf, 'b', Cursor::new(1, 3));
-        assert_mark!(ebuf, 'c', Cursor::new(2, 1));
-        assert_mark!(ebuf, 'd', Cursor::new(2, 5));
-        assert_mark!(ebuf, 'e', Cursor::new(4, 1));
-        assert_mark!(ebuf, 'f', Cursor::new(4, 3));
-        assert_mark!(ebuf, 'g', Cursor::new(5, 3));
-        assert_mark!(ebuf, 'h', Cursor::new(5, 2));
-        assert_mark!(ebuf, 'i', Cursor::new(6, 0));
-        assert_mark!(ebuf, 'j', Cursor::new(6, 4));
+        assert_eq!(ebuf.get_leader(gid), Cursor::new(2, 4));
+        assert_mark!(store, 'a', Cursor::new(0, 4));
+        assert_mark!(store, 'b', Cursor::new(1, 3));
+        assert_mark!(store, 'c', Cursor::new(2, 1));
+        assert_mark!(store, 'd', Cursor::new(2, 5));
+        assert_mark!(store, 'e', Cursor::new(4, 1));
+        assert_mark!(store, 'f', Cursor::new(4, 3));
+        assert_mark!(store, 'g', Cursor::new(5, 3));
+        assert_mark!(store, 'h', Cursor::new(5, 2));
+        assert_mark!(store, 'i', Cursor::new(6, 0));
+        assert_mark!(store, 'j', Cursor::new(6, 4));
 
         // Test that typing '\n' moves the marks down, and adjusts the column for 'd.
-        type_char!(ebuf, '\n', curid, vwctx, vctx);
+        type_char!(ebuf, '\n', gid, vwctx, vctx, store);
         assert_eq!(ebuf.get_text(), "12345\n67890\nabcq\nde\nfghij\nklmno\npqrst\nuvwxy\n");
-        assert_eq!(ebuf.get_leader(curid), Cursor::new(3, 0));
-        assert_mark!(ebuf, 'a', Cursor::new(0, 4));
-        assert_mark!(ebuf, 'b', Cursor::new(1, 3));
-        assert_mark!(ebuf, 'c', Cursor::new(2, 1));
-        assert_mark!(ebuf, 'd', Cursor::new(3, 1));
-        assert_mark!(ebuf, 'e', Cursor::new(5, 1));
-        assert_mark!(ebuf, 'f', Cursor::new(5, 3));
-        assert_mark!(ebuf, 'g', Cursor::new(6, 3));
-        assert_mark!(ebuf, 'h', Cursor::new(6, 2));
-        assert_mark!(ebuf, 'i', Cursor::new(7, 0));
-        assert_mark!(ebuf, 'j', Cursor::new(7, 4));
+        assert_eq!(ebuf.get_leader(gid), Cursor::new(3, 0));
+        assert_mark!(store, 'a', Cursor::new(0, 4));
+        assert_mark!(store, 'b', Cursor::new(1, 3));
+        assert_mark!(store, 'c', Cursor::new(2, 1));
+        assert_mark!(store, 'd', Cursor::new(3, 1));
+        assert_mark!(store, 'e', Cursor::new(5, 1));
+        assert_mark!(store, 'f', Cursor::new(5, 3));
+        assert_mark!(store, 'g', Cursor::new(6, 3));
+        assert_mark!(store, 'h', Cursor::new(6, 2));
+        assert_mark!(store, 'i', Cursor::new(7, 0));
+        assert_mark!(store, 'j', Cursor::new(7, 4));
 
         // Test that pasting a word adjusts the column for 'd.
-        set_named_reg!(ebuf, 's', CharWise, "hello ");
+        set_named_reg!(store, 's', CharWise, "hello ");
         vctx.action.register = Some(Register::Named('s'));
-        paste!(ebuf, MoveDir1D::Previous, Count::Exact(2), ctx!(curid, vwctx, vctx));
+        paste!(ebuf, MoveDir1D::Previous, Count::Exact(2), ctx!(gid, vwctx, vctx), store);
         assert_eq!(
             ebuf.get_text(),
             "12345\n67890\nabcq\nhello hello de\nfghij\nklmno\npqrst\nuvwxy\n"
         );
-        assert_eq!(ebuf.get_leader(curid), Cursor::new(3, 11));
-        assert_mark!(ebuf, 'a', Cursor::new(0, 4));
-        assert_mark!(ebuf, 'b', Cursor::new(1, 3));
-        assert_mark!(ebuf, 'c', Cursor::new(2, 1));
-        assert_mark!(ebuf, 'd', Cursor::new(3, 13));
-        assert_mark!(ebuf, 'e', Cursor::new(5, 1));
-        assert_mark!(ebuf, 'f', Cursor::new(5, 3));
-        assert_mark!(ebuf, 'g', Cursor::new(6, 3));
-        assert_mark!(ebuf, 'h', Cursor::new(6, 2));
-        assert_mark!(ebuf, 'i', Cursor::new(7, 0));
-        assert_mark!(ebuf, 'j', Cursor::new(7, 4));
+        assert_eq!(ebuf.get_leader(gid), Cursor::new(3, 11));
+        assert_mark!(store, 'a', Cursor::new(0, 4));
+        assert_mark!(store, 'b', Cursor::new(1, 3));
+        assert_mark!(store, 'c', Cursor::new(2, 1));
+        assert_mark!(store, 'd', Cursor::new(3, 13));
+        assert_mark!(store, 'e', Cursor::new(5, 1));
+        assert_mark!(store, 'f', Cursor::new(5, 3));
+        assert_mark!(store, 'g', Cursor::new(6, 3));
+        assert_mark!(store, 'h', Cursor::new(6, 2));
+        assert_mark!(store, 'i', Cursor::new(7, 0));
+        assert_mark!(store, 'j', Cursor::new(7, 4));
 
         // Test that pasting a line adjusts columns.
-        set_named_reg!(ebuf, 's', LineWise, "foo\nbar\n");
+        set_named_reg!(store, 's', LineWise, "foo\nbar\n");
         vctx.action.register = Some(Register::Named('s'));
-        paste!(ebuf, MoveDir1D::Previous, Count::Exact(3), ctx!(curid, vwctx, vctx));
+        paste!(ebuf, MoveDir1D::Previous, Count::Exact(3), ctx!(gid, vwctx, vctx), store);
         assert_eq!(
             ebuf.get_text(),
             "12345\n67890\nabcq\nfoo\nbar\nfoo\nbar\nfoo\nbar\n\
             hello hello de\nfghij\nklmno\npqrst\nuvwxy\n"
         );
-        assert_eq!(ebuf.get_leader(curid), Cursor::new(3, 0));
-        assert_mark!(ebuf, 'a', Cursor::new(0, 4));
-        assert_mark!(ebuf, 'b', Cursor::new(1, 3));
-        assert_mark!(ebuf, 'c', Cursor::new(2, 1));
-        assert_mark!(ebuf, 'd', Cursor::new(9, 13));
-        assert_mark!(ebuf, 'e', Cursor::new(11, 1));
-        assert_mark!(ebuf, 'f', Cursor::new(11, 3));
-        assert_mark!(ebuf, 'g', Cursor::new(12, 3));
-        assert_mark!(ebuf, 'h', Cursor::new(12, 2));
-        assert_mark!(ebuf, 'i', Cursor::new(13, 0));
-        assert_mark!(ebuf, 'j', Cursor::new(13, 4));
+        assert_eq!(ebuf.get_leader(gid), Cursor::new(3, 0));
+        assert_mark!(store, 'a', Cursor::new(0, 4));
+        assert_mark!(store, 'b', Cursor::new(1, 3));
+        assert_mark!(store, 'c', Cursor::new(2, 1));
+        assert_mark!(store, 'd', Cursor::new(9, 13));
+        assert_mark!(store, 'e', Cursor::new(11, 1));
+        assert_mark!(store, 'f', Cursor::new(11, 3));
+        assert_mark!(store, 'g', Cursor::new(12, 3));
+        assert_mark!(store, 'h', Cursor::new(12, 2));
+        assert_mark!(store, 'i', Cursor::new(13, 0));
+        assert_mark!(store, 'j', Cursor::new(13, 4));
 
-        set_named_reg!(ebuf, 's', LineWise, "baz\n");
+        set_named_reg!(store, 's', LineWise, "baz\n");
         vctx.action.register = Some(Register::Named('s'));
-        paste!(ebuf, MoveDir1D::Next, Count::Exact(1), ctx!(curid, vwctx, vctx));
+        paste!(ebuf, MoveDir1D::Next, Count::Exact(1), ctx!(gid, vwctx, vctx), store);
         assert_eq!(
             ebuf.get_text(),
             "12345\n67890\nabcq\nfoo\nbaz\nbar\nfoo\nbar\nfoo\nbar\n\
             hello hello de\nfghij\nklmno\npqrst\nuvwxy\n"
         );
-        assert_eq!(ebuf.get_leader(curid), Cursor::new(4, 0));
-        assert_mark!(ebuf, 'a', Cursor::new(0, 4));
-        assert_mark!(ebuf, 'b', Cursor::new(1, 3));
-        assert_mark!(ebuf, 'c', Cursor::new(2, 1));
-        assert_mark!(ebuf, 'd', Cursor::new(10, 13));
-        assert_mark!(ebuf, 'e', Cursor::new(12, 1));
-        assert_mark!(ebuf, 'f', Cursor::new(12, 3));
-        assert_mark!(ebuf, 'g', Cursor::new(13, 3));
-        assert_mark!(ebuf, 'h', Cursor::new(13, 2));
-        assert_mark!(ebuf, 'i', Cursor::new(14, 0));
-        assert_mark!(ebuf, 'j', Cursor::new(14, 4));
+        assert_eq!(ebuf.get_leader(gid), Cursor::new(4, 0));
+        assert_mark!(store, 'a', Cursor::new(0, 4));
+        assert_mark!(store, 'b', Cursor::new(1, 3));
+        assert_mark!(store, 'c', Cursor::new(2, 1));
+        assert_mark!(store, 'd', Cursor::new(10, 13));
+        assert_mark!(store, 'e', Cursor::new(12, 1));
+        assert_mark!(store, 'f', Cursor::new(12, 3));
+        assert_mark!(store, 'g', Cursor::new(13, 3));
+        assert_mark!(store, 'h', Cursor::new(13, 2));
+        assert_mark!(store, 'i', Cursor::new(14, 0));
+        assert_mark!(store, 'j', Cursor::new(14, 4));
 
         // Delete the pasted lines.
-        edit!(ebuf, EditAction::Delete, range!(RangeType::Line, 6), ctx!(curid, vwctx, vctx));
+        edit!(ebuf, EditAction::Delete, range!(RangeType::Line, 6), ctx!(gid, vwctx, vctx), store);
         assert_eq!(
             ebuf.get_text(),
             "12345\n67890\nabcq\nfoo\nhello hello de\nfghij\nklmno\npqrst\nuvwxy\n"
         );
-        assert_eq!(ebuf.get_leader(curid), Cursor::new(4, 0));
-        assert_mark!(ebuf, 'a', Cursor::new(0, 4));
-        assert_mark!(ebuf, 'b', Cursor::new(1, 3));
-        assert_mark!(ebuf, 'c', Cursor::new(2, 1));
-        assert_mark!(ebuf, 'd', Cursor::new(4, 13));
-        assert_mark!(ebuf, 'e', Cursor::new(6, 1));
-        assert_mark!(ebuf, 'f', Cursor::new(6, 3));
-        assert_mark!(ebuf, 'g', Cursor::new(7, 3));
-        assert_mark!(ebuf, 'h', Cursor::new(7, 2));
-        assert_mark!(ebuf, 'i', Cursor::new(8, 0));
-        assert_mark!(ebuf, 'j', Cursor::new(8, 4));
+        assert_eq!(ebuf.get_leader(gid), Cursor::new(4, 0));
+        assert_mark!(store, 'a', Cursor::new(0, 4));
+        assert_mark!(store, 'b', Cursor::new(1, 3));
+        assert_mark!(store, 'c', Cursor::new(2, 1));
+        assert_mark!(store, 'd', Cursor::new(4, 13));
+        assert_mark!(store, 'e', Cursor::new(6, 1));
+        assert_mark!(store, 'f', Cursor::new(6, 3));
+        assert_mark!(store, 'g', Cursor::new(7, 3));
+        assert_mark!(store, 'h', Cursor::new(7, 2));
+        assert_mark!(store, 'i', Cursor::new(8, 0));
+        assert_mark!(store, 'j', Cursor::new(8, 4));
 
         // Delete the pasted words.
         let mov = MoveType::WordBegin(WordStyle::Little, MoveDir1D::Next);
-        edit!(ebuf, EditAction::Delete, mv!(mov, 2), ctx!(curid, vwctx, vctx));
+        edit!(ebuf, EditAction::Delete, mv!(mov, 2), ctx!(gid, vwctx, vctx), store);
         assert_eq!(ebuf.get_text(), "12345\n67890\nabcq\nfoo\nde\nfghij\nklmno\npqrst\nuvwxy\n");
-        assert_eq!(ebuf.get_leader(curid), Cursor::new(4, 0));
-        assert_mark!(ebuf, 'a', Cursor::new(0, 4));
-        assert_mark!(ebuf, 'b', Cursor::new(1, 3));
-        assert_mark!(ebuf, 'c', Cursor::new(2, 1));
-        assert_mark!(ebuf, 'd', Cursor::new(4, 1));
-        assert_mark!(ebuf, 'e', Cursor::new(6, 1));
-        assert_mark!(ebuf, 'f', Cursor::new(6, 3));
-        assert_mark!(ebuf, 'g', Cursor::new(7, 3));
-        assert_mark!(ebuf, 'h', Cursor::new(7, 2));
-        assert_mark!(ebuf, 'i', Cursor::new(8, 0));
-        assert_mark!(ebuf, 'j', Cursor::new(8, 4));
+        assert_eq!(ebuf.get_leader(gid), Cursor::new(4, 0));
+        assert_mark!(store, 'a', Cursor::new(0, 4));
+        assert_mark!(store, 'b', Cursor::new(1, 3));
+        assert_mark!(store, 'c', Cursor::new(2, 1));
+        assert_mark!(store, 'd', Cursor::new(4, 1));
+        assert_mark!(store, 'e', Cursor::new(6, 1));
+        assert_mark!(store, 'f', Cursor::new(6, 3));
+        assert_mark!(store, 'g', Cursor::new(7, 3));
+        assert_mark!(store, 'h', Cursor::new(7, 2));
+        assert_mark!(store, 'i', Cursor::new(8, 0));
+        assert_mark!(store, 'j', Cursor::new(8, 4));
 
         // Delete the word containing 'd, sending it to column 0.
         let mov = MoveType::WordBegin(WordStyle::Little, MoveDir1D::Next);
-        edit!(ebuf, EditAction::Delete, mv!(mov), ctx!(curid, vwctx, vctx));
+        edit!(ebuf, EditAction::Delete, mv!(mov), ctx!(gid, vwctx, vctx), store);
         assert_eq!(ebuf.get_text(), "12345\n67890\nabcq\nfoo\n\nfghij\nklmno\npqrst\nuvwxy\n");
-        assert_eq!(ebuf.get_leader(curid), Cursor::new(4, 0));
-        assert_mark!(ebuf, 'a', Cursor::new(0, 4));
-        assert_mark!(ebuf, 'b', Cursor::new(1, 3));
-        assert_mark!(ebuf, 'c', Cursor::new(2, 1));
-        assert_mark!(ebuf, 'd', Cursor::new(4, 0));
-        assert_mark!(ebuf, 'e', Cursor::new(6, 1));
-        assert_mark!(ebuf, 'f', Cursor::new(6, 3));
-        assert_mark!(ebuf, 'g', Cursor::new(7, 3));
-        assert_mark!(ebuf, 'h', Cursor::new(7, 2));
-        assert_mark!(ebuf, 'i', Cursor::new(8, 0));
-        assert_mark!(ebuf, 'j', Cursor::new(8, 4));
+        assert_eq!(ebuf.get_leader(gid), Cursor::new(4, 0));
+        assert_mark!(store, 'a', Cursor::new(0, 4));
+        assert_mark!(store, 'b', Cursor::new(1, 3));
+        assert_mark!(store, 'c', Cursor::new(2, 1));
+        assert_mark!(store, 'd', Cursor::new(4, 0));
+        assert_mark!(store, 'e', Cursor::new(6, 1));
+        assert_mark!(store, 'f', Cursor::new(6, 3));
+        assert_mark!(store, 'g', Cursor::new(7, 3));
+        assert_mark!(store, 'h', Cursor::new(7, 2));
+        assert_mark!(store, 'i', Cursor::new(8, 0));
+        assert_mark!(store, 'j', Cursor::new(8, 4));
 
         // Delete the lines containing marks 'd, 'e and 'f, sending them to (0, 0).
-        edit!(ebuf, EditAction::Delete, range!(RangeType::Line, 3), ctx!(curid, vwctx, vctx));
+        edit!(ebuf, EditAction::Delete, range!(RangeType::Line, 3), ctx!(gid, vwctx, vctx), store);
         assert_eq!(ebuf.get_text(), "12345\n67890\nabcq\nfoo\npqrst\nuvwxy\n");
-        assert_eq!(ebuf.get_leader(curid), Cursor::new(4, 0));
-        assert_mark!(ebuf, 'a', Cursor::new(0, 4));
-        assert_mark!(ebuf, 'b', Cursor::new(1, 3));
-        assert_mark!(ebuf, 'c', Cursor::new(2, 1));
-        assert_mark!(ebuf, 'd', Cursor::new(0, 0));
-        assert_mark!(ebuf, 'e', Cursor::new(0, 0));
-        assert_mark!(ebuf, 'f', Cursor::new(0, 0));
-        assert_mark!(ebuf, 'g', Cursor::new(4, 3));
-        assert_mark!(ebuf, 'h', Cursor::new(4, 2));
-        assert_mark!(ebuf, 'i', Cursor::new(5, 0));
-        assert_mark!(ebuf, 'j', Cursor::new(5, 4));
+        assert_eq!(ebuf.get_leader(gid), Cursor::new(4, 0));
+        assert_mark!(store, 'a', Cursor::new(0, 4));
+        assert_mark!(store, 'b', Cursor::new(1, 3));
+        assert_mark!(store, 'c', Cursor::new(2, 1));
+        assert_mark!(store, 'd', Cursor::new(0, 0));
+        assert_mark!(store, 'e', Cursor::new(0, 0));
+        assert_mark!(store, 'f', Cursor::new(0, 0));
+        assert_mark!(store, 'g', Cursor::new(4, 3));
+        assert_mark!(store, 'h', Cursor::new(4, 2));
+        assert_mark!(store, 'i', Cursor::new(5, 0));
+        assert_mark!(store, 'j', Cursor::new(5, 4));
 
         // Do a blockwise paste and check that columns get adjusted.
-        set_named_reg!(ebuf, 's', BlockWise, "foo\nbar");
+        set_named_reg!(store, 's', BlockWise, "foo\nbar");
         vctx.action.register = Some(Register::Named('s'));
-        paste!(ebuf, MoveDir1D::Next, Count::Exact(1), ctx!(curid, vwctx, vctx));
+        paste!(ebuf, MoveDir1D::Next, Count::Exact(1), ctx!(gid, vwctx, vctx), store);
         assert_eq!(ebuf.get_text(), "12345\n67890\nabcq\nfoo\npfooqrst\nubarvwxy\n");
-        assert_eq!(ebuf.get_leader(curid), Cursor::new(4, 1));
-        assert_mark!(ebuf, 'a', Cursor::new(0, 4));
-        assert_mark!(ebuf, 'b', Cursor::new(1, 3));
-        assert_mark!(ebuf, 'c', Cursor::new(2, 1));
-        assert_mark!(ebuf, 'd', Cursor::new(0, 0));
-        assert_mark!(ebuf, 'e', Cursor::new(0, 0));
-        assert_mark!(ebuf, 'f', Cursor::new(0, 0));
-        assert_mark!(ebuf, 'g', Cursor::new(4, 6));
-        assert_mark!(ebuf, 'h', Cursor::new(4, 5));
-        assert_mark!(ebuf, 'i', Cursor::new(5, 0));
-        assert_mark!(ebuf, 'j', Cursor::new(5, 7));
+        assert_eq!(ebuf.get_leader(gid), Cursor::new(4, 1));
+        assert_mark!(store, 'a', Cursor::new(0, 4));
+        assert_mark!(store, 'b', Cursor::new(1, 3));
+        assert_mark!(store, 'c', Cursor::new(2, 1));
+        assert_mark!(store, 'd', Cursor::new(0, 0));
+        assert_mark!(store, 'e', Cursor::new(0, 0));
+        assert_mark!(store, 'f', Cursor::new(0, 0));
+        assert_mark!(store, 'g', Cursor::new(4, 6));
+        assert_mark!(store, 'h', Cursor::new(4, 5));
+        assert_mark!(store, 'i', Cursor::new(5, 0));
+        assert_mark!(store, 'j', Cursor::new(5, 7));
 
         // Test that marks get adjusted after blockwise deletes.
         let target = EditTarget::CharJump(Specifier::Exact(mark!('b')));
         vctx.persist.shape = Some(TargetShape::BlockWise);
-        edit!(ebuf, EditAction::Delete, target, ctx!(curid, vwctx, vctx));
+        edit!(ebuf, EditAction::Delete, target, ctx!(gid, vwctx, vctx), store);
         assert_eq!(ebuf.get_text(), "12345\n60\na\nf\npqrst\nubarvwxy\n");
-        assert_eq!(ebuf.get_leader(curid), Cursor::new(1, 1));
-        assert_mark!(ebuf, 'a', Cursor::new(0, 4));
-        assert_mark!(ebuf, 'b', Cursor::new(1, 0));
-        assert_mark!(ebuf, 'c', Cursor::new(2, 0));
-        assert_mark!(ebuf, 'd', Cursor::new(0, 0));
-        assert_mark!(ebuf, 'e', Cursor::new(0, 0));
-        assert_mark!(ebuf, 'f', Cursor::new(0, 0));
-        assert_mark!(ebuf, 'g', Cursor::new(4, 3));
-        assert_mark!(ebuf, 'h', Cursor::new(4, 2));
-        assert_mark!(ebuf, 'i', Cursor::new(5, 0));
-        assert_mark!(ebuf, 'j', Cursor::new(5, 7));
+        assert_eq!(ebuf.get_leader(gid), Cursor::new(1, 1));
+        assert_mark!(store, 'a', Cursor::new(0, 4));
+        assert_mark!(store, 'b', Cursor::new(1, 0));
+        assert_mark!(store, 'c', Cursor::new(2, 0));
+        assert_mark!(store, 'd', Cursor::new(0, 0));
+        assert_mark!(store, 'e', Cursor::new(0, 0));
+        assert_mark!(store, 'f', Cursor::new(0, 0));
+        assert_mark!(store, 'g', Cursor::new(4, 3));
+        assert_mark!(store, 'h', Cursor::new(4, 2));
+        assert_mark!(store, 'i', Cursor::new(5, 0));
+        assert_mark!(store, 'j', Cursor::new(5, 7));
 
         // Move to first line and test joining lines.
         let mov = MoveType::BufferLineOffset;
-        edit!(ebuf, EditAction::Motion, mv!(mov, 1), ctx!(curid, vwctx, vctx));
+        edit!(ebuf, EditAction::Motion, mv!(mov, 1), ctx!(gid, vwctx, vctx), store);
 
         let operation = EditAction::Join(JoinStyle::OneSpace);
-        edit!(ebuf, operation, range!(RangeType::Line, 3), ctx!(curid, vwctx, vctx));
+        edit!(ebuf, operation, range!(RangeType::Line, 3), ctx!(gid, vwctx, vctx), store);
         assert_eq!(ebuf.get_text(), "12345 60 a\nf\npqrst\nubarvwxy\n");
-        assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 8));
-        assert_mark!(ebuf, 'a', Cursor::new(0, 4));
-        assert_mark!(ebuf, 'b', Cursor::new(0, 6));
-        assert_mark!(ebuf, 'c', Cursor::new(0, 9));
-        assert_mark!(ebuf, 'd', Cursor::new(0, 0));
-        assert_mark!(ebuf, 'e', Cursor::new(0, 0));
-        assert_mark!(ebuf, 'f', Cursor::new(0, 0));
-        assert_mark!(ebuf, 'g', Cursor::new(2, 3));
-        assert_mark!(ebuf, 'h', Cursor::new(2, 2));
-        assert_mark!(ebuf, 'i', Cursor::new(3, 0));
-        assert_mark!(ebuf, 'j', Cursor::new(3, 7));
+        assert_eq!(ebuf.get_leader(gid), Cursor::new(0, 8));
+        assert_mark!(store, 'a', Cursor::new(0, 4));
+        assert_mark!(store, 'b', Cursor::new(0, 6));
+        assert_mark!(store, 'c', Cursor::new(0, 9));
+        assert_mark!(store, 'd', Cursor::new(0, 0));
+        assert_mark!(store, 'e', Cursor::new(0, 0));
+        assert_mark!(store, 'f', Cursor::new(0, 0));
+        assert_mark!(store, 'g', Cursor::new(2, 3));
+        assert_mark!(store, 'h', Cursor::new(2, 2));
+        assert_mark!(store, 'i', Cursor::new(3, 0));
+        assert_mark!(store, 'j', Cursor::new(3, 7));
 
         let operation = EditAction::Join(JoinStyle::NoChange);
-        edit!(ebuf, operation, range!(RangeType::Line, 3), ctx!(curid, vwctx, vctx));
+        edit!(ebuf, operation, range!(RangeType::Line, 3), ctx!(gid, vwctx, vctx), store);
         assert_eq!(ebuf.get_text(), "12345 60 afpqrst\nubarvwxy\n");
-        assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 11));
-        assert_mark!(ebuf, 'a', Cursor::new(0, 4));
-        assert_mark!(ebuf, 'b', Cursor::new(0, 6));
-        assert_mark!(ebuf, 'c', Cursor::new(0, 9));
-        assert_mark!(ebuf, 'd', Cursor::new(0, 0));
-        assert_mark!(ebuf, 'e', Cursor::new(0, 0));
-        assert_mark!(ebuf, 'f', Cursor::new(0, 0));
-        assert_mark!(ebuf, 'g', Cursor::new(0, 14));
-        assert_mark!(ebuf, 'h', Cursor::new(0, 13));
-        assert_mark!(ebuf, 'i', Cursor::new(1, 0));
-        assert_mark!(ebuf, 'j', Cursor::new(1, 7));
+        assert_eq!(ebuf.get_leader(gid), Cursor::new(0, 11));
+        assert_mark!(store, 'a', Cursor::new(0, 4));
+        assert_mark!(store, 'b', Cursor::new(0, 6));
+        assert_mark!(store, 'c', Cursor::new(0, 9));
+        assert_mark!(store, 'd', Cursor::new(0, 0));
+        assert_mark!(store, 'e', Cursor::new(0, 0));
+        assert_mark!(store, 'f', Cursor::new(0, 0));
+        assert_mark!(store, 'g', Cursor::new(0, 14));
+        assert_mark!(store, 'h', Cursor::new(0, 13));
+        assert_mark!(store, 'i', Cursor::new(1, 0));
+        assert_mark!(store, 'j', Cursor::new(1, 7));
     }
 
     #[test]
     fn test_motion_mark_jump() {
-        let mut ebuf = mkbufstr("12345\n   67890\nabcde\nfghij\n klmno\n");
-        let curid = ebuf.create_group();
-        let vwctx = ViewportContext::default();
-        let vctx = VimContext::default();
+        let (mut ebuf, gid, vwctx, vctx, mut store) =
+            mkfivestr("12345\n   67890\nabcde\nfghij\n klmno\n");
 
         // Set up a bunch of marks to check.
-        ebuf.set_leader(curid, Cursor::new(0, 4));
-        ebuf.mark(mark!('a'), ctx!(curid, vwctx, vctx)).unwrap();
-        ebuf.set_leader(curid, Cursor::new(1, 6));
-        ebuf.mark(mark!('b'), ctx!(curid, vwctx, vctx)).unwrap();
-        ebuf.set_leader(curid, Cursor::new(2, 1));
-        ebuf.mark(mark!('c'), ctx!(curid, vwctx, vctx)).unwrap();
-        ebuf.set_leader(curid, Cursor::new(2, 5));
-        ebuf.mark(mark!('d'), ctx!(curid, vwctx, vctx)).unwrap();
-        ebuf.set_leader(curid, Cursor::new(3, 2));
-        ebuf.mark(mark!('e'), ctx!(curid, vwctx, vctx)).unwrap();
-        ebuf.set_leader(curid, Cursor::new(4, 4));
-        ebuf.mark(mark!('f'), ctx!(curid, vwctx, vctx)).unwrap();
+        ebuf.set_leader(gid, Cursor::new(0, 4));
+        ebuf.mark(mark!('a'), ctx!(gid, vwctx, vctx), &mut store).unwrap();
+        ebuf.set_leader(gid, Cursor::new(1, 6));
+        ebuf.mark(mark!('b'), ctx!(gid, vwctx, vctx), &mut store).unwrap();
+        ebuf.set_leader(gid, Cursor::new(2, 1));
+        ebuf.mark(mark!('c'), ctx!(gid, vwctx, vctx), &mut store).unwrap();
+        ebuf.set_leader(gid, Cursor::new(2, 5));
+        ebuf.mark(mark!('d'), ctx!(gid, vwctx, vctx), &mut store).unwrap();
+        ebuf.set_leader(gid, Cursor::new(3, 2));
+        ebuf.mark(mark!('e'), ctx!(gid, vwctx, vctx), &mut store).unwrap();
+        ebuf.set_leader(gid, Cursor::new(4, 4));
+        ebuf.mark(mark!('f'), ctx!(gid, vwctx, vctx), &mut store).unwrap();
 
         let op = EditAction::Motion;
 
         // Move to the top left to begin.
-        ebuf.set_leader(curid, Cursor::new(0, 0));
+        ebuf.set_leader(gid, Cursor::new(0, 0));
 
         // Using LineJump always goes to the first word.
-        edit_line_mark!(ebuf, op, 'a', curid, vwctx, vctx);
-        assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 0));
-        edit_line_mark!(ebuf, op, 'b', curid, vwctx, vctx);
-        assert_eq!(ebuf.get_leader(curid), Cursor::new(1, 3));
-        edit_line_mark!(ebuf, op, 'c', curid, vwctx, vctx);
-        assert_eq!(ebuf.get_leader(curid), Cursor::new(2, 0));
-        edit_line_mark!(ebuf, op, 'd', curid, vwctx, vctx);
-        assert_eq!(ebuf.get_leader(curid), Cursor::new(2, 0));
-        edit_line_mark!(ebuf, op, 'e', curid, vwctx, vctx);
-        assert_eq!(ebuf.get_leader(curid), Cursor::new(3, 0));
-        edit_line_mark!(ebuf, op, 'f', curid, vwctx, vctx);
-        assert_eq!(ebuf.get_leader(curid), Cursor::new(4, 1));
+        edit_line_mark!(ebuf, op, 'a', gid, vwctx, vctx, store);
+        assert_eq!(ebuf.get_leader(gid), Cursor::new(0, 0));
+        edit_line_mark!(ebuf, op, 'b', gid, vwctx, vctx, store);
+        assert_eq!(ebuf.get_leader(gid), Cursor::new(1, 3));
+        edit_line_mark!(ebuf, op, 'c', gid, vwctx, vctx, store);
+        assert_eq!(ebuf.get_leader(gid), Cursor::new(2, 0));
+        edit_line_mark!(ebuf, op, 'd', gid, vwctx, vctx, store);
+        assert_eq!(ebuf.get_leader(gid), Cursor::new(2, 0));
+        edit_line_mark!(ebuf, op, 'e', gid, vwctx, vctx, store);
+        assert_eq!(ebuf.get_leader(gid), Cursor::new(3, 0));
+        edit_line_mark!(ebuf, op, 'f', gid, vwctx, vctx, store);
+        assert_eq!(ebuf.get_leader(gid), Cursor::new(4, 1));
 
         // Using CharJump goes to the marked column.
-        edit_char_mark!(ebuf, op, 'a', curid, vwctx, vctx);
-        assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 4));
-        edit_char_mark!(ebuf, op, 'b', curid, vwctx, vctx);
-        assert_eq!(ebuf.get_leader(curid), Cursor::new(1, 6));
-        edit_char_mark!(ebuf, op, 'c', curid, vwctx, vctx);
-        assert_eq!(ebuf.get_leader(curid), Cursor::new(2, 1));
-        edit_char_mark!(ebuf, op, 'd', curid, vwctx, vctx);
-        assert_eq!(ebuf.get_leader(curid), Cursor::new(2, 5));
-        edit_char_mark!(ebuf, op, 'e', curid, vwctx, vctx);
-        assert_eq!(ebuf.get_leader(curid), Cursor::new(3, 2));
-        edit_char_mark!(ebuf, op, 'f', curid, vwctx, vctx);
-        assert_eq!(ebuf.get_leader(curid), Cursor::new(4, 4));
+        edit_char_mark!(ebuf, op, 'a', gid, vwctx, vctx, store);
+        assert_eq!(ebuf.get_leader(gid), Cursor::new(0, 4));
+        edit_char_mark!(ebuf, op, 'b', gid, vwctx, vctx, store);
+        assert_eq!(ebuf.get_leader(gid), Cursor::new(1, 6));
+        edit_char_mark!(ebuf, op, 'c', gid, vwctx, vctx, store);
+        assert_eq!(ebuf.get_leader(gid), Cursor::new(2, 1));
+        edit_char_mark!(ebuf, op, 'd', gid, vwctx, vctx, store);
+        assert_eq!(ebuf.get_leader(gid), Cursor::new(2, 5));
+        edit_char_mark!(ebuf, op, 'e', gid, vwctx, vctx, store);
+        assert_eq!(ebuf.get_leader(gid), Cursor::new(3, 2));
+        edit_char_mark!(ebuf, op, 'f', gid, vwctx, vctx, store);
+        assert_eq!(ebuf.get_leader(gid), Cursor::new(4, 4));
     }
 
     #[test]
     fn test_changelist() {
-        let mut ebuf = mkbufstr("12345\n   67890\nabcde\nfghij\n klmno\n");
-        let curid = ebuf.create_group();
-        let vwctx = ViewportContext::default();
-        let vctx = VimContext::default();
+        let (mut ebuf, gid, vwctx, vctx, mut store) =
+            mkfivestr("12345\n   67890\nabcde\nfghij\n klmno\n");
         let next = MoveDir1D::Next;
         let prev = MoveDir1D::Previous;
         let cl = PositionList::ChangeList;
 
         // Start out at (1, 3).
-        ebuf.set_leader(curid, Cursor::new(1, 3));
+        ebuf.set_leader(gid, Cursor::new(1, 3));
 
         // Delete the "6", pushing current position into the changelist.
-        edit!(ebuf, EditAction::Delete, EditTarget::CurrentPosition, ctx!(curid, vwctx, vctx));
-        assert_eq!(ebuf.get_leader(curid), Cursor::new(1, 3));
+        edit!(ebuf, EditAction::Delete, EditTarget::CurrentPosition, ctx!(gid, vwctx, vctx), store);
+        assert_eq!(ebuf.get_leader(gid), Cursor::new(1, 3));
         assert_eq!(ebuf.get_text(), "12345\n   7890\nabcde\nfghij\n klmno\n");
 
         // Move down.
-        edit!(ebuf, EditAction::Motion, mv!(MoveType::Line(next)), ctx!(curid, vwctx, vctx));
-        assert_eq!(ebuf.get_leader(curid), Cursor::new(2, 3));
+        edit!(ebuf, EditAction::Motion, mv!(MoveType::Line(next)), ctx!(gid, vwctx, vctx), store);
+        assert_eq!(ebuf.get_leader(gid), Cursor::new(2, 3));
         assert_eq!(ebuf.get_text(), "12345\n   7890\nabcde\nfghij\n klmno\n");
 
         // Delete the "d", no change made to changelist.
-        edit!(ebuf, EditAction::Delete, EditTarget::CurrentPosition, ctx!(curid, vwctx, vctx));
-        assert_eq!(ebuf.get_leader(curid), Cursor::new(2, 3));
+        edit!(ebuf, EditAction::Delete, EditTarget::CurrentPosition, ctx!(gid, vwctx, vctx), store);
+        assert_eq!(ebuf.get_leader(gid), Cursor::new(2, 3));
         assert_eq!(ebuf.get_text(), "12345\n   7890\nabce\nfghij\n klmno\n");
 
         // Checkpoint current state, so that we can push another position.
-        ebuf.history_command(HistoryAction::Checkpoint, &ctx!(curid, vwctx, vctx))
+        ebuf.history_command(HistoryAction::Checkpoint, &ctx!(gid, vwctx, vctx), &mut store)
             .unwrap();
 
         // Move down.
-        edit!(ebuf, EditAction::Motion, mv!(MoveType::Line(next)), ctx!(curid, vwctx, vctx));
-        assert_eq!(ebuf.get_leader(curid), Cursor::new(3, 3));
+        edit!(ebuf, EditAction::Motion, mv!(MoveType::Line(next)), ctx!(gid, vwctx, vctx), store);
+        assert_eq!(ebuf.get_leader(gid), Cursor::new(3, 3));
         assert_eq!(ebuf.get_text(), "12345\n   7890\nabce\nfghij\n klmno\n");
 
         // Type a character, pushing current position into the changelist.
-        type_char!(ebuf, '1', curid, vwctx, vctx);
-        assert_eq!(ebuf.get_leader(curid), Cursor::new(3, 4));
+        type_char!(ebuf, '1', gid, vwctx, vctx, store);
+        assert_eq!(ebuf.get_leader(gid), Cursor::new(3, 4));
         assert_eq!(ebuf.get_text(), "12345\n   7890\nabce\nfgh1ij\n klmno\n");
 
         // Move down.
-        edit!(ebuf, EditAction::Motion, mv!(MoveType::Line(next)), ctx!(curid, vwctx, vctx));
-        assert_eq!(ebuf.get_leader(curid), Cursor::new(4, 4));
+        edit!(ebuf, EditAction::Motion, mv!(MoveType::Line(next)), ctx!(gid, vwctx, vctx), store);
+        assert_eq!(ebuf.get_leader(gid), Cursor::new(4, 4));
         assert_eq!(ebuf.get_text(), "12345\n   7890\nabce\nfgh1ij\n klmno\n");
 
         // Go back once to (3, 4).
-        let count = ebuf.jump(cl, prev, 1, ctx!(curid, vwctx, vctx)).unwrap();
+        let count = ebuf.jump(cl, prev, 1, ctx!(gid, vwctx, vctx)).unwrap();
         assert_eq!(count, 0);
-        assert_eq!(ebuf.get_leader(curid), Cursor::new(3, 4));
+        assert_eq!(ebuf.get_leader(gid), Cursor::new(3, 4));
 
         // Go back once to (1, 3).
-        let count = ebuf.jump(cl, prev, 1, ctx!(curid, vwctx, vctx)).unwrap();
+        let count = ebuf.jump(cl, prev, 1, ctx!(gid, vwctx, vctx)).unwrap();
         assert_eq!(count, 0);
-        assert_eq!(ebuf.get_leader(curid), Cursor::new(1, 3));
+        assert_eq!(ebuf.get_leader(gid), Cursor::new(1, 3));
 
         // Go forward once to (3, 4) again.
-        let count = ebuf.jump(cl, next, 1, ctx!(curid, vwctx, vctx)).unwrap();
+        let count = ebuf.jump(cl, next, 1, ctx!(gid, vwctx, vctx)).unwrap();
         assert_eq!(count, 0);
-        assert_eq!(ebuf.get_leader(curid), Cursor::new(3, 4));
+        assert_eq!(ebuf.get_leader(gid), Cursor::new(3, 4));
 
         // Can't go forward any more: original position is not saved in changelist, like it is w/
         // the jumplist.
-        let count = ebuf.jump(cl, next, 1, ctx!(curid, vwctx, vctx)).unwrap();
+        let count = ebuf.jump(cl, next, 1, ctx!(gid, vwctx, vctx)).unwrap();
         assert_eq!(count, 0);
-        assert_eq!(ebuf.get_leader(curid), Cursor::new(3, 4));
+        assert_eq!(ebuf.get_leader(gid), Cursor::new(3, 4));
     }
 
     #[test]
     fn test_jumplist() {
-        let mut ebuf = mkbufstr("12345\n   67890\nabcde\nfghij\n klmno\n");
-        let curid = ebuf.create_group();
-        let vwctx = ViewportContext::default();
-        let vctx = VimContext::default();
+        let (mut ebuf, gid, vwctx, vctx, mut store) =
+            mkfivestr("12345\n   67890\nabcde\nfghij\n klmno\n");
         let next = MoveDir1D::Next;
         let prev = MoveDir1D::Previous;
         let jl = PositionList::JumpList;
 
         // Set up a bunch of marks to jump to.
-        ebuf.set_leader(curid, Cursor::new(0, 4));
-        ebuf.mark(mark!('a'), ctx!(curid, vwctx, vctx)).unwrap();
-        ebuf.set_leader(curid, Cursor::new(1, 6));
-        ebuf.mark(mark!('b'), ctx!(curid, vwctx, vctx)).unwrap();
-        ebuf.set_leader(curid, Cursor::new(2, 1));
-        ebuf.mark(mark!('c'), ctx!(curid, vwctx, vctx)).unwrap();
-        ebuf.set_leader(curid, Cursor::new(2, 5));
-        ebuf.mark(mark!('d'), ctx!(curid, vwctx, vctx)).unwrap();
-        ebuf.set_leader(curid, Cursor::new(3, 2));
-        ebuf.mark(mark!('e'), ctx!(curid, vwctx, vctx)).unwrap();
-        ebuf.set_leader(curid, Cursor::new(4, 4));
-        ebuf.mark(mark!('f'), ctx!(curid, vwctx, vctx)).unwrap();
+        ebuf.set_leader(gid, Cursor::new(0, 4));
+        ebuf.mark(mark!('a'), ctx!(gid, vwctx, vctx), &mut store).unwrap();
+        ebuf.set_leader(gid, Cursor::new(1, 6));
+        ebuf.mark(mark!('b'), ctx!(gid, vwctx, vctx), &mut store).unwrap();
+        ebuf.set_leader(gid, Cursor::new(2, 1));
+        ebuf.mark(mark!('c'), ctx!(gid, vwctx, vctx), &mut store).unwrap();
+        ebuf.set_leader(gid, Cursor::new(2, 5));
+        ebuf.mark(mark!('d'), ctx!(gid, vwctx, vctx), &mut store).unwrap();
+        ebuf.set_leader(gid, Cursor::new(3, 2));
+        ebuf.mark(mark!('e'), ctx!(gid, vwctx, vctx), &mut store).unwrap();
+        ebuf.set_leader(gid, Cursor::new(4, 4));
+        ebuf.mark(mark!('f'), ctx!(gid, vwctx, vctx), &mut store).unwrap();
 
         let op = EditAction::Motion;
 
         // Move to the top left to begin.
-        ebuf.set_leader(curid, Cursor::new(0, 0));
+        ebuf.set_leader(gid, Cursor::new(0, 0));
 
         // CharJump should push (0, 0).
-        edit_char_mark!(ebuf, op, 'a', curid, vwctx, vctx);
-        assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 4));
+        edit_char_mark!(ebuf, op, 'a', gid, vwctx, vctx, store);
+        assert_eq!(ebuf.get_leader(gid), Cursor::new(0, 4));
 
         // CharJump should push (0, 4).
-        edit_char_mark!(ebuf, op, 'b', curid, vwctx, vctx);
-        assert_eq!(ebuf.get_leader(curid), Cursor::new(1, 6));
+        edit_char_mark!(ebuf, op, 'b', gid, vwctx, vctx, store);
+        assert_eq!(ebuf.get_leader(gid), Cursor::new(1, 6));
 
         // CharJump should push (1, 6).
-        edit_char_mark!(ebuf, op, 'c', curid, vwctx, vctx);
-        assert_eq!(ebuf.get_leader(curid), Cursor::new(2, 1));
+        edit_char_mark!(ebuf, op, 'c', gid, vwctx, vctx, store);
+        assert_eq!(ebuf.get_leader(gid), Cursor::new(2, 1));
 
         // MoveType::Line is not a jump, so we don't push (2, 1).
-        edit!(ebuf, op, MoveType::Line(next).into(), ctx!(curid, vwctx, vctx));
-        assert_eq!(ebuf.get_leader(curid), Cursor::new(3, 1));
+        edit!(ebuf, op, MoveType::Line(next).into(), ctx!(gid, vwctx, vctx), store);
+        assert_eq!(ebuf.get_leader(gid), Cursor::new(3, 1));
 
         // Moving forward in the list when there's nothing should leave cursor where it is.
-        let count = ebuf.jump(jl, next, 1, ctx!(curid, vwctx, vctx)).unwrap();
+        let count = ebuf.jump(jl, next, 1, ctx!(gid, vwctx, vctx)).unwrap();
         assert_eq!(count, 1);
-        assert_eq!(ebuf.get_leader(curid), Cursor::new(3, 1));
+        assert_eq!(ebuf.get_leader(gid), Cursor::new(3, 1));
 
-        println!("{}", ebuf.jumped.get(curid).unwrap().past_len());
-        println!("{}", ebuf.jumped.get(curid).unwrap().future_len());
+        println!("{}", ebuf.jumped.get(gid).unwrap().past_len());
+        println!("{}", ebuf.jumped.get(gid).unwrap().future_len());
 
         // Move back twice in the jumplist.
-        let count = ebuf.jump(jl, prev, 2, ctx!(curid, vwctx, vctx)).unwrap();
-        assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 4));
+        let count = ebuf.jump(jl, prev, 2, ctx!(gid, vwctx, vctx)).unwrap();
+        assert_eq!(ebuf.get_leader(gid), Cursor::new(0, 4));
         assert_eq!(count, 0);
 
         // Move forward once to where we were before moving through the jumplist.
-        let count = ebuf.jump(jl, next, 1, ctx!(curid, vwctx, vctx)).unwrap();
+        let count = ebuf.jump(jl, next, 1, ctx!(gid, vwctx, vctx)).unwrap();
         assert_eq!(count, 0);
-        assert_eq!(ebuf.get_leader(curid), Cursor::new(1, 6));
+        assert_eq!(ebuf.get_leader(gid), Cursor::new(1, 6));
 
         // Move forward once, back to where we were before moving through the jumplist.
-        let count = ebuf.jump(jl, next, 1, ctx!(curid, vwctx, vctx)).unwrap();
+        let count = ebuf.jump(jl, next, 1, ctx!(gid, vwctx, vctx)).unwrap();
         assert_eq!(count, 0);
-        assert_eq!(ebuf.get_leader(curid), Cursor::new(3, 1));
+        assert_eq!(ebuf.get_leader(gid), Cursor::new(3, 1));
 
         // Move backward twice, back to (0, 4).
-        let count = ebuf.jump(jl, prev, 2, ctx!(curid, vwctx, vctx)).unwrap();
+        let count = ebuf.jump(jl, prev, 2, ctx!(gid, vwctx, vctx)).unwrap();
         assert_eq!(count, 0);
-        assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 4));
+        assert_eq!(ebuf.get_leader(gid), Cursor::new(0, 4));
 
-        edit!(ebuf, op, MoveType::Line(next).into(), ctx!(curid, vwctx, vctx));
-        assert_eq!(ebuf.get_leader(curid), Cursor::new(1, 4));
+        edit!(ebuf, op, MoveType::Line(next).into(), ctx!(gid, vwctx, vctx), store);
+        assert_eq!(ebuf.get_leader(gid), Cursor::new(1, 4));
 
         // Now jump again, wiping future history with (1, 4).
-        edit_char_mark!(ebuf, op, 'd', curid, vwctx, vctx);
-        assert_eq!(ebuf.get_leader(curid), Cursor::new(2, 5));
+        edit_char_mark!(ebuf, op, 'd', gid, vwctx, vctx, store);
+        assert_eq!(ebuf.get_leader(gid), Cursor::new(2, 5));
 
         // Move forward does nothing since we wiped history.
-        let count = ebuf.jump(jl, next, 1, ctx!(curid, vwctx, vctx)).unwrap();
+        let count = ebuf.jump(jl, next, 1, ctx!(gid, vwctx, vctx)).unwrap();
         assert_eq!(count, 1);
-        assert_eq!(ebuf.get_leader(curid), Cursor::new(2, 5));
+        assert_eq!(ebuf.get_leader(gid), Cursor::new(2, 5));
 
         // Move backward to (1, 4).
-        let count = ebuf.jump(jl, prev, 1, ctx!(curid, vwctx, vctx)).unwrap();
+        let count = ebuf.jump(jl, prev, 1, ctx!(gid, vwctx, vctx)).unwrap();
         assert_eq!(count, 0);
-        assert_eq!(ebuf.get_leader(curid), Cursor::new(1, 4));
+        assert_eq!(ebuf.get_leader(gid), Cursor::new(1, 4));
 
         // Move backward to (0, 4).
-        let count = ebuf.jump(jl, prev, 1, ctx!(curid, vwctx, vctx)).unwrap();
+        let count = ebuf.jump(jl, prev, 1, ctx!(gid, vwctx, vctx)).unwrap();
         assert_eq!(count, 0);
-        assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 4));
+        assert_eq!(ebuf.get_leader(gid), Cursor::new(0, 4));
     }
 
     #[test]
     fn test_search_char_inclusive_forwards() {
-        let mut ebuf = mkbufstr("a b c a b c 1 2 3 a b c 1 2 3\na b c a b c 1 2 3 a b c 1 2 3\n");
-        let curid = ebuf.create_group();
-        let vwctx = ViewportContext::default();
-        let mut vctx = VimContext::default();
+        let (mut ebuf, gid, vwctx, mut vctx, mut store) =
+            mkfivestr("a b c a b c 1 2 3 a b c 1 2 3\na b c a b c 1 2 3 a b c 1 2 3\n");
 
         // Move in the same search direction as the last search (";").
         let same = EditTarget::Search(SearchType::Char(false), MoveDirMod::Same, Count::Contextual);
@@ -1887,43 +1957,41 @@ mod tests {
         let flip = EditTarget::Search(SearchType::Char(false), MoveDirMod::Flip, Count::Contextual);
 
         // Set cursor to (0, 4), after the first "a".
-        ebuf.set_leader(curid, Cursor::new(0, 4));
+        ebuf.set_leader(gid, Cursor::new(0, 4));
         vctx.persist.charsearch_params = (MoveDir1D::Next, true);
         vctx.persist.charsearch = Some('a'.into());
 
         // Delete from cursor to the second "a" ("d2fa").
         vctx.action.count = Some(2);
-        edit!(ebuf, EditAction::Delete, same, ctx!(curid, vwctx, vctx));
-        assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 4));
+        edit!(ebuf, EditAction::Delete, same, ctx!(gid, vwctx, vctx), store);
+        assert_eq!(ebuf.get_leader(gid), Cursor::new(0, 4));
         assert_eq!(ebuf.get_text(), "a b  b c 1 2 3\na b c a b c 1 2 3 a b c 1 2 3\n");
 
         // Trying to delete to a third "a" should do nothing, since it hits the line ending ("d3;").
         vctx.action.count = Some(3);
-        edit!(ebuf, EditAction::Delete, same, ctx!(curid, vwctx, vctx));
-        assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 4));
+        edit!(ebuf, EditAction::Delete, same, ctx!(gid, vwctx, vctx), store);
+        assert_eq!(ebuf.get_leader(gid), Cursor::new(0, 4));
         assert_eq!(ebuf.get_text(), "a b  b c 1 2 3\na b c a b c 1 2 3 a b c 1 2 3\n");
 
         // Using SearchType::Char(true) allows searching onto the next line, like kakoune does.
         let target =
             EditTarget::Search(SearchType::Char(true), MoveDirMod::Same, Count::Contextual);
         vctx.action.count = Some(3);
-        edit!(ebuf, EditAction::Delete, target, ctx!(curid, vwctx, vctx));
-        assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 4));
+        edit!(ebuf, EditAction::Delete, target, ctx!(gid, vwctx, vctx), store);
+        assert_eq!(ebuf.get_leader(gid), Cursor::new(0, 4));
         assert_eq!(ebuf.get_text(), "a b  b c 1 2 3\n");
 
         // Delete to the previous occurrence of "a" ("d,").
         vctx.action.count = Some(1);
-        edit!(ebuf, EditAction::Delete, flip, ctx!(curid, vwctx, vctx));
-        assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 0));
+        edit!(ebuf, EditAction::Delete, flip, ctx!(gid, vwctx, vctx), store);
+        assert_eq!(ebuf.get_leader(gid), Cursor::new(0, 0));
         assert_eq!(ebuf.get_text(), " b c 1 2 3\n");
     }
 
     #[test]
     fn test_search_char_inclusive_backwards() {
-        let mut ebuf = mkbufstr("a b c a b c 1 2 3 a b c 1 2 3\na b c a b c 1 2 3 a b c 1 2 3\n");
-        let curid = ebuf.create_group();
-        let vwctx = ViewportContext::default();
-        let mut vctx = VimContext::default();
+        let (mut ebuf, gid, vwctx, mut vctx, mut store) =
+            mkfivestr("a b c a b c 1 2 3 a b c 1 2 3\na b c a b c 1 2 3 a b c 1 2 3\n");
 
         // Move in the same search direction as the last search (";").
         let same = EditTarget::Search(SearchType::Char(false), MoveDirMod::Same, Count::Contextual);
@@ -1932,14 +2000,14 @@ mod tests {
         let flip = EditTarget::Search(SearchType::Char(false), MoveDirMod::Flip, Count::Contextual);
 
         // Set cursor to (1, 4), after the first "b" on the line.
-        ebuf.set_leader(curid, Cursor::new(1, 4));
+        ebuf.set_leader(gid, Cursor::new(1, 4));
         vctx.persist.charsearch_params = (MoveDir1D::Previous, true);
         vctx.persist.charsearch = Some('b'.into());
 
         // Trying to delete multiple b's with multiline = false fails ("2dFb").
         vctx.action.count = Some(2);
-        edit!(ebuf, EditAction::Delete, same, ctx!(curid, vwctx, vctx));
-        assert_eq!(ebuf.get_leader(curid), Cursor::new(1, 4));
+        edit!(ebuf, EditAction::Delete, same, ctx!(gid, vwctx, vctx), store);
+        assert_eq!(ebuf.get_leader(gid), Cursor::new(1, 4));
         assert_eq!(
             ebuf.get_text(),
             "a b c a b c 1 2 3 a b c 1 2 3\na b c a b c 1 2 3 a b c 1 2 3\n"
@@ -1949,67 +2017,63 @@ mod tests {
         let target =
             EditTarget::Search(SearchType::Char(true), MoveDirMod::Same, Count::Contextual);
         vctx.action.count = Some(2);
-        edit!(ebuf, EditAction::Delete, target, ctx!(curid, vwctx, vctx));
-        assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 20));
+        edit!(ebuf, EditAction::Delete, target, ctx!(gid, vwctx, vctx), store);
+        assert_eq!(ebuf.get_leader(gid), Cursor::new(0, 20));
         assert_eq!(ebuf.get_text(), "a b c a b c 1 2 3 a c a b c 1 2 3 a b c 1 2 3\n");
 
         // Delete backwards for one 'b' ("dFb").
         vctx.action.count = None;
-        edit!(ebuf, EditAction::Delete, same, ctx!(curid, vwctx, vctx));
-        assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 8));
+        edit!(ebuf, EditAction::Delete, same, ctx!(gid, vwctx, vctx), store);
+        assert_eq!(ebuf.get_leader(gid), Cursor::new(0, 8));
         assert_eq!(ebuf.get_text(), "a b c a c a b c 1 2 3 a b c 1 2 3\n");
 
         // Delete twice in the flipped direction ("2d,").
         vctx.action.count = Some(2);
-        edit!(ebuf, EditAction::Delete, flip, ctx!(curid, vwctx, vctx));
-        assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 8));
+        edit!(ebuf, EditAction::Delete, flip, ctx!(gid, vwctx, vctx), store);
+        assert_eq!(ebuf.get_leader(gid), Cursor::new(0, 8));
         assert_eq!(ebuf.get_text(), "a b c a  c 1 2 3\n");
     }
 
     #[test]
     fn test_search_regex() {
-        let mut ebuf = mkbufstr("hello world\nhelp helm writhe\nwhisk helium\n");
-        let curid = ebuf.create_group();
-        let vwctx = ViewportContext::default();
-        let mut vctx = VimContext::default();
+        let (mut ebuf, gid, vwctx, mut vctx, mut store) =
+            mkfivestr("hello world\nhelp helm writhe\nwhisk helium\n");
 
         let op = EditAction::Motion;
         let mv = EditTarget::Search(SearchType::Regex, MoveDirMod::Same, Count::Contextual);
 
-        Store::set_last_search("he", &ebuf.store);
+        store.set_last_search("he");
 
         // Move to (0, 6) to begin.
-        ebuf.set_leader(curid, Cursor::new(0, 6));
+        ebuf.set_leader(gid, Cursor::new(0, 6));
 
         vctx.action.count = Some(1);
-        edit!(ebuf, op, mv, ctx!(curid, vwctx, vctx));
-        assert_eq!(ebuf.get_leader(curid), Cursor::new(1, 0));
+        edit!(ebuf, op, mv, ctx!(gid, vwctx, vctx), store);
+        assert_eq!(ebuf.get_leader(gid), Cursor::new(1, 0));
 
         vctx.action.count = Some(3);
-        edit!(ebuf, op, mv, ctx!(curid, vwctx, vctx));
-        assert_eq!(ebuf.get_leader(curid), Cursor::new(2, 6));
+        edit!(ebuf, op, mv, ctx!(gid, vwctx, vctx), store);
+        assert_eq!(ebuf.get_leader(gid), Cursor::new(2, 6));
 
         vctx.action.count = Some(4);
-        edit!(ebuf, op, mv, ctx!(curid, vwctx, vctx));
-        assert_eq!(ebuf.get_leader(curid), Cursor::new(1, 14));
+        edit!(ebuf, op, mv, ctx!(gid, vwctx, vctx), store);
+        assert_eq!(ebuf.get_leader(gid), Cursor::new(1, 14));
 
         vctx.persist.regexsearch_dir = MoveDir1D::Previous;
 
         vctx.action.count = Some(2);
-        edit!(ebuf, op, mv, ctx!(curid, vwctx, vctx));
-        assert_eq!(ebuf.get_leader(curid), Cursor::new(1, 0));
+        edit!(ebuf, op, mv, ctx!(gid, vwctx, vctx), store);
+        assert_eq!(ebuf.get_leader(gid), Cursor::new(1, 0));
 
         vctx.action.count = Some(1);
-        edit!(ebuf, op, mv, ctx!(curid, vwctx, vctx));
-        assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 0));
+        edit!(ebuf, op, mv, ctx!(gid, vwctx, vctx), store);
+        assert_eq!(ebuf.get_leader(gid), Cursor::new(0, 0));
     }
 
     #[test]
     fn test_search_word_bound() {
-        let mut ebuf = mkbufstr("hello world\nhellfire hello brimstone\nhello hell\n");
-        let curid = ebuf.create_group();
-        let vwctx = ViewportContext::default();
-        let mut vctx = VimContext::default();
+        let (mut ebuf, gid, vwctx, mut vctx, mut store) =
+            mkfivestr("hello world\nhellfire hello brimstone\nhello hell\n");
 
         let op = EditAction::Motion;
         let word = EditTarget::Search(
@@ -2020,38 +2084,36 @@ mod tests {
         let next = EditTarget::Search(SearchType::Regex, MoveDirMod::Same, Count::Contextual);
 
         // Move to (0, 2) to begin, so that we're in the middle of "hello".
-        ebuf.set_leader(curid, Cursor::new(0, 2));
+        ebuf.set_leader(gid, Cursor::new(0, 2));
 
         vctx.action.count = Some(1);
-        edit!(ebuf, op, word, ctx!(curid, vwctx, vctx));
-        assert_eq!(ebuf.get_leader(curid), Cursor::new(1, 9));
+        edit!(ebuf, op, word, ctx!(gid, vwctx, vctx), store);
+        assert_eq!(ebuf.get_leader(gid), Cursor::new(1, 9));
 
         vctx.persist.regexsearch_dir = MoveDir1D::Previous;
 
         vctx.action.count = Some(1);
-        edit!(ebuf, op, next, ctx!(curid, vwctx, vctx));
-        assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 0));
+        edit!(ebuf, op, next, ctx!(gid, vwctx, vctx), store);
+        assert_eq!(ebuf.get_leader(gid), Cursor::new(0, 0));
 
         // Move to (2, 8) to begin, so that we're in the middle of "hell".
-        ebuf.set_leader(curid, Cursor::new(2, 8));
+        ebuf.set_leader(gid, Cursor::new(2, 8));
 
         // Doesn't move.
         vctx.action.count = Some(1);
-        edit!(ebuf, op, word, ctx!(curid, vwctx, vctx));
-        assert_eq!(ebuf.get_leader(curid), Cursor::new(2, 6));
+        edit!(ebuf, op, word, ctx!(gid, vwctx, vctx), store);
+        assert_eq!(ebuf.get_leader(gid), Cursor::new(2, 6));
 
         // Doesn't move.
         vctx.action.count = Some(4);
-        edit!(ebuf, op, next, ctx!(curid, vwctx, vctx));
-        assert_eq!(ebuf.get_leader(curid), Cursor::new(2, 6));
+        edit!(ebuf, op, next, ctx!(gid, vwctx, vctx), store);
+        assert_eq!(ebuf.get_leader(gid), Cursor::new(2, 6));
     }
 
     #[test]
     fn test_search_word_no_bound() {
-        let mut ebuf = mkbufstr("hello world\nhellfire hello brimstone\nhello hell\n");
-        let curid = ebuf.create_group();
-        let vwctx = ViewportContext::default();
-        let mut vctx = VimContext::default();
+        let (mut ebuf, gid, vwctx, mut vctx, mut store) =
+            mkfivestr("hello world\nhellfire hello brimstone\nhello hell\n");
 
         let op = EditAction::Motion;
         let word = EditTarget::Search(
@@ -2062,128 +2124,122 @@ mod tests {
         let next = EditTarget::Search(SearchType::Regex, MoveDirMod::Same, Count::Contextual);
 
         // Move to (0, 2) to begin, so that we're in the middle of "hello".
-        ebuf.set_leader(curid, Cursor::new(0, 2));
+        ebuf.set_leader(gid, Cursor::new(0, 2));
 
         vctx.action.count = Some(1);
-        edit!(ebuf, op, word, ctx!(curid, vwctx, vctx));
-        assert_eq!(ebuf.get_leader(curid), Cursor::new(1, 9));
+        edit!(ebuf, op, word, ctx!(gid, vwctx, vctx), store);
+        assert_eq!(ebuf.get_leader(gid), Cursor::new(1, 9));
 
         vctx.persist.regexsearch_dir = MoveDir1D::Previous;
 
         vctx.action.count = Some(1);
-        edit!(ebuf, op, next, ctx!(curid, vwctx, vctx));
-        assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 0));
+        edit!(ebuf, op, next, ctx!(gid, vwctx, vctx), store);
+        assert_eq!(ebuf.get_leader(gid), Cursor::new(0, 0));
 
         // Move to (2, 8) to begin, so that we're in the middle of "hell".
-        ebuf.set_leader(curid, Cursor::new(2, 8));
+        ebuf.set_leader(gid, Cursor::new(2, 8));
 
         vctx.action.count = Some(3);
-        edit!(ebuf, op, word, ctx!(curid, vwctx, vctx));
-        assert_eq!(ebuf.get_leader(curid), Cursor::new(1, 0));
+        edit!(ebuf, op, word, ctx!(gid, vwctx, vctx), store);
+        assert_eq!(ebuf.get_leader(gid), Cursor::new(1, 0));
 
         vctx.action.count = Some(4);
-        edit!(ebuf, op, next, ctx!(curid, vwctx, vctx));
-        assert_eq!(ebuf.get_leader(curid), Cursor::new(1, 9));
+        edit!(ebuf, op, next, ctx!(gid, vwctx, vctx), store);
+        assert_eq!(ebuf.get_leader(gid), Cursor::new(1, 9));
     }
 
     #[test]
     fn test_history() {
-        let mut ebuf = mkbuf();
-        let curid = ebuf.create_group();
-        let vwctx = ViewportContext::default();
-        let mut vctx = VimContext::default();
+        let (mut ebuf, gid, vwctx, mut vctx, mut store) = mkfive();
 
         vctx.persist.insert = Some(InsertStyle::Insert);
 
         // Create several checkpoints.
-        type_char!(ebuf, 'h', curid, vwctx, vctx);
-        type_char!(ebuf, 'e', curid, vwctx, vctx);
-        type_char!(ebuf, 'l', curid, vwctx, vctx);
-        type_char!(ebuf, 'l', curid, vwctx, vctx);
-        type_char!(ebuf, 'o', curid, vwctx, vctx);
-        ebuf.checkpoint().unwrap();
+        type_char!(ebuf, 'h', gid, vwctx, vctx, store);
+        type_char!(ebuf, 'e', gid, vwctx, vctx, store);
+        type_char!(ebuf, 'l', gid, vwctx, vctx, store);
+        type_char!(ebuf, 'l', gid, vwctx, vctx, store);
+        type_char!(ebuf, 'o', gid, vwctx, vctx, store);
+        ebuf.checkpoint(ctx!(gid, vwctx, vctx), &mut store).unwrap();
 
-        type_char!(ebuf, ' ', curid, vwctx, vctx);
-        ebuf.checkpoint().unwrap();
+        type_char!(ebuf, ' ', gid, vwctx, vctx, store);
+        ebuf.checkpoint(ctx!(gid, vwctx, vctx), &mut store).unwrap();
 
-        type_char!(ebuf, 'w', curid, vwctx, vctx);
-        type_char!(ebuf, 'o', curid, vwctx, vctx);
-        type_char!(ebuf, 'r', curid, vwctx, vctx);
-        type_char!(ebuf, 'l', curid, vwctx, vctx);
-        type_char!(ebuf, 'd', curid, vwctx, vctx);
-        ebuf.checkpoint().unwrap();
+        type_char!(ebuf, 'w', gid, vwctx, vctx, store);
+        type_char!(ebuf, 'o', gid, vwctx, vctx, store);
+        type_char!(ebuf, 'r', gid, vwctx, vctx, store);
+        type_char!(ebuf, 'l', gid, vwctx, vctx, store);
+        type_char!(ebuf, 'd', gid, vwctx, vctx, store);
+        ebuf.checkpoint(ctx!(gid, vwctx, vctx), &mut store).unwrap();
 
         // Check that starting point is correct.
         assert_eq!(ebuf.get_text(), "hello world\n");
-        assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 11));
+        assert_eq!(ebuf.get_leader(gid), Cursor::new(0, 11));
 
         // Undo twice.
-        ebuf.undo(Count::Exact(2), ctx!(curid, vwctx, vctx)).unwrap();
+        ebuf.undo(Count::Exact(2), ctx!(gid, vwctx, vctx), &mut store).unwrap();
         assert_eq!(ebuf.get_text(), "hello\n");
-        assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 5));
+        assert_eq!(ebuf.get_leader(gid), Cursor::new(0, 5));
 
         // Redo once.
-        ebuf.redo(Count::Exact(1), ctx!(curid, vwctx, vctx)).unwrap();
+        ebuf.redo(Count::Exact(1), ctx!(gid, vwctx, vctx), &mut store).unwrap();
         assert_eq!(ebuf.get_text(), "hello \n");
-        assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 6));
+        assert_eq!(ebuf.get_leader(gid), Cursor::new(0, 6));
 
         // Undo five times hits beginning.
-        ebuf.undo(Count::Exact(5), ctx!(curid, vwctx, vctx)).unwrap();
+        ebuf.undo(Count::Exact(5), ctx!(gid, vwctx, vctx), &mut store).unwrap();
         assert_eq!(ebuf.get_text(), "\n");
-        assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 0));
+        assert_eq!(ebuf.get_leader(gid), Cursor::new(0, 0));
 
         // Redo thrice.
-        ebuf.redo(Count::Exact(3), ctx!(curid, vwctx, vctx)).unwrap();
+        ebuf.redo(Count::Exact(3), ctx!(gid, vwctx, vctx), &mut store).unwrap();
         assert_eq!(ebuf.get_text(), "hello world\n");
-        assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 11));
+        assert_eq!(ebuf.get_leader(gid), Cursor::new(0, 11));
 
         // XXX: need to test that marks also get adjusted.
     }
 
     #[test]
     fn test_visual_motion() {
-        let mut ebuf = mkbufstr("foo\nbar\nbaz\n");
-        let curid = ebuf.create_group();
-        let vwctx = ViewportContext::default();
-        let mut vctx = VimContext::default();
+        let (mut ebuf, gid, vwctx, mut vctx, mut store) = mkfivestr("foo\nbar\nbaz\n");
 
         // Perform CharWise selection.
         vctx.persist.shape = Some(TargetShape::CharWise);
 
         let mov = MoveType::Column(MoveDir1D::Next, false);
-        edit!(ebuf, EditAction::Motion, mv!(mov), ctx!(curid, vwctx, vctx));
-        assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 1));
+        edit!(ebuf, EditAction::Motion, mv!(mov), ctx!(gid, vwctx, vctx), store);
+        assert_eq!(ebuf.get_leader(gid), Cursor::new(0, 1));
         assert_eq!(
-            ebuf.get_leader_selection(curid),
+            ebuf.get_leader_selection(gid),
             Some((Cursor::new(0, 0), Cursor::new(0, 1), CharWise))
         );
 
         let mov = MoveType::Line(MoveDir1D::Next);
 
-        edit!(ebuf, EditAction::Motion, mv!(mov), ctx!(curid, vwctx, vctx));
-        assert_eq!(ebuf.get_leader(curid), Cursor::new(1, 1));
+        edit!(ebuf, EditAction::Motion, mv!(mov), ctx!(gid, vwctx, vctx), store);
+        assert_eq!(ebuf.get_leader(gid), Cursor::new(1, 1));
         assert_eq!(
-            ebuf.get_leader_selection(curid),
+            ebuf.get_leader_selection(gid),
             Some((Cursor::new(0, 0), Cursor::new(1, 1), CharWise))
         );
 
         // Changing shape to a LineWise selection keeps anchor and cursor in place.
         vctx.persist.shape = Some(TargetShape::LineWise);
 
-        edit!(ebuf, EditAction::Motion, EditTarget::CurrentPosition, ctx!(curid, vwctx, vctx));
-        assert_eq!(ebuf.get_leader(curid), Cursor::new(1, 1));
+        edit!(ebuf, EditAction::Motion, EditTarget::CurrentPosition, ctx!(gid, vwctx, vctx), store);
+        assert_eq!(ebuf.get_leader(gid), Cursor::new(1, 1));
         assert_eq!(
-            ebuf.get_leader_selection(curid),
+            ebuf.get_leader_selection(gid),
             Some((Cursor::new(0, 0), Cursor::new(1, 1), LineWise))
         );
 
         // Changing shape to a BlockWise selection keeps anchor and cursor in place.
         vctx.persist.shape = Some(TargetShape::BlockWise);
 
-        edit!(ebuf, EditAction::Motion, EditTarget::CurrentPosition, ctx!(curid, vwctx, vctx));
-        assert_eq!(ebuf.get_leader(curid), Cursor::new(1, 1));
+        edit!(ebuf, EditAction::Motion, EditTarget::CurrentPosition, ctx!(gid, vwctx, vctx), store);
+        assert_eq!(ebuf.get_leader(gid), Cursor::new(1, 1));
         assert_eq!(
-            ebuf.get_leader_selection(curid),
+            ebuf.get_leader_selection(gid),
             Some((Cursor::new(0, 0), Cursor::new(1, 1), BlockWise))
         );
     }

@@ -13,33 +13,22 @@ use std::ops::{Deref, DerefMut};
 
 use tui::{buffer::Buffer, layout::Rect, text::Span, widgets::StatefulWidget};
 
-use crate::input::InputContext;
-
 use crate::editing::{
+    action::{
+        Action,
+        CommandAction,
+        CommandBarAction,
+        EditAction,
+        EditResult,
+        PromptAction,
+        Promptable,
+    },
+    application::ApplicationInfo,
+    base::{CommandType, Count, EditTarget, MoveDir1D, MoveDirMod, SearchType},
+    context::EditContext,
     history::ScrollbackState,
     rope::EditRope,
-    store::{SharedStore, Store},
-};
-
-use crate::editing::action::{
-    Action,
-    CommandAction,
-    CommandBarAction,
-    EditAction,
-    EditResult,
-    PromptAction,
-    Promptable,
-};
-
-use crate::editing::base::{
-    Application,
-    CommandType,
-    Count,
-    EditContext,
-    EditTarget,
-    MoveDir1D,
-    MoveDirMod,
-    SearchType,
+    store::Store,
 };
 
 use super::{
@@ -48,27 +37,24 @@ use super::{
 };
 
 /// Persistent state for rendering [CommandBar].
-pub struct CommandBarState<C: EditContext + InputContext, P: Application> {
+pub struct CommandBarState<I: ApplicationInfo> {
     scrollback: ScrollbackState,
     cmdtype: CommandType,
-    tbox: TextBoxState<C, P>,
-    store: SharedStore<C, P>,
+    tbox: TextBoxState<I>,
 }
 
-impl<C, P> CommandBarState<C, P>
+impl<I> CommandBarState<I>
 where
-    C: EditContext + InputContext,
-    P: Application,
+    I: ApplicationInfo,
 {
     /// Create state for a [CommandBar] widget.
-    pub fn new(store: SharedStore<C, P>) -> Self {
-        let buffer = Store::new_buffer(&store);
+    pub fn new(store: &mut Store<I>) -> Self {
+        let buffer = store.new_buffer();
 
         CommandBarState {
             scrollback: ScrollbackState::Pending,
             cmdtype: CommandType::Command,
             tbox: TextBoxState::new(buffer),
-            store,
         }
     }
 
@@ -90,34 +76,32 @@ where
     }
 }
 
-impl<C, P> Deref for CommandBarState<C, P>
+impl<I> Deref for CommandBarState<I>
 where
-    C: EditContext + InputContext,
-    P: Application,
+    I: ApplicationInfo,
 {
-    type Target = TextBoxState<C, P>;
+    type Target = TextBoxState<I>;
 
     fn deref(&self) -> &Self::Target {
         &self.tbox
     }
 }
 
-impl<C, P> DerefMut for CommandBarState<C, P>
+impl<I> DerefMut for CommandBarState<I>
 where
-    C: EditContext + InputContext,
-    P: Application,
+    I: ApplicationInfo,
 {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.tbox
     }
 }
 
-impl<C, P> PromptActions<Action<P>, C> for CommandBarState<C, P>
+impl<C, I> PromptActions<Action<I>, C, Store<I>> for CommandBarState<I>
 where
-    C: Default + EditContext + InputContext,
-    P: Application,
+    C: Default + EditContext,
+    I: ApplicationInfo,
 {
-    fn submit(&mut self, ctx: &C) -> EditResult<Vec<(Action<P>, C)>> {
+    fn submit(&mut self, ctx: &C, store: &mut Store<I>) -> EditResult<Vec<(Action<I>, C)>> {
         let unfocus = CommandBarAction::Unfocus.into();
 
         let action = match self.cmdtype {
@@ -125,14 +109,14 @@ where
                 let rope = self.reset();
                 let text = rope.to_string();
 
-                Store::set_last_cmd(rope, &self.store);
+                store.set_last_cmd(rope);
 
                 CommandAction::Execute(text).into()
             },
             CommandType::Search(_, _) => {
                 let text = self.reset().trim();
 
-                Store::set_last_search(text, &self.store);
+                store.set_last_search(text);
 
                 let target =
                     EditTarget::Search(SearchType::Regex, MoveDirMod::Same, Count::Contextual);
@@ -144,7 +128,12 @@ where
         Ok(vec![(unfocus, ctx.clone()), (action, ctx.clone())])
     }
 
-    fn abort(&mut self, _empty: bool, ctx: &C) -> EditResult<Vec<(Action<P>, C)>> {
+    fn abort(
+        &mut self,
+        _empty: bool,
+        ctx: &C,
+        store: &mut Store<I>,
+    ) -> EditResult<Vec<(Action<I>, C)>> {
         // We always unfocus currently, regardless of whether _empty=true.
         let act = Action::CommandBar(CommandBarAction::Unfocus).into();
 
@@ -152,10 +141,10 @@ where
 
         match self.cmdtype {
             CommandType::Search(_, _) => {
-                Store::set_aborted_search(text, &self.store);
+                store.set_aborted_search(text);
             },
             CommandType::Command => {
-                Store::set_aborted_cmd(text, &self.store);
+                store.set_aborted_cmd(text);
             },
         }
 
@@ -167,19 +156,16 @@ where
         dir: &MoveDir1D,
         count: &Count,
         ctx: &C,
-    ) -> EditResult<Vec<(Action<P>, C)>> {
+        store: &mut Store<I>,
+    ) -> EditResult<Vec<(Action<I>, C)>> {
         let count = ctx.resolve(count);
         let rope = self.tbox.get();
 
         let text = match self.cmdtype {
             CommandType::Search(_, _) => {
-                let mut locked = self.store.write().unwrap();
-                locked.searches.recall(&rope, &mut self.scrollback, *dir, count)
+                store.searches.recall(&rope, &mut self.scrollback, *dir, count)
             },
-            CommandType::Command => {
-                let mut locked = self.store.write().unwrap();
-                locked.commands.recall(&rope, &mut self.scrollback, *dir, count)
-            },
+            CommandType::Command => store.commands.recall(&rope, &mut self.scrollback, *dir, count),
         };
 
         if let Some(text) = text {
@@ -190,32 +176,36 @@ where
     }
 }
 
-impl<C, P> Promptable<Action<P>, C> for CommandBarState<C, P>
+impl<'a, C, I> Promptable<Action<I>, C, Store<I>> for CommandBarState<I>
 where
-    C: Default + EditContext + InputContext,
-    P: Application,
+    C: Default + EditContext,
+    I: ApplicationInfo,
 {
-    fn prompt(&mut self, act: PromptAction, ctx: &C) -> EditResult<Vec<(Action<P>, C)>> {
+    fn prompt(
+        &mut self,
+        act: PromptAction,
+        ctx: &C,
+        store: &mut Store<I>,
+    ) -> EditResult<Vec<(Action<I>, C)>> {
         match act {
-            PromptAction::Abort(empty) => self.abort(empty, ctx),
-            PromptAction::Recall(dir, count) => self.recall(&dir, &count, ctx),
-            PromptAction::Submit => self.submit(ctx),
+            PromptAction::Abort(empty) => self.abort(empty, ctx, store),
+            PromptAction::Recall(dir, count) => self.recall(&dir, &count, ctx, store),
+            PromptAction::Submit => self.submit(ctx, store),
         }
     }
 }
 
 /// Widget for rendering a command bar.
-pub struct CommandBar<'a, C: EditContext + InputContext, P: Application> {
+pub struct CommandBar<'a, I: ApplicationInfo> {
     focused: bool,
     message: Option<Span<'a>>,
 
-    _pc: PhantomData<(C, P)>,
+    _pc: PhantomData<I>,
 }
 
-impl<'a, C, P> CommandBar<'a, C, P>
+impl<'a, I> CommandBar<'a, I>
 where
-    C: EditContext + InputContext,
-    P: Application,
+    I: ApplicationInfo,
 {
     /// Create a new widget.
     pub fn new() -> Self {
@@ -236,12 +226,11 @@ where
     }
 }
 
-impl<'a, C, P> StatefulWidget for CommandBar<'a, C, P>
+impl<'a, I> StatefulWidget for CommandBar<'a, I>
 where
-    C: EditContext + InputContext,
-    P: Application,
+    I: ApplicationInfo,
 {
-    type State = CommandBarState<C, P>;
+    type State = CommandBarState<I>;
 
     fn render(self, area: Rect, buf: &mut Buffer, state: &mut Self::State) {
         if self.focused {
@@ -260,10 +249,9 @@ where
     }
 }
 
-impl<'a, C, P> Default for CommandBar<'a, C, P>
+impl<'a, I> Default for CommandBar<'a, I>
 where
-    C: EditContext + InputContext,
-    P: Application,
+    I: ApplicationInfo,
 {
     fn default() -> Self {
         CommandBar::new()

@@ -10,12 +10,13 @@
 //!
 //! ```
 //! use modalkit::{
+//!     editing::application::EmptyInfo,
 //!     editing::store::{SharedStore, Store},
 //!     env::vim::VimContext,
 //! };
 //!
 //! fn main() {
-//!     let store: SharedStore<VimContext, ()> = Store::new();
+//!     let store: SharedStore<EmptyInfo> = Store::default().shared();
 //!     let locked = store.try_read().unwrap();
 //!
 //!     assert_eq!(locked.digraphs.get(('>', '>')), Some('\u{00BB}'));
@@ -23,11 +24,9 @@
 //! ```
 use std::sync::{Arc, RwLock};
 
-use crate::editing::{
-    base::{Application, EditContext},
-    history::HistoryList,
-    rope::EditRope,
-};
+use crate::editing::application::ApplicationInfo;
+use crate::editing::history::HistoryList;
+use crate::editing::rope::EditRope;
 
 mod buffer;
 mod cursor;
@@ -43,9 +42,9 @@ const COMMAND_HISTORY_LEN: usize = 50;
 const SEARCH_HISTORY_LEN: usize = 50;
 
 /// Global editing context
-pub struct Store<C: EditContext, P: Application> {
+pub struct Store<I: ApplicationInfo> {
     /// Tracks what [buffers](crate::editing::buffer::EditBuffer) have been created.
-    pub buffers: BufferStore<C, P>,
+    pub buffers: BufferStore<I>,
 
     /// Tracks mapped digraphs.
     pub digraphs: DigraphStore,
@@ -63,20 +62,19 @@ pub struct Store<C: EditContext, P: Application> {
     pub searches: HistoryList<EditRope>,
 
     /// Application-specific storage.
-    pub application: P::Store,
+    pub application: I::Store,
 }
 
 /// Shared reference to the global context.
-pub type SharedStore<C, P> = Arc<RwLock<Store<C, P>>>;
+pub type SharedStore<I> = Arc<RwLock<Store<I>>>;
 
-impl<C, P> Store<C, P>
+impl<I> Store<I>
 where
-    C: EditContext,
-    P: Application,
+    I: ApplicationInfo,
 {
-    /// Create a new global store for an application to use.
-    pub fn new() -> SharedStore<C, P> {
-        let store = Store {
+    /// Create a new Store using an already initialized application store.
+    pub fn new(application: I::Store) -> Self {
+        Store {
             buffers: BufferStore::new(),
             digraphs: DigraphStore::default(),
             registers: RegisterStore::default(),
@@ -85,22 +83,23 @@ where
             commands: HistoryList::new("".into(), COMMAND_HISTORY_LEN),
             searches: HistoryList::new("".into(), SEARCH_HISTORY_LEN),
 
-            application: P::Store::default(),
-        };
+            application,
+        }
+    }
 
-        return Arc::new(RwLock::new(store));
+    /// Wrap this store so that it can be shared between threads.
+    pub fn shared(self) -> SharedStore<I> {
+        return Arc::new(RwLock::new(self));
     }
 
     /// Create a new shared buffer.
-    pub fn new_buffer(store: &SharedStore<C, P>) -> SharedBuffer<C, P> {
-        let clone = store.clone();
-
-        store.write().unwrap().buffers.new_buffer(clone)
+    pub fn new_buffer(&mut self) -> SharedBuffer<I> {
+        self.buffers.new_buffer()
     }
 
     /// Get a buffer via its identifier.
-    pub fn get_buffer(id: BufferId, store: &SharedStore<C, P>) -> SharedBuffer<C, P> {
-        store.read().unwrap().buffers.get_buffer(&id)
+    pub fn get_buffer(&mut self, id: BufferId) -> SharedBuffer<I> {
+        self.buffers.get_buffer(&id)
     }
 
     /// Add a command to the command history after the prompt has been aborted.
@@ -108,14 +107,13 @@ where
     /// This will not update [Register::LastCommand].
     ///
     /// [Register::LastCommand]: super::base::Register::LastCommand
-    pub fn set_aborted_cmd<T: Into<EditRope>>(text: T, store: &SharedStore<C, P>) {
-        let mut locked = store.write().unwrap();
+    pub fn set_aborted_cmd<T: Into<EditRope>>(&mut self, text: T) {
         let rope = text.into();
 
         if rope.len() > 0 {
-            locked.commands.select(rope);
+            self.commands.select(rope);
         } else {
-            let _ = locked.commands.end();
+            let _ = self.commands.end();
         }
     }
 
@@ -124,21 +122,20 @@ where
     /// This will not update [Register::LastSearch].
     ///
     /// [Register::LastSearch]: super::base::Register::LastSearch
-    pub fn set_aborted_search<T: Into<EditRope>>(text: T, store: &SharedStore<C, P>) {
-        let mut locked = store.write().unwrap();
+    pub fn set_aborted_search<T: Into<EditRope>>(&mut self, text: T) {
         let rope = text.into();
 
         if rope.len() > 0 {
-            locked.searches.select(rope);
+            self.searches.select(rope);
         } else {
-            let _ = locked.searches.end();
+            let _ = self.searches.end();
         }
     }
 
     /// Add a command to the command history, and set [Register::LastCommand].
     ///
     /// [Register::LastCommand]: super::base::Register::LastCommand
-    pub fn set_last_cmd<T: Into<EditRope>>(text: T, store: &SharedStore<C, P>) {
+    pub fn set_last_cmd<T: Into<EditRope>>(&mut self, text: T) {
         let rope = text.into();
 
         if rope.len() == 0 {
@@ -146,15 +143,14 @@ where
             return;
         }
 
-        let mut locked = store.write().unwrap();
-        locked.commands.select(rope.clone());
-        locked.registers.set_last_cmd(rope);
+        self.commands.select(rope.clone());
+        self.registers.set_last_cmd(rope);
     }
 
     /// Add a search query to the search history, and set [Register::LastSearch].
     ///
     /// [Register::LastSearch]: super::base::Register::LastSearch
-    pub fn set_last_search<T: Into<EditRope>>(text: T, store: &SharedStore<C, P>) {
+    pub fn set_last_search<T: Into<EditRope>>(&mut self, text: T) {
         let rope = text.into();
 
         if rope.len() == 0 {
@@ -162,8 +158,17 @@ where
             return;
         }
 
-        let mut locked = store.write().unwrap();
-        locked.searches.select(rope.clone());
-        locked.registers.set_last_search(rope);
+        self.searches.select(rope.clone());
+        self.registers.set_last_search(rope);
+    }
+}
+
+impl<I> Default for Store<I>
+where
+    I: ApplicationInfo,
+    I::Store: Default,
+{
+    fn default() -> Self {
+        Store::new(I::Store::default())
     }
 }

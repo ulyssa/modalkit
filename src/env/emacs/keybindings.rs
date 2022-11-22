@@ -13,47 +13,48 @@
 //!
 use bitflags::bitflags;
 
-use crate::editing::action::{
-    Action,
-    CommandBarAction,
-    EditAction,
-    HistoryAction,
-    InsertTextAction,
-    PromptAction,
-    SelectionAction,
-    WindowAction,
-};
-
-use crate::editing::base::{
-    Application,
-    Axis,
-    Case,
-    Char,
-    CloseFlags,
-    CloseTarget,
-    CommandType,
-    Count,
-    EditTarget,
-    FocusChange,
-    InsertStyle,
-    JoinStyle,
-    MoveDir1D,
-    MoveDir2D,
-    MoveDirMod,
-    MovePosition,
-    MoveTerminus,
-    MoveType,
-    RangeType,
-    Register,
-    RepeatType,
-    ScrollSize,
-    ScrollStyle,
-    SearchType,
-    SelectionCursorChange,
-    SelectionResizeStyle,
-    Specifier,
-    TargetShape,
-    WordStyle,
+use crate::editing::{
+    action::{
+        Action,
+        CommandBarAction,
+        EditAction,
+        HistoryAction,
+        InsertTextAction,
+        PromptAction,
+        SelectionAction,
+        WindowAction,
+    },
+    application::{ApplicationInfo, EmptyInfo},
+    base::{
+        Axis,
+        Case,
+        Char,
+        CloseFlags,
+        CloseTarget,
+        CommandType,
+        Count,
+        EditTarget,
+        FocusChange,
+        InsertStyle,
+        JoinStyle,
+        MoveDir1D,
+        MoveDir2D,
+        MoveDirMod,
+        MovePosition,
+        MoveTerminus,
+        MoveType,
+        RangeType,
+        Register,
+        RepeatType,
+        ScrollSize,
+        ScrollStyle,
+        SearchType,
+        SelectionCursorChange,
+        SelectionResizeStyle,
+        Specifier,
+        TargetShape,
+        WordStyle,
+    },
 };
 
 use super::{
@@ -114,7 +115,7 @@ enum InternalAction {
 }
 
 impl InternalAction {
-    pub fn run<P: Application>(&self, ctx: &mut EmacsContext<P>) {
+    pub fn run<I: ApplicationInfo>(&self, ctx: &mut EmacsContext<I>) {
         match self {
             InternalAction::ClearTargetShape(shiftreq) => {
                 if *shiftreq {
@@ -160,13 +161,13 @@ impl InternalAction {
 }
 
 #[derive(Debug)]
-enum ExternalAction<P: Application> {
-    Something(Action<P>),
+enum ExternalAction<I: ApplicationInfo> {
+    Something(Action<I>),
     Repeat(bool),
 }
 
-impl<P: Application> ExternalAction<P> {
-    fn resolve(&self, ctx: &mut EmacsContext<P>) -> Vec<Action<P>> {
+impl<I: ApplicationInfo> ExternalAction<I> {
+    fn resolve(&self, ctx: &mut EmacsContext<I>) -> Vec<Action<I>> {
         match self {
             ExternalAction::Something(act) => {
                 ctx.persist.repeating = false;
@@ -189,7 +190,7 @@ impl<P: Application> ExternalAction<P> {
     }
 }
 
-impl<P: Application> Clone for ExternalAction<P> {
+impl<I: ApplicationInfo> Clone for ExternalAction<I> {
     fn clone(&self) -> Self {
         match self {
             ExternalAction::Something(act) => ExternalAction::Something(act.clone()),
@@ -198,34 +199,34 @@ impl<P: Application> Clone for ExternalAction<P> {
     }
 }
 
-impl<P: Application> From<Action<P>> for ExternalAction<P> {
-    fn from(act: Action<P>) -> Self {
+impl<I: ApplicationInfo> From<Action<I>> for ExternalAction<I> {
+    fn from(act: Action<I>) -> Self {
         ExternalAction::Something(act)
     }
 }
 
 /// Description of actions to take after an input sequence.
 #[derive(Debug)]
-pub struct InputStep<P: Application> {
+pub struct InputStep<I: ApplicationInfo> {
     internal: Vec<InternalAction>,
-    external: Vec<ExternalAction<P>>,
+    external: Vec<ExternalAction<I>>,
     nextm: Option<EmacsMode>,
 }
 
-impl<P: Application> InputStep<P> {
+impl<I: ApplicationInfo> InputStep<I> {
     /// Create a new step that input keys can map to.
     pub fn new() -> Self {
         InputStep { internal: vec![], external: vec![], nextm: None }
     }
 
     /// Set the [actions](Action) that this step produces.
-    pub fn actions(mut self, acts: Vec<Action<P>>) -> Self {
+    pub fn actions(mut self, acts: Vec<Action<I>>) -> Self {
         self.external = acts.into_iter().map(ExternalAction::Something).collect();
         self
     }
 }
 
-impl<P: Application> Clone for InputStep<P> {
+impl<I: ApplicationInfo> Clone for InputStep<I> {
     fn clone(&self) -> Self {
         Self {
             internal: self.internal.clone(),
@@ -235,9 +236,9 @@ impl<P: Application> Clone for InputStep<P> {
     }
 }
 
-impl<P: Application> Step<TerminalKey> for InputStep<P> {
-    type A = Action<P>;
-    type C = EmacsContext<P>;
+impl<I: ApplicationInfo> Step<TerminalKey> for InputStep<I> {
+    type A = Action<I>;
+    type C = EmacsContext<I>;
     type M = EmacsMode;
     type Class = CommonKeyClass;
     type Sequence = RepeatType;
@@ -255,12 +256,12 @@ impl<P: Application> Step<TerminalKey> for InputStep<P> {
         None
     }
 
-    fn step(&self, ctx: &mut EmacsContext<P>) -> (Vec<Action<P>>, Option<Self::M>) {
+    fn step(&self, ctx: &mut EmacsContext<I>) -> (Vec<Action<I>>, Option<Self::M>) {
         for iact in self.internal.iter() {
             iact.run(ctx);
         }
 
-        let external: Vec<Action<P>> =
+        let external: Vec<Action<I>> =
             self.external.iter().flat_map(|act| act.resolve(ctx)).collect();
 
         return (external, self.nextm);
@@ -478,7 +479,7 @@ macro_rules! start_shift_selection {
 }
 
 #[rustfmt::skip]
-fn default_keys<P: Application>() -> Vec<(MappedModes, &'static str, InputStep<P>)> {
+fn default_keys<I: ApplicationInfo>() -> Vec<(MappedModes, &'static str, InputStep<I>)> {
     [
         // Insert, Command and Search mode keybindings.
         ( MAP, "<C-Y>", paste!(MoveDir1D::Previous) ),
@@ -595,7 +596,7 @@ fn default_keys<P: Application>() -> Vec<(MappedModes, &'static str, InputStep<P
 }
 
 #[rustfmt::skip]
-fn default_pfxs<P: Application>() -> Vec<(MappedModes, &'static str, Option<InputStep<P>>)> {
+fn default_pfxs<I: ApplicationInfo>() -> Vec<(MappedModes, &'static str, Option<InputStep<I>>)> {
     [
         // Insert and Command mode allow count arguments.
         ( ICMAP, "<C-U>{count*}", Some(iact!(InternalAction::SaveCounting(None))) ),
@@ -613,7 +614,7 @@ fn default_pfxs<P: Application>() -> Vec<(MappedModes, &'static str, Option<Inpu
 }
 
 #[rustfmt::skip]
-fn default_enter<P: Application>() -> Vec<(MappedModes, &'static str, InputStep<P>)> {
+fn default_enter<I: ApplicationInfo>() -> Vec<(MappedModes, &'static str, InputStep<I>)> {
     [
         // <Enter> in Insert mode types a newline character.
         ( IMAP, "<Enter>", chartype!(Char::Single('\n')) ),
@@ -624,7 +625,7 @@ fn default_enter<P: Application>() -> Vec<(MappedModes, &'static str, InputStep<
 }
 
 #[rustfmt::skip]
-fn submit_on_enter<P: Application>() -> Vec<(MappedModes, &'static str, InputStep<P>)> {
+fn submit_on_enter<I: ApplicationInfo>() -> Vec<(MappedModes, &'static str, InputStep<I>)> {
     [
         // <Enter> in Insert and Command mode submits the command.
         ( ICMAP, "<Enter>", prompt!(PromptAction::Submit, EmacsMode::Insert) ),
@@ -632,11 +633,11 @@ fn submit_on_enter<P: Application>() -> Vec<(MappedModes, &'static str, InputSte
 }
 
 #[inline]
-fn add_prefix<P: Application>(
-    machine: &mut EmacsMachine<TerminalKey, P>,
+fn add_prefix<I: ApplicationInfo>(
+    machine: &mut EmacsMachine<TerminalKey, I>,
     modes: &MappedModes,
     keys: &str,
-    action: &Option<InputStep<P>>,
+    action: &Option<InputStep<I>>,
 ) {
     let (_, evs) = parse(keys).expect(&format!("invalid Emacs keybinding: {}", keys));
     let modes = modes.split();
@@ -647,11 +648,11 @@ fn add_prefix<P: Application>(
 }
 
 #[inline]
-fn add_mapping<P: Application>(
-    machine: &mut EmacsMachine<TerminalKey, P>,
+fn add_mapping<I: ApplicationInfo>(
+    machine: &mut EmacsMachine<TerminalKey, I>,
     modes: &MappedModes,
     keys: &str,
-    action: &InputStep<P>,
+    action: &InputStep<I>,
 ) {
     let (_, evs) = parse(keys).expect(&format!("invalid vim keybinding: {}", keys));
     let modes = modes.split();
@@ -663,13 +664,13 @@ fn add_mapping<P: Application>(
 
 /// A configurable collection of Emacs bindings that can be added to a [ModalMachine].
 #[derive(Debug)]
-pub struct EmacsBindings<P: Application> {
-    prefixes: Vec<(MappedModes, &'static str, Option<InputStep<P>>)>,
-    mappings: Vec<(MappedModes, &'static str, InputStep<P>)>,
-    enter: Vec<(MappedModes, &'static str, InputStep<P>)>,
+pub struct EmacsBindings<I: ApplicationInfo> {
+    prefixes: Vec<(MappedModes, &'static str, Option<InputStep<I>>)>,
+    mappings: Vec<(MappedModes, &'static str, InputStep<I>)>,
+    enter: Vec<(MappedModes, &'static str, InputStep<I>)>,
 }
 
-impl<P: Application> EmacsBindings<P> {
+impl<I: ApplicationInfo> EmacsBindings<I> {
     /// Remap the Enter key to [submit](PromptAction::Submit) instead.
     pub fn submit_on_enter(mut self) -> Self {
         self.enter = submit_on_enter();
@@ -677,7 +678,7 @@ impl<P: Application> EmacsBindings<P> {
     }
 }
 
-impl<P: Application> Default for EmacsBindings<P> {
+impl<I: ApplicationInfo> Default for EmacsBindings<I> {
     fn default() -> Self {
         EmacsBindings {
             prefixes: default_pfxs(),
@@ -687,8 +688,8 @@ impl<P: Application> Default for EmacsBindings<P> {
     }
 }
 
-impl<P: Application> InputBindings<TerminalKey, InputStep<P>> for EmacsBindings<P> {
-    fn setup(&self, machine: &mut EmacsMachine<TerminalKey, P>) {
+impl<I: ApplicationInfo> InputBindings<TerminalKey, InputStep<I>> for EmacsBindings<I> {
+    fn setup(&self, machine: &mut EmacsMachine<TerminalKey, I>) {
         for (modes, keys, action) in self.prefixes.iter() {
             add_prefix(machine, modes, keys, action);
         }
@@ -704,11 +705,11 @@ impl<P: Application> InputBindings<TerminalKey, InputStep<P>> for EmacsBindings<
 }
 
 /// Manage Emacs keybindings and modes.
-pub type EmacsMachine<Key, T = ()> = ModalMachine<Key, InputStep<T>>;
+pub type EmacsMachine<Key, T = EmptyInfo> = ModalMachine<Key, InputStep<T>>;
 
-impl<P: Application> Default for EmacsMachine<TerminalKey, P> {
+impl<I: ApplicationInfo> Default for EmacsMachine<TerminalKey, I> {
     fn default() -> Self {
-        ModalMachine::from_bindings::<EmacsBindings<P>>()
+        ModalMachine::from_bindings::<EmacsBindings<I>>()
     }
 }
 

@@ -15,16 +15,16 @@
 //!
 //! ```
 //! use modalkit::{
-//!     editing::store::{SharedStore, Store},
-//!     env::vim::VimContext,
+//!     editing::application::EmptyInfo,
+//!     editing::store::Store,
 //!     widgets::textbox::TextBoxState,
 //! };
 //!
 //! use tui::layout::Rect;
 //!
 //! fn main() {
-//!     let store: SharedStore<VimContext, ()> = Store::new();
-//!     let buffer = Store::new_buffer(&store);
+//!     let mut store = Store::<EmptyInfo>::default();
+//!     let buffer = store.new_buffer();
 //!     let mut tbox = TextBoxState::new(buffer);
 //!
 //!     tbox.set_term_info(Rect::new(0, 0, 6, 4));
@@ -48,48 +48,46 @@ use tui::{
     widgets::{Block, StatefulWidget, Widget},
 };
 
-use crate::editing::action::{
-    CursorAction,
-    EditAction,
-    EditError,
-    EditResult,
-    Editable,
-    HistoryAction,
-    InsertTextAction,
-    Jumpable,
-    PromptAction,
-    Promptable,
-    Scrollable,
-    Searchable,
-    SelectionAction,
-    UIResult,
-};
-
-use crate::editing::base::{
-    Application,
-    Axis,
-    CloseFlags,
-    Count,
-    EditContext,
-    EditTarget,
-    Mark,
-    MoveDir1D,
-    MoveDir2D,
-    MoveDirMod,
-    MovePosition,
-    PositionList,
-    ScrollSize,
-    ScrollStyle,
-    TargetShape,
-    ViewportContext,
-    Wrappable,
-};
-
 use crate::editing::{
+    action::{
+        CursorAction,
+        EditAction,
+        EditError,
+        EditResult,
+        Editable,
+        HistoryAction,
+        InsertTextAction,
+        Jumpable,
+        PromptAction,
+        Promptable,
+        Scrollable,
+        Searchable,
+        SelectionAction,
+        UIResult,
+    },
+    application::{ApplicationInfo, EmptyInfo},
+    base::{
+        Axis,
+        CloseFlags,
+        Count,
+        EditTarget,
+        Mark,
+        MoveDir1D,
+        MoveDir2D,
+        MoveDirMod,
+        MovePosition,
+        PositionList,
+        ScrollSize,
+        ScrollStyle,
+        TargetShape,
+        ViewportContext,
+        Wrappable,
+    },
     buffer::{CursorGroupId, FollowersInfo, HighlightInfo},
+    context::EditContext,
     cursor::Cursor,
     rope::EditRope,
-    store::{SharedBuffer, SharedStore},
+    store::{SharedBuffer, Store},
 };
 
 use super::{ScrollActions, TerminalCursor, Window};
@@ -129,10 +127,9 @@ impl RightGutterInfo {
 }
 
 /// Persistent state for [TextBox].
-pub struct TextBoxState<C: EditContext, P: Application = ()> {
-    buffer: SharedBuffer<C, P>,
+pub struct TextBoxState<I: ApplicationInfo = EmptyInfo> {
+    buffer: SharedBuffer<I>,
     group_id: CursorGroupId,
-    store: SharedStore<C, P>,
 
     viewctx: ViewportContext<Cursor>,
     term_area: Rect,
@@ -140,14 +137,14 @@ pub struct TextBoxState<C: EditContext, P: Application = ()> {
 }
 
 /// Widget for rendering a multi-line text box.
-pub struct TextBox<'a, C: EditContext, P: Application = ()> {
+pub struct TextBox<'a, I: ApplicationInfo = EmptyInfo> {
     block: Option<Block<'a>>,
     prompt: &'a str,
 
     lgutter_width: u16,
     rgutter_width: u16,
 
-    _pc: PhantomData<(C, P)>,
+    _pc: PhantomData<I>,
 }
 
 /*
@@ -211,26 +208,20 @@ fn shift_cursor(cursor: &mut Cursor, corner: &Cursor, width: usize, height: usiz
     }
 }
 
-impl<C, P> TextBoxState<C, P>
+impl<I> TextBoxState<I>
 where
-    C: EditContext,
-    P: Application,
+    I: ApplicationInfo,
 {
     /// Create state for a new text box.
-    pub fn new(buffer: SharedBuffer<C, P>) -> Self {
+    pub fn new(buffer: SharedBuffer<I>) -> Self {
         let mut viewctx = ViewportContext::default();
-        let (group_id, store) = {
-            let mut locked = buffer.write().unwrap();
-
-            (locked.create_group(), locked.store().clone())
-        };
+        let group_id = buffer.write().unwrap().create_group();
 
         viewctx.set_wrap(true);
 
         TextBoxState {
             buffer,
             group_id,
-            store,
 
             viewctx,
             term_area: Rect::default(),
@@ -335,44 +326,55 @@ where
 
 macro_rules! c2cgi {
     ($s: expr, $ctx: expr) => {
-        &($s.group_id, &$s.viewctx, $ctx)
+        &mut ($s.group_id, &$s.viewctx, $ctx)
     };
 }
 
-impl<C, P> Editable<C> for TextBoxState<C, P>
+impl<'a, C, I> Editable<C, I> for TextBoxState<I>
 where
     C: EditContext,
-    P: Application,
+    I: ApplicationInfo,
 {
-    fn edit(&mut self, operation: &EditAction, motion: &EditTarget, ctx: &C) -> EditResult {
-        self.buffer.edit(operation, motion, c2cgi!(self, ctx))
+    fn edit(
+        &mut self,
+        operation: &EditAction,
+        motion: &EditTarget,
+        ctx: &C,
+        store: &mut Store<I>,
+    ) -> EditResult {
+        self.buffer.edit(operation, motion, c2cgi!(self, ctx), store)
     }
 
-    fn mark(&mut self, name: Mark, ctx: &C) -> EditResult {
-        self.buffer.mark(name, c2cgi!(self, ctx))
+    fn mark(&mut self, name: Mark, ctx: &C, store: &mut Store<I>) -> EditResult {
+        self.buffer.mark(name, c2cgi!(self, ctx), store)
     }
 
-    fn insert_text(&mut self, act: InsertTextAction, ctx: &C) -> EditResult {
-        self.buffer.insert_text(act, c2cgi!(self, ctx))
+    fn insert_text(&mut self, act: InsertTextAction, ctx: &C, store: &mut Store<I>) -> EditResult {
+        self.buffer.insert_text(act, c2cgi!(self, ctx), store)
     }
 
-    fn selection_command(&mut self, act: SelectionAction, ctx: &C) -> EditResult {
-        self.buffer.selection_command(act, c2cgi!(self, ctx))
+    fn selection_command(
+        &mut self,
+        act: SelectionAction,
+        ctx: &C,
+        store: &mut Store<I>,
+    ) -> EditResult {
+        self.buffer.selection_command(act, c2cgi!(self, ctx), store)
     }
 
-    fn history_command(&mut self, act: HistoryAction, ctx: &C) -> EditResult {
-        self.buffer.history_command(act, c2cgi!(self, ctx))
+    fn history_command(&mut self, act: HistoryAction, ctx: &C, store: &mut Store<I>) -> EditResult {
+        self.buffer.history_command(act, c2cgi!(self, ctx), store)
     }
 
-    fn cursor_command(&mut self, act: &CursorAction, ctx: &C) -> EditResult {
-        self.buffer.cursor_command(act, c2cgi!(self, ctx))
+    fn cursor_command(&mut self, act: &CursorAction, ctx: &C, store: &mut Store<I>) -> EditResult {
+        self.buffer.cursor_command(act, c2cgi!(self, ctx), store)
     }
 }
 
-impl<C, P> Jumpable<C> for TextBoxState<C, P>
+impl<'a, C, I> Jumpable<C> for TextBoxState<I>
 where
     C: EditContext,
-    P: Application,
+    I: ApplicationInfo,
 {
     fn jump(
         &mut self,
@@ -385,32 +387,30 @@ where
     }
 }
 
-impl<A, C, P> Promptable<A, C> for TextBoxState<C, P>
+impl<A, C, I> Promptable<A, C, Store<I>> for TextBoxState<I>
 where
     C: EditContext,
-    P: Application,
+    I: ApplicationInfo,
 {
-    fn prompt(&mut self, _: PromptAction, _: &C) -> EditResult<Vec<(A, C)>> {
+    fn prompt(&mut self, _: PromptAction, _: &C, _: &mut Store<I>) -> EditResult<Vec<(A, C)>> {
         Err(EditError::Failure("Not at a prompt".to_string()))
     }
 }
 
-impl<C, P> Searchable<C> for TextBoxState<C, P>
+impl<'a, C, I> Searchable<C, Store<I>> for TextBoxState<I>
 where
     C: EditContext,
-    P: Application,
+    I: ApplicationInfo,
 {
-    fn search(&mut self, dir: MoveDirMod, count: Count, ctx: &C) -> UIResult {
-        let ctx = (self.group_id, &self.viewctx, ctx);
-
-        self.buffer.search(dir, count, &ctx)
+    fn search(&mut self, dir: MoveDirMod, count: Count, ctx: &C, store: &mut Store<I>) -> UIResult {
+        self.buffer.search(dir, count, c2cgi!(self, ctx), store)
     }
 }
 
-impl<C, P> ScrollActions<C> for TextBoxState<C, P>
+impl<'a, C, I> ScrollActions<C, Store<I>> for TextBoxState<I>
 where
     C: EditContext,
-    P: Application,
+    I: ApplicationInfo,
 {
     fn dirscroll(
         &mut self,
@@ -418,6 +418,7 @@ where
         size: ScrollSize,
         count: &Count,
         ctx: &C,
+        _: &mut Store<I>,
     ) -> EditResult {
         let count = ctx.resolve(count);
 
@@ -452,14 +453,14 @@ where
         let mut cursor = self.get_cursor();
         let mut buffer = self.buffer.write().unwrap();
         shift_cursor(&mut cursor, &self.viewctx.corner, width, height);
-        buffer.clamp(&mut cursor, &(self.group_id, &self.viewctx, &ctx));
+        buffer.clamp(&mut cursor, c2cgi!(self, ctx));
         shift_corner(&mut self.viewctx, &cursor, width, height);
         buffer.set_leader(self.group_id, cursor);
 
         Ok(None)
     }
 
-    fn cursorpos(&mut self, pos: MovePosition, axis: Axis, _: &C) -> EditResult {
+    fn cursorpos(&mut self, pos: MovePosition, axis: Axis, _: &C, _: &mut Store<I>) -> EditResult {
         if axis == Axis::Horizontal && self.viewctx.wrap {
             return Ok(None);
         }
@@ -501,7 +502,13 @@ where
         Ok(None)
     }
 
-    fn linepos(&mut self, pos: MovePosition, count: &Count, ctx: &C) -> EditResult {
+    fn linepos(
+        &mut self,
+        pos: MovePosition,
+        count: &Count,
+        ctx: &C,
+        _: &mut Store<I>,
+    ) -> EditResult {
         let mut buffer = self.buffer.write().unwrap();
         let max = buffer.get_lines();
         let line = ctx.resolve(count).min(max).saturating_sub(1);
@@ -530,40 +537,38 @@ where
     }
 }
 
-impl<C, P> Scrollable<C> for TextBoxState<C, P>
+impl<'a, C, I> Scrollable<C, Store<I>> for TextBoxState<I>
 where
     C: EditContext,
-    P: Application,
+    I: ApplicationInfo,
 {
-    fn scroll(&mut self, style: &ScrollStyle, ctx: &C) -> EditResult {
+    fn scroll(&mut self, style: &ScrollStyle, ctx: &C, store: &mut Store<I>) -> EditResult {
         match style {
             ScrollStyle::Direction2D(dir, size, count) => {
-                return self.dirscroll(*dir, *size, count, ctx);
+                return self.dirscroll(*dir, *size, count, ctx, store);
             },
             ScrollStyle::CursorPos(pos, axis) => {
-                return self.cursorpos(*pos, *axis, ctx);
+                return self.cursorpos(*pos, *axis, ctx, store);
             },
             ScrollStyle::LinePos(pos, count) => {
-                return self.linepos(*pos, count, ctx);
+                return self.linepos(*pos, count, ctx, store);
             },
         }
     }
 }
 
-impl<C, P> TerminalCursor for TextBoxState<C, P>
+impl<I> TerminalCursor for TextBoxState<I>
 where
-    C: EditContext,
-    P: Application,
+    I: ApplicationInfo,
 {
     fn get_term_cursor(&self) -> Option<(u16, u16)> {
         self.term_cursor.into()
     }
 }
 
-impl<C, P> Window for TextBoxState<C, P>
+impl<I> Window for TextBoxState<I>
 where
-    C: EditContext,
-    P: Application,
+    I: ApplicationInfo,
 {
     fn draw(&mut self, area: Rect, buf: &mut Buffer, _: bool) {
         TextBox::new().render(area, buf, self);
@@ -572,12 +577,10 @@ where
     fn dup(&self) -> Self {
         let buffer = self.buffer.clone();
         let group_id = buffer.write().unwrap().create_group();
-        let store = self.store.clone();
 
         TextBoxState {
             buffer,
             group_id,
-            store,
 
             viewctx: self.viewctx.clone(),
             term_area: Rect::default(),
@@ -590,10 +593,9 @@ where
     }
 }
 
-impl<'a, C, P> TextBox<'a, C, P>
+impl<'a, I> TextBox<'a, I>
 where
-    C: EditContext,
-    P: Application,
+    I: ApplicationInfo,
 {
     /// Create a new widget.
     pub fn new() -> Self {
@@ -722,7 +724,7 @@ where
         buf: &mut Buffer,
         hinfo: HighlightInfo,
         finfo: FollowersInfo,
-        state: &mut TextBoxState<C, P>,
+        state: &mut TextBoxState<I>,
     ) {
         let bot = area.bottom();
         let x = area.left();
@@ -834,7 +836,7 @@ where
         buf: &mut Buffer,
         hinfo: HighlightInfo,
         finfo: FollowersInfo,
-        state: &mut TextBoxState<C, P>,
+        state: &mut TextBoxState<I>,
     ) {
         let bot = area.bottom();
         let x = area.left();
@@ -896,16 +898,16 @@ where
     }
 
     #[inline]
-    fn _selection_intervals(&self, state: &mut TextBoxState<C, P>) -> HighlightInfo {
+    fn _selection_intervals(&self, state: &mut TextBoxState<I>) -> HighlightInfo {
         state.buffer.write().unwrap()._selection_intervals(state.group_id)
     }
 
     #[inline]
-    fn _follower_intervals(&self, state: &mut TextBoxState<C, P>) -> FollowersInfo {
+    fn _follower_intervals(&self, state: &mut TextBoxState<I>) -> FollowersInfo {
         state.buffer.write().unwrap()._follower_intervals(state.group_id)
     }
 
-    fn _render_lines(&mut self, area: Rect, buf: &mut Buffer, state: &mut TextBoxState<C, P>) {
+    fn _render_lines(&mut self, area: Rect, buf: &mut Buffer, state: &mut TextBoxState<I>) {
         let hinfo = self._selection_intervals(state);
         let finfo = self._follower_intervals(state);
 
@@ -930,12 +932,11 @@ where
     }
 }
 
-impl<'a, C, P> StatefulWidget for TextBox<'a, C, P>
+impl<'a, I> StatefulWidget for TextBox<'a, I>
 where
-    C: EditContext,
-    P: Application,
+    I: ApplicationInfo,
 {
-    type State = TextBoxState<C, P>;
+    type State = TextBoxState<I>;
 
     fn render(mut self, area: Rect, buf: &mut Buffer, state: &mut Self::State) {
         let area = match self.block.take() {
@@ -988,43 +989,47 @@ mod tests {
     }
 
     macro_rules! dirscroll {
-        ($tbox: expr, $d: expr, $s: expr, $c: expr, $ctx: expr) => {
-            $tbox.scroll(&ScrollStyle::Direction2D($d, $s, $c), $ctx).unwrap()
+        ($tbox: expr, $d: expr, $s: expr, $c: expr, $ctx: expr, $store: expr) => {
+            $tbox
+                .scroll(&ScrollStyle::Direction2D($d, $s, $c), $ctx, &mut $store)
+                .unwrap()
         };
     }
 
     macro_rules! cursorpos {
-        ($tbox: expr, $pos: expr, $axis: expr, $ctx: expr) => {
-            $tbox.scroll(&ScrollStyle::CursorPos($pos, $axis), $ctx).unwrap()
+        ($tbox: expr, $pos: expr, $axis: expr, $ctx: expr, $store: expr) => {
+            $tbox
+                .scroll(&ScrollStyle::CursorPos($pos, $axis), $ctx, &mut $store)
+                .unwrap()
         };
     }
 
     macro_rules! linepos {
-        ($tbox: expr, $pos: expr, $c: expr, $ctx: expr) => {
-            $tbox.scroll(&ScrollStyle::LinePos($pos, $c), $ctx).unwrap()
+        ($tbox: expr, $pos: expr, $c: expr, $ctx: expr, $store: expr) => {
+            $tbox.scroll(&ScrollStyle::LinePos($pos, $c), $ctx, &mut $store).unwrap()
         };
     }
 
-    fn mkbox() -> TextBoxState<VimContext, ()> {
-        let store = Store::new();
-        let buffer = Store::new_buffer(&store);
+    fn mkbox() -> (TextBoxState, Store<EmptyInfo>) {
+        let mut store = Store::default();
+        let buffer = store.new_buffer();
 
-        TextBoxState::new(buffer)
+        (TextBoxState::new(buffer), store)
     }
 
-    fn mkboxstr(s: &str) -> (TextBoxState<VimContext, ()>, VimContext) {
-        let mut b = mkbox();
+    fn mkboxstr(s: &str) -> (TextBoxState, VimContext, Store<EmptyInfo>) {
+        let (mut b, mut store) = mkbox();
         let ctx = VimContext::default();
 
         b.set_text(s);
-        b.history_command(HistoryAction::Checkpoint, &ctx).unwrap();
+        b.history_command(HistoryAction::Checkpoint, &ctx, &mut store).unwrap();
 
-        return (b, ctx);
+        return (b, ctx, store);
     }
 
     #[test]
     fn test_scroll_dir1d() {
-        let (mut tbox, mut ctx) = mkboxstr(
+        let (mut tbox, mut ctx, mut store) = mkboxstr(
             "1234567890\n\
             abcdefghij\n\
             klmnopqrst\n\
@@ -1039,74 +1044,74 @@ mod tests {
 
         // Scroll by terminal cells
         ctx.action.count = Some(4);
-        dirscroll!(tbox, MoveDir2D::Down, ScrollSize::Cell, Count::Contextual, &ctx);
+        dirscroll!(tbox, MoveDir2D::Down, ScrollSize::Cell, Count::Contextual, &ctx, store);
         assert_eq!(tbox.viewctx.corner, Cursor::new(4, 0));
         assert_eq!(tbox.get_cursor(), Cursor::new(4, 0));
 
         ctx.action.count = Some(2);
-        dirscroll!(tbox, MoveDir2D::Up, ScrollSize::Cell, Count::Contextual, &ctx);
+        dirscroll!(tbox, MoveDir2D::Up, ScrollSize::Cell, Count::Contextual, &ctx, store);
         assert_eq!(tbox.viewctx.corner, Cursor::new(2, 0));
         assert_eq!(tbox.get_cursor(), Cursor::new(4, 0));
 
         ctx.action.count = Some(6);
-        dirscroll!(tbox, MoveDir2D::Right, ScrollSize::Cell, Count::Contextual, &ctx);
+        dirscroll!(tbox, MoveDir2D::Right, ScrollSize::Cell, Count::Contextual, &ctx, store);
         assert_eq!(tbox.viewctx.corner, Cursor::new(2, 6));
         assert_eq!(tbox.get_cursor(), Cursor::new(4, 6));
 
         ctx.action.count = Some(2);
-        dirscroll!(tbox, MoveDir2D::Left, ScrollSize::Cell, Count::Contextual, &ctx);
+        dirscroll!(tbox, MoveDir2D::Left, ScrollSize::Cell, Count::Contextual, &ctx, store);
         assert_eq!(tbox.viewctx.corner, Cursor::new(2, 4));
         assert_eq!(tbox.get_cursor(), Cursor::new(4, 6));
 
         ctx.action.count = None;
 
         // Scroll by half page
-        dirscroll!(tbox, MoveDir2D::Down, ScrollSize::HalfPage, Count::Contextual, &ctx);
+        dirscroll!(tbox, MoveDir2D::Down, ScrollSize::HalfPage, Count::Contextual, &ctx, store);
         assert_eq!(tbox.viewctx.corner, Cursor::new(4, 4));
         assert_eq!(tbox.get_cursor(), Cursor::new(4, 6));
 
-        dirscroll!(tbox, MoveDir2D::Up, ScrollSize::HalfPage, Count::Contextual, &ctx);
+        dirscroll!(tbox, MoveDir2D::Up, ScrollSize::HalfPage, Count::Contextual, &ctx, store);
         assert_eq!(tbox.viewctx.corner, Cursor::new(2, 4));
         assert_eq!(tbox.get_cursor(), Cursor::new(4, 6));
 
-        dirscroll!(tbox, MoveDir2D::Right, ScrollSize::HalfPage, Count::Contextual, &ctx);
+        dirscroll!(tbox, MoveDir2D::Right, ScrollSize::HalfPage, Count::Contextual, &ctx, store);
         assert_eq!(tbox.viewctx.corner, Cursor::new(2, 7));
         assert_eq!(tbox.get_cursor(), Cursor::new(4, 7));
 
-        dirscroll!(tbox, MoveDir2D::Left, ScrollSize::HalfPage, Count::Contextual, &ctx);
+        dirscroll!(tbox, MoveDir2D::Left, ScrollSize::HalfPage, Count::Contextual, &ctx, store);
         assert_eq!(tbox.viewctx.corner, Cursor::new(2, 4));
         assert_eq!(tbox.get_cursor(), Cursor::new(4, 7));
 
         // Scroll by page
-        dirscroll!(tbox, MoveDir2D::Down, ScrollSize::Page, Count::Contextual, &ctx);
+        dirscroll!(tbox, MoveDir2D::Down, ScrollSize::Page, Count::Contextual, &ctx, store);
         assert_eq!(tbox.viewctx.corner, Cursor::new(6, 4));
         assert_eq!(tbox.get_cursor(), Cursor::new(6, 7));
 
-        dirscroll!(tbox, MoveDir2D::Up, ScrollSize::Page, Count::Contextual, &ctx);
+        dirscroll!(tbox, MoveDir2D::Up, ScrollSize::Page, Count::Contextual, &ctx, store);
         assert_eq!(tbox.viewctx.corner, Cursor::new(2, 4));
         assert_eq!(tbox.get_cursor(), Cursor::new(5, 7));
 
-        dirscroll!(tbox, MoveDir2D::Right, ScrollSize::Page, Count::Contextual, &ctx);
+        dirscroll!(tbox, MoveDir2D::Right, ScrollSize::Page, Count::Contextual, &ctx, store);
         assert_eq!(tbox.viewctx.corner, Cursor::new(2, 9));
         assert_eq!(tbox.get_cursor(), Cursor::new(5, 9));
 
-        dirscroll!(tbox, MoveDir2D::Left, ScrollSize::Page, Count::Contextual, &ctx);
+        dirscroll!(tbox, MoveDir2D::Left, ScrollSize::Page, Count::Contextual, &ctx, store);
         assert_eq!(tbox.viewctx.corner, Cursor::new(2, 3));
         assert_eq!(tbox.get_cursor(), Cursor::new(5, 8));
 
         // Cannot scroll cursor and viewport past the end of the line.
-        dirscroll!(tbox, MoveDir2D::Right, ScrollSize::Page, Count::Contextual, &ctx);
+        dirscroll!(tbox, MoveDir2D::Right, ScrollSize::Page, Count::Contextual, &ctx, store);
         assert_eq!(tbox.viewctx.corner, Cursor::new(2, 9));
         assert_eq!(tbox.get_cursor(), Cursor::new(5, 9));
 
-        dirscroll!(tbox, MoveDir2D::Right, ScrollSize::Page, Count::Contextual, &ctx);
+        dirscroll!(tbox, MoveDir2D::Right, ScrollSize::Page, Count::Contextual, &ctx, store);
         assert_eq!(tbox.viewctx.corner, Cursor::new(2, 9));
         assert_eq!(tbox.get_cursor(), Cursor::new(5, 9));
     }
 
     #[test]
     fn test_scroll_cursorpos() {
-        let (mut tbox, ctx) = mkboxstr(
+        let (mut tbox, ctx, mut store) = mkboxstr(
             "1234567890\n\
             abcdefghij\n\
             klmnopqrst\n\
@@ -1123,79 +1128,79 @@ mod tests {
         assert_eq!(tbox.get_cursor(), Cursor::new(0, 0));
         assert_eq!(tbox.viewctx.corner, Cursor::new(0, 0));
 
-        cursorpos!(tbox, MovePosition::Beginning, Axis::Vertical, &ctx);
+        cursorpos!(tbox, MovePosition::Beginning, Axis::Vertical, &ctx, store);
         assert_eq!(tbox.get_cursor(), Cursor::new(0, 0));
         assert_eq!(tbox.viewctx.corner, Cursor::new(0, 0));
 
-        cursorpos!(tbox, MovePosition::Middle, Axis::Vertical, &ctx);
+        cursorpos!(tbox, MovePosition::Middle, Axis::Vertical, &ctx, store);
         assert_eq!(tbox.get_cursor(), Cursor::new(0, 0));
         assert_eq!(tbox.viewctx.corner, Cursor::new(0, 0));
 
-        cursorpos!(tbox, MovePosition::End, Axis::Vertical, &ctx);
+        cursorpos!(tbox, MovePosition::End, Axis::Vertical, &ctx, store);
         assert_eq!(tbox.get_cursor(), Cursor::new(0, 0));
         assert_eq!(tbox.viewctx.corner, Cursor::new(0, 0));
 
-        cursorpos!(tbox, MovePosition::Beginning, Axis::Horizontal, &ctx);
+        cursorpos!(tbox, MovePosition::Beginning, Axis::Horizontal, &ctx, store);
         assert_eq!(tbox.get_cursor(), Cursor::new(0, 0));
         assert_eq!(tbox.viewctx.corner, Cursor::new(0, 0));
 
-        cursorpos!(tbox, MovePosition::Middle, Axis::Horizontal, &ctx);
+        cursorpos!(tbox, MovePosition::Middle, Axis::Horizontal, &ctx, store);
         assert_eq!(tbox.get_cursor(), Cursor::new(0, 0));
         assert_eq!(tbox.viewctx.corner, Cursor::new(0, 0));
 
-        cursorpos!(tbox, MovePosition::End, Axis::Horizontal, &ctx);
+        cursorpos!(tbox, MovePosition::End, Axis::Horizontal, &ctx, store);
         assert_eq!(tbox.get_cursor(), Cursor::new(0, 0));
         assert_eq!(tbox.viewctx.corner, Cursor::new(0, 0));
 
         // Move the cursor to the second column of the fifth line, and vertically position cursor.
         let mov = mv!(MoveType::BufferLineOffset, 5);
-        tbox.edit(&EditAction::Motion, &mov, &ctx).unwrap();
+        tbox.edit(&EditAction::Motion, &mov, &ctx, &mut store).unwrap();
         assert_eq!(tbox.get_cursor(), Cursor::new(4, 0));
 
         let mov = mv!(MoveType::LineColumnOffset, 2);
-        tbox.edit(&EditAction::Motion, &mov, &ctx).unwrap();
+        tbox.edit(&EditAction::Motion, &mov, &ctx, &mut store).unwrap();
         assert_eq!(tbox.get_cursor(), Cursor::new(4, 1));
 
-        cursorpos!(tbox, MovePosition::Beginning, Axis::Vertical, &ctx);
+        cursorpos!(tbox, MovePosition::Beginning, Axis::Vertical, &ctx, store);
         assert_eq!(tbox.get_cursor(), Cursor::new(4, 1));
         assert_eq!(tbox.viewctx.corner, Cursor::new(4, 0));
 
-        cursorpos!(tbox, MovePosition::End, Axis::Vertical, &ctx);
+        cursorpos!(tbox, MovePosition::End, Axis::Vertical, &ctx, store);
         assert_eq!(tbox.get_cursor(), Cursor::new(4, 1));
         assert_eq!(tbox.viewctx.corner, Cursor::new(1, 0));
 
-        cursorpos!(tbox, MovePosition::Middle, Axis::Vertical, &ctx);
+        cursorpos!(tbox, MovePosition::Middle, Axis::Vertical, &ctx, store);
         assert_eq!(tbox.get_cursor(), Cursor::new(4, 1));
         assert_eq!(tbox.viewctx.corner, Cursor::new(3, 0));
 
         // Move the cursor to the fifth column, and horizontally position cursor.
         let mov = mv!(MoveType::LineColumnOffset, 5);
-        tbox.edit(&EditAction::Motion, &mov, &ctx).unwrap();
+        tbox.edit(&EditAction::Motion, &mov, &ctx, &mut store).unwrap();
         assert_eq!(tbox.get_cursor(), Cursor::new(4, 4));
 
-        cursorpos!(tbox, MovePosition::Beginning, Axis::Horizontal, &ctx);
+        cursorpos!(tbox, MovePosition::Beginning, Axis::Horizontal, &ctx, store);
         assert_eq!(tbox.get_cursor(), Cursor::new(4, 4));
         assert_eq!(tbox.viewctx.corner, Cursor::new(3, 4));
 
-        cursorpos!(tbox, MovePosition::End, Axis::Horizontal, &ctx);
+        cursorpos!(tbox, MovePosition::End, Axis::Horizontal, &ctx, store);
         assert_eq!(tbox.get_cursor(), Cursor::new(4, 4));
         assert_eq!(tbox.viewctx.corner, Cursor::new(3, 1));
 
-        cursorpos!(tbox, MovePosition::Middle, Axis::Horizontal, &ctx);
+        cursorpos!(tbox, MovePosition::Middle, Axis::Horizontal, &ctx, store);
         assert_eq!(tbox.get_cursor(), Cursor::new(4, 4));
         assert_eq!(tbox.viewctx.corner, Cursor::new(3, 3));
 
         // Vertically positioning the cursor after a FirstWord.
         let mov = MoveType::FirstWord(MoveDir1D::Next);
-        tbox.edit(&EditAction::Motion, &mv!(mov, 0), &ctx).unwrap();
-        cursorpos!(tbox, MovePosition::Beginning, Axis::Vertical, &ctx);
+        tbox.edit(&EditAction::Motion, &mv!(mov, 0), &ctx, &mut store).unwrap();
+        cursorpos!(tbox, MovePosition::Beginning, Axis::Vertical, &ctx, store);
         assert_eq!(tbox.get_cursor(), Cursor::new(4, 0));
         assert_eq!(tbox.viewctx.corner, Cursor::new(4, 0));
     }
 
     #[test]
     fn test_scroll_linepos() {
-        let (mut tbox, ctx) = mkboxstr(
+        let (mut tbox, ctx, mut store) = mkboxstr(
             "1234567890\n\
             abcdefghij\n\
             klmnopqrst\n\
@@ -1212,52 +1217,52 @@ mod tests {
         assert_eq!(tbox.viewctx.corner, Cursor::new(0, 0));
 
         // Scroll so that the 3rd line at the top of the screen.
-        linepos!(tbox, MovePosition::Beginning, Count::Exact(3), &ctx);
+        linepos!(tbox, MovePosition::Beginning, Count::Exact(3), &ctx, store);
         assert_eq!(tbox.get_cursor(), Cursor::new(2, 0));
         assert_eq!(tbox.viewctx.corner, Cursor::new(2, 0));
 
         // Scroll so that the 7th line is in the middle of the screen.
-        linepos!(tbox, MovePosition::Middle, Count::Exact(7), &ctx);
+        linepos!(tbox, MovePosition::Middle, Count::Exact(7), &ctx, store);
         assert_eq!(tbox.get_cursor(), Cursor::new(6, 0));
         assert_eq!(tbox.viewctx.corner, Cursor::new(5, 0));
 
         // The 1st line cannot be in the middle of the screen.
-        linepos!(tbox, MovePosition::Middle, Count::Exact(1), &ctx);
+        linepos!(tbox, MovePosition::Middle, Count::Exact(1), &ctx, store);
         assert_eq!(tbox.get_cursor(), Cursor::new(0, 0));
         assert_eq!(tbox.viewctx.corner, Cursor::new(0, 0));
 
         // The 1st line cannot be at the bottom of the screen.
-        linepos!(tbox, MovePosition::End, Count::Exact(1), &ctx);
+        linepos!(tbox, MovePosition::End, Count::Exact(1), &ctx, store);
         assert_eq!(tbox.get_cursor(), Cursor::new(0, 0));
         assert_eq!(tbox.viewctx.corner, Cursor::new(0, 0));
 
         // The 2nd line cannot be at the bottom of the screen.
-        linepos!(tbox, MovePosition::End, Count::Exact(2), &ctx);
+        linepos!(tbox, MovePosition::End, Count::Exact(2), &ctx, store);
         assert_eq!(tbox.get_cursor(), Cursor::new(1, 0));
         assert_eq!(tbox.viewctx.corner, Cursor::new(0, 0));
 
         // The 3nd line cannot be at the bottom of the screen.
-        linepos!(tbox, MovePosition::End, Count::Exact(3), &ctx);
+        linepos!(tbox, MovePosition::End, Count::Exact(3), &ctx, store);
         assert_eq!(tbox.get_cursor(), Cursor::new(2, 0));
         assert_eq!(tbox.viewctx.corner, Cursor::new(0, 0));
 
         // The 4th line can be at the bottom of the screen.
-        linepos!(tbox, MovePosition::End, Count::Exact(4), &ctx);
+        linepos!(tbox, MovePosition::End, Count::Exact(4), &ctx, store);
         assert_eq!(tbox.get_cursor(), Cursor::new(3, 0));
         assert_eq!(tbox.viewctx.corner, Cursor::new(0, 0));
 
         // The 5th line can be at the bottom of the screen.
-        linepos!(tbox, MovePosition::End, Count::Exact(5), &ctx);
+        linepos!(tbox, MovePosition::End, Count::Exact(5), &ctx, store);
         assert_eq!(tbox.get_cursor(), Cursor::new(4, 0));
         assert_eq!(tbox.viewctx.corner, Cursor::new(1, 0));
     }
 
     #[test]
     fn test_reset_text() {
-        let (mut tbox, ctx) = mkboxstr("foo\nbar\nbaz");
+        let (mut tbox, ctx, mut store) = mkboxstr("foo\nbar\nbaz");
 
         let mov = mv!(MoveType::BufferLineOffset, 3);
-        tbox.edit(&EditAction::Motion, &mov, &ctx).unwrap();
+        tbox.edit(&EditAction::Motion, &mov, &ctx, &mut store).unwrap();
 
         assert_eq!(tbox.get_text(), "foo\nbar\nbaz\n");
         assert_eq!(tbox.get_cursor(), Cursor::new(2, 0));
@@ -1271,7 +1276,7 @@ mod tests {
 
     #[test]
     fn test_render_nowrap() {
-        let (mut tbox, ctx) = mkboxstr("foo\nbar\nbaz\nquux 1 2 3 4 5");
+        let (mut tbox, ctx, mut store) = mkboxstr("foo\nbar\nbaz\nquux 1 2 3 4 5");
 
         tbox.set_wrap(false);
 
@@ -1286,7 +1291,7 @@ mod tests {
 
         // Move the cursor to the fourth line, thereby moving corner.
         let mov = mv!(MoveType::BufferLineOffset, 4);
-        tbox.edit(&EditAction::Motion, &mov, &ctx).unwrap();
+        tbox.edit(&EditAction::Motion, &mov, &ctx, &mut store).unwrap();
 
         TextBox::new().prompt("> ").render(area, &mut buffer, &mut tbox);
 
@@ -1296,7 +1301,7 @@ mod tests {
 
         // Move the cursor to the end of the fourth line, again moving corner.
         let mov = mv!(MoveType::LineColumnOffset, 14);
-        tbox.edit(&EditAction::Motion, &mov, &ctx).unwrap();
+        tbox.edit(&EditAction::Motion, &mov, &ctx, &mut store).unwrap();
 
         TextBox::new().prompt("> ").render(area, &mut buffer, &mut tbox);
 
@@ -1306,7 +1311,7 @@ mod tests {
 
         // Now move back to the top-left corner.
         let mov = mv!(MoveType::BufferByteOffset, 0);
-        tbox.edit(&EditAction::Motion, &mov, &ctx).unwrap();
+        tbox.edit(&EditAction::Motion, &mov, &ctx, &mut store).unwrap();
 
         TextBox::new().prompt("> ").render(area, &mut buffer, &mut tbox);
 

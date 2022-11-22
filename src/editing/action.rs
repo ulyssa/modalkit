@@ -36,13 +36,16 @@
 //! let _: Action = Action::Scroll(ScrollStyle::LinePos(MovePosition::Beginning, 10.into()));
 //! ```
 use crate::{
+    editing::context::{EditContext, Resolve},
     editing::store::BufferId,
     input::bindings::SequenceStatus,
     input::commands::{Command, CommandError, CommandMachine},
     input::key::MacroError,
 };
 
+use super::application::*;
 use super::base::*;
+use super::store::Store;
 
 /// The various actions that can be taken on text.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -97,24 +100,38 @@ impl Default for EditAction {
 }
 
 /// An object capable of performing editing operations.
-pub trait Editable<C> {
+pub trait Editable<C, I>
+where
+    I: ApplicationInfo,
+{
     /// Perform an editing operation over the targeted text.
-    fn edit(&mut self, action: &EditAction, target: &EditTarget, ctx: &C) -> EditResult;
+    fn edit(
+        &mut self,
+        action: &EditAction,
+        target: &EditTarget,
+        ctx: &C,
+        store: &mut Store<I>,
+    ) -> EditResult;
 
     /// Create or update a cursor mark based on the leader's cursor position.
-    fn mark(&mut self, name: Mark, ctx: &C) -> EditResult;
+    fn mark(&mut self, name: Mark, ctx: &C, store: &mut Store<I>) -> EditResult;
 
     /// Insert text relative to the current cursor position.
-    fn insert_text(&mut self, act: InsertTextAction, ctx: &C) -> EditResult;
+    fn insert_text(&mut self, act: InsertTextAction, ctx: &C, store: &mut Store<I>) -> EditResult;
 
     /// Modify the current selection.
-    fn selection_command(&mut self, act: SelectionAction, ctx: &C) -> EditResult;
+    fn selection_command(
+        &mut self,
+        act: SelectionAction,
+        ctx: &C,
+        store: &mut Store<I>,
+    ) -> EditResult;
 
     /// Perform an action over a cursor group.
-    fn cursor_command(&mut self, act: &CursorAction, ctx: &C) -> EditResult;
+    fn cursor_command(&mut self, act: &CursorAction, ctx: &C, store: &mut Store<I>) -> EditResult;
 
     /// Move to a different point in the buffer's editing history.
-    fn history_command(&mut self, act: HistoryAction, ctx: &C) -> EditResult;
+    fn history_command(&mut self, act: HistoryAction, ctx: &C, store: &mut Store<I>) -> EditResult;
 }
 
 /// Selection manipulation
@@ -293,9 +310,9 @@ pub enum PromptAction {
 }
 
 /// A widget that the user can switch focus of keyboard input to.
-pub trait Promptable<A, C> {
+pub trait Promptable<A, C, S> {
     /// Execute a prompt action.
-    fn prompt(&mut self, act: PromptAction, ctx: &C) -> EditResult<Vec<(A, C)>>;
+    fn prompt(&mut self, act: PromptAction, ctx: &C, store: &mut S) -> EditResult<Vec<(A, C)>>;
 }
 
 /// Macro actions
@@ -340,12 +357,12 @@ pub enum TabAction {
 }
 
 /// Trait for objects that contain tabbed content.
-pub trait TabContainer<C> {
+pub trait TabContainer<C, S> {
     /// Number of currently open tabs.
     fn tabs(&self) -> usize;
 
     /// Execute a tab action.
-    fn tab_command(&mut self, act: TabAction, ctx: &C) -> UIResult;
+    fn tab_command(&mut self, act: TabAction, ctx: &C, store: &mut S) -> UIResult;
 }
 
 /// Window actions
@@ -384,9 +401,9 @@ pub enum WindowAction {
 }
 
 /// The result of either pressing a complete keybinding sequence, or parsing a command.
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 #[non_exhaustive]
-pub enum Action<P: Application = ()> {
+pub enum Action<I: ApplicationInfo = EmptyInfo> {
     /// Do nothing.
     NoOp,
 
@@ -454,10 +471,10 @@ pub enum Action<P: Application = ()> {
     Window(WindowAction),
 
     /// Application-specific command.
-    Application(P::Action),
+    Application(I::Action),
 }
 
-impl<P: Application> Action<P> {
+impl<I: ApplicationInfo> Action<I> {
     /// Indicates how an action gets included in [RepeatType::EditSequence].
     ///
     /// `motion` indicates what to do with [EditAction::Motion].
@@ -582,96 +599,67 @@ impl<P: Application> Action<P> {
     }
 }
 
-impl<P: Application> Default for Action<P> {
+impl<I: ApplicationInfo> Default for Action<I> {
     fn default() -> Self {
         Action::NoOp
     }
 }
 
-impl<P: Application> Clone for Action<P> {
-    fn clone(&self) -> Self {
-        match self {
-            Action::Application(act) => Action::Application(act.clone()),
-            Action::Command(act) => Action::Command(act.clone()),
-            Action::CommandBar(act) => Action::CommandBar(act.clone()),
-            Action::Complete(dir, show) => Action::Complete(dir.clone(), show.clone()),
-            Action::Cursor(act) => Action::Cursor(act.clone()),
-            Action::Edit(action, mov) => Action::Edit(action.clone(), mov.clone()),
-            Action::History(act) => Action::History(act.clone()),
-            Action::InsertText(act) => Action::InsertText(act.clone()),
-            Action::Jump(list, dir, count) => Action::Jump(*list, *dir, count.clone()),
-            Action::KeywordLookup => Action::KeywordLookup,
-            Action::Macro(act) => Action::Macro(act.clone()),
-            Action::Mark(mark) => Action::Mark(mark.clone()),
-            Action::NoOp => Action::NoOp,
-            Action::Prompt(act) => Action::Prompt(act.clone()),
-            Action::RedrawScreen => Action::RedrawScreen,
-            Action::Repeat(rt) => Action::Repeat(rt.clone()),
-            Action::Scroll(style) => Action::Scroll(style.clone()),
-            Action::Search(dir, count) => Action::Search(dir.clone(), count.clone()),
-            Action::Selection(act) => Action::Selection(act.clone()),
-            Action::Suspend => Action::Suspend,
-            Action::Tab(act) => Action::Tab(act.clone()),
-            Action::Window(act) => Action::Window(act.clone()),
-        }
-    }
-}
-
-impl<P: Application> From<SelectionAction> for Action<P> {
+impl<I: ApplicationInfo> From<SelectionAction> for Action<I> {
     fn from(act: SelectionAction) -> Self {
         Action::Selection(act)
     }
 }
 
-impl<P: Application> From<InsertTextAction> for Action<P> {
+impl<I: ApplicationInfo> From<InsertTextAction> for Action<I> {
     fn from(act: InsertTextAction) -> Self {
         Action::InsertText(act)
     }
 }
 
-impl<P: Application> From<HistoryAction> for Action<P> {
+impl<I: ApplicationInfo> From<HistoryAction> for Action<I> {
     fn from(act: HistoryAction) -> Self {
         Action::History(act)
     }
 }
 
-impl<P: Application> From<CursorAction> for Action<P> {
+impl<I: ApplicationInfo> From<CursorAction> for Action<I> {
     fn from(act: CursorAction) -> Self {
         Action::Cursor(act)
     }
 }
 
-impl<P: Application> From<MacroAction> for Action<P> {
+impl<I: ApplicationInfo> From<MacroAction> for Action<I> {
     fn from(act: MacroAction) -> Self {
         Action::Macro(act)
     }
 }
 
-impl<P: Application> From<CommandAction> for Action<P> {
+impl<I: ApplicationInfo> From<CommandAction> for Action<I> {
     fn from(act: CommandAction) -> Self {
         Action::Command(act)
     }
 }
 
-impl<P: Application> From<CommandBarAction> for Action<P> {
+impl<I: ApplicationInfo> From<CommandBarAction> for Action<I> {
     fn from(act: CommandBarAction) -> Self {
         Action::CommandBar(act)
     }
 }
 
-impl<P: Application> From<PromptAction> for Action<P> {
+impl<I: ApplicationInfo> From<PromptAction> for Action<I> {
     fn from(act: PromptAction) -> Self {
         Action::Prompt(act)
     }
 }
 
-impl<P: Application> From<WindowAction> for Action<P> {
+impl<I: ApplicationInfo> From<WindowAction> for Action<I> {
     fn from(act: WindowAction) -> Self {
         Action::Window(act)
     }
 }
 
-impl<P: Application> From<TabAction> for Action<P> {
+impl<I: ApplicationInfo> From<TabAction> for Action<I> {
     fn from(act: TabAction) -> Self {
         Action::Tab(act)
     }
@@ -692,15 +680,15 @@ pub trait Jumpable<C> {
 }
 
 /// Trait for objects that can be scrolled.
-pub trait Scrollable<C> {
+pub trait Scrollable<C, S> {
     /// Scroll the viewable content in this object.
-    fn scroll(&mut self, style: &ScrollStyle, ctx: &C) -> EditResult;
+    fn scroll(&mut self, style: &ScrollStyle, ctx: &C, store: &mut S) -> EditResult;
 }
 
 /// Trait for objects that can be searched.
-pub trait Searchable<C> {
+pub trait Searchable<C, S> {
     /// Search for the [*n*<sup>th</sup>](Count) result in [MoveDirMod] direction.
-    fn search(&mut self, dir: MoveDirMod, count: Count, ctx: &C) -> UIResult;
+    fn search(&mut self, dir: MoveDirMod, count: Count, ctx: &C, store: &mut S) -> UIResult;
 }
 
 /// Additional information returned after an editing operation.

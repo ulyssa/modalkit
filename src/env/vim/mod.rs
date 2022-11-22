@@ -16,25 +16,25 @@ use crate::{
     util::{keycode_to_num, option_muladd_u32, option_muladd_usize},
 };
 
-use crate::editing::action::{Action, CursorAction, EditAction, HistoryAction, InsertTextAction};
-
-use crate::editing::base::{
-    Application,
-    Char,
-    Count,
-    CursorCloseTarget,
-    CursorEnd,
-    EditContext,
-    EditTarget,
-    InsertStyle,
-    Mark,
-    MoveDir1D,
-    MoveType,
-    Register,
-    RepeatType,
-    Resolve,
-    Specifier,
-    TargetShape,
+use crate::editing::{
+    action::{Action, CursorAction, EditAction, HistoryAction, InsertTextAction},
+    application::{ApplicationInfo, EmptyInfo},
+    base::{
+        Char,
+        Count,
+        CursorCloseTarget,
+        CursorEnd,
+        EditTarget,
+        InsertStyle,
+        Mark,
+        MoveDir1D,
+        MoveType,
+        Register,
+        RepeatType,
+        Specifier,
+        TargetShape,
+    },
+    context::{EditContext, Resolve},
 };
 
 use super::{CharacterContext, CommonKeyClass};
@@ -79,8 +79,8 @@ impl Default for VimMode {
     }
 }
 
-impl<P: Application> Mode<Action<P>, VimContext<P>> for VimMode {
-    fn enter(&self, prev: Self, ctx: &mut VimContext<P>) -> Vec<Action<P>> {
+impl<I: ApplicationInfo> Mode<Action<I>, VimContext<I>> for VimMode {
+    fn enter(&self, prev: Self, ctx: &mut VimContext<I>) -> Vec<Action<I>> {
         match self {
             VimMode::Normal => {
                 ctx.persist.shape = None;
@@ -168,7 +168,7 @@ impl<P: Application> Mode<Action<P>, VimContext<P>> for VimMode {
         }
     }
 
-    fn show(&self, ctx: &VimContext<P>) -> Option<String> {
+    fn show(&self, ctx: &VimContext<I>) -> Option<String> {
         let recording = ctx.persist.recording.and_then(register_to_char);
 
         let msg = match self {
@@ -212,11 +212,11 @@ impl<P: Application> Mode<Action<P>, VimContext<P>> for VimMode {
     }
 }
 
-impl<P: Application> ModeSequence<RepeatType, Action<P>, VimContext<P>> for VimMode {
+impl<I: ApplicationInfo> ModeSequence<RepeatType, Action<I>, VimContext<I>> for VimMode {
     fn sequences(
         &self,
-        action: &Action<P>,
-        ctx: &VimContext<P>,
+        action: &Action<I>,
+        ctx: &VimContext<I>,
     ) -> Vec<(RepeatType, SequenceStatus)> {
         let motion = match self {
             VimMode::Command => {
@@ -242,12 +242,12 @@ impl<P: Application> ModeSequence<RepeatType, Action<P>, VimContext<P>> for VimM
     }
 }
 
-impl<P: Application> ModeKeys<TerminalKey, Action<P>, VimContext<P>> for VimMode {
+impl<I: ApplicationInfo> ModeKeys<TerminalKey, Action<I>, VimContext<I>> for VimMode {
     fn unmapped(
         &self,
         ke: &TerminalKey,
-        ctx: &mut VimContext<P>,
-    ) -> (Vec<Action<P>>, Option<Self>) {
+        ctx: &mut VimContext<I>,
+    ) -> (Vec<Action<I>>, Option<Self>) {
         match self {
             VimMode::Normal => {
                 return (vec![], None);
@@ -351,15 +351,15 @@ pub(crate) struct PersistentContext {
 
 /// This wraps both action specific context, and persistent context.
 #[derive(Debug, Eq, PartialEq)]
-pub struct VimContext<P: Application = ()> {
+pub struct VimContext<I: ApplicationInfo = EmptyInfo> {
     pub(crate) action: ActionContext,
     pub(crate) persist: PersistentContext,
     pub(self) ch: CharacterContext,
 
-    _p: PhantomData<P>,
+    _p: PhantomData<I>,
 }
 
-impl<P: Application> Clone for VimContext<P> {
+impl<I: ApplicationInfo> Clone for VimContext<I> {
     fn clone(&self) -> Self {
         Self {
             action: self.action.clone(),
@@ -370,7 +370,7 @@ impl<P: Application> Clone for VimContext<P> {
     }
 }
 
-impl<P: Application> InputContext for VimContext<P> {
+impl<I: ApplicationInfo> InputContext for VimContext<I> {
     fn overrides(&mut self, other: &Self) {
         // Allow overriding the two fields that can prefix keybindings.
 
@@ -398,7 +398,7 @@ impl<P: Application> InputContext for VimContext<P> {
     }
 }
 
-impl<P: Application> InputKeyContext<TerminalKey, CommonKeyClass> for VimContext<P> {
+impl<I: ApplicationInfo> InputKeyContext<TerminalKey, CommonKeyClass> for VimContext<I> {
     fn event(&mut self, ev: &EdgeEvent<TerminalKey, CommonKeyClass>, ke: &TerminalKey) {
         match ev {
             EdgeEvent::Key(_) | EdgeEvent::Fallthrough => {
@@ -466,7 +466,7 @@ impl<P: Application> InputKeyContext<TerminalKey, CommonKeyClass> for VimContext
     }
 }
 
-impl<P: Application> EditContext for VimContext<P> {
+impl<I: ApplicationInfo> EditContext for VimContext<I> {
     fn get_cursor_end(&self) -> CursorEnd {
         self.action.cursor_end.unwrap_or(CursorEnd::Auto)
     }
@@ -552,7 +552,7 @@ impl Default for PersistentContext {
     }
 }
 
-impl<P: Application> Default for VimContext<P> {
+impl<I: ApplicationInfo> Default for VimContext<I> {
     fn default() -> Self {
         Self {
             action: ActionContext::default(),
@@ -564,7 +564,7 @@ impl<P: Application> Default for VimContext<P> {
     }
 }
 
-impl<P: Application> Resolve<Count, usize> for VimContext<P> {
+impl<I: ApplicationInfo> Resolve<Count, usize> for VimContext<I> {
     fn resolve(&self, count: &Count) -> usize {
         match count {
             Count::Contextual => self.action.count.unwrap_or(1),
@@ -574,7 +574,7 @@ impl<P: Application> Resolve<Count, usize> for VimContext<P> {
     }
 }
 
-impl<P: Application> Resolve<Specifier<Char>, Option<Char>> for VimContext<P> {
+impl<I: ApplicationInfo> Resolve<Specifier<Char>, Option<Char>> for VimContext<I> {
     fn resolve(&self, c: &Specifier<Char>) -> Option<Char> {
         match c {
             Specifier::Contextual => self.ch.get_typed(),
@@ -583,7 +583,7 @@ impl<P: Application> Resolve<Specifier<Char>, Option<Char>> for VimContext<P> {
     }
 }
 
-impl<P: Application> Resolve<Specifier<Mark>, Mark> for VimContext<P> {
+impl<I: ApplicationInfo> Resolve<Specifier<Mark>, Mark> for VimContext<I> {
     fn resolve(&self, mark: &Specifier<Mark>) -> Mark {
         match mark {
             Specifier::Contextual => self.action.mark.unwrap_or(Mark::LastJump),
@@ -592,7 +592,7 @@ impl<P: Application> Resolve<Specifier<Mark>, Mark> for VimContext<P> {
     }
 }
 
-impl<P: Application> Resolve<Specifier<EditAction>, EditAction> for VimContext<P> {
+impl<I: ApplicationInfo> Resolve<Specifier<EditAction>, EditAction> for VimContext<I> {
     fn resolve(&self, mark: &Specifier<EditAction>) -> EditAction {
         match mark {
             Specifier::Contextual => self.action.operation.clone(),
@@ -712,7 +712,7 @@ mod tests {
 
     #[test]
     fn test_show_mode() {
-        let mut ctx = VimContext::<()>::default();
+        let mut ctx = VimContext::<EmptyInfo>::default();
 
         let normal = VimMode::Normal;
         let visual = VimMode::Visual;

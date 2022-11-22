@@ -12,8 +12,8 @@
 //! use modalkit::env::vim::keybindings::VimMachine;
 //!
 //! use modalkit::editing::action::{Action, EditAction, HistoryAction};
-//! use modalkit::editing::base::{Count, Resolve};
-//! use modalkit::editing::base::{EditTarget, RangeType};
+//! use modalkit::editing::base::{Count, EditTarget, RangeType};
+//! use modalkit::editing::context::Resolve;
 //!
 //! use modalkit::input::{bindings::BindingMachine, key::TerminalKey};
 //!
@@ -48,58 +48,59 @@
 //! ```
 use bitflags::bitflags;
 
-use crate::editing::action::{
-    Action,
-    CommandAction,
-    CommandBarAction,
-    CursorAction,
-    EditAction,
-    HistoryAction,
-    InsertTextAction,
-    MacroAction,
-    PromptAction,
-    SelectionAction,
-    TabAction,
-    WindowAction,
-};
-
-use crate::editing::base::{
-    Application,
-    Axis,
-    Case,
-    Char,
-    CloseFlags,
-    CloseTarget,
-    CommandType,
-    Count,
-    CursorEnd,
-    EditTarget,
-    FocusChange,
-    IndentChange,
-    InsertStyle,
-    JoinStyle,
-    MoveDir1D,
-    MoveDir2D,
-    MoveDirMod,
-    MovePosition,
-    MoveTerminus,
-    MoveType,
-    NumberChange,
-    PositionList,
-    RangeType,
-    Register,
-    RepeatType,
-    ScrollSize,
-    ScrollStyle,
-    SearchType,
-    SelectionCursorChange,
-    SelectionResizeStyle,
-    SelectionSplitStyle,
-    SizeChange,
-    Specifier,
-    TargetShape,
-    TargetShapeFilter,
-    WordStyle,
+use crate::editing::{
+    action::{
+        Action,
+        CommandAction,
+        CommandBarAction,
+        CursorAction,
+        EditAction,
+        HistoryAction,
+        InsertTextAction,
+        MacroAction,
+        PromptAction,
+        SelectionAction,
+        TabAction,
+        WindowAction,
+    },
+    application::{ApplicationInfo, EmptyInfo},
+    base::{
+        Axis,
+        Case,
+        Char,
+        CloseFlags,
+        CloseTarget,
+        CommandType,
+        Count,
+        CursorEnd,
+        EditTarget,
+        FocusChange,
+        IndentChange,
+        InsertStyle,
+        JoinStyle,
+        MoveDir1D,
+        MoveDir2D,
+        MoveDirMod,
+        MovePosition,
+        MoveTerminus,
+        MoveType,
+        NumberChange,
+        PositionList,
+        RangeType,
+        Register,
+        RepeatType,
+        ScrollSize,
+        ScrollStyle,
+        SearchType,
+        SelectionCursorChange,
+        SelectionResizeStyle,
+        SelectionSplitStyle,
+        SizeChange,
+        Specifier,
+        TargetShape,
+        TargetShapeFilter,
+        WordStyle,
+    },
 };
 
 use super::{
@@ -220,7 +221,7 @@ enum InternalAction {
 }
 
 impl InternalAction {
-    pub fn run<P: Application>(&self, ctx: &mut VimContext<P>) {
+    pub fn run<I: ApplicationInfo>(&self, ctx: &mut VimContext<I>) {
         match self {
             InternalAction::SetCursorEnd(end) => {
                 ctx.action.cursor_end = Some(*end);
@@ -308,15 +309,15 @@ impl InternalAction {
 }
 
 #[derive(Debug)]
-enum ExternalAction<P: Application> {
-    Something(Action<P>),
-    CountAlters(Vec<Action<P>>, Vec<Action<P>>),
+enum ExternalAction<I: ApplicationInfo> {
+    Something(Action<I>),
+    CountAlters(Vec<Action<I>>, Vec<Action<I>>),
     MacroToggle(bool),
     PostAction,
 }
 
-impl<P: Application> ExternalAction<P> {
-    fn resolve(&self, context: &mut VimContext<P>) -> Vec<Action<P>> {
+impl<I: ApplicationInfo> ExternalAction<I> {
+    fn resolve(&self, context: &mut VimContext<I>) -> Vec<Action<I>> {
         match self {
             ExternalAction::Something(act) => vec![act.clone()],
             ExternalAction::CountAlters(acts1, acts2) => {
@@ -353,7 +354,7 @@ impl<P: Application> ExternalAction<P> {
     }
 }
 
-impl<P: Application> Clone for ExternalAction<P> {
+impl<I: ApplicationInfo> Clone for ExternalAction<I> {
     fn clone(&self) -> Self {
         match self {
             ExternalAction::Something(act) => ExternalAction::Something(act.clone()),
@@ -368,14 +369,14 @@ impl<P: Application> Clone for ExternalAction<P> {
 
 /// Description of actions to take after an input sequence.
 #[derive(Debug)]
-pub struct InputStep<P: Application> {
+pub struct InputStep<I: ApplicationInfo> {
     internal: Vec<InternalAction>,
-    external: Vec<ExternalAction<P>>,
+    external: Vec<ExternalAction<I>>,
     fallthrough_mode: Option<VimMode>,
     nextm: Option<VimMode>,
 }
 
-impl<P: Application> InputStep<P> {
+impl<I: ApplicationInfo> InputStep<I> {
     /// Create a new step that input keys can map to.
     pub fn new() -> Self {
         InputStep {
@@ -387,13 +388,13 @@ impl<P: Application> InputStep<P> {
     }
 
     /// Set the [actions](Action) that this step produces.
-    pub fn actions(mut self, acts: Vec<Action<P>>) -> Self {
+    pub fn actions(mut self, acts: Vec<Action<I>>) -> Self {
         self.external = acts.into_iter().map(ExternalAction::Something).collect();
         self
     }
 }
 
-impl<P: Application> Clone for InputStep<P> {
+impl<I: ApplicationInfo> Clone for InputStep<I> {
     fn clone(&self) -> Self {
         Self {
             internal: self.internal.clone(),
@@ -404,9 +405,9 @@ impl<P: Application> Clone for InputStep<P> {
     }
 }
 
-impl<P: Application> Step<TerminalKey> for InputStep<P> {
-    type A = Action<P>;
-    type C = VimContext<P>;
+impl<I: ApplicationInfo> Step<TerminalKey> for InputStep<I> {
+    type A = Action<I>;
+    type C = VimContext<I>;
     type Class = CommonKeyClass;
     type M = VimMode;
     type Sequence = RepeatType;
@@ -427,7 +428,7 @@ impl<P: Application> Step<TerminalKey> for InputStep<P> {
         self.fallthrough_mode
     }
 
-    fn step(&self, ctx: &mut VimContext<P>) -> (Vec<Action<P>>, Option<Self::M>) {
+    fn step(&self, ctx: &mut VimContext<I>) -> (Vec<Action<I>>, Option<Self::M>) {
         match (self.nextm, self.internal.as_slice(), ctx.persist.shape) {
             (Some(VimMode::Visual), [InternalAction::SetTargetShape(f, s1)], Some(ref s2))
                 if f.matches(s2) && s1 == s2 =>
@@ -444,7 +445,7 @@ impl<P: Application> Step<TerminalKey> for InputStep<P> {
                     iact.run(ctx);
                 }
 
-                let external: Vec<Action<P>> =
+                let external: Vec<Action<I>> =
                     self.external.iter().flat_map(|act| act.resolve(ctx)).collect();
 
                 if external.len() > 0 {
@@ -1216,7 +1217,7 @@ macro_rules! command_unfocus {
 }
 
 #[rustfmt::skip]
-fn default_keys<P: Application>() -> Vec<(MappedModes, &'static str, InputStep<P>)> {
+fn default_keys<I: ApplicationInfo>() -> Vec<(MappedModes, &'static str, InputStep<I>)> {
     [
         // Normal, Visual, Select, Insert mode keys
         ( NVIMAP, "<C-\\><C-N>", normal!() ),
@@ -1719,7 +1720,7 @@ fn default_keys<P: Application>() -> Vec<(MappedModes, &'static str, InputStep<P
 }
 
 #[rustfmt::skip]
-fn default_pfxs<P: Application>() -> Vec<(MappedModes, &'static str, Option<InputStep<P>>)> {
+fn default_pfxs<I: ApplicationInfo>() -> Vec<(MappedModes, &'static str, Option<InputStep<I>>)> {
     [
         // Normal, Visual and Operator-Pending mode commands can be prefixed w/ a count.
         ( NXOMAP, "{count}", Some(iact!(InternalAction::SaveCounting)) ),
@@ -1735,7 +1736,7 @@ fn default_pfxs<P: Application>() -> Vec<(MappedModes, &'static str, Option<Inpu
 }
 
 #[rustfmt::skip]
-fn default_enter<P: Application>() -> Vec<(MappedModes, &'static str, InputStep<P>)> {
+fn default_enter<I: ApplicationInfo>() -> Vec<(MappedModes, &'static str, InputStep<I>)> {
     [
         // <Enter> in Normal, Visual, and Operator-Pending mode moves to next line.
         ( MAP, "<Enter>", edit_end!(MoveType::FirstWord(MoveDir1D::Next)) ),
@@ -1749,7 +1750,7 @@ fn default_enter<P: Application>() -> Vec<(MappedModes, &'static str, InputStep<
 }
 
 #[rustfmt::skip]
-fn default_search<P: Application>() -> Vec<(MappedModes, &'static str, InputStep<P>)> {
+fn default_search<I: ApplicationInfo>() -> Vec<(MappedModes, &'static str, InputStep<I>)> {
     [
         ( NXOMAP, "n", edit_search_end!(SearchType::Regex, MoveDirMod::Same) ),
         ( NXOMAP, "N", edit_search_end!(SearchType::Regex, MoveDirMod::Flip) ),
@@ -1757,7 +1758,7 @@ fn default_search<P: Application>() -> Vec<(MappedModes, &'static str, InputStep
 }
 
 #[rustfmt::skip]
-fn default_ctrlcd<P: Application>() -> Vec<(MappedModes, &'static str, InputStep<P>)> {
+fn default_ctrlcd<I: ApplicationInfo>() -> Vec<(MappedModes, &'static str, InputStep<I>)> {
     [
         ( NMAP, "<C-C>", normal!() ),
         ( NMAP, "<C-D>", scroll2d!(MoveDir2D::Down, ScrollSize::HalfPage) ),
@@ -1768,7 +1769,7 @@ fn default_ctrlcd<P: Application>() -> Vec<(MappedModes, &'static str, InputStep
 }
 
 #[rustfmt::skip]
-fn submit_on_enter<P: Application>() -> Vec<(MappedModes, &'static str, InputStep<P>)> {
+fn submit_on_enter<I: ApplicationInfo>() -> Vec<(MappedModes, &'static str, InputStep<I>)> {
     [
         // <Enter> in Normal and Visual mode submits contents.
         ( NVMAP, "<Enter>", prompt!(PromptAction::Submit, VimMode::Normal) ),
@@ -1785,7 +1786,7 @@ fn submit_on_enter<P: Application>() -> Vec<(MappedModes, &'static str, InputSte
 }
 
 #[rustfmt::skip]
-fn search_is_action<P: Application>() -> Vec<(MappedModes, &'static str, InputStep<P>)> {
+fn search_is_action<I: ApplicationInfo>() -> Vec<(MappedModes, &'static str, InputStep<I>)> {
     [
         // Perform an application-level search in Normal mode.
         ( NMAP, "n", act!(Action::Search(MoveDirMod::Same, Count::Contextual)) ),
@@ -1802,7 +1803,7 @@ fn search_is_action<P: Application>() -> Vec<(MappedModes, &'static str, InputSt
 }
 
 #[rustfmt::skip]
-fn ctrlcd_is_abort<P: Application>() -> Vec<(MappedModes, &'static str, InputStep<P>)> {
+fn ctrlcd_is_abort<I: ApplicationInfo>() -> Vec<(MappedModes, &'static str, InputStep<I>)> {
     [
         // Abort if prompt is empty in both Normal and Insert mode.
         ( NMAP, "<C-C>", prompt!(PromptAction::Abort(true)) ),
@@ -1813,11 +1814,11 @@ fn ctrlcd_is_abort<P: Application>() -> Vec<(MappedModes, &'static str, InputSte
 }
 
 #[inline]
-fn add_prefix<P: Application>(
-    machine: &mut VimMachine<TerminalKey, P>,
+fn add_prefix<I: ApplicationInfo>(
+    machine: &mut VimMachine<TerminalKey, I>,
     modes: &MappedModes,
     keys: &str,
-    action: &Option<InputStep<P>>,
+    action: &Option<InputStep<I>>,
 ) {
     let (_, evs) = parse(keys).expect(&format!("invalid vim keybinding: {}", keys));
     let modes = modes.split();
@@ -1828,11 +1829,11 @@ fn add_prefix<P: Application>(
 }
 
 #[inline]
-fn add_mapping<P: Application>(
-    machine: &mut VimMachine<TerminalKey, P>,
+fn add_mapping<I: ApplicationInfo>(
+    machine: &mut VimMachine<TerminalKey, I>,
     modes: &MappedModes,
     keys: &str,
-    action: &InputStep<P>,
+    action: &InputStep<I>,
 ) {
     let (_, evs) = parse(keys).expect(&format!("invalid vim keybinding: {}", keys));
     let modes = modes.split();
@@ -1844,15 +1845,15 @@ fn add_mapping<P: Application>(
 
 /// A configurable collection of Vim bindings that can be added to a [ModalMachine].
 #[derive(Debug)]
-pub struct VimBindings<P: Application> {
-    prefixes: Vec<(MappedModes, &'static str, Option<InputStep<P>>)>,
-    mappings: Vec<(MappedModes, &'static str, InputStep<P>)>,
-    enter: Vec<(MappedModes, &'static str, InputStep<P>)>,
-    search: Vec<(MappedModes, &'static str, InputStep<P>)>,
-    ctrlcd: Vec<(MappedModes, &'static str, InputStep<P>)>,
+pub struct VimBindings<I: ApplicationInfo> {
+    prefixes: Vec<(MappedModes, &'static str, Option<InputStep<I>>)>,
+    mappings: Vec<(MappedModes, &'static str, InputStep<I>)>,
+    enter: Vec<(MappedModes, &'static str, InputStep<I>)>,
+    search: Vec<(MappedModes, &'static str, InputStep<I>)>,
+    ctrlcd: Vec<(MappedModes, &'static str, InputStep<I>)>,
 }
 
-impl<P: Application> VimBindings<P> {
+impl<I: ApplicationInfo> VimBindings<I> {
     /// Remap the Enter key in Normal, Visual, Select, and Insert mode to
     /// [submit](PromptAction::Submit) instead.
     pub fn submit_on_enter(mut self) -> Self {
@@ -1873,7 +1874,7 @@ impl<P: Application> VimBindings<P> {
     }
 }
 
-impl<P: Application> Default for VimBindings<P> {
+impl<I: ApplicationInfo> Default for VimBindings<I> {
     fn default() -> Self {
         VimBindings {
             prefixes: default_pfxs(),
@@ -1885,8 +1886,8 @@ impl<P: Application> Default for VimBindings<P> {
     }
 }
 
-impl<P: Application> InputBindings<TerminalKey, InputStep<P>> for VimBindings<P> {
-    fn setup(&self, machine: &mut VimMachine<TerminalKey, P>) {
+impl<I: ApplicationInfo> InputBindings<TerminalKey, InputStep<I>> for VimBindings<I> {
+    fn setup(&self, machine: &mut VimMachine<TerminalKey, I>) {
         for (modes, keys, action) in self.prefixes.iter() {
             add_prefix(machine, modes, keys, action);
         }
@@ -1910,11 +1911,11 @@ impl<P: Application> InputBindings<TerminalKey, InputStep<P>> for VimBindings<P>
 }
 
 /// Manage Vim keybindings and modes.
-pub type VimMachine<Key, T = ()> = ModalMachine<Key, InputStep<T>>;
+pub type VimMachine<Key, T = EmptyInfo> = ModalMachine<Key, InputStep<T>>;
 
-impl<P: Application> Default for VimMachine<TerminalKey, P> {
+impl<I: ApplicationInfo> Default for VimMachine<TerminalKey, I> {
     fn default() -> Self {
-        ModalMachine::from_bindings::<VimBindings<P>>()
+        ModalMachine::from_bindings::<VimBindings<I>>()
     }
 }
 

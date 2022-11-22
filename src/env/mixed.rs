@@ -7,21 +7,22 @@
 use regex::Regex;
 
 use crate::{
-    editing::action::{Action, EditAction},
-    editing::base::{
-        Application,
-        Char,
-        Count,
-        CursorEnd,
-        EditContext,
-        InsertStyle,
-        Mark,
-        MoveDir1D,
-        Register,
-        RepeatType,
-        Resolve,
-        Specifier,
-        TargetShape,
+    editing::{
+        action::{Action, EditAction},
+        application::{ApplicationInfo, EmptyInfo},
+        base::{
+            Char,
+            Count,
+            CursorEnd,
+            InsertStyle,
+            Mark,
+            MoveDir1D,
+            Register,
+            RepeatType,
+            Specifier,
+            TargetShape,
+        },
+        context::{EditContext, Resolve},
     },
     input::{
         bindings::{BindingMachine, Step},
@@ -53,17 +54,17 @@ pub enum MixedChoice {
 }
 
 /// Wrapper for the contexts used with different keybinding environments.
-pub enum MixedContext<P: Application = ()> {
+pub enum MixedContext<I: ApplicationInfo = EmptyInfo> {
     /// Wrapper for the Emacs context.
-    Emacs(EmacsContext<P>),
+    Emacs(EmacsContext<I>),
 
     /// Wrapper for the Vim context.
-    Vim(VimContext<P>),
+    Vim(VimContext<I>),
 }
 
-impl<P> Clone for MixedContext<P>
+impl<I> Clone for MixedContext<I>
 where
-    P: Application,
+    I: ApplicationInfo,
 {
     fn clone(&self) -> Self {
         match self {
@@ -73,29 +74,29 @@ where
     }
 }
 
-impl<P> Default for MixedContext<P>
+impl<I> Default for MixedContext<I>
 where
-    P: Application,
+    I: ApplicationInfo,
 {
     fn default() -> Self {
         panic!("Cannot create a default MixedContext")
     }
 }
 
-impl<P> From<EmacsContext<P>> for MixedContext<P>
+impl<I> From<EmacsContext<I>> for MixedContext<I>
 where
-    P: Application,
+    I: ApplicationInfo,
 {
-    fn from(ctx: EmacsContext<P>) -> Self {
+    fn from(ctx: EmacsContext<I>) -> Self {
         MixedContext::Emacs(ctx)
     }
 }
 
-impl<P> From<VimContext<P>> for MixedContext<P>
+impl<I> From<VimContext<I>> for MixedContext<I>
 where
-    P: Application,
+    I: ApplicationInfo,
 {
-    fn from(ctx: VimContext<P>) -> Self {
+    fn from(ctx: VimContext<I>) -> Self {
         MixedContext::Vim(ctx)
     }
 }
@@ -130,9 +131,9 @@ macro_rules! delegate_bindings {
     };
 }
 
-impl<P> InputContext for MixedContext<P>
+impl<I> InputContext for MixedContext<I>
 where
-    P: Application,
+    I: ApplicationInfo,
 {
     fn overrides(&mut self, other: &Self) {
         match (self, other) {
@@ -163,31 +164,31 @@ where
     }
 }
 
-impl<P: Application> Resolve<Count, usize> for MixedContext<P> {
+impl<I: ApplicationInfo> Resolve<Count, usize> for MixedContext<I> {
     fn resolve(&self, count: &Count) -> usize {
         delegate_context!(self, Resolve::resolve, count)
     }
 }
 
-impl<P: Application> Resolve<Specifier<Char>, Option<Char>> for MixedContext<P> {
+impl<I: ApplicationInfo> Resolve<Specifier<Char>, Option<Char>> for MixedContext<I> {
     fn resolve(&self, c: &Specifier<Char>) -> Option<Char> {
         delegate_context!(self, Resolve::resolve, c)
     }
 }
 
-impl<P: Application> Resolve<Specifier<EditAction>, EditAction> for MixedContext<P> {
+impl<I: ApplicationInfo> Resolve<Specifier<EditAction>, EditAction> for MixedContext<I> {
     fn resolve(&self, ea: &Specifier<EditAction>) -> EditAction {
         delegate_context!(self, Resolve::resolve, ea)
     }
 }
 
-impl<P: Application> Resolve<Specifier<Mark>, Mark> for MixedContext<P> {
+impl<I: ApplicationInfo> Resolve<Specifier<Mark>, Mark> for MixedContext<I> {
     fn resolve(&self, mark: &Specifier<Mark>) -> Mark {
         delegate_context!(self, Resolve::resolve, mark)
     }
 }
 
-impl<P: Application> EditContext for MixedContext<P> {
+impl<I: ApplicationInfo> EditContext for MixedContext<I> {
     fn get_cursor_end(&self) -> CursorEnd {
         delegate_context!(self, EditContext::get_cursor_end)
     }
@@ -231,23 +232,23 @@ impl<P: Application> EditContext for MixedContext<P> {
 
 /// Type for wrapping different keybindings in contexts where keybindings can be determined
 /// dynamically.
-pub enum MixedBindings<K, P = ()>
+pub enum MixedBindings<K, I = EmptyInfo>
 where
     K: InputKey,
-    P: Application,
-    EmacsStep<P>: Step<K>,
-    VimStep<P>: Step<K>,
+    I: ApplicationInfo,
+    EmacsStep<I>: Step<K>,
+    VimStep<I>: Step<K>,
 {
     /// Wrap Emacs bindings.
-    Emacs(EmacsMachine<K, P>),
+    Emacs(EmacsMachine<K, I>),
 
     /// Wrap Vim bindings.
-    Vim(VimMachine<K, P>),
+    Vim(VimMachine<K, I>),
 }
 
-impl<P> From<MixedChoice> for MixedBindings<TerminalKey, P>
+impl<I> From<MixedChoice> for MixedBindings<TerminalKey, I>
 where
-    P: Application,
+    I: ApplicationInfo,
 {
     fn from(choice: MixedChoice) -> Self {
         match choice {
@@ -257,25 +258,25 @@ where
     }
 }
 
-impl<K, P> BindingMachine<K, Action<P>, RepeatType, MixedContext<P>> for MixedBindings<K, P>
+impl<K, I> BindingMachine<K, Action<I>, RepeatType, MixedContext<I>> for MixedBindings<K, I>
 where
     K: InputKey,
-    P: Application,
-    EmacsStep<P>: Step<K, A = Action<P>, Sequence = RepeatType, C = EmacsContext<P>>,
-    VimStep<P>: Step<K, A = Action<P>, Sequence = RepeatType, C = VimContext<P>>,
+    I: ApplicationInfo,
+    EmacsStep<I>: Step<K, A = Action<I>, Sequence = RepeatType, C = EmacsContext<I>>,
+    VimStep<I>: Step<K, A = Action<I>, Sequence = RepeatType, C = VimContext<I>>,
 {
     fn input_key(&mut self, key: K) {
         delegate_bindings!(self, BindingMachine::input_key, key)
     }
 
-    fn pop(&mut self) -> Option<(Action<P>, MixedContext<P>)> {
+    fn pop(&mut self) -> Option<(Action<I>, MixedContext<I>)> {
         match self {
             MixedBindings::Emacs(e) => e.pop().map(|(a, c)| (a, c.into())),
             MixedBindings::Vim(v) => v.pop().map(|(a, c)| (a, c.into())),
         }
     }
 
-    fn context(&self) -> MixedContext<P> {
+    fn context(&self) -> MixedContext<I> {
         match self {
             MixedBindings::Emacs(m) => m.context().into(),
             MixedBindings::Vim(m) => m.context().into(),
@@ -290,7 +291,7 @@ where
         delegate_bindings!(self, BindingMachine::get_cursor_indicator)
     }
 
-    fn repeat(&mut self, rt: RepeatType, other: Option<MixedContext<P>>) {
+    fn repeat(&mut self, rt: RepeatType, other: Option<MixedContext<I>>) {
         match (self, other) {
             (MixedBindings::Emacs(m), Some(MixedContext::Emacs(c))) => m.repeat(rt, Some(c)),
             (MixedBindings::Emacs(m), None) => m.repeat(rt, None),

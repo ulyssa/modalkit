@@ -20,28 +20,29 @@ use xi_rope::rope::{BaseMetric, LinesMetric, Utf16CodeUnitsMetric};
 use xi_rope::rope::{Rope, RopeInfo};
 use xi_rope::tree::Cursor as RopeCursor;
 
-use crate::editing::action::EditAction;
-use crate::editing::cursor::{Cursor, CursorAdjustment, CursorChoice};
-
-use crate::editing::base::{
-    BoundaryTest,
-    BoundaryTestContext,
-    Case,
-    Count,
-    CursorMovements,
-    CursorMovementsContext,
-    CursorSearch,
-    EditContext,
-    EditRange,
-    InsertStyle,
-    MoveDir1D,
-    MovePosition,
-    MoveTerminus,
-    MoveType,
-    RangeType,
-    TargetShape,
-    ViewportContext,
-    WordStyle,
+use crate::editing::{
+    action::EditAction,
+    base::{
+        BoundaryTest,
+        BoundaryTestContext,
+        Case,
+        Count,
+        CursorMovements,
+        CursorMovementsContext,
+        CursorSearch,
+        EditRange,
+        InsertStyle,
+        MoveDir1D,
+        MovePosition,
+        MoveTerminus,
+        MoveType,
+        RangeType,
+        TargetShape,
+        ViewportContext,
+        WordStyle,
+    },
+    context::EditContext,
+    cursor::{Cursor, CursorAdjustment, CursorChoice},
 };
 
 /// Byte offset into an [EditRope].
@@ -1235,7 +1236,18 @@ impl EditRope {
         self.chars(off).next()
     }
 
-    /// Returns true if a line only contains only whitespace characters.
+    /// Returns true if this rope contains only whitespace characters.
+    pub fn is_blank(&self) -> bool {
+        for c in self.chars(0.into()) {
+            if !c.is_ascii_whitespace() {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /// Returns true if a line contains only whitespace characters.
     pub fn is_blank_line(&self, line: usize) -> bool {
         let offset = self.offset_of_line(line);
 

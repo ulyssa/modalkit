@@ -18,17 +18,9 @@ use crossterm::{
     terminal::{EnterAlternateScreen, LeaveAlternateScreen},
 };
 
-use crate::editing::action::{EditInfo, EditResult, UIResult, WindowAction};
-
-use crate::editing::base::{
-    Axis,
-    CloseFlags,
-    Count,
-    EditContext,
-    MoveDir1D,
-    MoveDir2D,
-    MovePosition,
-    ScrollSize,
+use crate::editing::{
+    action::{EditInfo, EditResult, UIResult, WindowAction},
+    base::{Axis, CloseFlags, Count, MoveDir1D, MoveDir2D, MovePosition, ScrollSize},
 };
 
 pub mod cmdbar;
@@ -49,31 +41,43 @@ pub trait TerminalCursor {
 }
 
 /// A widget whose content can be scrolled in multiple ways.
-pub trait ScrollActions<C: EditContext> {
+pub trait ScrollActions<C, S> {
     /// Pan the viewport.
-    fn dirscroll(&mut self, dir: MoveDir2D, size: ScrollSize, count: &Count, ctx: &C)
-        -> EditResult;
+    fn dirscroll(
+        &mut self,
+        dir: MoveDir2D,
+        size: ScrollSize,
+        count: &Count,
+        ctx: &C,
+        store: &mut S,
+    ) -> EditResult;
 
     /// Scroll so that the cursor is placed along a viewport boundary.
-    fn cursorpos(&mut self, pos: MovePosition, axis: Axis, ctx: &C) -> EditResult;
+    fn cursorpos(&mut self, pos: MovePosition, axis: Axis, ctx: &C, store: &mut S) -> EditResult;
 
     /// Scroll so that a specific line is placed at a given place in the viewport.
-    fn linepos(&mut self, pos: MovePosition, count: &Count, ctx: &C) -> EditResult;
+    fn linepos(&mut self, pos: MovePosition, count: &Count, ctx: &C, store: &mut S) -> EditResult;
 }
 
 /// A widget that contains content that can be converted into an action when the user is done
 /// entering text.
-pub trait PromptActions<A, C: EditContext> {
+pub trait PromptActions<A, C, S> {
     /// Submit the currently entered text.
-    fn submit(&mut self, ctx: &C) -> EditResult<Vec<(A, C)>>;
+    fn submit(&mut self, ctx: &C, store: &mut S) -> EditResult<Vec<(A, C)>>;
 
     /// Abort command entry and reset the current contents.
     ///
     /// If `empty` is true, and there is currently entered text, do nothing.
-    fn abort(&mut self, empty: bool, ctx: &C) -> EditResult<Vec<(A, C)>>;
+    fn abort(&mut self, empty: bool, ctx: &C, store: &mut S) -> EditResult<Vec<(A, C)>>;
 
     /// Recall previously entered text.
-    fn recall(&mut self, dir: &MoveDir1D, count: &Count, ctx: &C) -> EditResult<Vec<(A, C)>>;
+    fn recall(
+        &mut self,
+        dir: &MoveDir1D,
+        count: &Count,
+        ctx: &C,
+        store: &mut S,
+    ) -> EditResult<Vec<(A, C)>>;
 }
 
 /// A widget that the user can open and close on the screen.
