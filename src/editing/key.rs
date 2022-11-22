@@ -32,7 +32,7 @@ use super::{
     action::{EditError, EditResult, MacroAction},
     base::{Application, EditContext, Register},
     rope::EditRope,
-    store::SharedStore,
+    store::{RegisterPutFlags, SharedStore},
 };
 
 /// Wraps keybindings so that they can be fed simulated keypresses from macros.
@@ -100,7 +100,13 @@ where
                     let mut rope = EditRope::from("");
                     std::mem::swap(&mut rope, &mut self.committed);
 
-                    locked.registers.put(&Some(reg), rope.into(), append, false);
+                    let mut flags = RegisterPutFlags::NOTEXT;
+
+                    if append {
+                        flags |= RegisterPutFlags::APPEND;
+                    }
+
+                    locked.registers.put(&reg, rope.into(), flags);
 
                     // Stop recording.
                     self.recording = None;
@@ -352,7 +358,7 @@ mod tests {
         let mut flag = false;
 
         let get_register =
-            |reg: Register| -> EditRope { store.read().unwrap().registers.get(&Some(reg)).value };
+            |reg: Register| -> EditRope { store.read().unwrap().registers.get(&reg).value };
 
         let mut input = |key: TerminalKey, s: &mut String, flag: &mut bool| {
             bindings.input_key(key);

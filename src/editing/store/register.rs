@@ -1,12 +1,34 @@
 use std::collections::HashMap;
 
+use bitflags::bitflags;
+
 use crate::{
     editing::base::TargetShape::{BlockWise, CharWise, LineWise},
     editing::base::{Register, TargetShape},
     editing::rope::EditRope,
 };
 
-/// The current value mapped to by a [Register].
+bitflags! {
+    /// Flags that control the behaviour of [RegisterStore::put].
+    pub struct RegisterPutFlags: u32 {
+        /// No flags set.
+        const NONE = 0b00000000;
+
+        /// Append contents to register.
+        const APPEND = 0b00000001;
+
+        /// The value being put came from deleting text.
+        const DELETE = 0b00000010;
+
+        /// This is not a normal text register update.
+        ///
+        /// This will skip setting [Register::Unnamed] to have the same value as the updated
+        /// register.
+        const NOTEXT = 0b00000100;
+    }
+}
+
+/// The current values mapped to by a [Register].
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RegisterCell {
     /// The shape of the text within the [Register].
@@ -17,6 +39,16 @@ pub struct RegisterCell {
 }
 
 /// Storage for [Register] values.
+///
+/// Registers are used to save different types of values during editing:
+///
+/// - Recently cut and copied text (see [EditAction::Delete] and [EditAction::Yank])
+/// - Last used commands, searches and substitution patterns
+/// - Recorded macros (see [MacroAction::ToggleRecording])
+///
+/// [EditAction::Delete]: crate::editing::action::EditAction::Delete
+/// [EditAction::Yank]: crate::editing::action::EditAction::Yank
+/// [MacroAction::ToggleRecording]: crate::editing::action::MacroAction::ToggleRecording
 pub struct RegisterStore {
     altbufname: RegisterCell,
     curbufname: RegisterCell,
@@ -150,25 +182,16 @@ impl RegisterStore {
     /// Get the current value of a [Register].
     ///
     /// If none is specified, this returns the value of [Register::Unnamed].
-    pub fn get(&self, reg: &Option<Register>) -> RegisterCell {
-        let reg = reg.unwrap_or(Register::Unnamed);
-
+    pub fn get(&self, reg: &Register) -> RegisterCell {
         match reg {
             Register::Unnamed => self.unnamed.clone(),
             Register::UnnamedMacro => self.unnamed_macro.clone(),
+            Register::UnnamedCursorGroup => RegisterCell::default(),
             Register::RecentlyDeleted(off) => {
-                match self.last_deleted.get(off) {
-                    Some(cell) => cell.clone(),
-                    None => RegisterCell::default(),
-                }
+                self.last_deleted.get(*off).map(Clone::clone).unwrap_or_default()
             },
             Register::SmallDelete => self.small_delete.clone(),
-            Register::Named(name) => {
-                match self.named.get(&name) {
-                    Some(cell) => cell.clone(),
-                    None => RegisterCell::default(),
-                }
-            },
+            Register::Named(name) => self.named.get(&name).map(Clone::clone).unwrap_or_default(),
             Register::AltBufName => self.altbufname.clone(),
             Register::LastSearch => self.last_search.clone(),
             Register::LastYanked => self.last_yanked.clone(),
@@ -207,11 +230,9 @@ impl RegisterStore {
     ///
     /// The `del` flag indicates whether this register update is being done as part of a text
     /// deletion in a document.
-    pub fn put(&mut self, reg: &Option<Register>, mut cell: RegisterCell, append: bool, del: bool) {
-        let reg = reg.unwrap_or(Register::Unnamed);
-
-        if append {
-            cell = self.get(&Some(reg)).merge(&cell)
+    pub fn put(&mut self, reg: &Register, mut cell: RegisterCell, flags: RegisterPutFlags) {
+        if flags.contains(RegisterPutFlags::APPEND) {
+            cell = self.get(reg).merge(&cell)
         }
 
         /*
@@ -221,9 +242,10 @@ impl RegisterStore {
          */
         let unnamed = match reg {
             Register::Blackhole => return,
+            Register::UnnamedCursorGroup => return,
 
             Register::Unnamed => {
-                if del {
+                if flags.contains(RegisterPutFlags::DELETE) {
                     self._push_deleted(cell.clone());
                 } else {
                     self.last_yanked = cell.clone();
@@ -235,12 +257,12 @@ impl RegisterStore {
                 cell
             },
             Register::Named(name) => {
-                self.named.insert(name, cell.clone());
+                self.named.insert(*name, cell.clone());
                 cell
             },
 
             Register::RecentlyDeleted(off) => {
-                if let Some(elem) = self.last_deleted.get_mut(off) {
+                if let Some(elem) = self.last_deleted.get_mut(*off) {
                     *elem = cell.clone();
                 }
 
@@ -281,20 +303,22 @@ impl RegisterStore {
             Register::LastSearch => cell,
         };
 
-        self.unnamed = unnamed;
+        if !flags.contains(RegisterPutFlags::NOTEXT) {
+            self.unnamed = unnamed;
+        }
     }
 
     /// Return the contents of a register for macro execution.
     pub fn get_macro(&mut self, reg: Register) -> EditRope {
         self.last_macro = Some(reg);
 
-        return self.get(&Some(reg)).value;
+        return self.get(&reg).value;
     }
 
     /// Return the same contents as the last call to [RegisterStore::get_macro].
     pub fn get_last_macro(&self) -> Option<EditRope> {
-        if self.last_macro.is_some() {
-            return Some(self.get(&self.last_macro).value);
+        if let Some(ref reg) = self.last_macro {
+            return Some(self.get(reg).value);
         } else {
             return None;
         }

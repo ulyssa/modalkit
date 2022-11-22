@@ -63,7 +63,9 @@ use crate::editing::{
         EditResult,
         Editable,
         InsertTextAction,
+        Jumpable,
         PromptAction,
+        UIError,
     },
     base::{
         Application,
@@ -128,6 +130,10 @@ pub enum ReadLineError {
     /// Failure during editing.
     #[error("Editing error: {0}")]
     EditingFailure(#[from] EditError),
+
+    /// Failure in the user interface.
+    #[error("{0}")]
+    UserInterfaceError(#[from] UIError),
 
     /// Failure during editing.
     #[error("Macro error: {0}")]
@@ -412,7 +418,7 @@ where
             self.get_cmd_regex()?
         } else {
             let locked = self.store.write().unwrap();
-            let text = locked.registers.get(&Some(Register::LastSearch)).value;
+            let text = locked.registers.get(&Register::LastSearch).value;
 
             Regex::new(text.to_string().as_ref())?
         };
@@ -599,7 +605,7 @@ where
             Action::Edit(action, mov) => self.edit(ctx.resolve(&action), mov, ctx)?,
             Action::Macro(act) => self.bindings.macro_command(act, &ctx)?,
             Action::Mark(mark) => self.focused_mut().mark(ctx.resolve(&mark), &ctx)?,
-            Action::Cursor(act) => self.focused_mut().cursor_command(act, &ctx)?,
+            Action::Cursor(act) => self.focused_mut().cursor_command(&act, &ctx)?,
             Action::Selection(act) => self.focused_mut().selection_command(act, &ctx)?,
             Action::History(act) => self.focused_mut().history_command(act, &ctx)?,
             Action::Search(flip, count) => self.search(flip, count, &ctx)?,
@@ -618,7 +624,11 @@ where
 
                 res
             },
+            Action::Jump(list, dir, ref count) => {
+                let _ = self.focused_mut().jump(list, dir, ctx.resolve(count), &ctx)?;
 
+                None
+            },
             Action::Repeat(rt) => {
                 self.bindings.repeat(rt, Some(ctx));
 
@@ -626,10 +636,6 @@ where
             },
 
             // Unimplemented.
-            Action::Jump(_, _, _) => {
-                // XXX: implement
-                None
-            },
             Action::Complete(_, _) => {
                 // XXX: implement
                 None

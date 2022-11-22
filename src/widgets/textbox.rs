@@ -56,6 +56,7 @@ use crate::editing::action::{
     Editable,
     HistoryAction,
     InsertTextAction,
+    Jumpable,
     PromptAction,
     Promptable,
     Scrollable,
@@ -72,9 +73,11 @@ use crate::editing::base::{
     EditContext,
     EditTarget,
     Mark,
+    MoveDir1D,
     MoveDir2D,
     MoveDirMod,
     MovePosition,
+    PositionList,
     ScrollSize,
     ScrollStyle,
     TargetShape,
@@ -86,10 +89,10 @@ use crate::editing::{
     buffer::{CursorGroupId, FollowersInfo, HighlightInfo},
     cursor::Cursor,
     rope::EditRope,
-    store::SharedBuffer,
+    store::{SharedBuffer, SharedStore},
 };
 
-use super::{TerminalCursor, Window};
+use super::{ScrollActions, TerminalCursor, Window};
 
 /// Line annotation shown in the left gutter.
 pub struct LeftGutterInfo {
@@ -129,6 +132,7 @@ impl RightGutterInfo {
 pub struct TextBoxState<C: EditContext, P: Application = ()> {
     buffer: SharedBuffer<C, P>,
     group_id: CursorGroupId,
+    store: SharedStore<C, P>,
 
     viewctx: ViewportContext<Cursor>,
     term_area: Rect,
@@ -214,14 +218,19 @@ where
 {
     /// Create state for a new text box.
     pub fn new(buffer: SharedBuffer<C, P>) -> Self {
-        let group_id = buffer.write().unwrap().create_group();
         let mut viewctx = ViewportContext::default();
+        let (group_id, store) = {
+            let mut locked = buffer.write().unwrap();
+
+            (locked.create_group(), locked.store().clone())
+        };
 
         viewctx.set_wrap(true);
 
         TextBoxState {
             buffer,
             group_id,
+            store,
 
             viewctx,
             term_area: Rect::default(),
@@ -282,8 +291,8 @@ where
     }
 
     /// Get the leader cursor for this text box's cursor group.
-    pub fn get_cursor(&self) -> Cursor {
-        self.buffer.read().unwrap().get_leader(self.group_id)
+    pub fn get_cursor(&mut self) -> Cursor {
+        self.buffer.write().unwrap().get_leader(self.group_id)
     }
 
     /// Calculate how many lines are in this text box.
@@ -322,7 +331,87 @@ where
             self.buffer.read().unwrap().get_lines().min(max)
         }
     }
+}
 
+macro_rules! c2cgi {
+    ($s: expr, $ctx: expr) => {
+        &($s.group_id, &$s.viewctx, $ctx)
+    };
+}
+
+impl<C, P> Editable<C> for TextBoxState<C, P>
+where
+    C: EditContext,
+    P: Application,
+{
+    fn edit(&mut self, operation: &EditAction, motion: &EditTarget, ctx: &C) -> EditResult {
+        self.buffer.edit(operation, motion, c2cgi!(self, ctx))
+    }
+
+    fn mark(&mut self, name: Mark, ctx: &C) -> EditResult {
+        self.buffer.mark(name, c2cgi!(self, ctx))
+    }
+
+    fn insert_text(&mut self, act: InsertTextAction, ctx: &C) -> EditResult {
+        self.buffer.insert_text(act, c2cgi!(self, ctx))
+    }
+
+    fn selection_command(&mut self, act: SelectionAction, ctx: &C) -> EditResult {
+        self.buffer.selection_command(act, c2cgi!(self, ctx))
+    }
+
+    fn history_command(&mut self, act: HistoryAction, ctx: &C) -> EditResult {
+        self.buffer.history_command(act, c2cgi!(self, ctx))
+    }
+
+    fn cursor_command(&mut self, act: &CursorAction, ctx: &C) -> EditResult {
+        self.buffer.cursor_command(act, c2cgi!(self, ctx))
+    }
+}
+
+impl<C, P> Jumpable<C> for TextBoxState<C, P>
+where
+    C: EditContext,
+    P: Application,
+{
+    fn jump(
+        &mut self,
+        list: PositionList,
+        dir: MoveDir1D,
+        count: usize,
+        ctx: &C,
+    ) -> UIResult<usize> {
+        self.buffer.jump(list, dir, count, c2cgi!(self, ctx))
+    }
+}
+
+impl<A, C, P> Promptable<A, C> for TextBoxState<C, P>
+where
+    C: EditContext,
+    P: Application,
+{
+    fn prompt(&mut self, _: PromptAction, _: &C) -> EditResult<Vec<(A, C)>> {
+        Err(EditError::Failure("Not at a prompt".to_string()))
+    }
+}
+
+impl<C, P> Searchable<C> for TextBoxState<C, P>
+where
+    C: EditContext,
+    P: Application,
+{
+    fn search(&mut self, dir: MoveDirMod, count: Count, ctx: &C) -> UIResult {
+        let ctx = (self.group_id, &self.viewctx, ctx);
+
+        self.buffer.search(dir, count, &ctx)
+    }
+}
+
+impl<C, P> ScrollActions<C> for TextBoxState<C, P>
+where
+    C: EditContext,
+    P: Application,
+{
     fn dirscroll(
         &mut self,
         dir: MoveDir2D,
@@ -441,70 +530,6 @@ where
     }
 }
 
-impl<C, P> Editable<C> for TextBoxState<C, P>
-where
-    C: EditContext,
-    P: Application,
-{
-    fn edit(&mut self, operation: &EditAction, motion: &EditTarget, ctx: &C) -> EditResult {
-        let ctx = (self.group_id, &self.viewctx, ctx);
-
-        self.buffer.edit(operation, motion, &ctx)
-    }
-
-    fn mark(&mut self, name: Mark, ctx: &C) -> EditResult {
-        let ctx = (self.group_id, &self.viewctx, ctx);
-
-        self.buffer.mark(name, &ctx)
-    }
-
-    fn insert_text(&mut self, act: InsertTextAction, ctx: &C) -> EditResult {
-        let ctx = (self.group_id, &self.viewctx, ctx);
-
-        self.buffer.insert_text(act, &ctx)
-    }
-
-    fn selection_command(&mut self, act: SelectionAction, ctx: &C) -> EditResult {
-        let ctx = (self.group_id, &self.viewctx, ctx);
-
-        self.buffer.selection_command(act, &ctx)
-    }
-
-    fn history_command(&mut self, act: HistoryAction, ctx: &C) -> EditResult {
-        let ctx = (self.group_id, &self.viewctx, ctx);
-
-        self.buffer.history_command(act, &ctx)
-    }
-
-    fn cursor_command(&mut self, act: CursorAction, ctx: &C) -> EditResult {
-        let ctx = (self.group_id, &self.viewctx, ctx);
-
-        self.buffer.cursor_command(act, &ctx)
-    }
-}
-
-impl<A, C, P> Promptable<A, C> for TextBoxState<C, P>
-where
-    C: EditContext,
-    P: Application,
-{
-    fn prompt(&mut self, _: PromptAction, _: &C) -> EditResult<Vec<(A, C)>> {
-        Err(EditError::Failure("Not at a prompt".to_string()))
-    }
-}
-
-impl<C, P> Searchable<C> for TextBoxState<C, P>
-where
-    C: EditContext,
-    P: Application,
-{
-    fn search(&mut self, dir: MoveDirMod, count: Count, ctx: &C) -> UIResult {
-        let ctx = (self.group_id, &self.viewctx, ctx);
-
-        self.buffer.search(dir, count, &ctx)
-    }
-}
-
 impl<C, P> Scrollable<C> for TextBoxState<C, P>
 where
     C: EditContext,
@@ -547,10 +572,12 @@ where
     fn dup(&self) -> Self {
         let buffer = self.buffer.clone();
         let group_id = buffer.write().unwrap().create_group();
+        let store = self.store.clone();
 
         TextBoxState {
             buffer,
             group_id,
+            store,
 
             viewctx: self.viewctx.clone(),
             term_area: Rect::default(),
@@ -870,12 +897,12 @@ where
 
     #[inline]
     fn _selection_intervals(&self, state: &mut TextBoxState<C, P>) -> HighlightInfo {
-        state.buffer.read().unwrap()._selection_intervals(state.group_id)
+        state.buffer.write().unwrap()._selection_intervals(state.group_id)
     }
 
     #[inline]
     fn _follower_intervals(&self, state: &mut TextBoxState<C, P>) -> FollowersInfo {
-        state.buffer.read().unwrap()._follower_intervals(state.group_id)
+        state.buffer.write().unwrap()._follower_intervals(state.group_id)
     }
 
     fn _render_lines(&mut self, area: Rect, buf: &mut Buffer, state: &mut TextBoxState<C, P>) {

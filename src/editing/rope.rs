@@ -21,14 +21,13 @@ use xi_rope::rope::{Rope, RopeInfo};
 use xi_rope::tree::Cursor as RopeCursor;
 
 use crate::editing::action::EditAction;
-use crate::editing::cursor::{Cursor, CursorAdjustment};
+use crate::editing::cursor::{Cursor, CursorAdjustment, CursorChoice};
 
 use crate::editing::base::{
     BoundaryTest,
     BoundaryTestContext,
     Case,
     Count,
-    CursorChoice,
     CursorMovements,
     CursorMovementsContext,
     CursorSearch,
@@ -2496,6 +2495,7 @@ impl CursorSearch<Cursor> for EditRope {
 mod tests {
     use super::*;
     use crate::editing::base::{CursorEnd, Radix, Wrappable};
+    use crate::editing::cursor::CursorState;
     use crate::env::vim::VimContext;
 
     macro_rules! cmctx {
@@ -2868,50 +2868,55 @@ mod tests {
     #[test]
     fn test_rope_insert() {
         let mut rope = EditRope::from("world");
-        let mut cursor = rope.first();
+        let mut state = CursorState::Location(rope.first());
+        let mut cursor = state.cursor();
         let style = InsertStyle::Insert;
 
-        let choice = rope.insert(&cursor, MoveDir1D::Previous, "h".into(), style).0;
+        let choice = rope.insert(cursor, MoveDir1D::Previous, "h".into(), style).0;
         assert_eq!(rope.to_string(), "hworld");
         assert_eq!(
             choice,
             CursorChoice::Range(Cursor::new(0, 0), Cursor::new(0, 1), Cursor::new(0, 1))
         );
 
-        cursor = choice.resolve(CursorEnd::Auto).unwrap();
-        assert_eq!(cursor, Cursor::new(0, 1));
+        state = choice.resolve(CursorEnd::Auto).unwrap();
+        cursor = state.cursor();
+        assert_eq!(cursor, &Cursor::new(0, 1));
 
-        let choice = rope.insert(&cursor, MoveDir1D::Previous, "e".into(), style).0;
+        let choice = rope.insert(cursor, MoveDir1D::Previous, "e".into(), style).0;
         assert_eq!(rope.to_string(), "heworld");
 
-        cursor = choice.resolve(CursorEnd::Auto).unwrap();
-        assert_eq!(cursor, Cursor::new(0, 2));
+        state = choice.resolve(CursorEnd::Auto).unwrap();
+        cursor = state.cursor();
+        assert_eq!(cursor, &Cursor::new(0, 2));
 
-        let choice = rope.insert(&cursor, MoveDir1D::Previous, "l".into(), style).0;
+        let choice = rope.insert(cursor, MoveDir1D::Previous, "l".into(), style).0;
         assert_eq!(rope.to_string(), "helworld");
 
-        cursor = choice.resolve(CursorEnd::Auto).unwrap();
-        assert_eq!(cursor, Cursor::new(0, 3));
+        state = choice.resolve(CursorEnd::Auto).unwrap();
+        cursor = state.cursor();
+        assert_eq!(cursor, &Cursor::new(0, 3));
 
-        cursor = Cursor::new(0, 2);
-
-        let choice = rope.insert(&cursor, MoveDir1D::Next, " ".into(), style).0;
+        let choice = rope.insert(&Cursor::new(0, 2), MoveDir1D::Next, " ".into(), style).0;
         assert_eq!(rope.to_string(), "hel world");
 
-        cursor = choice.resolve(CursorEnd::Auto).unwrap();
-        assert_eq!(cursor, Cursor::new(0, 2));
+        state = choice.resolve(CursorEnd::Auto).unwrap();
+        cursor = state.cursor();
+        assert_eq!(cursor, &Cursor::new(0, 2));
 
-        let choice = rope.insert(&cursor, MoveDir1D::Next, "o".into(), style).0;
+        let choice = rope.insert(cursor, MoveDir1D::Next, "o".into(), style).0;
         assert_eq!(rope.to_string(), "helo world");
 
-        cursor = choice.resolve(CursorEnd::Auto).unwrap();
-        assert_eq!(cursor, Cursor::new(0, 2));
+        state = choice.resolve(CursorEnd::Auto).unwrap();
+        cursor = state.cursor();
+        assert_eq!(cursor, &Cursor::new(0, 2));
 
-        let choice = rope.insert(&cursor, MoveDir1D::Next, "l".into(), style).0;
+        let choice = rope.insert(cursor, MoveDir1D::Next, "l".into(), style).0;
         assert_eq!(rope.to_string(), "hello world");
 
-        cursor = choice.resolve(CursorEnd::Auto).unwrap();
-        assert_eq!(cursor, Cursor::new(0, 2));
+        state = choice.resolve(CursorEnd::Auto).unwrap();
+        cursor = state.cursor();
+        assert_eq!(cursor, &Cursor::new(0, 2));
     }
 
     #[test]

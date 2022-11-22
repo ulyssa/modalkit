@@ -81,6 +81,23 @@ pub enum EditTarget {
     Selection,
 }
 
+impl EditTarget {
+    /// Returns `true` if this is a target that causes cursor positions to be saved to
+    /// [PositionList::JumpList].
+    pub fn is_jumping(&self) -> bool {
+        match self {
+            EditTarget::Boundary(..) => true,
+            EditTarget::CurrentPosition => false,
+            EditTarget::CharJump(_) => true,
+            EditTarget::LineJump(_) => true,
+            EditTarget::Motion(mt, _) => mt.is_jumping(),
+            EditTarget::Range(..) => true,
+            EditTarget::Search(st, ..) => st.is_jumping(),
+            EditTarget::Selection => false,
+        }
+    }
+}
+
 impl From<MoveType> for EditTarget {
     fn from(mt: MoveType) -> Self {
         EditTarget::Motion(mt, Count::Contextual)
@@ -105,66 +122,11 @@ pub enum CursorEnd {
     /// Place the cursor at the end of the [EditTarget].
     End,
 
+    /// Select from the start to the end of the [EditTarget].
+    Selection,
+
     /// Use the default cursor end position for the operation.
     Auto,
-}
-
-/// Result type for functions that provide the option of leaving the cursor in different places.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum CursorChoice<C = super::cursor::Cursor> {
-    /// One choice of cursor placement.
-    Single(C),
-
-    /// The start and end positions of an affected range, and a default choice that may or may not
-    /// be inside the range.
-    Range(C, C, C),
-
-    /// No choices for cursor placement.
-    Empty,
-}
-
-impl<C: Clone> CursorChoice<C> {
-    /// Get a reference to the cursor that would be chosen by `placement`.
-    pub fn get(&self, placement: CursorEnd) -> Option<&C> {
-        match (self, placement) {
-            (CursorChoice::Empty, _) => None,
-            (CursorChoice::Single(_), CursorEnd::Keep) => None,
-            (CursorChoice::Single(c), CursorEnd::Start) => Some(c),
-            (CursorChoice::Single(c), CursorEnd::End) => Some(c),
-            (CursorChoice::Single(c), CursorEnd::Auto) => Some(c),
-            (CursorChoice::Range(_, _, _), CursorEnd::Keep) => None,
-            (CursorChoice::Range(s, _, _), CursorEnd::Start) => Some(s),
-            (CursorChoice::Range(_, e, _), CursorEnd::End) => Some(e),
-            (CursorChoice::Range(_, _, d), CursorEnd::Auto) => Some(d),
-        }
-    }
-
-    /// Choose the cursor placement as indicated.
-    pub fn resolve(self, placement: CursorEnd) -> Option<C> {
-        match (self, placement) {
-            (CursorChoice::Empty, _) => None,
-            (CursorChoice::Single(_), CursorEnd::Keep) => None,
-            (CursorChoice::Single(c), CursorEnd::Start) => Some(c),
-            (CursorChoice::Single(c), CursorEnd::End) => Some(c),
-            (CursorChoice::Single(c), CursorEnd::Auto) => Some(c),
-            (CursorChoice::Range(_, _, _), CursorEnd::Keep) => None,
-            (CursorChoice::Range(s, _, _), CursorEnd::Start) => Some(s),
-            (CursorChoice::Range(_, e, _), CursorEnd::End) => Some(e),
-            (CursorChoice::Range(_, _, d), CursorEnd::Auto) => Some(d),
-        }
-    }
-}
-
-impl<C> From<C> for CursorChoice<C> {
-    fn from(cursor: C) -> Self {
-        CursorChoice::Single(cursor)
-    }
-}
-
-impl<C> Default for CursorChoice<C> {
-    fn default() -> Self {
-        CursorChoice::Empty
-    }
 }
 
 /// Description of a textual range within a buffer.
@@ -236,6 +198,18 @@ pub enum SearchType {
     ///
     /// [Store::set_last_search]: crate::editing::store::Store::set_last_search
     Word(WordStyle, bool),
+}
+
+impl SearchType {
+    /// Returns `true` if this is a search that causes cursor positions to be saved to
+    /// [PositionList::JumpList].
+    fn is_jumping(&self) -> bool {
+        match self {
+            SearchType::Char(..) => false,
+            SearchType::Regex => true,
+            SearchType::Word(..) => true,
+        }
+    }
 }
 
 /// The different ways of grouping a buffer's contents into words.
@@ -851,6 +825,46 @@ pub enum CursorCloseTarget {
     Followers,
 }
 
+/// Ways to combine a newer cursor group with an already existing one.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum CursorGroupCombineStyle {
+    /// Use all of the selections from both groups.
+    Append,
+
+    /// Merge each member with the matching member in the other group.
+    ///
+    /// This fails if the groups have a different number of members.
+    Merge(CursorMergeStyle),
+
+    /// Use only the selections in the newer group.
+    Replace,
+}
+
+impl From<CursorMergeStyle> for CursorGroupCombineStyle {
+    fn from(style: CursorMergeStyle) -> Self {
+        CursorGroupCombineStyle::Merge(style)
+    }
+}
+
+/// Ways to combine two selections.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum CursorMergeStyle {
+    /// Merge the two selections to form one long selection.
+    Union,
+
+    /// Use the intersecting region of the two selections.
+    Intersect,
+
+    /// Select the one where the cursor is furthest in [MoveDir1D] direction.
+    SelectCursor(MoveDir1D),
+
+    /// Select the shorted selection.
+    SelectShort,
+
+    /// Select the longest selection.
+    SelectLong,
+}
+
 /// This represents how to determine what count argument should be applied to an action.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Count {
@@ -1140,8 +1154,14 @@ pub enum Register {
 
     /// The default macro register.
     ///
-    /// For example `"@` in Kakoune.
+    /// For example, `"@` in Kakoune.
     UnnamedMacro,
+
+    /// The default cursor group register.
+    ///
+    ///
+    /// For example, `"^` in Kakoune.
+    UnnamedCursorGroup,
 
     /// Recently deleted text.
     ///
@@ -1206,6 +1226,30 @@ pub enum Register {
     ///
     /// For example, `"+` in Vim, or what the keyboard shortcut pastes in X and Wayland.
     SelectionClipboard,
+}
+
+impl Register {
+    /// Indicates whether a given register is allowed to store cursor groups.
+    pub fn is_cursor_storage(&self) -> bool {
+        match self {
+            Register::Named(_) => true,
+            Register::Blackhole => true,
+            Register::UnnamedCursorGroup => true,
+
+            Register::Unnamed => false,
+            Register::UnnamedMacro => false,
+            Register::RecentlyDeleted(_) => false,
+            Register::SmallDelete => false,
+            Register::LastCommand => false,
+            Register::LastInserted => false,
+            Register::LastSearch => false,
+            Register::LastYanked => false,
+            Register::AltBufName => false,
+            Register::CurBufName => false,
+            Register::SelectionPrimary => false,
+            Register::SelectionClipboard => false,
+        }
+    }
 }
 
 /// This specifies either the shape of a visual selection, or a forced motion.
@@ -1591,9 +1635,9 @@ impl MoveType {
         }
     }
 
-    /// Returns `true` if this is a motion that causes the cursor position to be saved to the jump
-    /// list.
-    pub fn is_jump_motion(&self) -> bool {
+    /// Returns `true` if this is a motion that causes cursor positions to be saved to
+    /// [PositionList::JumpList].
+    pub fn is_jumping(&self) -> bool {
         match self {
             MoveType::BufferByteOffset => true,
             MoveType::BufferLineOffset => true,

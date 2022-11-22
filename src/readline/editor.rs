@@ -21,7 +21,9 @@ use crate::editing::{
         Editable,
         HistoryAction,
         InsertTextAction,
+        Jumpable,
         SelectionAction,
+        UIResult,
     },
     base::{
         Application,
@@ -29,6 +31,7 @@ use crate::editing::{
         EditTarget,
         Mark,
         MoveDir1D,
+        PositionList,
         TargetShape,
         ViewportContext,
         Wrappable,
@@ -345,7 +348,7 @@ where
         history.recall(self.buffer.get(), &mut self.scrollback, dir, count)
     }
 
-    pub fn line_leftover(&self, dir: MoveDir1D, count: usize) -> usize {
+    pub fn line_leftover(&mut self, dir: MoveDir1D, count: usize) -> usize {
         self.buffer.line_leftover(dir, count, self.gid)
     }
 }
@@ -407,10 +410,28 @@ where
         self.buffer.history_command(act, &ctx)
     }
 
-    fn cursor_command(&mut self, act: CursorAction, ctx: &C) -> EditResult {
+    fn cursor_command(&mut self, act: &CursorAction, ctx: &C) -> EditResult {
         let ctx = (self.gid, &self.viewctx, ctx);
 
         self.buffer.cursor_command(act, &ctx)
+    }
+}
+
+impl<C, I> Jumpable<C> for Editor<C, I>
+where
+    C: EditContext,
+    I: Application,
+{
+    fn jump(
+        &mut self,
+        list: PositionList,
+        dir: MoveDir1D,
+        count: usize,
+        ctx: &C,
+    ) -> UIResult<usize> {
+        let ctx = (self.gid, &self.viewctx, ctx);
+
+        self.buffer.jump(list, dir, count, &ctx)
     }
 }
 

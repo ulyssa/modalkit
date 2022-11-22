@@ -35,9 +35,9 @@ mod digraph;
 mod register;
 
 pub use self::buffer::{BufferId, BufferStore, SharedBuffer};
-pub use self::cursor::{CursorStore, MarkStore};
+pub use self::cursor::{AdjustStore, CursorStore, GlobalAdjustable};
 pub use self::digraph::DigraphStore;
-pub use self::register::{RegisterCell, RegisterStore};
+pub use self::register::{RegisterCell, RegisterPutFlags, RegisterStore};
 
 const COMMAND_HISTORY_LEN: usize = 50;
 const SEARCH_HISTORY_LEN: usize = 50;
@@ -53,9 +53,8 @@ pub struct Store<C: EditContext, P: Application> {
     /// Tracks the current value of each [Register](crate::editing::base::Register).
     pub registers: RegisterStore,
 
-    /// Tracks the buffer- and global-specific information of each
-    /// [Mark](crate::editing::base::Mark).
-    pub marks: MarkStore,
+    /// Tracks globally-relevant cursors and cursor groups.
+    pub cursors: CursorStore,
 
     /// Tracks previous commands.
     pub commands: HistoryList<EditRope>,
@@ -81,7 +80,7 @@ where
             buffers: BufferStore::new(),
             digraphs: DigraphStore::default(),
             registers: RegisterStore::default(),
-            marks: MarkStore::default(),
+            cursors: CursorStore::default(),
 
             commands: HistoryList::new("".into(), COMMAND_HISTORY_LEN),
             searches: HistoryList::new("".into(), SEARCH_HISTORY_LEN),

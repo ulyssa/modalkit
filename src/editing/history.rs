@@ -5,8 +5,9 @@ use regex::Regex;
 
 use super::{
     base::{CursorSearch, MoveDir1D},
-    cursor::Cursor,
+    cursor::{Adjustable, Cursor, CursorAdjustment},
     rope::EditRope,
+    store::{BufferId, GlobalAdjustable},
 };
 
 /// Current status of scrolling through a prompt's previous values.
@@ -33,9 +34,7 @@ impl<'a, T> Iterator for HistoryIterator<'a, T> {
     type Item = &'a T;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let p = self.piter.next();
-
-        if p.is_some() {
+        if let p @ Some(_) = self.piter.next() {
             return p;
         }
 
@@ -50,9 +49,10 @@ impl<'a, T> Iterator for HistoryIterator<'a, T> {
 /// A navigable collection of historical values.
 #[derive(Clone)]
 pub struct HistoryList<T> {
+    pub(crate) current: T,
+
     maxlen: usize,
     past: VecDeque<T>,
-    current: T,
     future: VecDeque<T>,
 }
 
@@ -85,6 +85,12 @@ impl<T> HistoryList<T> {
         }
 
         &self.current
+    }
+
+    /// Clear all previous and future history, leaving only the current value.
+    pub fn clear(&mut self) {
+        self.past.clear();
+        self.future.clear();
     }
 
     /// Push a new history item into the list at the current position, and remove any future
@@ -128,6 +134,11 @@ impl<T> HistoryList<T> {
         } else {
             self.append(item);
         }
+    }
+
+    /// Get a mutable reference to the value at the current position.
+    pub fn current_mut(&mut self) -> &mut T {
+        &mut self.current
     }
 
     /// Get a reference to the value at the current position.
@@ -256,6 +267,64 @@ where
                 }
             },
         }
+    }
+}
+
+impl<T> Adjustable for HistoryList<T>
+where
+    T: Adjustable,
+{
+    fn zero(&mut self) {
+        for p in self.past.iter_mut() {
+            p.zero();
+        }
+
+        for f in self.future.iter_mut() {
+            f.zero();
+        }
+
+        self.current.zero();
+    }
+
+    fn adjust(&mut self, adjs: &[CursorAdjustment]) {
+        for p in self.past.iter_mut() {
+            p.adjust(adjs);
+        }
+
+        for f in self.future.iter_mut() {
+            f.adjust(adjs);
+        }
+
+        self.current.adjust(adjs);
+    }
+}
+
+impl<T> GlobalAdjustable for HistoryList<T>
+where
+    T: GlobalAdjustable,
+{
+    fn zero_id(&mut self, id: BufferId) {
+        for p in self.past.iter_mut() {
+            p.zero_id(id);
+        }
+
+        for f in self.future.iter_mut() {
+            f.zero_id(id);
+        }
+
+        self.current.zero_id(id);
+    }
+
+    fn adjust_id(&mut self, id: BufferId, adjs: &[CursorAdjustment]) {
+        for p in self.past.iter_mut() {
+            p.adjust_id(id, adjs);
+        }
+
+        for f in self.future.iter_mut() {
+            f.adjust_id(id, adjs);
+        }
+
+        self.current.adjust_id(id, adjs);
     }
 }
 

@@ -12,20 +12,39 @@
 //! - Cursor groups
 //!
 //! See [Editable], [EditAction], and [EditTarget] for more on what can be done.
-use std::collections::{HashMap, HashSet};
-use std::iter::FromIterator;
-use std::marker::PhantomData;
+use std::collections::hash_map::{Entry, HashMap};
+use std::collections::vec_deque::VecDeque;
 use std::ops::Range;
 
 use regex::Regex;
 
-use crate::{
-    editing::cursor::{block_cursors, Cursor, CursorAdjustment},
-    editing::history::HistoryList,
-    editing::lineinfo::LineInfoStore,
-    editing::rope::{ByteOff, CursorContext, EditRope, PrivateCursorOps},
-    editing::store::{BufferId, CursorStore, RegisterCell, SharedBuffer, SharedStore, Store},
-    util::IdGenerator,
+use crate::util::IdGenerator;
+
+use crate::editing::{
+    cursor::{
+        block_cursors,
+        Adjustable,
+        Cursor,
+        CursorAdjustment,
+        CursorChoice,
+        CursorGroup,
+        CursorState,
+        Selection,
+        Selections,
+    },
+    history::HistoryList,
+    lineinfo::LineInfoStore,
+    rope::{ByteOff, CursorContext, EditRope, PrivateCursorOps},
+    store::{
+        AdjustStore,
+        BufferId,
+        GlobalAdjustable,
+        RegisterCell,
+        RegisterPutFlags,
+        SharedBuffer,
+        SharedStore,
+        Store,
+    },
 };
 
 use super::action::{
@@ -36,6 +55,7 @@ use super::action::{
     Editable,
     HistoryAction,
     InsertTextAction,
+    Jumpable,
     Searchable,
     SelectionAction,
     UIResult,
@@ -45,7 +65,6 @@ use super::base::{
     Application,
     Char,
     Count,
-    CursorChoice,
     CursorMovements,
     CursorMovementsContext,
     CursorSearch,
@@ -56,6 +75,7 @@ use super::base::{
     MoveDir1D,
     MoveDirMod,
     MoveTerminus,
+    PositionList,
     Register,
     SearchType,
     SelectionResizeStyle,
@@ -84,10 +104,6 @@ use intervaltree::IntervalTree;
 
 const BUFFER_HISTORY_LEN: usize = 100;
 
-/// Identifier for a specific cursor.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
-pub struct CursorId(u64);
-
 /// Identifier for a specific cursor group.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
 pub struct CursorGroupId(u64);
@@ -103,32 +119,24 @@ pub struct EditBuffer<C: EditContext, P: Application> {
     /// The current contents of the buffer.
     text: EditRope,
 
-    /// Allocates new CursorIds.
-    idgen: IdGenerator,
-
-    /// Tracks the shape of the selection associated with CursorId.
-    vshapes: HashMap<CursorId, TargetShape>,
-
-    /// Tracks the anchors for all current selections.
-    anchors: CursorStore<CursorId>,
-
-    /// Tracks all of the current cursors.
-    cursors: CursorStore<CursorId>,
+    /// Tracks cursor groups.
+    cursors: AdjustStore<CursorGroupId, CursorGroup>,
 
     /// Allocates new CursorGroupIds.
     cgidgen: IdGenerator,
 
-    /// Tracks the members of a cursor group.
-    leaders: HashMap<CursorGroupId, CursorId>,
+    /// Tracks the changelist for cursor groups within given buffers.
+    changed: VecDeque<CursorGroup>,
+    changed_idx: HashMap<CursorGroupId, usize>,
 
-    /// Tracks the members of a cursor group.
-    members: HashMap<CursorGroupId, Vec<CursorId>>,
+    /// Tracks the jumplist for cursor groups within given buffers.
+    jumped: AdjustStore<CursorGroupId, HistoryList<CursorGroup>>,
 
     history: HistoryList<EditRope>,
     lineinfo: LineInfoStore<usize>,
     store: SharedStore<C, P>,
 
-    _pc: PhantomData<C>,
+    push_next_change: bool,
 }
 
 trait HistoryActions<C> {
@@ -136,12 +144,6 @@ trait HistoryActions<C> {
     fn undo(&mut self, count: Count, ctx: &C) -> EditResult;
     fn checkpoint(&mut self) -> EditResult;
 }
-
-/// A selection is an extendable range of text within a buffer.
-pub type Selection = (Cursor, Cursor, TargetShape);
-
-/// Multiple extendable ranges within a buffer.
-pub type Selections = Vec<Selection>;
 
 type CursorGroupIdContext<'a, 'b, T> = (CursorGroupId, &'a ViewportContext<Cursor>, &'b T);
 
@@ -159,33 +161,38 @@ where
     /// Create a new buffer.
     pub fn new(id: BufferId, store: SharedStore<C, P>) -> Self {
         let text = EditRope::from("\n");
+        let cursors = AdjustStore::default();
         let history = HistoryList::new(text.clone(), 100);
         let lineinfo = LineInfoStore::new();
+        let jumped = AdjustStore::new();
+        let cgidgen = IdGenerator::default();
+
+        let changed = VecDeque::new();
+        let changed_idx = HashMap::new();
 
         EditBuffer {
             id,
             text,
-
-            idgen: IdGenerator::default(),
-            cursors: CursorStore::default(),
-            anchors: CursorStore::default(),
-            vshapes: HashMap::new(),
-
-            cgidgen: IdGenerator::default(),
-            leaders: HashMap::new(),
-            members: HashMap::new(),
-
+            cgidgen,
+            cursors,
+            changed,
+            changed_idx,
+            jumped,
             history,
             lineinfo,
             store,
-
-            _pc: PhantomData,
+            push_next_change: true,
         }
     }
 
     /// Get this buffer's ID.
     pub fn buffer_id(&self) -> BufferId {
         self.id
+    }
+
+    /// Get a reference to the store.
+    pub fn store(&self) -> &SharedStore<C, P> {
+        &self.store
     }
 
     fn _char<'a, 'b, 'c>(&self, c: Char, cursor: &Cursor) -> EditResult<char> {
@@ -397,7 +404,7 @@ where
     }
 
     fn _get_last_search<'a, 'b, 'c>(&self) -> EditResult<Regex> {
-        let lsearch = self.get_register(&Some(Register::LastSearch)).value;
+        let lsearch = self.get_register(&Register::LastSearch).value;
         let regex = Regex::new(lsearch.to_string().as_ref())?;
 
         return Ok(regex);
@@ -413,11 +420,11 @@ where
 
     fn _target<'a, 'b, 'c>(
         &mut self,
-        id: CursorId,
+        state: &CursorState,
         target: &EditTarget,
         ctx: &CursorMovementsContext<'a, 'b, 'c, Cursor, C>,
     ) -> EditResult<Option<CursorRange>> {
-        let cursor = self.get_cursor(id);
+        let cursor = state.cursor().clone();
 
         match target {
             EditTarget::Boundary(range, inclusive, term, count) => {
@@ -465,21 +472,12 @@ where
                 return Ok(range);
             },
             EditTarget::Selection => {
-                let shape = self.vshapes.get(&id).unwrap_or(&TargetShape::CharWise);
-                let shape = ctx.context.get_target_shape().unwrap_or(*shape);
+                let shape = ctx.context.get_target_shape().unwrap_or(state.shape());
+                let selnc = state.anchor().clone();
+                let selnx = selnc.x;
+                let range = CursorRange::inclusive(selnc.goal(selnx), cursor, shape);
 
-                if let Some(selnc) = self.anchors.get(id) {
-                    let selnx = selnc.x;
-                    let range = CursorRange::inclusive(selnc.goal(selnx), cursor, shape);
-
-                    return Ok(Some(range));
-                } else {
-                    // If a selection hasn't been started and there's no anchor, then treat the
-                    // current cursor position as the start.
-                    let range = CursorRange::inclusive(cursor.clone(), cursor, shape);
-
-                    return Ok(Some(range));
-                }
+                return Ok(Some(range));
             },
             EditTarget::Motion(motion, count) => {
                 return Ok(self.text.range_of_movement(&cursor, motion, count, ctx));
@@ -548,19 +546,26 @@ where
         }
     }
 
-    fn _adjust(&mut self, adj: &CursorAdjustment) {
-        let mut store = self.store.write().unwrap();
+    fn _zero(&mut self) {
+        self.cursors.zero();
+        self.changed.zero();
+        self.jumped.zero();
 
-        self.cursors.adjust(adj);
-        self.anchors.adjust(adj);
+        let mut locked = self.store.write().unwrap();
+        locked.cursors.zero_id(self.id);
+    }
 
-        store.marks.adjust(self.id, adj);
+    fn _adjust(&mut self, adjs: &[CursorAdjustment]) {
+        self.cursors.adjust(adjs);
+        self.changed.adjust(adjs);
+        self.jumped.adjust(adjs);
+
+        let mut locked = self.store.write().unwrap();
+        locked.cursors.adjust_id(self.id, adjs);
     }
 
     fn _adjust_all(&mut self, adjs: Vec<CursorAdjustment>) {
-        for adj in adjs {
-            self._adjust(&adj);
-        }
+        self._adjust(adjs.as_slice());
     }
 
     fn _adjust_columns(
@@ -572,7 +577,7 @@ where
     ) {
         let adj = CursorAdjustment::Column { line, column_start, amt_line, amt_col };
 
-        self._adjust(&adj);
+        self._adjust(&[adj]);
     }
 
     fn _adjust_lines(
@@ -584,10 +589,15 @@ where
     ) {
         let adj = CursorAdjustment::Line { line_start, line_end, amount, amount_after };
 
-        self._adjust(&adj);
+        self._adjust(&[adj]);
     }
 
-    pub(crate) fn line_leftover(&self, dir: MoveDir1D, count: usize, gid: CursorGroupId) -> usize {
+    pub(crate) fn line_leftover(
+        &mut self,
+        dir: MoveDir1D,
+        count: usize,
+        gid: CursorGroupId,
+    ) -> usize {
         let leader = self.get_leader(gid);
 
         match dir {
@@ -608,17 +618,24 @@ where
         ictx: &CursorGroupIdContext<'a, 'b, C>,
     ) -> EditResult {
         let shape = ictx.2.get_target_shape();
-        let gid = ictx.0;
 
         if shape.is_some() {
             return self.selection_resize(SelectionResizeStyle::Extend, target, ictx);
         }
 
-        for id in self.get_group(gid) {
-            let ctx = self._ctx_cgi2es(&EditAction::Motion, ictx);
-            let cursor = self.get_cursor(id);
+        let gid = ictx.0;
+        let mut group = self.get_group(gid);
 
-            self.clear_selection(id);
+        if target.is_jumping() {
+            // Save current positions before we jump.
+            self.push_jump(gid, &group);
+        }
+
+        for state in group.iter_mut() {
+            state.unselect();
+
+            let ctx = self._ctx_cgi2es(&EditAction::Motion, ictx);
+            let cursor = state.cursor();
 
             match target {
                 EditTarget::Boundary(range, inclusive, term, count) => {
@@ -628,7 +645,7 @@ where
                             MoveTerminus::End => r.end,
                         };
 
-                        self.set_cursor(id, nc);
+                        state.set_cursor(nc);
                     }
                 },
                 EditTarget::CurrentPosition | EditTarget::Selection => {
@@ -636,64 +653,55 @@ where
                 },
                 EditTarget::CharJump(mark) => {
                     let nc = self._charjump(mark, &ctx)?;
-                    self.set_cursor(id, nc);
+                    state.set_cursor(nc);
                 },
                 EditTarget::LineJump(mark) => {
                     let nc = self._linejump(mark, &ctx)?;
-                    self.set_cursor(id, nc);
+                    state.set_cursor(nc);
                 },
                 EditTarget::Motion(mv, count) => {
                     if let Some(nc) = self.text.movement(&cursor, mv, count, &ctx) {
-                        self.set_cursor(id, nc);
+                        state.set_cursor(nc);
                     }
                 },
                 EditTarget::Range(range, inclusive, count) => {
                     if let Some(r) = self.text.range(&cursor, range, *inclusive, count, &ctx) {
-                        self.set_cursor(id, r.end);
+                        state.set_cursor(r.end);
                     }
                 },
                 EditTarget::Search(search, flip, count) => {
                     if let Some(r) = self._search(&cursor, search, flip, count, ctx.context)? {
-                        self.set_cursor(id, r.start);
+                        state.set_cursor(r.start);
                     }
                 },
             }
         }
+
+        self.set_group(gid, group);
 
         Ok(None)
     }
 
     /// Look up the location of a [Mark].
     fn get_mark(&self, mark: Mark) -> EditResult<Cursor> {
-        self.store
-            .read()
-            .unwrap()
-            .marks
-            .get(self.id, mark)
-            .ok_or(EditError::MarkNotSet(mark))
+        self.store.read().unwrap().cursors.get_mark(self.id, mark)
     }
 
     /// Set the location of a [Mark].
     fn set_mark(&mut self, mark: Mark, cursor: Cursor) {
-        self.store.write().unwrap().marks.put(self.id, mark, cursor);
+        self.store.write().unwrap().cursors.set_mark(self.id, mark, cursor);
     }
 
     /// Get the contents of a register.
-    fn get_register(&self, register: &Option<Register>) -> RegisterCell {
+    fn get_register(&self, register: &Register) -> RegisterCell {
         self.store.read().unwrap().registers.get(register)
     }
 
     /// Set the contents of a register.
-    fn set_register(
-        &mut self,
-        register: &Option<Register>,
-        cell: RegisterCell,
-        append: bool,
-        del: bool,
-    ) {
+    fn set_register(&mut self, register: &Register, cell: RegisterCell, flags: RegisterPutFlags) {
         let mut store = self.store.write().unwrap();
 
-        store.registers.put(register, cell, append, del)
+        store.registers.put(register, cell, flags)
     }
 
     /// Indicates whether this buffer contains only whitespace.
@@ -726,11 +734,7 @@ where
 
         // Reinitialize history so that undo doesn't take us to old buffer state.
         self.history = HistoryList::new(self.text.clone(), BUFFER_HISTORY_LEN);
-
-        self.cursors.zero_all();
-        self.anchors.zero_all();
-
-        self.store.write().unwrap().marks.zero_all(self.id);
+        self._zero();
 
         return rope;
     }
@@ -766,56 +770,74 @@ where
         self.reset().to_string()
     }
 
-    fn add_follower(&mut self, group: CursorGroupId, follower: CursorId) {
-        if let Some(followers) = self.members.get_mut(&group) {
-            followers.push(follower);
-        } else {
-            let followers = vec![follower];
-            self.members.insert(group, followers);
+    fn push_change(&mut self, group: &CursorGroup) {
+        if !self.push_next_change {
+            return;
         }
+
+        if let Some(c) = self.changed.back() {
+            if c.leader.cursor().y == group.leader.cursor().y {
+                // Don't push any more states until we've moved to a new line.
+                return;
+            }
+        }
+
+        self.changed.push_back(group.clone());
+        self.push_next_change = false;
+
+        while self.changed.len() > 100 {
+            let _ = self.changed.pop_front();
+        }
+    }
+
+    fn push_jump(&mut self, gid: CursorGroupId, group: &CursorGroup) {
+        match self.jumped.entry(gid) {
+            Entry::Occupied(mut o) => {
+                let jumps = o.get_mut();
+
+                if jumps.current() != group {
+                    jumps.push(group.clone());
+                }
+            },
+            Entry::Vacant(v) => {
+                v.insert(HistoryList::new(group.clone(), 100));
+            },
+        }
+    }
+
+    /// Get a mutable reference to a cursor group.
+    fn get_group_mut(&mut self, id: CursorGroupId) -> &mut CursorGroup {
+        self.cursors.entry(id).or_default()
     }
 
     /// Get the identifiers of cursors within a cursor group.
-    pub fn get_group(&self, id: CursorGroupId) -> Vec<CursorId> {
-        let leader = self.leaders.get(&id).unwrap();
-        let mut group = vec![*leader];
-
-        if let Some(members) = self.members.get(&id) {
-            group.extend_from_slice(members.as_slice());
-        }
-
-        group
+    fn get_group(&mut self, id: CursorGroupId) -> CursorGroup {
+        self.get_group_mut(id).clone()
     }
 
-    /// Get the cursor identifiers and their current values within a cursor group.
-    pub fn get_group_cursors(&self, id: CursorGroupId) -> Vec<(CursorId, Cursor)> {
-        self.get_group(id)
-            .into_iter()
-            .map(|cid| (cid, self.get_cursor(cid)))
-            .collect()
+    /// Set the leader and member of a cursor group.
+    pub fn set_group(&mut self, gid: CursorGroupId, group: CursorGroup) {
+        self.cursors.put(gid, group);
     }
 
     /// Move the [Cursor] for the leader of a cursor group.
     pub fn set_leader(&mut self, id: CursorGroupId, cursor: Cursor) {
-        let leader = *self.leaders.get(&id).unwrap();
-
-        self.set_cursor(leader, cursor);
+        self.get_group_mut(id).leader.set_cursor(cursor);
     }
 
-    /// Get the [CursorId] for the leader of a cursor group.
-    pub fn get_leader_id(&self, id: CursorGroupId) -> CursorId {
-        *self.leaders.get(&id).expect("invalid cursor group identifier")
+    fn get_leader_state(&mut self, id: CursorGroupId) -> &CursorState {
+        &self.get_group_mut(id).leader
     }
 
     /// Get the [Cursor] for the leader of a cursor group.
-    pub fn get_leader(&self, id: CursorGroupId) -> Cursor {
-        self.get_cursor(self.get_leader_id(id))
+    pub fn get_leader(&mut self, id: CursorGroupId) -> Cursor {
+        self.get_leader_state(id).cursor().clone()
     }
 
     /// Get the cursors of the followers within a cursor group.
     pub fn get_followers(&self, id: CursorGroupId) -> Vec<Cursor> {
-        if let Some(followers) = self.members.get(&id) {
-            followers.into_iter().map(|cid| self.get_cursor(*cid)).collect()
+        if let Some(group) = self.cursors.get(id) {
+            group.members.iter().map(|state| state.cursor().clone()).collect()
         } else {
             Vec::new()
         }
@@ -823,164 +845,63 @@ where
 
     /// Get the [Selections] for the followers within a cursor group.
     pub fn get_follower_selections(&self, id: CursorGroupId) -> Option<Selections> {
-        let followers = self.members.get(&id)?;
-        let selections = followers
-            .into_iter()
-            .filter_map(|follower| self.get_selection(*follower))
-            .collect::<Selections>();
+        let sels = self
+            .cursors
+            .get(id)?
+            .members
+            .iter()
+            .filter_map(CursorState::to_selection)
+            .collect::<Vec<_>>();
 
-        Some(selections)
+        if sels.len() > 0 {
+            Some(sels)
+        } else {
+            None
+        }
     }
 
     /// Get the [Selection] for the leader of a cursor group.
-    pub fn get_leader_selection(&self, id: CursorGroupId) -> Option<Selection> {
-        let leader = self.leaders.get(&id)?;
-
-        self.get_selection(*leader)
+    pub fn get_leader_selection(&mut self, id: CursorGroupId) -> Option<Selection> {
+        self.get_leader_state(id).to_selection()
     }
 
     /// Get the [Selections] for everyone within a cursor group.
     pub fn get_group_selections(&self, id: CursorGroupId) -> Option<Selections> {
-        let lsel = self.get_leader_selection(id)?;
+        let sels = self
+            .cursors
+            .get(id)?
+            .iter()
+            .filter_map(CursorState::to_selection)
+            .collect::<Vec<_>>();
 
-        if let Some(mut fsels) = self.get_follower_selections(id) {
-            fsels.push(lsel);
-
-            Some(fsels)
+        if sels.len() > 0 {
+            Some(sels)
         } else {
-            Some(vec![lsel])
+            None
         }
     }
 
     /// Create a new cursor group.
     pub fn create_group(&mut self) -> CursorGroupId {
-        let id = CursorGroupId(self.cgidgen.next());
-        let cursor = self.create_cursor();
-
-        self.leaders.insert(id, cursor);
-
-        id
-    }
-
-    /// Create a new cursor.
-    pub fn create_cursor(&mut self) -> CursorId {
-        self.create_cursor_at(0, 0)
-    }
-
-    fn create_cursor_from(&mut self, gid: CursorGroupId, cursor: &Cursor) -> CursorId {
-        let id = CursorId(self.idgen.next());
-
-        self.cursors.put(id, cursor.clone());
-        self.add_follower(gid, id);
-
-        return id;
-    }
-
-    fn create_cursor_at(&mut self, line: usize, column: usize) -> CursorId {
-        let id = CursorId(self.idgen.next());
-        let cursor = Cursor::new(line, column);
-
-        self.cursors.put(id, cursor);
-
-        return id;
-    }
-
-    fn delete_cursor(&mut self, id: CursorId) {
-        let _ = self.vshapes.remove(&id);
-        self.cursors.del(id);
-        self.anchors.del(id);
-    }
-
-    /// Delete leader of a cursor group after checking that there are still other cursors to use.
-    fn delete_leader(&mut self, gid: CursorGroupId) {
-        if let Some(members) = self.members.get_mut(&gid) {
-            if members.len() == 0 {
-                return;
-            }
-
-            let members_new = members.split_off(1);
-            let leader_new = members.pop().unwrap();
-            let leader_old = *self.leaders.get(&gid).expect("no current group leader");
-
-            self.delete_cursor(leader_old);
-            self.leaders.insert(gid, leader_new);
-            self.members.insert(gid, members_new);
-        }
-    }
-
-    /// Delete multiple cursors from a cursor group.
-    fn delete_cursors(&mut self, gid: CursorGroupId, cursors: Vec<CursorId>) {
-        let delset: HashSet<CursorId> = HashSet::from_iter(cursors);
-        let leader = self.get_leader_id(gid);
-
-        if let Some(members) = self.members.get_mut(&gid) {
-            let mut i = 0;
-
-            while i < members.len() {
-                let id = members[i];
-
-                if delset.contains(&id) {
-                    let _ = self.vshapes.remove(&id);
-                    self.cursors.del(id);
-                    self.anchors.del(id);
-
-                    members.remove(i);
-                } else {
-                    i += 1;
-                }
-            }
-        }
-
-        if delset.contains(&leader) {
-            self.delete_leader(gid);
-        }
-    }
-
-    /// End the [Selection] for the given cursor identifier if one exists.
-    pub fn clear_selection(&mut self, id: CursorId) {
-        let _ = self.vshapes.remove(&id);
-        self.anchors.del(id);
-    }
-
-    /// Return the [Selection] for the given cursor identifier if one exists.
-    pub fn get_selection(&self, id: CursorId) -> Option<Selection> {
-        let anchor = self.anchors.get(id)?;
-        let cursor = self.cursors.get(id)?;
-        let shape = self.vshapes.get(&id)?;
-
-        if anchor < cursor {
-            return Some((anchor, cursor, *shape));
-        } else {
-            return Some((cursor, anchor, *shape));
-        }
-    }
-
-    /// Get the current value of a given cursor identifier.
-    pub fn get_cursor(&self, id: CursorId) -> Cursor {
-        self.cursors.get(id).expect("invalid cursor identifier")
-    }
-
-    /// Move the point represented by the given cursor identifier.
-    pub fn set_cursor(&mut self, id: CursorId, cursor: Cursor) {
-        self.cursors.put(id, cursor)
+        CursorGroupId(self.cgidgen.next())
     }
 
     pub(crate) fn lines(&self, line: usize) -> xi_rope::rope::Lines {
-        self.text.lines(line)
+        self.get().lines(line)
     }
 
     pub(crate) fn lines_at(&self, line: usize, column: usize) -> xi_rope::rope::Lines {
-        self.text.lines_at(line, column)
+        self.get().lines_at(line, column)
     }
 
     /// Returns how many lines are within this buffer.
     pub fn get_lines(&self) -> usize {
-        self.text.get_lines()
+        self.get().get_lines()
     }
 
     /// Returns how many columns are on a given line.
     pub fn get_columns(&self, y: usize) -> usize {
-        self.text.get_columns(y)
+        self.get().get_columns(y)
     }
 
     /// Fetch a reference to the information of type `T` on a given line.
@@ -996,6 +917,24 @@ where
     /// Update the information of type `T` on a given line.
     pub fn set_line_info<T: Send + Sync + 'static>(&mut self, line: usize, info: T) {
         self.lineinfo.set(line, info);
+    }
+
+    /// Clamp the line and column of the cursors in a [CursorState] so that they refer to a valid
+    /// point within the buffer.
+    pub fn clamp_state<'a, 'b>(
+        &self,
+        state: &mut CursorState,
+        ctx: &CursorGroupIdContext<'a, 'b, C>,
+    ) {
+        match state {
+            CursorState::Location(ref mut cursor) => {
+                PrivateCursorOps::clamp(cursor, &self._ctx_cgi2c(ctx));
+            },
+            CursorState::Selection(ref mut cursor, ref mut anchor, _) => {
+                PrivateCursorOps::clamp(cursor, &self._ctx_cgi2c(ctx));
+                PrivateCursorOps::clamp(anchor, &self._ctx_cgi2c(ctx));
+            },
+        }
     }
 
     /// Clamp the line and column of a cursor so that it refers to a valid point within the buffer.
@@ -1079,6 +1018,7 @@ where
     fn checkpoint(&mut self) -> EditResult {
         if &self.text != self.history.current() {
             self.history.push(self.text.clone());
+            self.push_next_change = true;
         }
 
         Ok(None)
@@ -1102,16 +1042,17 @@ where
 
         let ctx = &self._ctx_cgi2es(action, ictx);
         let end = ctx.context.get_cursor_end();
+        let gid = ictx.0;
+        let mut group = self.get_group(gid);
 
-        for member in self.get_group(ictx.0) {
-            let choice = match (self._target(member, target, ctx)?, action) {
+        for state in group.iter_mut() {
+            let choice = match (self._target(state, target, ctx)?, action) {
                 (Some(range), EditAction::Delete) => self.delete(&range, ctx),
                 (Some(range), EditAction::Yank) => self.yank(&range, ctx),
                 (Some(range), EditAction::Replace(v)) => {
                     match ctx.context.get_replace_char() {
                         Some(c) => {
-                            let cursor = self.get_cursor(member);
-                            let c = self._char(c, &cursor)?;
+                            let c = self._char(c, state.cursor())?;
 
                             self.replace(c, *v, &range, ctx)
                         },
@@ -1134,11 +1075,14 @@ where
                 (None, _) => CursorChoice::Empty,
             };
 
-            if let Some(mut nc) = choice.resolve(end) {
-                self.clamp(&mut nc, ictx);
-                self.set_cursor(member, nc);
+            if let Some(cursor) = choice.resolve(end) {
+                state.set(cursor);
+                self.clamp_state(state, ictx);
             }
         }
+
+        self.push_change(&group);
+        self.set_group(gid, group);
 
         Ok(None)
     }
@@ -1186,13 +1130,15 @@ where
 
     fn cursor_command(
         &mut self,
-        act: CursorAction,
+        act: &CursorAction,
         ctx: &CursorGroupIdContext<'a, 'b, C>,
     ) -> EditResult {
         match act {
             CursorAction::Close(target) => self.cursor_close(&target, ctx),
             CursorAction::Split(count) => self.cursor_split(count, ctx),
-            CursorAction::Rotate(dir, count) => self.cursor_rotate(dir, count, ctx),
+            CursorAction::Restore(style) => self.cursor_restore(style, ctx),
+            CursorAction::Rotate(dir, count) => self.cursor_rotate(*dir, count, ctx),
+            CursorAction::Save(style) => self.cursor_save(style, ctx),
         }
     }
 
@@ -1206,6 +1152,100 @@ where
             HistoryAction::Undo(count) => self.undo(count, ctx),
             HistoryAction::Redo(count) => self.redo(count, ctx),
         }
+    }
+}
+
+impl<'a, 'b, C, P> Jumpable<CursorGroupIdContext<'a, 'b, C>> for EditBuffer<C, P>
+where
+    C: EditContext,
+    P: Application,
+{
+    fn jump(
+        &mut self,
+        list: PositionList,
+        dir: MoveDir1D,
+        count: usize,
+        ctx: &CursorGroupIdContext<'a, 'b, C>,
+    ) -> UIResult<usize> {
+        let gid = ctx.0;
+
+        match list {
+            PositionList::ChangeList => {
+                let clen = self.changed.len();
+
+                let off = match (dir, self.changed_idx.get(&gid)) {
+                    (MoveDir1D::Previous, i) => {
+                        let idx = i.unwrap_or(&0).to_owned().saturating_add(count);
+
+                        if idx <= clen {
+                            idx
+                        } else {
+                            clen
+                        }
+                    },
+                    (MoveDir1D::Next, Some(i)) => {
+                        let idx = i.to_owned();
+
+                        if idx >= count {
+                            idx - count
+                        } else {
+                            0
+                        }
+                    },
+                    (MoveDir1D::Next, None) => {
+                        return Ok(0);
+                    },
+                };
+
+                self.changed_idx.insert(gid, off);
+
+                if let Some(group) = self.changed.get(clen - off) {
+                    let group = group.clone();
+
+                    self.set_group(gid, group);
+                }
+
+                return Ok(0);
+            },
+            PositionList::JumpList => {
+                let jumps = match self.jumped.get_mut(gid) {
+                    Some(c) => c,
+                    None => return Ok(count),
+                };
+
+                let (len, group) = match dir {
+                    MoveDir1D::Previous => {
+                        if jumps.future_len() == 0 {
+                            // Push current position if this is the first jump backwards.
+                            let current = self.cursors.entry(gid).or_default();
+
+                            if jumps.current() != current {
+                                jumps.push(current.clone());
+                            }
+                        }
+
+                        let plen = jumps.past_len();
+                        let group = jumps.prev(count);
+
+                        (plen, group)
+                    },
+                    MoveDir1D::Next => {
+                        let flen = jumps.future_len();
+                        let group = jumps.next(count);
+
+                        (flen, group)
+                    },
+                };
+
+                if len > 0 {
+                    let group = group.to_owned();
+
+                    self.set_group(gid, group);
+                }
+
+                return Ok(count.saturating_sub(len));
+            },
+        };
     }
 }
 
@@ -1245,7 +1285,7 @@ where
 
     fn cursor_command(
         &mut self,
-        act: CursorAction,
+        act: &CursorAction,
         ctx: &CursorGroupIdContext<'a, 'b, C>,
     ) -> EditResult {
         self.write().unwrap().cursor_command(act, ctx)
@@ -1257,6 +1297,22 @@ where
         ctx: &CursorGroupIdContext<'a, 'b, C>,
     ) -> EditResult {
         self.write().unwrap().history_command(act, ctx)
+    }
+}
+
+impl<'a, 'b, C, P> Jumpable<CursorGroupIdContext<'a, 'b, C>> for SharedBuffer<C, P>
+where
+    C: EditContext,
+    P: Application,
+{
+    fn jump(
+        &mut self,
+        list: PositionList,
+        dir: MoveDir1D,
+        count: usize,
+        ctx: &CursorGroupIdContext<'a, 'b, C>,
+    ) -> UIResult<usize> {
+        self.write().unwrap().jump(list, dir, count, ctx)
     }
 }
 
@@ -1650,6 +1706,171 @@ mod tests {
         assert_eq!(ebuf.get_leader(curid), Cursor::new(3, 2));
         edit_char_mark!(ebuf, op, 'f', curid, vwctx, vctx);
         assert_eq!(ebuf.get_leader(curid), Cursor::new(4, 4));
+    }
+
+    #[test]
+    fn test_changelist() {
+        let mut ebuf = mkbufstr("12345\n   67890\nabcde\nfghij\n klmno\n");
+        let curid = ebuf.create_group();
+        let vwctx = ViewportContext::default();
+        let vctx = VimContext::default();
+        let next = MoveDir1D::Next;
+        let prev = MoveDir1D::Previous;
+        let cl = PositionList::ChangeList;
+
+        // Start out at (1, 3).
+        ebuf.set_leader(curid, Cursor::new(1, 3));
+
+        // Delete the "6", pushing current position into the changelist.
+        edit!(ebuf, EditAction::Delete, EditTarget::CurrentPosition, ctx!(curid, vwctx, vctx));
+        assert_eq!(ebuf.get_leader(curid), Cursor::new(1, 3));
+        assert_eq!(ebuf.get_text(), "12345\n   7890\nabcde\nfghij\n klmno\n");
+
+        // Move down.
+        edit!(ebuf, EditAction::Motion, mv!(MoveType::Line(next)), ctx!(curid, vwctx, vctx));
+        assert_eq!(ebuf.get_leader(curid), Cursor::new(2, 3));
+        assert_eq!(ebuf.get_text(), "12345\n   7890\nabcde\nfghij\n klmno\n");
+
+        // Delete the "d", no change made to changelist.
+        edit!(ebuf, EditAction::Delete, EditTarget::CurrentPosition, ctx!(curid, vwctx, vctx));
+        assert_eq!(ebuf.get_leader(curid), Cursor::new(2, 3));
+        assert_eq!(ebuf.get_text(), "12345\n   7890\nabce\nfghij\n klmno\n");
+
+        // Checkpoint current state, so that we can push another position.
+        ebuf.history_command(HistoryAction::Checkpoint, &ctx!(curid, vwctx, vctx))
+            .unwrap();
+
+        // Move down.
+        edit!(ebuf, EditAction::Motion, mv!(MoveType::Line(next)), ctx!(curid, vwctx, vctx));
+        assert_eq!(ebuf.get_leader(curid), Cursor::new(3, 3));
+        assert_eq!(ebuf.get_text(), "12345\n   7890\nabce\nfghij\n klmno\n");
+
+        // Type a character, pushing current position into the changelist.
+        type_char!(ebuf, '1', curid, vwctx, vctx);
+        assert_eq!(ebuf.get_leader(curid), Cursor::new(3, 4));
+        assert_eq!(ebuf.get_text(), "12345\n   7890\nabce\nfgh1ij\n klmno\n");
+
+        // Move down.
+        edit!(ebuf, EditAction::Motion, mv!(MoveType::Line(next)), ctx!(curid, vwctx, vctx));
+        assert_eq!(ebuf.get_leader(curid), Cursor::new(4, 4));
+        assert_eq!(ebuf.get_text(), "12345\n   7890\nabce\nfgh1ij\n klmno\n");
+
+        // Go back once to (3, 4).
+        let count = ebuf.jump(cl, prev, 1, ctx!(curid, vwctx, vctx)).unwrap();
+        assert_eq!(count, 0);
+        assert_eq!(ebuf.get_leader(curid), Cursor::new(3, 4));
+
+        // Go back once to (1, 3).
+        let count = ebuf.jump(cl, prev, 1, ctx!(curid, vwctx, vctx)).unwrap();
+        assert_eq!(count, 0);
+        assert_eq!(ebuf.get_leader(curid), Cursor::new(1, 3));
+
+        // Go forward once to (3, 4) again.
+        let count = ebuf.jump(cl, next, 1, ctx!(curid, vwctx, vctx)).unwrap();
+        assert_eq!(count, 0);
+        assert_eq!(ebuf.get_leader(curid), Cursor::new(3, 4));
+
+        // Can't go forward any more: original position is not saved in changelist, like it is w/
+        // the jumplist.
+        let count = ebuf.jump(cl, next, 1, ctx!(curid, vwctx, vctx)).unwrap();
+        assert_eq!(count, 0);
+        assert_eq!(ebuf.get_leader(curid), Cursor::new(3, 4));
+    }
+
+    #[test]
+    fn test_jumplist() {
+        let mut ebuf = mkbufstr("12345\n   67890\nabcde\nfghij\n klmno\n");
+        let curid = ebuf.create_group();
+        let vwctx = ViewportContext::default();
+        let vctx = VimContext::default();
+        let next = MoveDir1D::Next;
+        let prev = MoveDir1D::Previous;
+        let jl = PositionList::JumpList;
+
+        // Set up a bunch of marks to jump to.
+        ebuf.set_leader(curid, Cursor::new(0, 4));
+        ebuf.mark(mark!('a'), ctx!(curid, vwctx, vctx)).unwrap();
+        ebuf.set_leader(curid, Cursor::new(1, 6));
+        ebuf.mark(mark!('b'), ctx!(curid, vwctx, vctx)).unwrap();
+        ebuf.set_leader(curid, Cursor::new(2, 1));
+        ebuf.mark(mark!('c'), ctx!(curid, vwctx, vctx)).unwrap();
+        ebuf.set_leader(curid, Cursor::new(2, 5));
+        ebuf.mark(mark!('d'), ctx!(curid, vwctx, vctx)).unwrap();
+        ebuf.set_leader(curid, Cursor::new(3, 2));
+        ebuf.mark(mark!('e'), ctx!(curid, vwctx, vctx)).unwrap();
+        ebuf.set_leader(curid, Cursor::new(4, 4));
+        ebuf.mark(mark!('f'), ctx!(curid, vwctx, vctx)).unwrap();
+
+        let op = EditAction::Motion;
+
+        // Move to the top left to begin.
+        ebuf.set_leader(curid, Cursor::new(0, 0));
+
+        // CharJump should push (0, 0).
+        edit_char_mark!(ebuf, op, 'a', curid, vwctx, vctx);
+        assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 4));
+
+        // CharJump should push (0, 4).
+        edit_char_mark!(ebuf, op, 'b', curid, vwctx, vctx);
+        assert_eq!(ebuf.get_leader(curid), Cursor::new(1, 6));
+
+        // CharJump should push (1, 6).
+        edit_char_mark!(ebuf, op, 'c', curid, vwctx, vctx);
+        assert_eq!(ebuf.get_leader(curid), Cursor::new(2, 1));
+
+        // MoveType::Line is not a jump, so we don't push (2, 1).
+        edit!(ebuf, op, MoveType::Line(next).into(), ctx!(curid, vwctx, vctx));
+        assert_eq!(ebuf.get_leader(curid), Cursor::new(3, 1));
+
+        // Moving forward in the list when there's nothing should leave cursor where it is.
+        let count = ebuf.jump(jl, next, 1, ctx!(curid, vwctx, vctx)).unwrap();
+        assert_eq!(count, 1);
+        assert_eq!(ebuf.get_leader(curid), Cursor::new(3, 1));
+
+        println!("{}", ebuf.jumped.get(curid).unwrap().past_len());
+        println!("{}", ebuf.jumped.get(curid).unwrap().future_len());
+
+        // Move back twice in the jumplist.
+        let count = ebuf.jump(jl, prev, 2, ctx!(curid, vwctx, vctx)).unwrap();
+        assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 4));
+        assert_eq!(count, 0);
+
+        // Move forward once to where we were before moving through the jumplist.
+        let count = ebuf.jump(jl, next, 1, ctx!(curid, vwctx, vctx)).unwrap();
+        assert_eq!(count, 0);
+        assert_eq!(ebuf.get_leader(curid), Cursor::new(1, 6));
+
+        // Move forward once, back to where we were before moving through the jumplist.
+        let count = ebuf.jump(jl, next, 1, ctx!(curid, vwctx, vctx)).unwrap();
+        assert_eq!(count, 0);
+        assert_eq!(ebuf.get_leader(curid), Cursor::new(3, 1));
+
+        // Move backward twice, back to (0, 4).
+        let count = ebuf.jump(jl, prev, 2, ctx!(curid, vwctx, vctx)).unwrap();
+        assert_eq!(count, 0);
+        assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 4));
+
+        edit!(ebuf, op, MoveType::Line(next).into(), ctx!(curid, vwctx, vctx));
+        assert_eq!(ebuf.get_leader(curid), Cursor::new(1, 4));
+
+        // Now jump again, wiping future history with (1, 4).
+        edit_char_mark!(ebuf, op, 'd', curid, vwctx, vctx);
+        assert_eq!(ebuf.get_leader(curid), Cursor::new(2, 5));
+
+        // Move forward does nothing since we wiped history.
+        let count = ebuf.jump(jl, next, 1, ctx!(curid, vwctx, vctx)).unwrap();
+        assert_eq!(count, 1);
+        assert_eq!(ebuf.get_leader(curid), Cursor::new(2, 5));
+
+        // Move backward to (1, 4).
+        let count = ebuf.jump(jl, prev, 1, ctx!(curid, vwctx, vctx)).unwrap();
+        assert_eq!(count, 0);
+        assert_eq!(ebuf.get_leader(curid), Cursor::new(1, 4));
+
+        // Move backward to (0, 4).
+        let count = ebuf.jump(jl, prev, 1, ctx!(curid, vwctx, vctx)).unwrap();
+        assert_eq!(count, 0);
+        assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 4));
     }
 
     #[test]

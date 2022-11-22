@@ -42,7 +42,7 @@ macro_rules! cell {
 
 macro_rules! set_reg {
     ($ebuf: expr, $reg: expr, $shape: expr, $txt: expr) => {
-        $ebuf.set_register(&Some($reg), cell!($shape, $txt), false, false);
+        $ebuf.set_register(&$reg, cell!($shape, $txt), RegisterPutFlags::NONE);
     };
 }
 

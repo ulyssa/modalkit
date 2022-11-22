@@ -1,17 +1,20 @@
-use crate::{editing::cursor::Cursor, editing::rope::EditRope, editing::store::RegisterCell};
-
-use crate::editing::base::{
-    Application,
-    Case,
-    CursorChoice,
-    CursorMovements,
-    CursorMovementsContext,
-    EditContext,
-    IndentChange,
-    InsertStyle,
-    JoinStyle,
-    NumberChange,
-    TargetShape,
+use crate::editing::{
+    base::{
+        Application,
+        Case,
+        CursorMovements,
+        CursorMovementsContext,
+        EditContext,
+        IndentChange,
+        InsertStyle,
+        JoinStyle,
+        NumberChange,
+        Register,
+        TargetShape,
+    },
+    cursor::{Cursor, CursorChoice},
+    rope::EditRope,
+    store::{RegisterCell, RegisterPutFlags},
 };
 
 use super::{CursorRange, EditBuffer};
@@ -85,9 +88,14 @@ where
         self.text.trailing_newline();
 
         let cell = RegisterCell::new(shape, deleted);
-        let register = ctx.context.get_register();
-        let append = ctx.context.get_register_append();
-        self.set_register(&register, cell, append, true);
+        let register = ctx.context.get_register().unwrap_or(Register::Unnamed);
+        let mut flags = RegisterPutFlags::DELETE;
+
+        if ctx.context.get_register_append() {
+            flags |= RegisterPutFlags::APPEND
+        }
+
+        self.set_register(&register, cell, flags);
 
         let cursor = self.text.offset_to_cursor(coff);
 
@@ -121,9 +129,14 @@ where
         }
 
         let cell = RegisterCell::new(shape, yanked);
-        let register = ctx.context.get_register();
-        let append = ctx.context.get_register_append();
-        self.set_register(&register, cell, append, false);
+        let register = ctx.context.get_register().unwrap_or(Register::Unnamed);
+        let mut flags = RegisterPutFlags::NONE;
+
+        if ctx.context.get_register_append() {
+            flags |= RegisterPutFlags::APPEND;
+        }
+
+        self.set_register(&register, cell, flags);
 
         cursors
             .map(|(start, end)| {
@@ -370,7 +383,7 @@ mod tests {
 
     macro_rules! get_reg {
         ($ebuf: expr, $reg: expr) => {
-            $ebuf.get_register(&Some($reg))
+            $ebuf.get_register(&$reg)
         };
     }
 

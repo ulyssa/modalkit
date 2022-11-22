@@ -41,6 +41,7 @@ use crate::editing::action::{
     Editable,
     HistoryAction,
     InsertTextAction,
+    Jumpable,
     PromptAction,
     Promptable,
     Scrollable,
@@ -68,6 +69,7 @@ use crate::editing::base::{
     MoveDir2D,
     MoveDirMod,
     MovePosition,
+    PositionList,
     ScrollStyle,
 };
 
@@ -490,7 +492,7 @@ where
         delegate_focus!(self, f => f.insert_text(act, ctx))
     }
 
-    fn cursor_command(&mut self, act: CursorAction, ctx: &C) -> EditResult {
+    fn cursor_command(&mut self, act: &CursorAction, ctx: &C) -> EditResult {
         delegate_focus!(self, f => f.cursor_command(act, ctx))
     }
 
@@ -524,6 +526,23 @@ where
                 }
             },
         }
+    }
+}
+
+impl<W, C, P> Jumpable<C> for ScreenState<W, C, P>
+where
+    W: Window + Jumpable<C>,
+    C: EditContext + InputContext,
+    P: Application,
+{
+    fn jump(
+        &mut self,
+        list: PositionList,
+        dir: MoveDir1D,
+        count: usize,
+        ctx: &C,
+    ) -> UIResult<usize> {
+        self.current_window_mut()?.jump(list, dir, count, ctx)
     }
 }
 

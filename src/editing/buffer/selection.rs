@@ -21,7 +21,7 @@ use crate::editing::base::{
     TargetShapeFilter,
 };
 
-use super::{CursorGroupId, CursorGroupIdContext, EditBuffer};
+use super::{CursorGroupIdContext, CursorState, EditBuffer};
 
 pub trait SelectionActions<C> {
     /// Move where the cursor is located in a selection.
@@ -50,116 +50,6 @@ pub trait SelectionActions<C> {
     fn selection_trim(&mut self, filter: TargetShapeFilter, ctx: &C) -> EditResult;
 }
 
-impl<'a, 'b, C, P> EditBuffer<C, P>
-where
-    C: EditContext,
-    P: Application,
-{
-    pub(super) fn _merge_selections(&mut self, gid: CursorGroupId) -> EditResult {
-        let EditBuffer { anchors, cursors, leaders, members, vshapes, .. } = self;
-
-        let leader = *leaders.get(&gid).expect("no leader in cursor group");
-        let cursor = cursors.get(leader).ok_or(EditError::InvalidCursor)?;
-        let anchor = anchors.get(leader).unwrap_or_else(|| cursor.clone());
-        let (mut lsels, mut lsele, before) = if cursor < anchor {
-            (cursor, anchor, true)
-        } else {
-            (anchor, cursor, false)
-        };
-
-        if let Some(members) = members.get_mut(&gid) {
-            if members.len() == 0 {
-                // There's no need to touch anything.
-                return Ok(None);
-            }
-
-            // Begin by sorting and merging member selections.
-            let mut unmerged = std::mem::take(members)
-                .into_iter()
-                .map(|id| {
-                    let cursor = cursors.get(id).expect("bad cursor");
-                    let anchor = anchors.get(id).unwrap_or_else(|| cursor.clone());
-
-                    if cursor < anchor {
-                        (id, cursor, anchor, true)
-                    } else {
-                        (id, anchor, cursor, false)
-                    }
-                })
-                .collect::<Vec<_>>();
-
-            unmerged.sort_by(|a, b| a.1.cmp(&b.1));
-
-            let mut iter = unmerged.into_iter();
-            let mut merged = Vec::new();
-
-            let (mut aid, mut asels, mut asele, mut abef) = iter.next().unwrap();
-
-            for (bid, bsels, bsele, bbef) in iter {
-                if bsels <= asele {
-                    // Merge into the previous selection.
-                    asels = asels.min(bsels);
-                    asele = asele.max(bsele);
-
-                    // Remove this cursor.
-                    vshapes.remove(&bid);
-                    anchors.del(bid);
-                    cursors.del(bid);
-                } else {
-                    // Save the previous selection, and begin merging into this one.
-                    merged.push((aid, asels, asele, abef));
-
-                    aid = bid;
-                    asels = bsels;
-                    asele = bsele;
-                    abef = bbef;
-                }
-            }
-
-            // Commit last member.
-            merged.push((aid, asels, asele, abef));
-
-            // Now we can merge them into the current leader.
-            for (id, msels, msele, mbef) in merged.into_iter() {
-                let lcontains = lsels <= msels && msels <= lsele;
-                let mcontains = msels <= lsels && lsels <= msele;
-
-                if lcontains || mcontains {
-                    // Merge this selection into the leader.
-                    lsels = lsels.min(msels);
-                    lsele = lsele.max(msele);
-
-                    // Remove the cursor.
-                    vshapes.remove(&id);
-                    anchors.del(id);
-                    cursors.del(id);
-                } else {
-                    // Keep this selection.
-                    members.push(id);
-
-                    if mbef {
-                        cursors.put(id, msels);
-                        anchors.put(id, msele);
-                    } else {
-                        cursors.put(id, msele);
-                        anchors.put(id, msels);
-                    }
-                }
-            }
-
-            if before {
-                cursors.put(leader, lsels);
-                anchors.put(leader, lsele);
-            } else {
-                cursors.put(leader, lsele);
-                anchors.put(leader, lsels);
-            }
-        }
-
-        Ok(None)
-    }
-}
-
 impl<'a, 'b, C, P> SelectionActions<CursorGroupIdContext<'a, 'b, C>> for EditBuffer<C, P>
 where
     C: EditContext,
@@ -170,22 +60,23 @@ where
         side: &SelectionCursorChange,
         ctx: &CursorGroupIdContext<'a, 'b, C>,
     ) -> EditResult {
-        for id in self.get_group(ctx.0) {
-            let mut anchor = self.anchors.get(id).ok_or(EditError::NoSelection)?;
-            let mut cursor = self.cursors.get(id).ok_or(EditError::InvalidCursor)?;
-            let shape = self.vshapes.get(&id).ok_or(EditError::NoSelection)?;
+        let gid = ctx.0;
+        let mut group = self.get_group(gid);
+
+        for state in group.iter_mut() {
+            let mut anchor = state.anchor().clone();
+            let mut cursor = state.cursor().clone();
+            let shape = state.shape();
 
             match (shape, side) {
                 (
                     TargetShape::CharWise | TargetShape::LineWise,
                     SelectionCursorChange::SwapAnchor(_),
                 ) => {
-                    self.anchors.put(id, cursor);
-                    self.cursors.put(id, anchor);
+                    state.swap();
                 },
                 (TargetShape::BlockWise, SelectionCursorChange::SwapAnchor(false)) => {
-                    self.anchors.put(id, cursor);
-                    self.cursors.put(id, anchor);
+                    state.swap();
                 },
                 (TargetShape::BlockWise, SelectionCursorChange::SwapAnchor(true)) => {
                     let cctx = (&self.text, ctx.1.get_width(), true);
@@ -195,20 +86,17 @@ where
                     anchor.set_column(cx, &cctx);
                     cursor.set_column(ax, &cctx);
 
-                    self.anchors.put(id, anchor);
-                    self.cursors.put(id, cursor);
+                    *state = CursorState::Selection(cursor, anchor, shape);
                 },
                 (TargetShape::CharWise, SelectionCursorChange::Beginning) => {
                     let (begin, end) = sort2(anchor, cursor);
 
-                    self.anchors.put(id, end);
-                    self.cursors.put(id, begin);
+                    *state = CursorState::Selection(begin, end, shape);
                 },
                 (TargetShape::CharWise, SelectionCursorChange::End) => {
                     let (begin, end) = sort2(anchor, cursor);
 
-                    self.anchors.put(id, begin);
-                    self.cursors.put(id, end);
+                    *state = CursorState::Selection(end, begin, shape);
                 },
                 (TargetShape::LineWise, SelectionCursorChange::Beginning) => {
                     let (mut begin, mut end) = sort2(anchor, cursor);
@@ -217,8 +105,7 @@ where
                     begin.set_x(0);
                     end.set_x(maxcol);
 
-                    self.anchors.put(id, end);
-                    self.cursors.put(id, begin);
+                    *state = CursorState::Selection(begin, end, shape);
                 },
                 (TargetShape::LineWise, SelectionCursorChange::End) => {
                     let (mut begin, mut end) = sort2(anchor, cursor);
@@ -227,8 +114,7 @@ where
                     begin.set_x(0);
                     end.set_x(maxcol);
 
-                    self.anchors.put(id, begin);
-                    self.cursors.put(id, end);
+                    *state = CursorState::Selection(end, begin, shape);
                 },
                 (TargetShape::BlockWise, SelectionCursorChange::Beginning) => {
                     let (bx, ex) = sort2(anchor.x, cursor.x);
@@ -237,8 +123,7 @@ where
                     let begin = Cursor::new(by, bx);
                     let end = Cursor::new(ey, ex);
 
-                    self.anchors.put(id, end);
-                    self.cursors.put(id, begin);
+                    *state = CursorState::Selection(begin, end, shape);
                 },
                 (TargetShape::BlockWise, SelectionCursorChange::End) => {
                     let (bx, ex) = sort2(anchor.x, cursor.x);
@@ -247,11 +132,12 @@ where
                     let begin = Cursor::new(by, bx);
                     let end = Cursor::new(ey, ex);
 
-                    self.anchors.put(id, begin);
-                    self.cursors.put(id, end);
+                    *state = CursorState::Selection(end, begin, shape);
                 },
             }
         }
+
+        self.set_group(gid, group);
 
         Ok(None)
     }
@@ -267,7 +153,13 @@ where
         let lines = self.text.get_lines();
         let lastcol = ictx.2.get_last_column();
 
-        for (start, end, shape) in self.get_group_selections(gid).unwrap_or_else(Vec::new) {
+        let mut group = self.get_group(gid);
+        let mut created = vec![];
+
+        for state in group.iter_mut() {
+            let (start, end) = state.sorted();
+            let shape = state.shape();
+
             let check = |ebuf: &EditBuffer<C, P>, lstart, lend| {
                 let smax = ebuf.text.max_column_idx(lstart, lastcol);
                 let emax = ebuf.text.max_column_idx(lend, lastcol);
@@ -275,13 +167,11 @@ where
                 start.x <= smax && end.x <= emax
             };
 
-            let copy = |ebuf: &mut EditBuffer<C, P>, lstart, lend| {
+            let mut copy = |lstart, lend| {
                 let sels = Cursor::new(lstart, start.x);
                 let sele = Cursor::new(lend, end.x);
 
-                let cursor_id = ebuf.create_cursor_from(gid, &sele);
-                ebuf.anchors.put(cursor_id, sels);
-                ebuf.vshapes.insert(cursor_id, shape);
+                created.push(CursorState::Selection(sele, sels, shape));
             };
 
             match dir {
@@ -298,7 +188,7 @@ where
                         }
 
                         if check(self, lstart, lend) {
-                            copy(self, lstart, lend);
+                            copy(lstart, lend);
                             lstart = lend + 1;
                             create = create - 1;
                             continue;
@@ -320,7 +210,7 @@ where
                         }
 
                         if check(self, lstart, lend) {
-                            copy(self, lstart, lend);
+                            copy(lstart, lend);
                             mstart = lstart.checked_sub(ldiff + 1);
                             create = create - 1;
                             continue;
@@ -332,7 +222,11 @@ where
             }
         }
 
-        self._merge_selections(gid)
+        group.members.append(&mut created);
+        group.merge();
+        self.set_group(gid, group);
+
+        Ok(None)
     }
 
     fn selection_resize(
@@ -351,9 +245,18 @@ where
             SelectionResizeStyle::Restart => (true, false),
         };
 
-        for (id, cursor) in self.get_group_cursors(gid) {
-            if reset || !self.anchors.contains(id) {
-                self.anchors.put(id, cursor.clone());
+        let mut group = self.get_group(gid);
+
+        if target.is_jumping() {
+            // Save current positions before we jump.
+            self.push_jump(gid, &group);
+        }
+
+        for state in group.iter_mut() {
+            let cursor = state.cursor().clone();
+
+            if reset || !state.is_selection() {
+                state.set_anchor(cursor.clone());
             }
 
             let tshape = match target {
@@ -364,7 +267,7 @@ where
                             MoveTerminus::End => r.end,
                         };
 
-                        self.set_cursor(id, nc);
+                        state.set_cursor(nc);
 
                         r.shape
                     } else {
@@ -377,19 +280,19 @@ where
                 },
                 EditTarget::CharJump(mark) => {
                     let nc = self._charjump(mark, &ctx)?;
-                    self.set_cursor(id, nc);
+                    state.set_cursor(nc);
 
                     TargetShape::CharWise
                 },
                 EditTarget::LineJump(mark) => {
                     let nc = self._linejump(mark, &ctx)?;
-                    self.set_cursor(id, nc);
+                    state.set_cursor(nc);
 
                     TargetShape::LineWise
                 },
                 EditTarget::Motion(mv, count) => {
                     if let Some(nc) = self.text.movement(&cursor, mv, count, &ctx) {
-                        self.set_cursor(id, nc);
+                        state.set_cursor(nc);
                     }
 
                     mv.shape()
@@ -397,16 +300,15 @@ where
                 EditTarget::Range(range, inclusive, count) => {
                     if let Some(r) = self.text.range(&cursor, range, *inclusive, count, &ctx) {
                         if obj {
-                            self.anchors.put(id, r.start);
-                            self.cursors.put(id, r.end);
+                            state.set_anchor(r.start);
+                            state.set_cursor(r.end);
                         } else {
-                            let anchor = self.anchors.get(id).unwrap_or(cursor.clone());
-                            let (start, end) = sort2(cursor, anchor);
+                            let (start, end) = state.sorted();
                             let start = r.start.min(start);
                             let end = r.end.max(end);
 
-                            self.anchors.put(id, start);
-                            self.cursors.put(id, end);
+                            state.set_anchor(start);
+                            state.set_cursor(end);
                         }
 
                         r.shape
@@ -417,10 +319,10 @@ where
                 EditTarget::Search(search, flip, count) => {
                     if let Some(r) = self._search(&cursor, search, flip, count, ctx.context)? {
                         if obj {
-                            self.anchors.put(id, r.start);
-                            self.cursors.put(id, r.end);
+                            state.set_anchor(r.start);
+                            state.set_cursor(r.end);
                         } else {
-                            self.set_cursor(id, r.start);
+                            state.set_cursor(r.start);
                         }
 
                         r.shape
@@ -430,10 +332,13 @@ where
                 },
             };
 
-            self.vshapes.insert(id, shape.unwrap_or(tshape));
+            state.set_shape(shape.unwrap_or(tshape));
         }
 
-        self._merge_selections(gid)
+        group.merge();
+        self.set_group(gid, group);
+
+        Ok(None)
     }
 
     fn selection_split(
@@ -443,11 +348,11 @@ where
         ctx: &CursorGroupIdContext<'a, 'b, C>,
     ) -> EditResult {
         let gid = ctx.0;
+        let mut group = self.get_group(gid);
+        let mut created = vec![];
 
-        for id in self.get_group(gid) {
-            let anchor = self.anchors.get(id).ok_or(EditError::NoSelection)?;
-            let cursor = self.cursors.get(id).ok_or(EditError::InvalidCursor)?;
-            let shape = *self.vshapes.get(&id).ok_or(EditError::NoSelection)?;
+        for state in group.iter_mut() {
+            let (cursor, anchor, shape) = state.to_triple();
 
             if !filter.matches(&shape) {
                 continue;
@@ -460,16 +365,14 @@ where
                         continue;
                     }
 
-                    // Update this selection's anchor to be at the cursor position.
-                    self.anchors.put(id, cursor.clone());
-
                     // Create new selection from old anchor.
-                    let cursor_id = self.create_cursor_from(gid, &anchor);
-                    self.anchors.put(cursor_id, anchor.clone());
-                    self.vshapes.insert(cursor_id, shape);
+                    created.push(CursorState::Selection(anchor.clone(), anchor.clone(), shape));
+
+                    // Update this selection's anchor to be at the cursor position.
+                    state.set_anchor(cursor.clone());
                 },
                 (SelectionSplitStyle::Lines, TargetShape::CharWise) => {
-                    let (start, end) = sort2(anchor.clone(), cursor.clone());
+                    let (start, end) = state.sorted();
 
                     for line in start.y..=end.y {
                         let lc = if line == start.y {
@@ -485,17 +388,15 @@ where
                         };
 
                         if line == start.y {
-                            self.cursors.put(id, lc.clone());
-                            self.anchors.put(id, rc.clone());
+                            state.set_cursor(lc.clone());
+                            state.set_anchor(rc.clone());
                         } else {
-                            let cursor_id = self.create_cursor_from(gid, &lc);
-                            self.anchors.put(cursor_id, rc.clone());
-                            self.vshapes.insert(cursor_id, shape);
+                            created.push(CursorState::Selection(lc.clone(), rc.clone(), shape));
                         }
                     }
                 },
                 (SelectionSplitStyle::Lines, TargetShape::LineWise) => {
-                    let (start, end) = sort2(anchor.clone(), cursor.clone());
+                    let (start, end) = state.sorted();
 
                     for line in start.y..=end.y {
                         let maxidx = self.text.get_columns(line).saturating_sub(1);
@@ -503,12 +404,10 @@ where
                         let rc = Cursor::new(line, maxidx);
 
                         if line == start.y {
-                            self.cursors.put(id, lc.clone());
-                            self.anchors.put(id, rc.clone());
+                            state.set_cursor(lc.clone());
+                            state.set_anchor(rc.clone());
                         } else {
-                            let cursor_id = self.create_cursor_from(gid, &lc);
-                            self.anchors.put(cursor_id, rc.clone());
-                            self.vshapes.insert(cursor_id, shape);
+                            created.push(CursorState::Selection(lc.clone(), rc.clone(), shape));
                         }
                     }
                 },
@@ -517,7 +416,7 @@ where
                     let (mut lc, mut rc) = block_cursors(&anchor, &cursor);
 
                     // Sort the cursors.
-                    let (start, end) = sort2(anchor, cursor);
+                    let (start, end) = state.sorted();
 
                     for line in start.y..=end.y {
                         let lctx = &(&self.text, 0, true);
@@ -527,17 +426,19 @@ where
                         rc.set_line(line, rctx);
 
                         if line == start.y {
-                            self.cursors.put(id, lc.clone());
-                            self.anchors.put(id, rc.clone());
+                            state.set_cursor(lc.clone());
+                            state.set_anchor(rc.clone());
                         } else {
-                            let cursor_id = self.create_cursor_from(gid, &lc);
-                            self.anchors.put(cursor_id, rc.clone());
-                            self.vshapes.insert(cursor_id, shape);
+                            created.push(CursorState::Selection(lc.clone(), rc.clone(), shape));
                         }
                     }
                 },
             }
         }
+
+        group.members.append(&mut created);
+        group.merge();
+        self.set_group(gid, group);
 
         Ok(None)
     }
@@ -549,15 +450,14 @@ where
     ) -> EditResult {
         let gid = ctx.0;
         let lastcol = ctx.2.get_last_column();
-        let mut del = Vec::new();
+        let mut group = self.get_group(gid);
 
-        for (id, mut cursor) in self.get_group_cursors(gid) {
-            let mut anchor = self.anchors.get(id).unwrap_or_else(|| cursor.clone());
-            let shape = *self.vshapes.get(&id).unwrap_or(&TargetShape::CharWise);
-
-            if !filter.matches(&shape) {
-                continue;
+        let trim = |state: &CursorState| -> Option<CursorState> {
+            if !filter.matches(&state.shape()) {
+                return Some(state.clone());
             }
+
+            let (mut cursor, mut anchor, shape) = state.to_triple();
 
             match shape {
                 TargetShape::CharWise => {
@@ -589,8 +489,7 @@ where
                     }
 
                     if offs > offe {
-                        del.push(id);
-                        continue;
+                        return None;
                     }
 
                     let mut iter = self.text.chars_until(offs, offe);
@@ -608,11 +507,9 @@ where
                     sele = self.text.offset_to_cursor(offe);
 
                     if before {
-                        self.cursors.put(id, sels);
-                        self.anchors.put(id, sele);
+                        Some(CursorState::Selection(sels, sele, shape))
                     } else {
-                        self.cursors.put(id, sele);
-                        self.anchors.put(id, sels);
+                        Some(CursorState::Selection(sele, sels, shape))
                     }
                 },
                 TargetShape::LineWise => {
@@ -623,8 +520,7 @@ where
                     }
 
                     if lstart > lend {
-                        del.push(id);
-                        continue;
+                        return None;
                     }
 
                     while lstart <= lend && self.text.is_blank_line(lend) {
@@ -641,8 +537,7 @@ where
                         cursor.set_line(lend, cctx);
                     };
 
-                    self.cursors.put(id, cursor);
-                    self.anchors.put(id, anchor);
+                    Some(CursorState::Selection(cursor, anchor, shape))
                 },
                 TargetShape::BlockWise => {
                     // Determine the left and right borders of the block.
@@ -669,8 +564,7 @@ where
                     }
 
                     if lstart > lend {
-                        del.push(id);
-                        continue;
+                        return None;
                     }
 
                     // Remove bottom rows containing whitespace.
@@ -754,33 +648,35 @@ where
                     let ecols = self.get_columns(lend);
 
                     match scols.cmp(&ecols) {
-                        Ordering::Less => {
+                        Ordering::Less | Ordering::Equal => {
                             lc.set_line(lstart, lctx);
                             rc.set_line(lend, rctx);
-
-                            self.anchors.put(id, lc);
-                            self.cursors.put(id, rc);
-                        },
-                        Ordering::Equal => {
-                            lc.set_line(lstart, lctx);
-                            rc.set_line(lend, rctx);
-
-                            self.anchors.put(id, lc);
-                            self.cursors.put(id, rc);
                         },
                         Ordering::Greater => {
                             lc.set_line(lend, lctx);
                             rc.set_line(lstart, rctx);
-
-                            self.anchors.put(id, lc);
-                            self.cursors.put(id, rc);
                         },
                     }
+
+                    Some(CursorState::Selection(rc, lc, shape))
                 },
             }
+        };
+
+        group.members = group.members.iter().filter_map(trim).collect();
+
+        if let Some(leader) = trim(&group.leader) {
+            group.leader = leader;
+        } else if let Some(leader) = group.members.pop() {
+            group.leader = leader;
+        } else {
+            let msg = "No selections remaining".to_string();
+            let err = EditError::Failure(msg);
+
+            return Err(err);
         }
 
-        self.delete_cursors(gid, del);
+        self.set_group(gid, group);
 
         Ok(None)
     }
@@ -837,7 +733,7 @@ mod tests {
 
     macro_rules! selection_rotate {
         ($ebuf: expr, $dir: expr, $count: expr, $ctx: expr) => {
-            $ebuf.cursor_rotate($dir, $count, $ctx).unwrap()
+            $ebuf.cursor_rotate($dir, &$count, $ctx).unwrap()
         };
     }
 
@@ -1378,28 +1274,25 @@ mod tests {
         // Close leader.
         selection_close!(ebuf, &CursorCloseTarget::Leader, ctx!(curid, vwctx, vctx));
 
-        let lsel = (Cursor::new(0, 0), Cursor::new(0, 4), TargetShape::CharWise);
-
+        let lsel = (Cursor::new(2, 0), Cursor::new(2, 4), TargetShape::CharWise);
         let fsels = vec![
-            (Cursor::new(2, 0), Cursor::new(2, 4), TargetShape::CharWise),
+            (Cursor::new(0, 0), Cursor::new(0, 4), TargetShape::CharWise),
             (Cursor::new(3, 0), Cursor::new(3, 4), TargetShape::CharWise),
             (Cursor::new(4, 0), Cursor::new(4, 4), TargetShape::CharWise),
         ];
 
         assert_eq!(ebuf.get_leader_selection(curid), Some(lsel.clone()));
-        assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 4));
+        assert_eq!(ebuf.get_leader(curid), Cursor::new(2, 4));
         assert_eq!(ebuf.get_follower_selections(curid), Some(fsels.clone()));
 
         // Close followers.
         selection_close!(ebuf, &CursorCloseTarget::Followers, ctx!(curid, vwctx, vctx));
 
-        let lsel = (Cursor::new(0, 0), Cursor::new(0, 4), TargetShape::CharWise);
-
-        let fsels = vec![];
+        let lsel = (Cursor::new(2, 0), Cursor::new(2, 4), TargetShape::CharWise);
 
         assert_eq!(ebuf.get_leader_selection(curid), Some(lsel.clone()));
-        assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 4));
-        assert_eq!(ebuf.get_follower_selections(curid), Some(fsels.clone()));
+        assert_eq!(ebuf.get_leader(curid), Cursor::new(2, 4));
+        assert_eq!(ebuf.get_follower_selections(curid), None);
     }
 
     #[test]

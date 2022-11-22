@@ -883,7 +883,7 @@ macro_rules! insert {
         isv!(
             vec![InternalAction::SetInsertStyle($style)],
             vec![ExternalAction::Something(
-                CursorAction::Split(Count::Contextual).into()
+                CursorAction::Split(Count::MinusOne).into()
             )],
             VimMode::Insert
         )
@@ -896,7 +896,7 @@ macro_rules! insert {
                     Specifier::Exact(EditAction::Motion),
                     EditTarget::Motion($mt, Count::Exact(1))
                 )),
-                ExternalAction::Something(CursorAction::Split(Count::Contextual).into()),
+                ExternalAction::Something(CursorAction::Split(Count::MinusOne).into()),
             ],
             VimMode::Insert
         )
@@ -909,7 +909,7 @@ macro_rules! insert {
                     Specifier::Exact(EditAction::Motion),
                     EditTarget::Motion($mt, Count::Exact($c))
                 )),
-                ExternalAction::Something(CursorAction::Split(Count::Contextual).into()),
+                ExternalAction::Something(CursorAction::Split(Count::MinusOne).into()),
             ],
             VimMode::Insert
         )
@@ -937,7 +937,7 @@ macro_rules! open_lines {
         isv!(
             vec![InternalAction::SetInsertStyle(InsertStyle::Insert)],
             vec![
-                ExternalAction::Something(CursorAction::Split(Count::Contextual).into()),
+                ExternalAction::Something(CursorAction::Split(Count::MinusOne).into()),
                 ExternalAction::Something(
                     InsertTextAction::OpenLine(TargetShape::LineWise, $dir, 1.into()).into()
                 )
@@ -992,7 +992,7 @@ macro_rules! change_selection_nochar {
                 ),
                 ExternalAction::Something(SelectionAction::CursorSet($cursor).into()),
                 ExternalAction::Something(Action::Edit(EditAction::Delete.into(), $et)),
-                ExternalAction::Something(CursorAction::Split(Count::Contextual).into()),
+                ExternalAction::Something(CursorAction::Split(Count::MinusOne).into()),
             ],
             VimMode::Insert
         )
@@ -1009,7 +1009,7 @@ macro_rules! insert_visual {
                         .into()
                 ),
                 ExternalAction::Something(SelectionAction::CursorSet($cursor).into()),
-                ExternalAction::Something(CursorAction::Split(Count::Contextual).into()),
+                ExternalAction::Something(CursorAction::Split(Count::MinusOne).into()),
             ],
             VimMode::Insert
         )
@@ -1023,7 +1023,7 @@ macro_rules! insert_visual {
                         .into()
                 ),
                 ExternalAction::Something(SelectionAction::CursorSet($cursor).into()),
-                ExternalAction::Something(CursorAction::Split(Count::Contextual).into()),
+                ExternalAction::Something(CursorAction::Split(Count::MinusOne).into()),
                 ExternalAction::Something(Action::Edit(
                     EditAction::Motion.into(),
                     EditTarget::Motion($mt, $c)
@@ -1045,7 +1045,7 @@ macro_rules! change_visual {
                 ),
                 ExternalAction::Something(SelectionAction::CursorSet($cursor).into()),
                 ExternalAction::Something(Action::Edit(EditAction::Delete.into(), $et)),
-                ExternalAction::Something(CursorAction::Split(Count::Contextual).into()),
+                ExternalAction::Something(CursorAction::Split(Count::MinusOne).into()),
             ],
             VimMode::Insert
         )
@@ -2056,7 +2056,7 @@ mod tests {
         CommandType::Search(MoveDir1D::Previous, false),
     ));
     const CURSOR_CLOSE: Action = Action::Cursor(CursorAction::Close(CursorCloseTarget::Followers));
-    const CURSOR_SPLIT: Action = Action::Cursor(CursorAction::Split(Count::Contextual));
+    const CURSOR_SPLIT: Action = Action::Cursor(CursorAction::Split(Count::MinusOne));
     const SEL_SPLIT: Action = Action::Selection(SelectionAction::Split(
         SelectionSplitStyle::Lines,
         TargetShapeFilter::ALL,

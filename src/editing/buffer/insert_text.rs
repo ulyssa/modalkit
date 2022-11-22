@@ -4,14 +4,15 @@ use crate::editing::{
         Application,
         Char,
         Count,
-        CursorChoice,
         CursorEnd,
         EditContext,
         InsertStyle,
         MoveDir1D,
+        Register,
         TargetShape,
     },
     buffer::{CursorGroupIdContext, EditBuffer},
+    cursor::{Adjustable, CursorChoice, CursorState},
     rope::EditRope,
 };
 
@@ -48,25 +49,31 @@ where
     ) -> EditResult {
         let count = ctx.2.resolve(&count);
         let style = ctx.2.get_insert_style();
-        let cell = self.get_register(&ctx.2.get_register());
+        let cell = self.get_register(&ctx.2.get_register().unwrap_or(Register::Unnamed));
         let text = cell.value.repeat(cell.shape, count);
         let end = ctx.2.get_cursor_end();
 
-        for member in self.get_group(ctx.0) {
-            let cursor = self.get_cursor(member);
+        let gid = ctx.0;
+        let mut group = self.get_group(gid);
+
+        self.push_change(&group);
+
+        for state in group.iter_mut() {
             let (choice, adjs) = if let Some(style) = style {
-                self.text.insert(&cursor, dir, text.clone(), style)
+                self.text.insert(state.cursor(), dir, text.clone(), style)
             } else {
-                self.text.paste(&cursor, dir, text.clone(), cell.shape)
+                self.text.paste(state.cursor(), dir, text.clone(), cell.shape)
             };
 
             self._adjust_all(adjs);
 
-            if let Some(mut cursor) = choice.resolve(end) {
-                self.clamp(&mut cursor, ctx);
-                self.set_cursor(member, cursor)
+            if let Some(cursor) = choice.resolve(end) {
+                state.set(cursor);
+                self.clamp_state(state, ctx);
             }
         }
+
+        self.set_group(gid, group);
 
         Ok(None)
     }
@@ -82,17 +89,23 @@ where
         let text = EditRope::from("\n").repeat(TargetShape::CharWise, count);
         let end = ctx.2.get_cursor_end();
 
-        for member in self.get_group(ctx.0) {
-            let cursor = self.get_cursor(member);
-            let (choice, adjs) = self.text.paste(&cursor, dir, text.clone(), shape);
+        let gid = ctx.0;
+        let mut group = self.get_group(gid);
+
+        self.push_change(&group);
+
+        for state in group.iter_mut() {
+            let (choice, adjs) = self.text.paste(state.cursor(), dir, text.clone(), shape);
 
             self._adjust_all(adjs);
 
-            if let Some(mut cursor) = choice.resolve(end) {
-                self.clamp(&mut cursor, ctx);
-                self.set_cursor(member, cursor);
+            if let Some(cursor) = choice.resolve(end) {
+                state.set(cursor);
+                self.clamp_state(state, ctx);
             }
         }
+
+        self.set_group(gid, group);
 
         Ok(None)
     }
@@ -108,18 +121,31 @@ where
         let count = ctx.2.resolve(&count);
         let end = ctx.2.get_cursor_end();
 
+        let gid = ctx.0;
+        let mut group = self.get_group(gid);
+        let mut adjs = vec![];
+
         let text = EditRope::from(s.as_str()).repeat(TargetShape::CharWise, count);
 
-        for (member, cursor) in self.get_group_cursors(ctx.0).into_iter().rev() {
-            let (choice, adjs) = self.text.insert(&cursor, dir, text.clone(), style);
+        self.push_change(&group);
 
-            self._adjust_all(adjs);
+        for state in group.iter_mut() {
+            state.adjust(adjs.as_slice());
 
-            if let Some(mut cursor) = choice.resolve(end) {
-                self.clamp(&mut cursor, ctx);
-                self.set_cursor(member, cursor);
+            let (choice, mut adj) = self.text.insert(state.cursor(), dir, text.clone(), style);
+
+            if let Some(cursor) = choice.resolve(end) {
+                state.set(cursor);
+                self.clamp_state(state, ctx);
+            } else {
+                state.adjust(adj.as_slice());
             }
+
+            adjs.append(&mut adj);
         }
+
+        self._adjust_all(adjs);
+        self.set_group(gid, group);
 
         Ok(None)
     }
@@ -135,24 +161,42 @@ where
         let count = ctx.2.resolve(&count);
         let end = ctx.2.get_cursor_end();
 
-        for (member, cursor) in self.get_group_cursors(ctx.0).into_iter().rev() {
-            let mut choice = CursorChoice::Single(cursor);
+        let gid = ctx.0;
+        let mut group = self.get_group(gid);
+
+        self.push_change(&group);
+
+        let mut typed: Vec<&mut CursorState> = vec![];
+        let mut adjs = vec![];
+
+        for state in group.iter_mut().rev() {
+            let mut choice = CursorChoice::Single(state.cursor().clone());
 
             for _ in 0..count {
                 if let Some(cursor) = choice.get(CursorEnd::Auto) {
                     let s = self._str(ch.clone(), cursor)?;
                     let text = EditRope::from(s.as_str());
 
-                    let res = self.text.insert(&cursor, dir, text, style);
+                    let mut res = self.text.insert(&cursor, dir, text, style);
                     choice = res.0;
-                    self._adjust_all(res.1);
+
+                    for typed in typed.iter_mut() {
+                        typed.adjust(res.1.as_slice());
+                    }
+
+                    adjs.append(&mut res.1);
                 }
             }
 
             if let Some(cursor) = choice.resolve(end) {
-                self.set_cursor(member, cursor);
+                state.set(cursor);
             }
+
+            typed.push(state);
         }
+
+        self._adjust_all(adjs);
+        self.set_group(gid, group);
 
         Ok(None)
     }

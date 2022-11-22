@@ -20,7 +20,16 @@ use crossterm::{
 
 use crate::editing::action::{EditInfo, EditResult, UIResult, WindowAction};
 
-use crate::editing::base::{Axis, CloseFlags, Count, EditContext, MoveDir1D};
+use crate::editing::base::{
+    Axis,
+    CloseFlags,
+    Count,
+    EditContext,
+    MoveDir1D,
+    MoveDir2D,
+    MovePosition,
+    ScrollSize,
+};
 
 pub mod cmdbar;
 pub mod screen;
@@ -37,6 +46,19 @@ pub trait TerminalCursor {
     /// Returns the current offset of the cursor, relative to the upper left corner of the
     /// terminal.
     fn get_term_cursor(&self) -> Option<TermOffset>;
+}
+
+/// A widget whose content can be scrolled in multiple ways.
+pub trait ScrollActions<C: EditContext> {
+    /// Pan the viewport.
+    fn dirscroll(&mut self, dir: MoveDir2D, size: ScrollSize, count: &Count, ctx: &C)
+        -> EditResult;
+
+    /// Scroll so that the cursor is placed along a viewport boundary.
+    fn cursorpos(&mut self, pos: MovePosition, axis: Axis, ctx: &C) -> EditResult;
+
+    /// Scroll so that a specific line is placed at a given place in the viewport.
+    fn linepos(&mut self, pos: MovePosition, count: &Count, ctx: &C) -> EditResult;
 }
 
 /// A widget that contains content that can be converted into an action when the user is done

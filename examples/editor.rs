@@ -25,6 +25,7 @@ use modalkit::{
             Commandable,
             EditError,
             Editable,
+            Jumpable,
             Promptable,
             Scrollable,
             Searchable,
@@ -190,7 +191,7 @@ impl Editor {
 
             // Simple delegations.
             Action::CommandBar(act) => self.screen.command_bar(act, &ctx)?,
-            Action::Cursor(act) => self.screen.cursor_command(act, &ctx)?,
+            Action::Cursor(act) => self.screen.cursor_command(&act, &ctx)?,
             Action::Edit(action, mov) => self.screen.edit(&ctx.resolve(&action), &mov, &ctx)?,
             Action::History(act) => self.screen.history_command(act, &ctx)?,
             Action::InsertText(act) => self.screen.insert_text(act, &ctx)?,
@@ -202,6 +203,12 @@ impl Editor {
             Action::Suspend => self.terminal.program_suspend()?,
             Action::Tab(cmd) => self.screen.tab_command(cmd, &ctx)?,
             Action::Window(cmd) => self.screen.window_command(cmd, &ctx)?,
+
+            Action::Jump(l, dir, count) => {
+                let _ = self.screen.jump(l, dir, ctx.resolve(&count), &ctx)?;
+
+                None
+            },
 
             // UI actions.
             Action::RedrawScreen => {
@@ -230,11 +237,6 @@ impl Editor {
                 None
             },
 
-            // Unimplemented.
-            Action::Jump(_, _, _) => {
-                // XXX: implement
-                None
-            },
             Action::Complete(_, _) => {
                 // XXX: implement
                 None

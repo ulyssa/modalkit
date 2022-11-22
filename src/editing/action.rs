@@ -36,6 +36,7 @@
 //! let _: Action = Action::Scroll(ScrollStyle::LinePos(MovePosition::Beginning, 10.into()));
 //! ```
 use crate::{
+    editing::store::BufferId,
     input::bindings::SequenceStatus,
     input::commands::{Command, CommandError, CommandMachine},
     input::key::MacroError,
@@ -100,7 +101,7 @@ pub trait Editable<C> {
     /// Perform an editing operation over the targeted text.
     fn edit(&mut self, action: &EditAction, target: &EditTarget, ctx: &C) -> EditResult;
 
-    /// Create or update a cursor mark.
+    /// Create or update a cursor mark based on the leader's cursor position.
     fn mark(&mut self, name: Mark, ctx: &C) -> EditResult;
 
     /// Insert text relative to the current cursor position.
@@ -110,7 +111,7 @@ pub trait Editable<C> {
     fn selection_command(&mut self, act: SelectionAction, ctx: &C) -> EditResult;
 
     /// Perform an action over a cursor group.
-    fn cursor_command(&mut self, act: CursorAction, ctx: &C) -> EditResult;
+    fn cursor_command(&mut self, act: &CursorAction, ctx: &C) -> EditResult;
 
     /// Move to a different point in the buffer's editing history.
     fn history_command(&mut self, act: HistoryAction, ctx: &C) -> EditResult;
@@ -189,10 +190,22 @@ pub enum CursorAction {
     /// Close the [targeted cursors](CursorCloseTarget) in the current cursor group.
     Close(CursorCloseTarget),
 
+    /// Restore a saved cursor group.
+    ///
+    /// If a combining style is specified, then the saved group will be merged with the current one
+    /// as specified.
+    Restore(CursorGroupCombineStyle),
+
     /// Rotate which cursor in the cursor group is the current leader .
     Rotate(MoveDir1D, Count),
 
-    /// Convert a cursor into [*n*](Count) cursors.
+    /// Save the current cursor group.
+    ///
+    /// If a combining style is specified, then the current group will be merged with any
+    /// previously saved group as specified.
+    Save(CursorGroupCombineStyle),
+
+    /// Split each cursor in the cursor group [*n*](Count) times.
     Split(Count),
 }
 
@@ -393,9 +406,12 @@ pub enum Action<P: Application = ()> {
     InsertText(InsertTextAction),
 
     /// Navigate through the cursor positions in [the specified list](PositionList).
+    ///
+    /// If the current window cannot satisfy the given [Count], then this may jump to other
+    /// windows.
     Jump(PositionList, MoveDir1D, Count),
 
-    /// Create a new [Mark] at the current cursor position.
+    /// Create a new [Mark] at the current leader position.
     Mark(Specifier<Mark>),
 
     /// Repeat an action sequence with the current context.
@@ -661,6 +677,20 @@ impl<P: Application> From<TabAction> for Action<P> {
     }
 }
 
+/// Trait for objects that can move through a [PositionList].
+pub trait Jumpable<C> {
+    /// Move through a [PositionList] in [MoveDir1D] direction `count` times.
+    ///
+    /// The result indicates any leftover `count`.
+    fn jump(
+        &mut self,
+        list: PositionList,
+        dir: MoveDir1D,
+        count: usize,
+        ctx: &C,
+    ) -> UIResult<usize>;
+}
+
 /// Trait for objects that can be scrolled.
 pub trait Scrollable<C> {
     /// Scroll the viewable content in this object.
@@ -710,14 +740,6 @@ pub enum EditError {
     #[error("No current selection")]
     NoSelection,
 
-    /// Failure due to an invalid cursor group.
-    #[error("Invalid cursor group")]
-    InvalidCursorGroup,
-
-    /// Failure due to an invalid cursor.
-    #[error("Invalid cursor")]
-    InvalidCursor,
-
     /// Failure due to an umapped digraph.
     #[error("Invalid digraph: {0:?} {1:?}")]
     InvalidDigraph(char, char),
@@ -730,6 +752,14 @@ pub enum EditError {
     #[error("Mark not set")]
     MarkNotSet(Mark),
 
+    /// Failure due to referencing a cursor position in another buffer.
+    #[error("Position is located in another buffer")]
+    WrongBuffer(BufferId),
+
+    /// Failure while combining cursor groups.
+    #[error("Failed to combine cursor groups: {0}")]
+    CursorGroupCombine(#[from] super::cursor::CursorGroupCombineError),
+
     /// Failure due to invalid input where an integer was expected.
     #[error("Integer conversion error: {0}")]
     IntConversionError(#[from] std::num::TryFromIntError),
@@ -738,7 +768,7 @@ pub enum EditError {
     #[error("Unimplemented: {0}")]
     Unimplemented(String),
 
-    /// Generic failure.
+    /// Macro-related failure.
     #[error("Macro error: {0}")]
     MacroFailure(#[from] MacroError),
 
@@ -762,6 +792,10 @@ pub enum UIError {
     /// Failure while attempting to execute a command.
     #[error("Failed command: {0}")]
     CommandFailure(#[from] CommandError),
+
+    /// Failure while attempting to jump to previous positions.
+    #[error("No previous positions in list")]
+    NoList(PositionList),
 
     /// Failure when there's no currently selected tab.
     #[error("No tab currently selected")]

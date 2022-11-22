@@ -1031,7 +1031,7 @@ impl<Key: InputKey, S: Step<Key>> ModalMachine<Key, S> {
         self.goto_mode(ms.unwrap_or(self.state));
     }
 
-    /// Process mutliple input keys.
+    /// Process multiple input keys.
     pub fn execute(&mut self, input: Vec<Key>) -> InputIterator<'_, Key, S> {
         InputIterator { bindings: self, keys: input.into_iter() }
     }

@@ -2,14 +2,23 @@
 //!
 //! ## Overview
 //!
-//! This module contains the types and logic for representing cursors and their manipulations
-//! within a buffer.
+//! This module contains the types and logic for representing cursors, selections, cursor groups
+//! and manipulating them within a buffer.
 //!
 use std::cmp::{Ord, Ordering, PartialOrd};
+use std::collections::VecDeque;
 
 use crate::util::sort2;
 
 use super::base::Wrappable;
+
+mod choice;
+mod group;
+mod state;
+
+pub use choice::CursorChoice;
+pub use group::{CursorGroup, CursorGroupCombineError, CursorGroupIter, CursorGroupIterMut};
+pub use state::{CursorState, Selection, Selections};
 
 /// Represents a movable point within a document.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -62,13 +71,6 @@ impl Cursor {
     pub(crate) fn goal(mut self, goal: usize) -> Cursor {
         self.xgoal = goal;
         self
-    }
-
-    /// Zero out this cursor's line and column.
-    pub fn zero(&mut self) {
-        self.xgoal = 0;
-        self.x = 0;
-        self.y = 0;
     }
 
     /// Set the column for this cursor.
@@ -124,8 +126,7 @@ impl Cursor {
         }
     }
 
-    /// Apply a [CursorAdjustment] to this cursor.
-    pub fn adjust(&mut self, adj: &CursorAdjustment) {
+    fn adjust1(&mut self, adj: &CursorAdjustment) {
         match adj {
             CursorAdjustment::Line { line_start, line_end, amount, amount_after } => {
                 if self.y >= *line_start && self.y <= *line_end {
@@ -161,6 +162,64 @@ impl Cursor {
         }
 
         self.xgoal.cmp(&other.xgoal)
+    }
+}
+
+/// Trait for adjusting cursors and objects that contain cursors.
+pub trait Adjustable {
+    /// Zero out the line and column of any contained cursors.
+    fn zero(&mut self);
+
+    /// Apply a [CursorAdjustment] to any applicable cursors.
+    fn adjust(&mut self, adj: &[CursorAdjustment]);
+}
+
+impl<T> Adjustable for Vec<T>
+where
+    T: Adjustable,
+{
+    fn zero(&mut self) {
+        for item in self.iter_mut() {
+            item.zero();
+        }
+    }
+
+    fn adjust(&mut self, adj: &[CursorAdjustment]) {
+        for item in self.iter_mut() {
+            item.adjust(adj);
+        }
+    }
+}
+
+impl<T> Adjustable for VecDeque<T>
+where
+    T: Adjustable,
+{
+    fn zero(&mut self) {
+        for item in self.iter_mut() {
+            item.zero();
+        }
+    }
+
+    fn adjust(&mut self, adj: &[CursorAdjustment]) {
+        for item in self.iter_mut() {
+            item.adjust(adj);
+        }
+    }
+}
+
+impl Adjustable for Cursor {
+    /// Zero out this cursor's line and column.
+    fn zero(&mut self) {
+        self.xgoal = 0;
+        self.x = 0;
+        self.y = 0;
+    }
+
+    fn adjust(&mut self, adjs: &[CursorAdjustment]) {
+        for adj in adjs {
+            self.adjust1(adj);
+        }
     }
 }
 

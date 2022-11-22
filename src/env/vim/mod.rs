@@ -169,7 +169,7 @@ impl<P: Application> Mode<Action<P>, VimContext<P>> for VimMode {
     }
 
     fn show(&self, ctx: &VimContext<P>) -> Option<String> {
-        let recording = ctx.persist.recording.map(register_to_char);
+        let recording = ctx.persist.recording.and_then(register_to_char);
 
         let msg = match self {
             VimMode::Visual => {
@@ -601,21 +601,22 @@ impl<P: Application> Resolve<Specifier<EditAction>, EditAction> for VimContext<P
     }
 }
 
-fn register_to_char((reg, append): (Register, bool)) -> String {
+fn register_to_char((reg, append): (Register, bool)) -> Option<String> {
     let c = match reg {
         Register::Named(c) => {
             if append {
-                return c.to_uppercase().to_string();
+                return c.to_uppercase().to_string().into();
             } else {
-                return c.to_string();
+                return c.to_string().into();
             }
         },
         Register::RecentlyDeleted(n) => {
-            return n.to_string();
+            return (n + 1).to_string().into();
         },
 
         Register::Unnamed => '"',
         Register::UnnamedMacro => '@',
+        Register::UnnamedCursorGroup => return None,
         Register::SmallDelete => '-',
         Register::LastCommand => ':',
         Register::LastInserted => '.',
@@ -628,7 +629,7 @@ fn register_to_char((reg, append): (Register, bool)) -> String {
         Register::SelectionClipboard => '+',
     };
 
-    return c.to_string();
+    return c.to_string().into();
 }
 
 fn char_to_register(c: char) -> Option<(Register, bool)> {
@@ -747,5 +748,33 @@ mod tests {
         // Mode string when replacing text.
         ctx.persist.insert = Some(InsertStyle::Replace);
         assert_eq!(insert.show(&ctx).unwrap(), "-- REPLACE --");
+    }
+
+    #[test]
+    fn test_char_to_register() {
+        assert_eq!(char_to_register('a'), Some((Register::Named('a'), false)));
+        assert_eq!(char_to_register('A'), Some((Register::Named('a'), true)));
+        assert_eq!(char_to_register('0'), Some((Register::LastYanked, false)));
+        assert_eq!(char_to_register('1'), Some((Register::RecentlyDeleted(0), false)));
+        assert_eq!(char_to_register('3'), Some((Register::RecentlyDeleted(2), false)));
+        assert_eq!(char_to_register('"'), Some((Register::Unnamed, false)));
+        assert_eq!(char_to_register('/'), Some((Register::LastSearch, false)));
+
+        // Unmapped names.
+        assert_eq!(char_to_register('['), None);
+    }
+
+    #[test]
+    fn test_register_to_char() {
+        assert_eq!(register_to_char((Register::Named('a'), false)).unwrap(), "a");
+        assert_eq!(register_to_char((Register::Named('a'), true)).unwrap(), "A");
+        assert_eq!(register_to_char((Register::LastYanked, false)).unwrap(), "0");
+        assert_eq!(register_to_char((Register::RecentlyDeleted(0), false)).unwrap(), "1");
+        assert_eq!(register_to_char((Register::RecentlyDeleted(2), false)).unwrap(), "3");
+        assert_eq!(register_to_char((Register::Unnamed, false)).unwrap(), "\"");
+        assert_eq!(register_to_char((Register::LastSearch, false)).unwrap(), "/");
+
+        // Registers that don't have names.
+        assert_eq!(register_to_char((Register::UnnamedCursorGroup, false)), None);
     }
 }
