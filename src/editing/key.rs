@@ -29,7 +29,7 @@ use std::collections::VecDeque;
 use crate::input::{bindings::BindingMachine, key::InputKey, InputContext};
 
 use super::{
-    action::{EditError, EditResult, MacroAction},
+    action::{EditError, EditInfo, EditResult, MacroAction},
     application::ApplicationInfo,
     base::Register,
     context::EditContext,
@@ -75,21 +75,21 @@ where
     /// Process a macro action.
     pub fn macro_command<I: ApplicationInfo>(
         &mut self,
-        act: MacroAction,
+        act: &MacroAction,
         ctx: &C,
         store: &mut Store<I>,
-    ) -> EditResult {
+    ) -> EditResult<EditInfo, I> {
         let (mstr, count) = match act {
             MacroAction::Execute(count) => {
                 let reg = ctx.get_register().unwrap_or(Register::UnnamedMacro);
                 let rope = store.registers.get_macro(reg);
 
-                (rope.to_string(), ctx.resolve(&count))
+                (rope.to_string(), ctx.resolve(count))
             },
             MacroAction::Repeat(count) => {
                 let rope = store.registers.get_last_macro().ok_or(EditError::NoMacro)?;
 
-                (rope.to_string(), ctx.resolve(&count))
+                (rope.to_string(), ctx.resolve(count))
             },
             MacroAction::ToggleRecording => {
                 if let Some((reg, append)) = self.recording {
@@ -368,7 +368,7 @@ mod tests {
                     match act {
                         TestAction::NoOp => continue,
                         TestAction::Macro(act) => {
-                            let _ = bindings.macro_command(act, &ctx, store).unwrap();
+                            let _ = bindings.macro_command(&act, &ctx, store).unwrap();
                         },
                         TestAction::SetFlag => {
                             *flag = true;

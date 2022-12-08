@@ -24,7 +24,7 @@ macro_rules! edit {
 
 macro_rules! paste {
     ($ebuf: expr, $dir: expr, $c: expr, $ctx: expr, $store: expr) => {
-        $ebuf.paste($dir, $c, $ctx, &mut $store).unwrap()
+        $ebuf.paste($dir, &$c, $ctx, &mut $store).unwrap()
     };
 }
 
@@ -58,7 +58,7 @@ macro_rules! type_char {
             .type_char(
                 Char::Single($c).into(),
                 MoveDir1D::Previous,
-                1.into(),
+                &1.into(),
                 ctx!($curid, $vwctx, $vctx),
                 &mut $store,
             )

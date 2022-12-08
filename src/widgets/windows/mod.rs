@@ -14,20 +14,23 @@ use std::marker::PhantomData;
 
 use tui::layout::Rect;
 
-use crate::editing::action::EditResult;
-
-use crate::editing::base::{
-    Axis,
-    CloseFlags,
-    CloseTarget,
-    Count,
-    FocusChange,
-    MoveDir1D,
-    MoveDir2D,
-    SizeChange,
+use crate::editing::{
+    action::{EditInfo, EditResult, UIResult},
+    application::ApplicationInfo,
+    base::{
+        Axis,
+        CloseFlags,
+        CloseTarget,
+        Count,
+        FocusChange,
+        MoveDir1D,
+        MoveDir2D,
+        OpenTarget,
+        SizeChange,
+    },
+    context::EditContext,
+    store::Store,
 };
-
-use super::Window;
 
 use self::layout::LayoutOps;
 use self::size::{ResizeInfo, SizeDescription, MIN_WIN_LEN};
@@ -35,11 +38,12 @@ use self::tree::SubtreeOps;
 
 mod layout;
 mod size;
+mod slot;
 mod tree;
 
 pub use self::layout::{WindowLayout, WindowLayoutState};
 
-pub(self) struct AxisTreeNode<W: Window, X: AxisT, Y: AxisT> {
+pub(self) struct AxisTreeNode<W, X: AxisT, Y: AxisT> {
     pub(self) value: Value<W, X, Y>,
     pub(self) info: Info,
     pub(self) left: Option<Box<Self>>,
@@ -56,7 +60,7 @@ struct Info {
 }
 
 impl Info {
-    fn from<W: Window, X: AxisT, Y: AxisT>(
+    fn from<W, X: AxisT, Y: AxisT>(
         value: &Value<W, X, Y>,
         left: &AxisTree<W, X, Y>,
         right: &AxisTree<W, X, Y>,
@@ -125,12 +129,16 @@ impl Default for WindowInfo {
     }
 }
 
-pub(self) enum Value<W: Window, X: AxisT, Y: AxisT> {
+pub(self) enum Value<W, X: AxisT, Y: AxisT> {
     Window(W, WindowInfo),
     Tree(Box<AxisTreeNode<W, Y, X>>, TreeInfo),
 }
 
-impl<W: Window, X: AxisT, Y: AxisT> Value<W, X, Y> {
+impl<W, X, Y> Value<W, X, Y>
+where
+    X: AxisT,
+    Y: AxisT,
+{
     fn area(&self) -> Rect {
         match self {
             Value::Window(_, info) => info.area,
@@ -139,37 +147,61 @@ impl<W: Window, X: AxisT, Y: AxisT> Value<W, X, Y> {
     }
 }
 
-impl<W: Window, X: AxisT, Y: AxisT> From<W> for Value<W, X, Y> {
+impl<W, X, Y> From<W> for Value<W, X, Y>
+where
+    X: AxisT,
+    Y: AxisT,
+{
     fn from(w: W) -> Self {
         Value::Window(w, WindowInfo::default())
     }
 }
 
-impl<W: Window, X: AxisT, Y: AxisT> From<AxisTreeNode<W, Y, X>> for Value<W, X, Y> {
+impl<W, X, Y> From<AxisTreeNode<W, Y, X>> for Value<W, X, Y>
+where
+    X: AxisT,
+    Y: AxisT,
+{
     fn from(tree: AxisTreeNode<W, Y, X>) -> Self {
         Value::Tree(Box::new(tree), TreeInfo::default())
     }
 }
 
-impl<W: Window, X: AxisT, Y: AxisT> From<AxisTreeNode<W, X, Y>> for AxisTree<W, X, Y> {
+impl<W, X, Y> From<AxisTreeNode<W, X, Y>> for AxisTree<W, X, Y>
+where
+    X: AxisT,
+    Y: AxisT,
+{
     fn from(node: AxisTreeNode<W, X, Y>) -> AxisTree<W, X, Y> {
         Some(Box::new(node))
     }
 }
 
-impl<W: Window, X: AxisT, Y: AxisT> From<Value<W, X, Y>> for AxisTree<W, X, Y> {
+impl<W, X, Y> From<Value<W, X, Y>> for AxisTree<W, X, Y>
+where
+    X: AxisT,
+    Y: AxisT,
+{
     fn from(value: Value<W, X, Y>) -> AxisTree<W, X, Y> {
         Some(Box::new(AxisTreeNode::from(value)))
     }
 }
 
-impl<W: Window, X: AxisT, Y: AxisT> From<Value<W, X, Y>> for AxisTreeNode<W, X, Y> {
+impl<W, X, Y> From<Value<W, X, Y>> for AxisTreeNode<W, X, Y>
+where
+    X: AxisT,
+    Y: AxisT,
+{
     fn from(value: Value<W, X, Y>) -> AxisTreeNode<W, X, Y> {
         AxisTreeNode::new(value, None, None)
     }
 }
 
-impl<W: Window, X: AxisT, Y: AxisT> From<W> for AxisTreeNode<W, X, Y> {
+impl<W, X, Y> From<W> for AxisTreeNode<W, X, Y>
+where
+    X: AxisT,
+    Y: AxisT,
+{
     fn from(window: W) -> AxisTreeNode<W, X, Y> {
         AxisTreeNode::from(Value::from(window))
     }
@@ -207,34 +239,95 @@ pub(self) fn winnr_cmp(at: usize, lsize: usize, vsize: usize) -> (Ordering, usiz
     }
 }
 
-pub(super) trait WindowActions<W: Window, C> {
+pub(super) trait WindowActions<C, I>
+where
+    C: EditContext,
+    I: ApplicationInfo,
+{
     /// Close one or more [Windows](Window).
-    fn window_close(&mut self, target: CloseTarget, flags: CloseFlags, ctx: &C) -> EditResult;
+    fn window_close(
+        &mut self,
+        target: &CloseTarget,
+        flags: CloseFlags,
+        ctx: &C,
+        store: &mut Store<I>,
+    ) -> EditResult<EditInfo, I>;
 
     /// Swap the placement of the currently focused [Window] with another.
-    fn window_exchange(&mut self, change: &FocusChange, ctx: &C) -> EditResult;
+    fn window_exchange(
+        &mut self,
+        change: &FocusChange,
+        ctx: &C,
+        store: &mut Store<I>,
+    ) -> EditResult<EditInfo, I>;
 
     /// Switch focus to a different [Window].
-    fn window_focus(&mut self, change: &FocusChange, ctx: &C) -> EditResult;
+    fn window_focus(
+        &mut self,
+        change: &FocusChange,
+        ctx: &C,
+        store: &mut Store<I>,
+    ) -> EditResult<EditInfo, I>;
 
     /// Move the currently focused [Window] to occupy a whole side of the screen.
-    fn window_move_side(&mut self, dir: MoveDir2D, ctx: &C) -> EditResult;
+    fn window_move_side(
+        &mut self,
+        dir: MoveDir2D,
+        ctx: &C,
+        store: &mut Store<I>,
+    ) -> EditResult<EditInfo, I>;
 
     /// Change the size of the currently focused [Window].
-    fn window_clear_sizes(&mut self, ctx: &C) -> EditResult;
+    fn window_clear_sizes(&mut self, ctx: &C, store: &mut Store<I>) -> EditResult<EditInfo, I>;
 
     /// Change the size of the currently focused [Window].
-    fn window_resize(&mut self, axis: Axis, size: SizeChange<Count>, ctx: &C) -> EditResult;
+    fn window_resize(
+        &mut self,
+        axis: Axis,
+        size: &SizeChange<Count>,
+        ctx: &C,
+        store: &mut Store<I>,
+    ) -> EditResult<EditInfo, I>;
 
     /// Rotate the placement of the windows in either the row or column of the currently focused
     /// [Window].
-    fn window_rotate(&mut self, dir: MoveDir1D, ctx: &C) -> EditResult;
+    fn window_rotate(
+        &mut self,
+        dir: MoveDir1D,
+        ctx: &C,
+        store: &mut Store<I>,
+    ) -> EditResult<EditInfo, I>;
 
     /// Split the currently focused [Window] [*n* times](Count), with each new [Window] showing the
     /// same content.
-    fn window_split(&mut self, axis: Axis, rel: MoveDir1D, count: Count, ctx: &C) -> EditResult;
+    fn window_split(
+        &mut self,
+        target: &OpenTarget<I::WindowId>,
+        axis: Axis,
+        rel: MoveDir1D,
+        count: &Count,
+        ctx: &C,
+        store: &mut Store<I>,
+    ) -> UIResult<EditInfo, I>;
+
+    fn window_open(
+        &mut self,
+        target: &OpenTarget<I::WindowId>,
+        axis: Axis,
+        rel: MoveDir1D,
+        count: &Count,
+        ctx: &C,
+        store: &mut Store<I>,
+    ) -> UIResult<EditInfo, I>;
+
+    fn window_switch(
+        &mut self,
+        target: &OpenTarget<I::WindowId>,
+        ctx: &C,
+        store: &mut Store<I>,
+    ) -> UIResult<EditInfo, I>;
 
     /// Zoom in on the currently focused window. If we're already zoomed in on a window, return to
     /// showing all windows.
-    fn window_zoom_toggle(&mut self, ctx: &C) -> EditResult;
+    fn window_zoom_toggle(&mut self, ctx: &C, store: &mut Store<I>) -> EditResult<EditInfo, I>;
 }

@@ -5,7 +5,7 @@ use crate::editing::rope::PrivateCursorOps;
 use crate::util::sort2;
 
 use crate::editing::{
-    action::{EditAction, EditError, EditResult},
+    action::{EditAction, EditError, EditInfo, EditResult},
     application::ApplicationInfo,
     base::{
         Count,
@@ -35,34 +35,34 @@ where
         side: &SelectionCursorChange,
         ctx: &C,
         store: &mut Store<I>,
-    ) -> EditResult;
+    ) -> EditResult<EditInfo, I>;
 
     /// Duplicate existing selections onto the lines below them.
     fn selection_duplicate(
         &mut self,
         dir: MoveDir1D,
-        count: Count,
+        count: &Count,
         ctx: &C,
         store: &mut Store<I>,
-    ) -> EditResult;
+    ) -> EditResult<EditInfo, I>;
 
     /// Change the boundaries of the selection to be exactly those of the range.
     fn selection_resize(
         &mut self,
-        style: SelectionResizeStyle,
+        style: &SelectionResizeStyle,
         target: &EditTarget,
         ctx: &C,
         store: &mut Store<I>,
-    ) -> EditResult;
+    ) -> EditResult<EditInfo, I>;
 
     /// Split a multiline selection into multiple single-line selections.
     fn selection_split(
         &mut self,
-        style: SelectionSplitStyle,
+        style: &SelectionSplitStyle,
         filter: TargetShapeFilter,
         ctx: &C,
         store: &mut Store<I>,
-    ) -> EditResult;
+    ) -> EditResult<EditInfo, I>;
 
     /// Remove whitespace from the ends of matching selections.
     fn selection_trim(
@@ -70,7 +70,7 @@ where
         filter: TargetShapeFilter,
         ctx: &C,
         store: &mut Store<I>,
-    ) -> EditResult;
+    ) -> EditResult<EditInfo, I>;
 }
 
 impl<'a, 'b, 'c, C, I> SelectionActions<CursorGroupIdContext<'a, 'b, C>, I> for EditBuffer<I>
@@ -83,7 +83,7 @@ where
         side: &SelectionCursorChange,
         ctx: &CursorGroupIdContext<'a, 'b, C>,
         _: &mut Store<I>,
-    ) -> EditResult {
+    ) -> EditResult<EditInfo, I> {
         let gid = ctx.0;
         let mut group = self.get_group(gid);
 
@@ -169,12 +169,12 @@ where
     fn selection_duplicate(
         &mut self,
         dir: MoveDir1D,
-        count: Count,
+        count: &Count,
         ictx: &CursorGroupIdContext<'a, 'b, C>,
         _: &mut Store<I>,
-    ) -> EditResult {
+    ) -> EditResult<EditInfo, I> {
         let gid = ictx.0;
-        let count = ictx.2.resolve(&count);
+        let count = ictx.2.resolve(count);
         let lines = self.text.get_lines();
         let lastcol = ictx.2.get_last_column();
 
@@ -256,11 +256,11 @@ where
 
     fn selection_resize(
         &mut self,
-        style: SelectionResizeStyle,
+        style: &SelectionResizeStyle,
         target: &EditTarget,
         ictx: &CursorGroupIdContext<'a, 'b, C>,
         store: &mut Store<I>,
-    ) -> EditResult {
+    ) -> EditResult<EditInfo, I> {
         let ctx = &self._ctx_cgi2es(&EditAction::Motion, ictx);
         let gid = ictx.0;
         let shape = ctx.context.get_target_shape();
@@ -371,11 +371,11 @@ where
 
     fn selection_split(
         &mut self,
-        style: SelectionSplitStyle,
+        style: &SelectionSplitStyle,
         filter: TargetShapeFilter,
         ctx: &CursorGroupIdContext<'a, 'b, C>,
         _: &mut Store<I>,
-    ) -> EditResult {
+    ) -> EditResult<EditInfo, I> {
         let gid = ctx.0;
         let mut group = self.get_group(gid);
         let mut created = vec![];
@@ -477,7 +477,7 @@ where
         filter: TargetShapeFilter,
         ctx: &CursorGroupIdContext<'a, 'b, C>,
         _: &mut Store<I>,
-    ) -> EditResult {
+    ) -> EditResult<EditInfo, I> {
         let gid = ctx.0;
         let lastcol = ctx.2.get_last_column();
         let mut group = self.get_group(gid);
@@ -734,7 +734,7 @@ mod tests {
     macro_rules! selection_extend {
         ($ebuf: expr, $et: expr, $ctx: expr, $store: expr) => {
             $ebuf
-                .selection_resize(SelectionResizeStyle::Extend, &$et, $ctx, &mut $store)
+                .selection_resize(&SelectionResizeStyle::Extend, &$et, $ctx, &mut $store)
                 .unwrap()
         };
     }
@@ -742,7 +742,7 @@ mod tests {
     macro_rules! selection_restart {
         ($ebuf: expr, $et: expr, $ctx: expr, $store: expr) => {
             $ebuf
-                .selection_resize(SelectionResizeStyle::Restart, &$et, $ctx, &mut $store)
+                .selection_resize(&SelectionResizeStyle::Restart, &$et, $ctx, &mut $store)
                 .unwrap()
         };
     }
@@ -755,7 +755,7 @@ mod tests {
 
     macro_rules! selection_duplicate {
         ($ebuf: expr, $dir: expr, $count: expr, $ctx: expr, $store: expr) => {
-            $ebuf.selection_duplicate($dir, $count, $ctx, &mut $store).unwrap()
+            $ebuf.selection_duplicate($dir, &$count, $ctx, &mut $store).unwrap()
         };
     }
 
@@ -773,7 +773,7 @@ mod tests {
 
     macro_rules! selection_split {
         ($ebuf: expr, $style: expr, $filter: expr, $ctx: expr, $store: expr) => {
-            $ebuf.selection_split($style, $filter, $ctx, &mut $store).unwrap()
+            $ebuf.selection_split(&$style, $filter, $ctx, &mut $store).unwrap()
         };
     }
 

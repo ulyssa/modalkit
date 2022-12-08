@@ -4,6 +4,127 @@
 //!
 //! These components allow parsing Vim commands and turning them into
 //! [actions](crate::editing::action::Action).
+//!
+//! ## Default Commands
+//!
+//! ### `read`
+//!
+//! *Aliases:* `r`
+//!
+//! Read the contents of a file or program output into the buffer.
+//!
+//! ### `print`
+//!
+//! *Aliases:* `p`
+//!
+//! Print lines in the given range.
+//!
+//! ### `substitute`
+//!
+//! *Aliases:* `s`
+//!
+//! Replace regular expression matches with a substitution.
+//!
+//! ### `close`
+//!
+//! *Aliases:* `clo`
+//!
+//! Close a window.
+//!
+//! ### `only`
+//!
+//! *Aliases:* `on`
+//!
+//! Close all windows but one.
+//!
+//! ### `quit`
+//!
+//! *Aliases:* `q`
+//!
+//! Quit a window.
+//!
+//! ### `quitall`
+//!
+//! *Aliases:* `qa`, `qall`, `quita`
+//!
+//! Quit all windows in the current tab.
+//!
+//! ### `split`
+//!
+//! *Aliases:* `sp`
+//!
+//! Split the window. If an argument is given, then it will be opened with [OpenTarget::Name].
+//!
+//! ### `vsplit`
+//!
+//! *Aliases:* `vs`, `vsp`
+//!
+//! Split the window vertically. If an argument is given, then it will be opened with
+//! [OpenTarget::Name].
+//!
+//! ### `tabclose`
+//!
+//! *Aliases:* `tabc`
+//!
+//! Close a tab.
+//!
+//! ### `tabedit`
+//!
+//! *Aliases:* `tabe`, `tabnew`
+//!
+//! Open a new tab. If an argument is given, then a window will be opened with [OpenTarget::Name]
+//! and inserted into the new tab.
+//!
+//! ### `tabnext`
+//!
+//! *Aliases:* `tabn`
+//!
+//! Switch focus to a following tab.
+//!
+//! ### `tabonly`
+//!
+//! *Aliases:* `tabo`
+//!
+//! Close all tabs but one.
+//!
+//! ### `tabprevious`
+//!
+//! *Aliases:* `tabp`, `tabNext`, `tabN`
+//!
+//! Switch focus to a previous tab.
+//!
+//! ### `tabrewind`
+//!
+//! *Aliases:* `tabr`, `tabfirst`, `tabfir`
+//!
+//! Switch focus to the first tab.
+//!
+//! ### `tablast`
+//!
+//! *Aliases:* `tabl`
+//!
+//! Switch focus to the last tab.
+//!
+//! ### `vertical`
+//!
+//! *Aliases:* `vert`
+//!
+//! Modify the following command to open a window vertically.
+//!
+//! For example, `:vertical split` will behave like `:vsplit`.
+//!
+//! ### `leftabove`
+//!
+//! *Aliases:* `lefta`, `aboveleft`, `abo`
+//!
+//! Modify the following command to open the window before the current one.
+//!
+//! ### `rightbelow`
+//!
+//! *Aliases:* `rightb`, `belowright`, `bel`
+//!
+//! Modify the following command to open the window after the current one.
+//!
 use std::cmp::Ordering;
 use std::fmt;
 
@@ -12,7 +133,7 @@ use crate::input::InputContext;
 
 use crate::editing::{
     action::{Action, TabAction, WindowAction},
-    application::{ApplicationInfo, EmptyInfo},
+    application::{ApplicationInfo, ApplicationWindowId, EmptyInfo},
     base::{
         Axis,
         CloseFlags,
@@ -22,6 +143,7 @@ use crate::editing::{
         FocusChange,
         MoveDir1D,
         MovePosition,
+        OpenTarget,
         RangeEnding,
         RangeEndingModifier,
         RangeEndingType,
@@ -247,6 +369,24 @@ fn window_range_target<C: EditContext>(
         .unwrap_or(Ok(FocusChange::Current))
 }
 
+fn open_target<I: ApplicationWindowId>(
+    desc: &CommandDescription,
+) -> Result<Option<OpenTarget<I>>, CommandError> {
+    let args = desc.arg.filenames();
+
+    if args.len() > 1 {
+        return Err(CommandError::InvalidArgument);
+    }
+
+    Ok(args.into_iter().next().map(OpenTarget::Name))
+}
+
+fn window_open_target<I: ApplicationWindowId>(
+    desc: &CommandDescription,
+) -> Result<OpenTarget<I>, CommandError> {
+    Ok(open_target(desc)?.unwrap_or(OpenTarget::Current))
+}
+
 fn window_close<C: EditContext, I: ApplicationInfo>(
     desc: CommandDescription,
     ctx: &mut CommandContext<C>,
@@ -315,25 +455,27 @@ fn window_quitall<C: EditContext, I: ApplicationInfo>(
 }
 
 fn window_split_horizontal<C: EditContext, I: ApplicationInfo>(
-    _: CommandDescription,
+    desc: CommandDescription,
     ctx: &mut CommandContext<C>,
 ) -> CommandResult<C, I> {
     let rel = ctx.rel.unwrap_or(MoveDir1D::Previous);
     let axis = ctx.axis.unwrap_or(Axis::Horizontal);
-    let action = WindowAction::Split(axis, rel, Count::Exact(1)).into();
+    let target = window_open_target(&desc)?;
+    let action = WindowAction::Split(target, axis, rel, Count::Exact(1));
 
-    Ok(CommandStep::Continue(action, ctx.context.take()))
+    Ok(CommandStep::Continue(action.into(), ctx.context.take()))
 }
 
 fn window_split_vertical<C: EditContext, I: ApplicationInfo>(
-    _: CommandDescription,
+    desc: CommandDescription,
     ctx: &mut CommandContext<C>,
 ) -> CommandResult<C, I> {
     let rel = ctx.rel.unwrap_or(MoveDir1D::Previous);
     let axis = ctx.axis.unwrap_or(Axis::Vertical);
-    let action = WindowAction::Split(axis, rel, Count::Exact(1)).into();
+    let target = window_open_target(&desc)?;
+    let action = WindowAction::Split(target, axis, rel, Count::Exact(1));
 
-    Ok(CommandStep::Continue(action, ctx.context.take()))
+    Ok(CommandStep::Continue(action.into(), ctx.context.take()))
 }
 
 fn tab_next<C: EditContext, I: ApplicationInfo>(
@@ -430,11 +572,15 @@ fn tab_new<C: EditContext, I: ApplicationInfo>(
     desc: CommandDescription,
     ctx: &mut CommandContext<C>,
 ) -> CommandResult<C, I> {
+    let target = open_target(&desc)?;
     let change = desc
         .range
         .map(|r| range_to_fc(&r, false, &ctx.context))
         .unwrap_or(Ok(FocusChange::Current))?;
-    let action = TabAction::Open(change);
+    let action = match target {
+        Some(target) => TabAction::Open(target, change),
+        None => TabAction::New(change),
+    };
 
     Ok(CommandStep::Continue(action.into(), ctx.context.take()))
 }
@@ -606,7 +752,7 @@ fn default_cmds<C: EditContext, I: ApplicationInfo>() -> Vec<VimCommand<C, I>> {
     ]
 }
 
-/// Manage parsing and mapping Vim commands.
+/// Manages parsing and mapping Vim commands.
 pub type VimCommandMachine<C = VimContext, I = EmptyInfo> = CommandMachine<VimCommand<C, I>>;
 
 impl<C: EditContext, I: ApplicationInfo> Default for VimCommandMachine<C, I> {
@@ -691,13 +837,18 @@ mod tests {
         let (mut cmds, ctx) = mkcmd();
 
         // Unprefixed split command.
-        let expect =
-            vec![(WindowAction::Split(Horizontal, Previous, 1.into()).into(), ctx.clone())];
+        let expect = vec![(
+            WindowAction::Split(OpenTarget::Current, Horizontal, Previous, 1.into()).into(),
+            ctx.clone(),
+        )];
         let res = cmds.input_cmd("split", ctx.clone());
         assert_eq!(res.unwrap(), expect);
 
         // Prefixed split command should be made vertical.
-        let expect = vec![(WindowAction::Split(Vertical, Previous, 1.into()).into(), ctx.clone())];
+        let expect = vec![(
+            WindowAction::Split(OpenTarget::Current, Vertical, Previous, 1.into()).into(),
+            ctx.clone(),
+        )];
         let res = cmds.input_cmd("vertical split", ctx.clone());
         assert_eq!(res.unwrap(), expect);
 
@@ -715,19 +866,20 @@ mod tests {
         let (mut cmds, ctx) = mkcmd();
 
         // Unprefixed split command.
-        let expect =
-            vec![(WindowAction::Split(Horizontal, Previous, 1.into()).into(), ctx.clone())];
+        let act = WindowAction::Split(OpenTarget::Current, Horizontal, Previous, 1.into());
+        let expect = vec![(act.into(), ctx.clone())];
         let res = cmds.input_cmd("split", ctx.clone());
         assert_eq!(res.unwrap(), expect);
 
         // Prefixed split command should be MoveDir1D::Next.
-        let expect = vec![(WindowAction::Split(Horizontal, Next, 1.into()).into(), ctx.clone())];
+        let act = WindowAction::Split(OpenTarget::Current, Horizontal, Next, 1.into());
+        let expect = vec![(act.into(), ctx.clone())];
         let res = cmds.input_cmd("bel split", ctx.clone());
         assert_eq!(res.unwrap(), expect);
 
         // Prefixed split command should be MoveDir1D::Previous.
-        let expect =
-            vec![(WindowAction::Split(Horizontal, Previous, 1.into()).into(), ctx.clone())];
+        let act = WindowAction::Split(OpenTarget::Current, Horizontal, Previous, 1.into());
+        let expect = vec![(act.into(), ctx.clone())];
         let res = cmds.input_cmd("abo split", ctx.clone());
         assert_eq!(res.unwrap(), expect);
     }

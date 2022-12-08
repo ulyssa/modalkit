@@ -26,7 +26,6 @@ use super::{
     windows::{WindowActions, WindowLayout, WindowLayoutState},
     TerminalCursor,
     Window,
-    WindowContainer,
 };
 
 use crate::editing::{
@@ -40,6 +39,7 @@ use crate::editing::{
         EditResult,
         Editable,
         HistoryAction,
+        InfoMessage,
         InsertTextAction,
         Jumpable,
         PromptAction,
@@ -49,13 +49,15 @@ use crate::editing::{
         SelectionAction,
         TabAction,
         TabContainer,
+        TabCount,
         UIError,
         UIResult,
         WindowAction,
+        WindowContainer,
+        WindowCount,
     },
     application::{ApplicationInfo, EmptyInfo},
     base::{
-        Axis,
         CloseFlags,
         CloseTarget,
         CommandType,
@@ -67,28 +69,53 @@ use crate::editing::{
         MoveDir2D,
         MoveDirMod,
         MovePosition,
+        OpenTarget,
         PositionList,
         ScrollStyle,
     },
     context::EditContext,
 };
 
-trait TabActions<C> {
+trait TabActions<C, S, I>
+where
+    I: ApplicationInfo,
+{
     /// Close one or more tabs, and all of their [Windows](Window).
-    fn tab_close(&mut self, target: &CloseTarget, flags: CloseFlags, ctx: &C) -> UIResult;
+    fn tab_close(
+        &mut self,
+        target: &CloseTarget,
+        flags: CloseFlags,
+        ctx: &C,
+        store: &mut S,
+    ) -> UIResult<EditInfo, I>;
 
     /// Extract the currently focused [Window] from the currently focused tab, and place it in a
     /// new tab.
-    fn tab_extract(&mut self, change: &FocusChange, side: MoveDir1D, ctx: &C) -> UIResult;
+    fn tab_extract(
+        &mut self,
+        change: &FocusChange,
+        side: &MoveDir1D,
+        ctx: &C,
+        store: &mut S,
+    ) -> UIResult<EditInfo, I>;
 
     /// Switch focus to another tab.
-    fn tab_focus(&mut self, change: &FocusChange, ctx: &C) -> UIResult;
+    fn tab_focus(&mut self, change: &FocusChange, ctx: &C, store: &mut S) -> UIResult<EditInfo, I>;
 
     /// Move the current tab to another position.
-    fn tab_move(&mut self, change: &FocusChange, ctx: &C) -> UIResult;
+    fn tab_move(&mut self, change: &FocusChange, ctx: &C, store: &mut S) -> UIResult<EditInfo, I>;
 
     /// Open a new tab after the tab targeted by [FocusChange].
-    fn tab_open(&mut self, change: &FocusChange, ctx: &C) -> UIResult;
+    fn tab_new(&mut self, change: &FocusChange, ctx: &C, store: &mut S) -> UIResult<EditInfo, I>;
+
+    /// Open a new tab after the tab targeted by [FocusChange].
+    fn tab_open(
+        &mut self,
+        target: &OpenTarget<I::WindowId>,
+        change: &FocusChange,
+        ctx: &C,
+        store: &mut S,
+    ) -> UIResult<EditInfo, I>;
 }
 
 fn bold<'a>(s: String) -> Span<'a> {
@@ -108,12 +135,12 @@ pub enum CurrentFocus {
 /// Persistent state for [Screen].
 pub struct ScreenState<W, I = EmptyInfo>
 where
-    W: Window,
+    W: Window<I>,
     I: ApplicationInfo,
 {
     focused: CurrentFocus,
     cmdbar: CommandBarState<I>,
-    tabs: Vec<WindowLayoutState<W>>,
+    tabs: Vec<WindowLayoutState<W, I>>,
     tabidx: usize,
     tabidx_last: usize,
 
@@ -123,12 +150,11 @@ where
 
 impl<W, I> ScreenState<W, I>
 where
-    W: Window,
+    W: Window<I>,
     I: ApplicationInfo,
 {
     /// Create state for a [Screen] widget.
-    pub fn new(win: W, store: &mut Store<I>) -> Self {
-        let cmdbar = CommandBarState::new(store);
+    pub fn new(win: W, cmdbar: CommandBarState<I>) -> Self {
         let tab = WindowLayoutState::new(win);
 
         ScreenState {
@@ -144,9 +170,23 @@ where
     }
 
     /// Push a new error or status message.
-    pub fn push_message<T: Into<String>>(&mut self, msg: T, style: Style) {
-        self.messages.push((msg.into(), style));
+    pub fn push_message<T: ToString>(&mut self, msg: T, style: Style) {
+        self.messages.push((msg.to_string(), style));
         self.last_message = true;
+    }
+
+    /// Push an error message with a red foreground.
+    pub fn push_error<T: ToString>(&mut self, msg: T) {
+        let style = Style::default().fg(Color::Red);
+
+        self.push_message(msg, style);
+    }
+
+    /// Push an info message with a default [Style].
+    pub fn push_info<T: ToString>(&mut self, msg: T) {
+        let style = Style::default();
+
+        self.push_message(msg, style);
     }
 
     /// Clear the displayed error or status message.
@@ -154,14 +194,14 @@ where
         self.last_message = false;
     }
 
-    fn focus_command(&mut self, ct: CommandType) -> EditResult {
+    fn focus_command(&mut self, ct: CommandType) -> EditResult<EditInfo, I> {
         self.focused = CurrentFocus::Command;
         self.cmdbar.set_type(ct);
 
         Ok(None)
     }
 
-    fn focus_window(&mut self) -> EditResult {
+    fn focus_window(&mut self) -> EditResult<EditInfo, I> {
         self.focused = CurrentFocus::Window;
         self.cmdbar.reset();
 
@@ -169,9 +209,13 @@ where
     }
 
     /// Perform a command bar action.
-    pub fn command_bar<C: EditContext>(&mut self, act: CommandBarAction, _: &C) -> EditResult {
+    pub fn command_bar<C: EditContext>(
+        &mut self,
+        act: &CommandBarAction,
+        _: &C,
+    ) -> EditResult<EditInfo, I> {
         match act {
-            CommandBarAction::Focus(ct) => self.focus_command(ct),
+            CommandBarAction::Focus(ct) => self.focus_command(ct.clone()),
             CommandBarAction::Unfocus => self.focus_window(),
         }
     }
@@ -183,7 +227,7 @@ where
         }
     }
 
-    fn _insert_tab(&mut self, idx: usize, tab: WindowLayoutState<W>) {
+    fn _insert_tab(&mut self, idx: usize, tab: WindowLayoutState<W, I>) {
         self.tabs.insert(idx, tab);
 
         if self.tabidx >= idx {
@@ -204,12 +248,12 @@ where
     }
 
     /// Get a reference to the window layout for the current tab.
-    pub fn current_tab(&self) -> &WindowLayoutState<W> {
+    pub fn current_tab(&self) -> &WindowLayoutState<W, I> {
         self.tabs.get(self.tabidx).unwrap()
     }
 
     /// Get a mutable reference to the window layout for the current tab.
-    pub fn current_tab_mut(&mut self) -> UIResult<&mut WindowLayoutState<W>> {
+    pub fn current_tab_mut(&mut self) -> UIResult<&mut WindowLayoutState<W, I>, I> {
         self.tabs.get_mut(self.tabidx).ok_or(UIError::NoTab)
     }
 
@@ -219,7 +263,7 @@ where
     }
 
     /// Get a mutable reference to the currently focused window.
-    pub fn current_window_mut(&mut self) -> UIResult<&mut W> {
+    pub fn current_window_mut(&mut self) -> UIResult<&mut W, I> {
         self.current_tab_mut()?.get_mut().ok_or(UIError::NoWindow)
     }
 
@@ -276,13 +320,19 @@ where
     }
 }
 
-impl<W, C, I> TabActions<C> for ScreenState<W, I>
+impl<W, C, I> TabActions<C, Store<I>, I> for ScreenState<W, I>
 where
-    W: Window,
+    W: Window<I>,
     C: EditContext,
     I: ApplicationInfo,
 {
-    fn tab_close(&mut self, target: &CloseTarget, flags: CloseFlags, ctx: &C) -> UIResult {
+    fn tab_close(
+        &mut self,
+        target: &CloseTarget,
+        flags: CloseFlags,
+        ctx: &C,
+        store: &mut Store<I>,
+    ) -> UIResult<EditInfo, I> {
         match target {
             CloseTarget::All => {
                 let mut old = vec![];
@@ -293,9 +343,9 @@ where
                 self.tabidx = 0;
 
                 for (i, mut tab) in old.into_iter().enumerate() {
-                    let _ = tab.window_close(CloseTarget::All, flags, ctx)?;
+                    let _ = tab.window_close(&CloseTarget::All, flags, ctx, store)?;
 
-                    if WindowContainer::<W, C>::windows(&tab) > 0 {
+                    if tab.windows() > 0 {
                         if i == oldidx {
                             self.tabidx = self.tabs.len();
                         }
@@ -326,9 +376,9 @@ where
                             continue;
                         }
 
-                        let _ = tab.window_close(CloseTarget::All, flags, ctx)?;
+                        let _ = tab.window_close(&CloseTarget::All, flags, ctx, store)?;
 
-                        if WindowContainer::<W, C>::windows(&tab) > 0 {
+                        if tab.windows() > 0 {
                             self.tabs.push(tab);
                         }
                     }
@@ -336,9 +386,9 @@ where
             },
             CloseTarget::Single(fc) => {
                 if let Some(idx) = self._target(fc, ctx) {
-                    let _ = self.tabs[idx].window_close(CloseTarget::All, flags, ctx)?;
+                    let _ = self.tabs[idx].window_close(&CloseTarget::All, flags, ctx, store)?;
 
-                    if WindowContainer::<W, C>::windows(&self.tabs[idx]) > 0 {
+                    if self.tabs[idx].windows() > 0 {
                         let msg = "unable to close all windows in tab".into();
                         let err = EditError::Failure(msg);
 
@@ -353,15 +403,21 @@ where
         return Ok(None);
     }
 
-    fn tab_extract(&mut self, change: &FocusChange, side: MoveDir1D, ctx: &C) -> UIResult {
-        if WindowContainer::<W, C>::windows(self) <= 1 {
-            return Ok(Some(EditInfo::new("Already one window")));
+    fn tab_extract(
+        &mut self,
+        change: &FocusChange,
+        side: &MoveDir1D,
+        ctx: &C,
+        _: &mut Store<I>,
+    ) -> UIResult<EditInfo, I> {
+        if self.windows() <= 1 {
+            return Ok(Some(InfoMessage::from("Already one window")));
         }
 
         let tab = self.current_tab_mut()?.extract();
 
         let (idx, side) = if let Some(idx) = self._target(change, ctx) {
-            (idx, side)
+            (idx, *side)
         } else {
             (self.tabidx, MoveDir1D::Next)
         };
@@ -378,7 +434,12 @@ where
         return Ok(None);
     }
 
-    fn tab_focus(&mut self, change: &FocusChange, ctx: &C) -> UIResult {
+    fn tab_focus(
+        &mut self,
+        change: &FocusChange,
+        ctx: &C,
+        _: &mut Store<I>,
+    ) -> UIResult<EditInfo, I> {
         if let Some(target) = self._target(change, ctx) {
             self._focus_tab(target);
         }
@@ -386,7 +447,12 @@ where
         Ok(None)
     }
 
-    fn tab_move(&mut self, change: &FocusChange, ctx: &C) -> UIResult {
+    fn tab_move(
+        &mut self,
+        change: &FocusChange,
+        ctx: &C,
+        _: &mut Store<I>,
+    ) -> UIResult<EditInfo, I> {
         if let Some(idx) = self._target(change, ctx) {
             idx_move(&mut self.tabs, &mut self.tabidx, idx, &mut self.tabidx_last);
         }
@@ -394,7 +460,12 @@ where
         return Ok(None);
     }
 
-    fn tab_open(&mut self, change: &FocusChange, ctx: &C) -> UIResult {
+    fn tab_new(
+        &mut self,
+        change: &FocusChange,
+        ctx: &C,
+        _: &mut Store<I>,
+    ) -> UIResult<EditInfo, I> {
         let idx = self._target(change, ctx).unwrap_or(self.tabidx);
         let tab = WindowLayoutState::empty();
 
@@ -402,55 +473,82 @@ where
 
         return Ok(None);
     }
+
+    fn tab_open(
+        &mut self,
+        target: &OpenTarget<I::WindowId>,
+        change: &FocusChange,
+        ctx: &C,
+        store: &mut Store<I>,
+    ) -> UIResult<EditInfo, I> {
+        let idx = self._target(change, ctx).unwrap_or(self.tabidx);
+        let tab = self.current_tab_mut()?.from_target(target, ctx, store)?;
+
+        self._insert_tab(idx, tab);
+
+        return Ok(None);
+    }
 }
 
-impl<W, C, I> TabContainer<C, Store<I>> for ScreenState<W, I>
+impl<W, I> TabCount for ScreenState<W, I>
 where
-    W: Window,
-    C: EditContext,
+    W: Window<I>,
     I: ApplicationInfo,
 {
     fn tabs(&self) -> usize {
         self.tabs.len()
     }
+}
 
-    fn tab_command(&mut self, act: TabAction, ctx: &C, _: &mut Store<I>) -> UIResult {
+impl<W, C, I> TabContainer<C, Store<I>, I> for ScreenState<W, I>
+where
+    W: Window<I>,
+    C: EditContext,
+    I: ApplicationInfo,
+{
+    fn tab_command(
+        &mut self,
+        act: &TabAction<I>,
+        ctx: &C,
+        store: &mut Store<I>,
+    ) -> UIResult<EditInfo, I> {
         match act {
-            TabAction::Close(target, flags) => self.tab_close(&target, flags, ctx),
-            TabAction::Extract(target, side) => self.tab_extract(&target, side, ctx),
-            TabAction::Focus(change) => self.tab_focus(&change, ctx),
-            TabAction::Move(change) => self.tab_move(&change, ctx),
-            TabAction::Open(change) => self.tab_open(&change, ctx),
+            TabAction::Close(target, flags) => self.tab_close(target, *flags, ctx, store),
+            TabAction::Extract(target, side) => self.tab_extract(target, side, ctx, store),
+            TabAction::Focus(change) => self.tab_focus(change, ctx, store),
+            TabAction::Move(change) => self.tab_move(change, ctx, store),
+            TabAction::New(change) => self.tab_new(change, ctx, store),
+            TabAction::Open(target, change) => self.tab_open(target, change, ctx, store),
         }
     }
 }
 
-impl<W, C, I> WindowContainer<W, C> for ScreenState<W, I>
+impl<W, I> WindowCount for ScreenState<W, I>
 where
-    W: Window,
-    C: EditContext,
+    W: Window<I>,
     I: ApplicationInfo,
 {
     fn windows(&self) -> usize {
-        WindowContainer::<W, C>::windows(self.current_tab())
+        self.current_tab().windows()
     }
+}
 
-    fn window_open(
+impl<W, C, I> WindowContainer<C, Store<I>, I> for ScreenState<W, I>
+where
+    W: Window<I>,
+    C: EditContext,
+    I: ApplicationInfo,
+{
+    fn window_command(
         &mut self,
-        window: W,
-        axis: Axis,
-        rel: MoveDir1D,
-        count: Option<Count>,
+        act: &WindowAction<I>,
         ctx: &C,
-    ) -> UIResult {
-        self.current_tab_mut()?.window_open(window, axis, rel, count, ctx)
-    }
-
-    fn window_command(&mut self, act: WindowAction, ctx: &C) -> UIResult {
+        store: &mut Store<I>,
+    ) -> UIResult<EditInfo, I> {
         let tab = self.current_tab_mut()?;
-        let ret = tab.window_command(act, ctx);
+        let ret = tab.window_command(act, ctx, store);
 
-        if WindowContainer::<W, C>::windows(tab) == 0 {
+        if tab.windows() == 0 {
             self._remove_tab(self.tabidx);
         }
 
@@ -476,9 +574,9 @@ macro_rules! delegate_focus {
     };
 }
 
-impl<'a, W, C, I> Editable<C, I> for ScreenState<W, I>
+impl<'a, W, C, I> Editable<C, Store<I>, I> for ScreenState<W, I>
 where
-    W: Window + Editable<C, I>,
+    W: Window<I> + Editable<C, Store<I>, I>,
     C: EditContext,
     I: ApplicationInfo,
 {
@@ -488,39 +586,54 @@ where
         target: &EditTarget,
         ctx: &C,
         store: &mut Store<I>,
-    ) -> EditResult {
+    ) -> EditResult<EditInfo, I> {
         delegate_focus!(self, f => f.edit(action, target, ctx, store))
     }
 
-    fn insert_text(&mut self, act: InsertTextAction, ctx: &C, store: &mut Store<I>) -> EditResult {
+    fn insert_text(
+        &mut self,
+        act: &InsertTextAction,
+        ctx: &C,
+        store: &mut Store<I>,
+    ) -> EditResult<EditInfo, I> {
         delegate_focus!(self, f => f.insert_text(act, ctx, store))
     }
 
-    fn cursor_command(&mut self, act: &CursorAction, ctx: &C, store: &mut Store<I>) -> EditResult {
+    fn cursor_command(
+        &mut self,
+        act: &CursorAction,
+        ctx: &C,
+        store: &mut Store<I>,
+    ) -> EditResult<EditInfo, I> {
         delegate_focus!(self, f => f.cursor_command(act, ctx, store))
     }
 
     fn selection_command(
         &mut self,
-        act: SelectionAction,
+        act: &SelectionAction,
         ctx: &C,
         store: &mut Store<I>,
-    ) -> EditResult {
+    ) -> EditResult<EditInfo, I> {
         delegate_focus!(self, f => f.selection_command(act, ctx, store))
     }
 
-    fn mark(&mut self, name: Mark, ctx: &C, store: &mut Store<I>) -> EditResult {
+    fn mark(&mut self, name: Mark, ctx: &C, store: &mut Store<I>) -> EditResult<EditInfo, I> {
         delegate_focus!(self, f => f.mark(name, ctx, store))
     }
 
-    fn history_command(&mut self, act: HistoryAction, ctx: &C, store: &mut Store<I>) -> EditResult {
+    fn history_command(
+        &mut self,
+        act: &HistoryAction,
+        ctx: &C,
+        store: &mut Store<I>,
+    ) -> EditResult<EditInfo, I> {
         delegate_focus!(self, f => f.history_command(act, ctx, store))
     }
 }
 
 impl<W, I> TerminalCursor for ScreenState<W, I>
 where
-    W: Window + TerminalCursor,
+    W: Window<I> + TerminalCursor,
     I: ApplicationInfo,
 {
     fn get_term_cursor(&self) -> Option<(u16, u16)> {
@@ -537,9 +650,9 @@ where
     }
 }
 
-impl<W, C, I> Jumpable<C> for ScreenState<W, I>
+impl<W, C, I> Jumpable<C, I> for ScreenState<W, I>
 where
-    W: Window + Jumpable<C>,
+    W: Window<I> + Jumpable<C, I>,
     I: ApplicationInfo,
 {
     fn jump(
@@ -548,45 +661,56 @@ where
         dir: MoveDir1D,
         count: usize,
         ctx: &C,
-    ) -> UIResult<usize> {
-        self.current_window_mut()?.jump(list, dir, count, ctx)
+    ) -> UIResult<usize, I> {
+        self.current_tab_mut()?.jump(list, dir, count, ctx)
     }
 }
 
-impl<W, C, I> Promptable<Action<I>, C, Store<I>> for ScreenState<W, I>
+impl<W, C, I> Promptable<C, Store<I>, I> for ScreenState<W, I>
 where
-    W: Window + Promptable<Action<I>, C, Store<I>>,
+    W: Window<I> + Promptable<C, Store<I>, I>,
     C: EditContext,
     I: ApplicationInfo,
 {
     fn prompt(
         &mut self,
-        act: PromptAction,
+        act: &PromptAction,
         ctx: &C,
         store: &mut Store<I>,
-    ) -> EditResult<Vec<(Action<I>, C)>> {
+    ) -> EditResult<Vec<(Action<I>, C)>, I> {
         delegate_focus!(self, f => f.prompt(act, ctx, store))
     }
 }
 
-impl<'a, W, C, I> Scrollable<C, Store<I>> for ScreenState<W, I>
+impl<'a, W, C, I> Scrollable<C, Store<I>, I> for ScreenState<W, I>
 where
-    W: Window + Scrollable<C, Store<I>>,
+    W: Window<I> + Scrollable<C, Store<I>, I>,
     C: EditContext,
     I: ApplicationInfo,
 {
-    fn scroll(&mut self, style: &ScrollStyle, ctx: &C, store: &mut Store<I>) -> EditResult {
+    fn scroll(
+        &mut self,
+        style: &ScrollStyle,
+        ctx: &C,
+        store: &mut Store<I>,
+    ) -> EditResult<EditInfo, I> {
         delegate_focus!(self, f => f.scroll(style, ctx, store))
     }
 }
 
-impl<W, C, I> Searchable<C, Store<I>> for ScreenState<W, I>
+impl<W, C, I> Searchable<C, Store<I>, I> for ScreenState<W, I>
 where
-    W: Window + Searchable<C, Store<I>>,
+    W: Window<I> + Searchable<C, Store<I>, I>,
     C: EditContext,
     I: ApplicationInfo,
 {
-    fn search(&mut self, dir: MoveDirMod, count: Count, ctx: &C, store: &mut Store<I>) -> UIResult {
+    fn search(
+        &mut self,
+        dir: MoveDirMod,
+        count: Count,
+        ctx: &C,
+        store: &mut Store<I>,
+    ) -> UIResult<EditInfo, I> {
         self.current_window_mut()?.search(dir, count, ctx, store)
     }
 }
@@ -594,21 +718,22 @@ where
 /// Widget for displaying a tabbed window layout with a command bar.
 pub struct Screen<'a, W, I = EmptyInfo>
 where
-    W: Window,
+    W: Window<I>,
     I: ApplicationInfo,
 {
+    store: &'a mut Store<I>,
     showmode: Option<Span<'a>>,
     _p: PhantomData<(W, I)>,
 }
 
 impl<'a, W, I> Screen<'a, W, I>
 where
-    W: Window,
+    W: Window<I>,
     I: ApplicationInfo,
 {
     /// Create a new widget.
-    pub fn new() -> Self {
-        Screen { showmode: None, _p: PhantomData }
+    pub fn new(store: &'a mut Store<I>) -> Self {
+        Screen { store, showmode: None, _p: PhantomData }
     }
 
     /// Set the mode string to display.
@@ -618,19 +743,9 @@ where
     }
 }
 
-impl<'a, W, I> Default for Screen<'a, W, I>
-where
-    W: Window,
-    I: ApplicationInfo,
-{
-    fn default() -> Self {
-        Screen::new()
-    }
-}
-
 impl<'a, W, I> StatefulWidget for Screen<'a, W, I>
 where
-    W: Window,
+    W: Window<I>,
     I: ApplicationInfo,
 {
     type State = ScreenState<W, I>;
@@ -667,7 +782,7 @@ where
             .render(tabarea, buf);
 
         if let Ok(tab) = state.current_tab_mut() {
-            WindowLayout::new()
+            WindowLayout::new(self.store)
                 .focus(focused == CurrentFocus::Window)
                 .render(winarea, buf, tab);
         }

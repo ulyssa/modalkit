@@ -8,6 +8,7 @@
 //! ## Example
 //!
 //! ```
+//! use std::fmt;
 //! use std::path::PathBuf;
 //!
 //! use modalkit::{
@@ -15,6 +16,9 @@
 //!     editing::{
 //!         application::{
 //!             ApplicationAction,
+//!             ApplicationError,
+//!             ApplicationWindowId,
+//!             ApplicationContentId,
 //!             ApplicationInfo,
 //!             ApplicationStore,
 //!         },
@@ -24,11 +28,11 @@
 //! };
 //!
 //! // Unique identifier for a review.
-//! #[derive(Clone, Debug, Eq, PartialEq)]
+//! #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 //! struct ReviewId(usize);
 //!
 //! // Unique identifier for a user.
-//! #[derive(Clone, Debug, Eq, PartialEq)]
+//! #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 //! struct UserId(usize);
 //!
 //! #[derive(Clone, Debug, Eq, PartialEq)]
@@ -39,6 +43,7 @@
 //!     // Leave a comment on a line in a file in a review.
 //!     Comment(ReviewId, PathBuf, usize, String),
 //!
+//!     // Show more lines around the hunk.
 //!     ExpandHunk(Count),
 //!
 //!     // Merge changes after review and approval.
@@ -72,6 +77,15 @@
 //!             CodeReviewAction::Merge(..) => SequenceStatus::Ignore,
 //!         }
 //!     }
+//!
+//!     fn is_switchable<C: EditContext>(&self, _: &C) -> bool {
+//!         match self {
+//!             CodeReviewAction::Approve(..) => false,
+//!             CodeReviewAction::Comment(..) => false,
+//!             CodeReviewAction::ExpandHunk(..) => false,
+//!             CodeReviewAction::Merge(..) => false,
+//!         }
+//!     }
 //! }
 //!
 //! struct CodeReviewStore {
@@ -80,18 +94,55 @@
 //!
 //! impl ApplicationStore for CodeReviewStore {}
 //!
+//! #[derive(Clone, Debug, Eq, Hash, PartialEq)]
+//! enum CodeReviewWindowId {
+//!     // A window that shows a code review.
+//!     Review(ReviewId),
+//!
+//!     // A window that shows a user's open reviews.
+//!     User(UserId),
+//! }
+//!
+//! impl ApplicationWindowId for CodeReviewWindowId {}
+//!
+//! #[derive(Clone, Debug, Eq, Hash, PartialEq)]
+//! enum CodeReviewContentId {
+//!     // Buffer for a comment left on a line.
+//!     Review(ReviewId, usize),
+//! }
+//!
+//! impl ApplicationContentId for CodeReviewContentId {}
+//!
+//! #[derive(Debug)]
+//! enum CodeReviewError {
+//!     NoReview(ReviewId),
+//! }
+//!
+//! impl fmt::Display for CodeReviewError {
+//!    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+//!        match self {
+//!            CodeReviewError::NoReview(id) => write!(f, "No review with ID {:?}", id),
+//!        }
+//!    }
+//! }
+//!
+//! impl ApplicationError for CodeReviewError {}
+//!
 //! #[derive(Clone, Debug, Eq, PartialEq)]
 //! enum CodeReviewInfo {}
 //!
 //! impl ApplicationInfo for CodeReviewInfo {
+//!     type Error = CodeReviewError;
 //!     type Action = CodeReviewAction;
 //!     type Store = CodeReviewStore;
+//!     type WindowId = CodeReviewWindowId;
+//!     type ContentId = CodeReviewContentId;
 //! }
 //! ```
-use std::fmt::Debug;
+use std::fmt::{Debug, Display};
+use std::hash::Hash;
 
-use crate::editing::context::EditContext;
-use crate::input::bindings::SequenceStatus;
+use crate::{editing::context::EditContext, input::bindings::SequenceStatus};
 
 /// Trait for objects that describe application-specific actions.
 ///
@@ -112,6 +163,11 @@ pub trait ApplicationAction: Clone + Debug + Eq + PartialEq {
     /// Allows controlling how application-specific actions are included in
     /// [RepeatType::LastSelection](crate::editing::base::RepeatType::LastSelection).
     fn is_last_selection<C: EditContext>(&self, ctx: &C) -> SequenceStatus;
+
+    /// Allows controlling whether an application-specific action can cause
+    /// a buffer switch on an
+    /// [EditError::WrongBuffer](crate::editing::action::EditError::WrongBuffer).
+    fn is_switchable<C: EditContext>(&self, ctx: &C) -> bool;
 }
 
 impl ApplicationAction for () {
@@ -126,7 +182,16 @@ impl ApplicationAction for () {
     fn is_last_selection<C: EditContext>(&self, _: &C) -> SequenceStatus {
         SequenceStatus::Ignore
     }
+
+    fn is_switchable<C: EditContext>(&self, _: &C) -> bool {
+        false
+    }
 }
+
+/// Trait for application-specific errors.
+pub trait ApplicationError: Debug + Display {}
+
+impl ApplicationError for String {}
 
 /// Trait for objects that hold application-specific information.
 ///
@@ -135,13 +200,36 @@ pub trait ApplicationStore {}
 
 impl ApplicationStore for () {}
 
+/// Trait for window identifiers in an application.
+pub trait ApplicationWindowId: Clone + Debug + Eq + Hash + PartialEq {}
+
+impl ApplicationWindowId for () {}
+impl ApplicationWindowId for usize {}
+impl ApplicationWindowId for String {}
+
+/// Trait for identifiers of specific content within a window in an application.
+pub trait ApplicationContentId: Clone + Debug + Eq + Hash + PartialEq {}
+
+impl ApplicationContentId for () {}
+impl ApplicationContentId for usize {}
+impl ApplicationContentId for String {}
+
 /// Trait for objects that describe application-specific behaviour and types.
 pub trait ApplicationInfo: Clone + Debug + Eq + PartialEq {
+    /// An application-specific error type.
+    type Error: ApplicationError;
+
     /// The type for application-specific actions.
     type Action: ApplicationAction;
 
     /// The type for application-specific storage.
     type Store: ApplicationStore;
+
+    /// The type for application-specific windows.
+    type WindowId: ApplicationWindowId;
+
+    /// The type for application-specific content within a window.
+    type ContentId: ApplicationContentId;
 }
 
 /// A default implementor of [ApplicationInfo] for consumers that don't require any customization.
@@ -149,6 +237,9 @@ pub trait ApplicationInfo: Clone + Debug + Eq + PartialEq {
 pub enum EmptyInfo {}
 
 impl ApplicationInfo for EmptyInfo {
+    type Error = String;
     type Action = ();
     type Store = ();
+    type WindowId = String;
+    type ContentId = String;
 }

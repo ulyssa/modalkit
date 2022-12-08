@@ -19,8 +19,10 @@ use crossterm::{
 };
 
 use crate::editing::{
-    action::{EditInfo, EditResult, UIResult, WindowAction},
-    base::{Axis, CloseFlags, Count, MoveDir1D, MoveDir2D, MovePosition, ScrollSize},
+    action::{Action, EditInfo, EditResult, UIResult},
+    application::ApplicationInfo,
+    base::{Axis, CloseFlags, Count, MoveDir1D, MoveDir2D, MovePosition, ScrollSize, WordStyle},
+    store::Store,
 };
 
 pub mod cmdbar;
@@ -41,7 +43,10 @@ pub trait TerminalCursor {
 }
 
 /// A widget whose content can be scrolled in multiple ways.
-pub trait ScrollActions<C, S> {
+pub trait ScrollActions<C, S, I>
+where
+    I: ApplicationInfo,
+{
     /// Pan the viewport.
     fn dirscroll(
         &mut self,
@@ -50,25 +55,40 @@ pub trait ScrollActions<C, S> {
         count: &Count,
         ctx: &C,
         store: &mut S,
-    ) -> EditResult;
+    ) -> EditResult<EditInfo, I>;
 
     /// Scroll so that the cursor is placed along a viewport boundary.
-    fn cursorpos(&mut self, pos: MovePosition, axis: Axis, ctx: &C, store: &mut S) -> EditResult;
+    fn cursorpos(
+        &mut self,
+        pos: MovePosition,
+        axis: Axis,
+        ctx: &C,
+        store: &mut S,
+    ) -> EditResult<EditInfo, I>;
 
     /// Scroll so that a specific line is placed at a given place in the viewport.
-    fn linepos(&mut self, pos: MovePosition, count: &Count, ctx: &C, store: &mut S) -> EditResult;
+    fn linepos(
+        &mut self,
+        pos: MovePosition,
+        count: &Count,
+        ctx: &C,
+        store: &mut S,
+    ) -> EditResult<EditInfo, I>;
 }
 
 /// A widget that contains content that can be converted into an action when the user is done
 /// entering text.
-pub trait PromptActions<A, C, S> {
+pub trait PromptActions<C, S, I>
+where
+    I: ApplicationInfo,
+{
     /// Submit the currently entered text.
-    fn submit(&mut self, ctx: &C, store: &mut S) -> EditResult<Vec<(A, C)>>;
+    fn submit(&mut self, ctx: &C, store: &mut S) -> EditResult<Vec<(Action<I>, C)>, I>;
 
     /// Abort command entry and reset the current contents.
     ///
     /// If `empty` is true, and there is currently entered text, do nothing.
-    fn abort(&mut self, empty: bool, ctx: &C, store: &mut S) -> EditResult<Vec<(A, C)>>;
+    fn abort(&mut self, empty: bool, ctx: &C, store: &mut S) -> EditResult<Vec<(Action<I>, C)>, I>;
 
     /// Recall previously entered text.
     fn recall(
@@ -77,41 +97,44 @@ pub trait PromptActions<A, C, S> {
         count: &Count,
         ctx: &C,
         store: &mut S,
-    ) -> EditResult<Vec<(A, C)>>;
+    ) -> EditResult<Vec<(Action<I>, C)>, I>;
 }
 
-/// A widget that the user can open and close on the screen.
-pub trait Window: TerminalCursor {
-    /// Draw this window into the buffer for the prescribed area.
-    fn draw(&mut self, area: Rect, buf: &mut Buffer, focused: bool);
-
+/// Trait to allow widgets to control how they get drawn onto the screen when they are either
+/// focused or unfocused.
+pub trait WindowOps<I: ApplicationInfo>: TerminalCursor {
     /// Create a copy of this window during a window split.
-    fn dup(&self) -> Self;
+    fn dup(&self, store: &mut Store<I>) -> Self;
 
     /// Perform any necessary cleanup for this window and close it.
     ///
     /// If this function returns false, it's because the window cannot be closed, at least not with
     /// the provided set of flags.
-    fn close(&mut self, flags: CloseFlags) -> bool;
+    fn close(&mut self, flags: CloseFlags, store: &mut Store<I>) -> bool;
+
+    /// Draw this window into the buffer for the prescribed area.
+    fn draw(&mut self, area: Rect, buf: &mut Buffer, focused: bool, store: &mut Store<I>);
+
+    /// Returns the word following the current cursor position in this window.
+    fn get_cursor_word(&self, style: &WordStyle) -> Option<String>;
+
+    /// Returns the currently selected text in this window.
+    fn get_selected_word(&self) -> Option<String>;
 }
 
-/// A widget that contains [Windows](Window).
-pub trait WindowContainer<W: Window, C> {
-    /// Number of currently open windows.
-    fn windows(&self) -> usize;
+/// A widget that the user can open and close on the screen.
+pub trait Window<I: ApplicationInfo>: WindowOps<I> + Sized {
+    /// Get the identifier for this window.
+    fn id(&self) -> I::WindowId;
 
-    /// Open a new [Window] with height or width [*n*](Count) (depending on the [Axis]).
-    fn window_open(
-        &mut self,
-        window: W,
-        axis: Axis,
-        rel: MoveDir1D,
-        open: Option<Count>,
-        ctx: &C,
-    ) -> UIResult;
+    /// Open a window that displays the content referenced by `id`.
+    fn open(id: I::WindowId, store: &mut Store<I>) -> UIResult<Self, I>;
 
-    /// Execute a window action.
-    fn window_command(&mut self, action: WindowAction, ctx: &C) -> UIResult;
+    /// Open a window given a name to lookup.
+    fn find(name: String, store: &mut Store<I>) -> UIResult<Self, I>;
+
+    /// Open a globally indexed window given a position.
+    fn posn(index: usize, store: &mut Store<I>) -> UIResult<Self, I>;
 }
 
 /// Extended operations for [Terminal].
@@ -124,7 +147,7 @@ pub trait TerminalExtOps {
 }
 
 impl TerminalExtOps for Terminal<CrosstermBackend<Stdout>> {
-    type Result = crossterm::Result<Option<EditInfo>>;
+    type Result = crossterm::Result<EditInfo>;
 
     fn program_suspend(&mut self) -> Self::Result {
         let mut stdout = stdout();

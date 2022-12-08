@@ -1,5 +1,5 @@
 use crate::editing::{
-    action::EditResult,
+    action::{EditInfo, EditResult},
     application::ApplicationInfo,
     base::{Char, Count, CursorEnd, InsertStyle, MoveDir1D, Register, TargetShape},
     buffer::{CursorGroupIdContext, EditBuffer},
@@ -18,33 +18,39 @@ where
         &mut self,
         shape: TargetShape,
         dir: MoveDir1D,
-        count: Count,
+        count: &Count,
         ctx: &C,
         store: &mut Store<I>,
-    ) -> EditResult;
+    ) -> EditResult<EditInfo, I>;
 
     /// Paste text into the buffer.
-    fn paste(&mut self, dir: MoveDir1D, count: Count, ctx: &C, store: &mut Store<I>) -> EditResult;
+    fn paste(
+        &mut self,
+        dir: MoveDir1D,
+        count: &Count,
+        ctx: &C,
+        store: &mut Store<I>,
+    ) -> EditResult<EditInfo, I>;
 
     /// Enter text at the cursor position.
     fn transcribe(
         &mut self,
-        s: String,
+        s: &str,
         dir: MoveDir1D,
-        count: Count,
+        count: &Count,
         ctx: &C,
         store: &mut Store<I>,
-    ) -> EditResult;
+    ) -> EditResult<EditInfo, I>;
 
     /// Enter a new character at the cursor position.
     fn type_char(
         &mut self,
         ch: Char,
         dir: MoveDir1D,
-        count: Count,
+        count: &Count,
         ctx: &C,
         store: &mut Store<I>,
-    ) -> EditResult;
+    ) -> EditResult<EditInfo, I>;
 }
 
 impl<'a, 'b, C, I> InsertTextActions<CursorGroupIdContext<'a, 'b, C>, I> for EditBuffer<I>
@@ -55,11 +61,11 @@ where
     fn paste(
         &mut self,
         dir: MoveDir1D,
-        count: Count,
+        count: &Count,
         ctx: &CursorGroupIdContext<'a, 'b, C>,
         store: &mut Store<I>,
-    ) -> EditResult {
-        let count = ctx.2.resolve(&count);
+    ) -> EditResult<EditInfo, I> {
+        let count = ctx.2.resolve(count);
         let style = ctx.2.get_insert_style();
         let cell = store.registers.get(&ctx.2.get_register().unwrap_or(Register::Unnamed));
         let text = cell.value.repeat(cell.shape, count);
@@ -94,11 +100,11 @@ where
         &mut self,
         shape: TargetShape,
         dir: MoveDir1D,
-        count: Count,
+        count: &Count,
         ctx: &CursorGroupIdContext<'a, 'b, C>,
         store: &mut Store<I>,
-    ) -> EditResult {
-        let count = ctx.2.resolve(&count);
+    ) -> EditResult<EditInfo, I> {
+        let count = ctx.2.resolve(count);
         let text = EditRope::from("\n").repeat(TargetShape::CharWise, count);
         let end = ctx.2.get_cursor_end();
 
@@ -125,21 +131,21 @@ where
 
     fn transcribe(
         &mut self,
-        s: String,
+        s: &str,
         dir: MoveDir1D,
-        count: Count,
+        count: &Count,
         ctx: &CursorGroupIdContext<'a, 'b, C>,
         store: &mut Store<I>,
-    ) -> EditResult {
+    ) -> EditResult<EditInfo, I> {
         let style = ctx.2.get_insert_style().unwrap_or(InsertStyle::Insert);
-        let count = ctx.2.resolve(&count);
+        let count = ctx.2.resolve(count);
         let end = ctx.2.get_cursor_end();
 
         let gid = ctx.0;
         let mut group = self.get_group(gid);
         let mut adjs = vec![];
 
-        let text = EditRope::from(s.as_str()).repeat(TargetShape::CharWise, count);
+        let text = EditRope::from(s).repeat(TargetShape::CharWise, count);
 
         self.push_change(&group);
 
@@ -168,12 +174,12 @@ where
         &mut self,
         ch: Char,
         dir: MoveDir1D,
-        count: Count,
+        count: &Count,
         ctx: &CursorGroupIdContext<'a, 'b, C>,
         store: &mut Store<I>,
-    ) -> EditResult {
+    ) -> EditResult<EditInfo, I> {
         let style = ctx.2.get_insert_style().unwrap_or(InsertStyle::Insert);
-        let count = ctx.2.resolve(&count);
+        let count = ctx.2.resolve(count);
         let end = ctx.2.get_cursor_end();
 
         let gid = ctx.0;
@@ -228,7 +234,7 @@ mod tests {
                 .type_char(
                     Char::Digraph($d1, $d2).into(),
                     MoveDir1D::Previous,
-                    1.into(),
+                    &1.into(),
                     $ctx,
                     &mut $store,
                 )
@@ -239,7 +245,7 @@ mod tests {
     macro_rules! type_copy_line {
         ($ebuf: expr, $dir: expr, $c: expr, $ctx: expr, $store: expr) => {
             $ebuf
-                .type_char($dir.clone(), MoveDir1D::Previous, $c, $ctx, &mut $store)
+                .type_char($dir.clone(), MoveDir1D::Previous, &$c, $ctx, &mut $store)
                 .unwrap()
         };
     }
@@ -247,7 +253,7 @@ mod tests {
     macro_rules! open_line {
         ($ebuf: expr, $shape: expr, $dir: expr, $ctx: expr, $store: expr) => {
             $ebuf
-                .open_line($shape, $dir, Count::Contextual, $ctx, &mut $store)
+                .open_line($shape, $dir, &Count::Contextual, $ctx, &mut $store)
                 .unwrap()
         };
     }
@@ -326,7 +332,7 @@ mod tests {
         let res = ebuf.type_char(
             above.clone(),
             MoveDir1D::Previous,
-            1.into(),
+            &1.into(),
             ctx!(gid, vwctx, vctx),
             &mut store,
         );
@@ -343,7 +349,7 @@ mod tests {
         let res = ebuf.type_char(
             below.clone(),
             MoveDir1D::Previous,
-            1.into(),
+            &1.into(),
             ctx!(gid, vwctx, vctx),
             &mut store,
         );

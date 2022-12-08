@@ -33,7 +33,7 @@ mod cursor;
 mod digraph;
 mod register;
 
-pub use self::buffer::{BufferId, BufferStore, SharedBuffer};
+pub use self::buffer::{BufferStore, SharedBuffer};
 pub use self::cursor::{AdjustStore, CursorStore, GlobalAdjustable};
 pub use self::digraph::DigraphStore;
 pub use self::register::{RegisterCell, RegisterPutFlags, RegisterStore};
@@ -53,7 +53,7 @@ pub struct Store<I: ApplicationInfo> {
     pub registers: RegisterStore,
 
     /// Tracks globally-relevant cursors and cursor groups.
-    pub cursors: CursorStore,
+    pub cursors: CursorStore<I>,
 
     /// Tracks previous commands.
     pub commands: HistoryList<EditRope>,
@@ -92,14 +92,9 @@ where
         return Arc::new(RwLock::new(self));
     }
 
-    /// Create a new shared buffer.
-    pub fn new_buffer(&mut self) -> SharedBuffer<I> {
-        self.buffers.new_buffer()
-    }
-
     /// Get a buffer via its identifier.
-    pub fn get_buffer(&mut self, id: BufferId) -> SharedBuffer<I> {
-        self.buffers.get_buffer(&id)
+    pub fn load_buffer(&mut self, id: I::ContentId) -> SharedBuffer<I> {
+        self.buffers.load(id)
     }
 
     /// Add a command to the command history after the prompt has been aborted.

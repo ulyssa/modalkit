@@ -12,11 +12,11 @@
 //!     env::vim::keybindings::{VimBindings, VimMachine},
 //!     input::bindings::InputBindings,
 //!     input::key::TerminalKey,
-//!     readline::ReadLine,
+//!     readline::{ReadLine, ReadLineInfo},
 //! };
 //!
 //! fn main() -> Result<(), std::io::Error> {
-//!     let mut vi = VimMachine::<TerminalKey>::empty();
+//!     let mut vi = VimMachine::<TerminalKey, ReadLineInfo>::empty();
 //!     VimBindings::default().submit_on_enter().setup(&mut vi);
 //!
 //!     let mut rl = ReadLine::new(vi)?;
@@ -60,6 +60,7 @@ use crate::editing::{
         CommandBarAction,
         EditAction,
         EditError,
+        EditInfo,
         EditResult,
         Editable,
         InsertTextAction,
@@ -67,7 +68,7 @@ use crate::editing::{
         PromptAction,
         UIError,
     },
-    application::ApplicationInfo,
+    application::{ApplicationContentId, ApplicationInfo, ApplicationWindowId},
     base::{CommandType, Count, EditTarget, MoveDir1D, MoveDirMod, MoveType, Register, RepeatType},
     context::EditContext,
     history::HistoryList,
@@ -119,21 +120,49 @@ macro_rules! focused_mut {
     };
 }
 
+/// Identifiers for the buffers used by [ReadLine].
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub enum ReadLineId {
+    /// The line editor.
+    Line,
+
+    /// The command bar.
+    Command,
+}
+
+impl ApplicationWindowId for ReadLineId {}
+impl ApplicationContentId for ReadLineId {}
+
+/// Default [ApplicationInfo] used by [ReadLine].
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ReadLineInfo {}
+
+impl ApplicationInfo for ReadLineInfo {
+    type Error = String;
+    type Action = ();
+    type Store = ();
+    type WindowId = ReadLineId;
+    type ContentId = ReadLineId;
+}
+
 /// Error type for [ReadLine] editor.
 #[derive(thiserror::Error, Debug)]
 #[non_exhaustive]
-pub enum ReadLineError {
+pub enum ReadLineError<I>
+where
+    I: ApplicationInfo,
+{
     /// Failure during I/O.
     #[error("Input/Output Error: {0}")]
     IOError(#[from] std::io::Error),
 
     /// Failure during editing.
     #[error("Editing error: {0}")]
-    EditingFailure(#[from] EditError),
+    EditingFailure(#[from] EditError<I>),
 
     /// Failure in the user interface.
     #[error("{0}")]
-    UserInterfaceError(#[from] UIError),
+    UserInterfaceError(#[from] UIError<I>),
 
     /// Failure during editing.
     #[error("Macro error: {0}")]
@@ -145,13 +174,13 @@ pub enum ReadLineError {
 }
 
 /// Result type when using [ReadLine::readline].
-pub type ReadLineResult = Result<String, ReadLineError>;
+pub type ReadLineResult<I> = Result<String, ReadLineError<I>>;
 
 /// Simple editor for collecting user input.
-pub struct ReadLine<C, I>
+pub struct ReadLine<C, I = ReadLineInfo>
 where
     C: EditContext,
-    I: ApplicationInfo,
+    I: ApplicationInfo<ContentId = ReadLineId>,
 {
     bindings: KeyManager<TerminalKey, Action<I>, RepeatType, C>,
     store: Store<I>,
@@ -169,7 +198,7 @@ where
 impl<C, I> ReadLine<C, I>
 where
     C: EditContext,
-    I: ApplicationInfo,
+    I: ApplicationInfo<ContentId = ReadLineId>,
 {
     /// Create a new instance.
     pub fn new<B: BindingMachine<TerminalKey, Action<I>, RepeatType, C> + 'static>(
@@ -183,8 +212,8 @@ where
 
         let store = Store::<I>::default();
 
-        let mut line = Editor::new();
-        let mut cmd = Editor::new();
+        let mut line = Editor::new(ReadLineId::Line);
+        let mut cmd = Editor::new(ReadLineId::Command);
         line.resize(dimensions.0, dimensions.1);
         cmd.resize(dimensions.0, dimensions.1);
 
@@ -209,7 +238,7 @@ where
     }
 
     /// Prompt the user for input.
-    pub fn readline(&mut self, prompt: Option<String>) -> ReadLineResult {
+    pub fn readline(&mut self, prompt: Option<String>) -> ReadLineResult<I> {
         crossterm::terminal::enable_raw_mode()?;
 
         self.init()?;
@@ -241,7 +270,7 @@ where
         }
     }
 
-    fn step(&mut self, prompt: &Option<String>) -> Result<TerminalKey, ReadLineError> {
+    fn step(&mut self, prompt: &Option<String>) -> Result<TerminalKey, ReadLineError<I>> {
         loop {
             self.redraw(prompt)?;
 
@@ -266,7 +295,7 @@ where
                     // Reset action-specific state.
                     ctx.reset();
 
-                    let _ = focused_mut!(self).insert_text(act, &ctx, &mut self.store)?;
+                    let _ = focused_mut!(self).insert_text(&act, &ctx, &mut self.store)?;
                 },
                 Event::Resize(width, height) => {
                     self.resize(width, height);
@@ -275,7 +304,7 @@ where
         }
     }
 
-    fn suspend(&mut self) -> Result<InternalResult, ReadLineError> {
+    fn suspend(&mut self) -> Result<InternalResult, ReadLineError<I>> {
         // Restore old terminal state.
         crossterm::terminal::disable_raw_mode()?;
         self.context.stdout.queue(CursorShow)?.flush()?;
@@ -301,12 +330,12 @@ where
 
     fn command_bar(
         &mut self,
-        act: CommandBarAction,
+        act: &CommandBarAction,
         _: C,
-    ) -> Result<InternalResult, ReadLineError> {
+    ) -> Result<InternalResult, ReadLineError<I>> {
         match act {
             CommandBarAction::Focus(ct) => {
-                self.ct = Some(ct);
+                self.ct = Some(ct.clone());
 
                 Ok(InternalResult::Nothing)
             },
@@ -318,7 +347,7 @@ where
         }
     }
 
-    fn prompt(&mut self, act: PromptAction, ctx: C) -> Result<InternalResult, ReadLineError> {
+    fn prompt(&mut self, act: PromptAction, ctx: C) -> Result<InternalResult, ReadLineError<I>> {
         match act {
             PromptAction::Submit => {
                 let res = self.submit();
@@ -387,7 +416,7 @@ where
         }
     }
 
-    fn get_cmd_regex(&mut self) -> EditResult<Regex> {
+    fn get_cmd_regex(&mut self) -> EditResult<Regex, I> {
         let text = self.cmd.get_trim();
 
         if text.len() > 0 {
@@ -411,7 +440,7 @@ where
         return Ok(re);
     }
 
-    fn get_regex(&mut self) -> EditResult<Regex> {
+    fn get_regex(&mut self) -> EditResult<Regex, I> {
         let re = if let Some(CommandType::Search(_, _)) = self.ct {
             self.get_cmd_regex()?
         } else {
@@ -423,7 +452,7 @@ where
         return Ok(re);
     }
 
-    fn search(&mut self, flip: MoveDirMod, count: Count, ctx: &C) -> EditResult {
+    fn search(&mut self, flip: MoveDirMod, count: Count, ctx: &C) -> EditResult<EditInfo, I> {
         let count = ctx.resolve(&count);
         let needle = self.get_regex()?;
         let dir = ctx.get_search_regex_dir();
@@ -444,7 +473,7 @@ where
         Ok(None)
     }
 
-    fn incsearch(&mut self) -> Result<(), EditError> {
+    fn incsearch(&mut self) -> Result<(), EditError<I>> {
         if let Some(CommandType::Search(dir, true)) = self.ct {
             let needle = self.cmd.get_trim().to_string();
             let needle = Regex::new(needle.as_ref())?;
@@ -457,7 +486,7 @@ where
         Ok(())
     }
 
-    fn edit(&mut self, action: EditAction, mov: EditTarget, ctx: C) -> EditResult {
+    fn edit(&mut self, action: EditAction, mov: EditTarget, ctx: C) -> EditResult<EditInfo, I> {
         match (action, mov) {
             (ea @ EditAction::Motion, EditTarget::Motion(MoveType::Line(dir), count)) => {
                 let n = focused_mut!(self).line_leftover(dir, ctx.resolve(&count));
@@ -485,7 +514,7 @@ where
         }
     }
 
-    fn submit(&mut self) -> Result<InternalResult, ReadLineError> {
+    fn submit(&mut self) -> Result<InternalResult, ReadLineError<I>> {
         match self.ct {
             None => {
                 let text = focused_mut!(self).reset();
@@ -583,7 +612,7 @@ where
         }
     }
 
-    fn act(&mut self, action: Action<I>, ctx: C) -> Result<InternalResult, ReadLineError> {
+    fn act(&mut self, action: Action<I>, ctx: C) -> Result<InternalResult, ReadLineError<I>> {
         let store = &mut self.store;
 
         let _ = match action {
@@ -596,17 +625,17 @@ where
                 None
             },
 
-            Action::CommandBar(cb) => return self.command_bar(cb, ctx),
+            Action::CommandBar(cb) => return self.command_bar(&cb, ctx),
             Action::Prompt(p) => return self.prompt(p, ctx),
             Action::Suspend => return self.suspend(),
 
             // Simple delegations.
             Action::Edit(action, mov) => self.edit(ctx.resolve(&action), mov, ctx)?,
-            Action::Macro(act) => self.bindings.macro_command(act, &ctx, store)?,
+            Action::Macro(act) => self.bindings.macro_command(&act, &ctx, store)?,
             Action::Mark(mark) => focused_mut!(self).mark(ctx.resolve(&mark), &ctx, store)?,
             Action::Cursor(act) => focused_mut!(self).cursor_command(&act, &ctx, store)?,
-            Action::Selection(act) => focused_mut!(self).selection_command(act, &ctx, store)?,
-            Action::History(act) => focused_mut!(self).history_command(act, &ctx, store)?,
+            Action::Selection(act) => focused_mut!(self).selection_command(&act, &ctx, store)?,
+            Action::History(act) => focused_mut!(self).history_command(&act, &ctx, store)?,
             Action::Search(flip, count) => self.search(flip, count, &ctx)?,
 
             Action::RedrawScreen => {
@@ -616,7 +645,7 @@ where
             },
 
             Action::InsertText(act) => {
-                let res = focused_mut!(self).insert_text(act, &ctx, store)?;
+                let res = focused_mut!(self).insert_text(&act, &ctx, store)?;
 
                 // Perform an incremental search if we need to.
                 self.incsearch()?;

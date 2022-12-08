@@ -43,6 +43,7 @@ use crate::editing::{
         MovePosition,
         MoveTerminus,
         MoveType,
+        OpenTarget,
         RangeType,
         Register,
         RepeatType,
@@ -336,10 +337,10 @@ macro_rules! motion {
 
 macro_rules! yank_target {
     ($target: expr) => {
-        edit_target!(EditAction::Delete, $target)
+        edit_target!(EditAction::Yank, $target)
     };
     ($target: expr, $c: expr) => {
-        edit_target!(EditAction::Delete, $target, $c)
+        edit_target!(EditAction::Yank, $target, $c)
     };
 }
 
@@ -418,9 +419,20 @@ macro_rules! window_focus {
     };
 }
 
+macro_rules! window_switch {
+    ($st: expr) => {
+        window!(WindowAction::Switch($st))
+    };
+}
+
 macro_rules! window_split {
     ($axis: expr) => {
-        window!(WindowAction::Split($axis, MoveDir1D::Previous, Count::Contextual))
+        window!(WindowAction::Split(
+            OpenTarget::Current,
+            $axis,
+            MoveDir1D::Previous,
+            Count::Contextual
+        ))
     };
 }
 
@@ -547,12 +559,23 @@ fn default_keys<I: ApplicationInfo>() -> Vec<(MappedModes, &'static str, InputSt
         ( IMAP, "<C-X><C-W>", unmapped!() ),
         ( IMAP, "<C-X><C-X>", selection!(SelectionAction::CursorSet(SelectionCursorChange::SwapAnchor(false))) ),
         ( IMAP, "<C-X><C-Z>", act!(Action::Suspend) ),
-        ( IMAP, "<C-X><Left>", unmapped!() ),
-        ( IMAP, "<C-X><Right>", unmapped!() ),
+        ( IMAP, "<C-X><Space>", unmapped!() ),
+        ( IMAP, "<C-X><Left>", window_switch!(OpenTarget::Offset(MoveDir1D::Previous, Count::Contextual)) ),
+        ( IMAP, "<C-X><Right>", window_switch!(OpenTarget::Offset(MoveDir1D::Next, Count::Contextual)) ),
         ( IMAP, "<C-X>b", unmapped!() ),
         ( IMAP, "<C-X>h", start_selection!(TargetShape::CharWise, RangeType::Buffer.into()) ),
         ( IMAP, "<C-X>k", unmapped!() ),
         ( IMAP, "<C-X>o", window_focus!(FocusChange::Direction1D(MoveDir1D::Next, Count::Exact(1), true)) ),
+        ( IMAP, "<C-X>r<M-w>", unmapped!() ),
+        ( IMAP, "<C-X>rb", unmapped!() ),
+        ( IMAP, "<C-X>rc", unmapped!() ),
+        ( IMAP, "<C-X>rd", unmapped!() ),
+        ( IMAP, "<C-X>rk", unmapped!() ),
+        ( IMAP, "<C-X>rl", unmapped!() ),
+        ( IMAP, "<C-X>rm", unmapped!() ),
+        ( IMAP, "<C-X>ro", unmapped!() ),
+        ( IMAP, "<C-X>ry", unmapped!() ),
+        ( IMAP, "<C-X>rN", unmapped!() ),
         ( IMAP, "<C-X>s", unmapped!() ),
         ( IMAP, "<C-X>u", history!(HistoryAction::Undo(Count::Contextual)) ),
         ( IMAP, "<C-X>0", window_quit!(CloseTarget::Single, FocusChange::Current) ),
@@ -587,6 +610,8 @@ fn default_keys<I: ApplicationInfo>() -> Vec<(MappedModes, &'static str, InputSt
 
         // Command mode keybindings.
         ( CMAP, "<C-G>", prompt!(PromptAction::Abort(false), EmacsMode::Insert) ),
+        ( CMAP, "<Up>", prompt!(PromptAction::Recall(MoveDir1D::Previous, Count::Contextual)) ),
+        ( CMAP, "<Down>", prompt!(PromptAction::Recall(MoveDir1D::Next, Count::Contextual)) ),
 
         // Search mode keybindings.
         ( SMAP, "<C-G>", prompt!(PromptAction::Abort(false), EmacsMode::Insert) ),

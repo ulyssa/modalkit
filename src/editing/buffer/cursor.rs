@@ -1,5 +1,5 @@
 use crate::editing::{
-    action::EditResult,
+    action::{EditInfo, EditResult},
     application::ApplicationInfo,
     base::{Count, CursorCloseTarget, CursorGroupCombineStyle, MoveDir1D, Register},
     context::EditContext,
@@ -8,17 +8,25 @@ use crate::editing::{
 
 use super::{CursorGroupIdContext, EditBuffer};
 
-pub trait CursorActions<C, S> {
-    fn cursor_split(&mut self, count: &Count, ctx: &C, store: &mut S) -> EditResult;
+pub trait CursorActions<C, S, I>
+where
+    I: ApplicationInfo,
+{
+    fn cursor_split(&mut self, count: &Count, ctx: &C, store: &mut S) -> EditResult<EditInfo, I>;
 
-    fn cursor_close(&mut self, target: &CursorCloseTarget, ctx: &C, store: &mut S) -> EditResult;
+    fn cursor_close(
+        &mut self,
+        target: &CursorCloseTarget,
+        ctx: &C,
+        store: &mut S,
+    ) -> EditResult<EditInfo, I>;
 
     fn cursor_restore(
         &mut self,
         style: &CursorGroupCombineStyle,
         ctx: &C,
         store: &mut S,
-    ) -> EditResult;
+    ) -> EditResult<EditInfo, I>;
 
     fn cursor_rotate(
         &mut self,
@@ -26,17 +34,17 @@ pub trait CursorActions<C, S> {
         count: &Count,
         ctx: &C,
         store: &mut S,
-    ) -> EditResult;
+    ) -> EditResult<EditInfo, I>;
 
     fn cursor_save(
         &mut self,
         style: &CursorGroupCombineStyle,
         ctx: &C,
         store: &mut S,
-    ) -> EditResult;
+    ) -> EditResult<EditInfo, I>;
 }
 
-impl<'a, 'b, C, I> CursorActions<CursorGroupIdContext<'a, 'b, C>, Store<I>> for EditBuffer<I>
+impl<'a, 'b, C, I> CursorActions<CursorGroupIdContext<'a, 'b, C>, Store<I>, I> for EditBuffer<I>
 where
     C: EditContext,
     I: ApplicationInfo,
@@ -47,7 +55,7 @@ where
         count: &Count,
         ctx: &CursorGroupIdContext<'a, 'b, C>,
         _: &mut Store<I>,
-    ) -> EditResult {
+    ) -> EditResult<EditInfo, I> {
         let off = ctx.2.resolve(count);
         let gid = ctx.0;
 
@@ -61,7 +69,7 @@ where
         target: &CursorCloseTarget,
         ctx: &CursorGroupIdContext<'a, 'b, C>,
         _: &mut Store<I>,
-    ) -> EditResult {
+    ) -> EditResult<EditInfo, I> {
         let gid = ctx.0;
 
         self.get_group_mut(gid).close(target);
@@ -74,12 +82,12 @@ where
         style: &CursorGroupCombineStyle,
         ctx: &CursorGroupIdContext<'a, 'b, C>,
         store: &mut Store<I>,
-    ) -> EditResult {
+    ) -> EditResult<EditInfo, I> {
         let reg = ctx.2.get_register().unwrap_or(Register::UnnamedCursorGroup);
         let gid = ctx.0;
 
         // Get saved group.
-        let ngroup = store.cursors.get_group(self.id, &reg)?;
+        let ngroup = store.cursors.get_group(self.id.clone(), &reg)?;
 
         // Combine with current group.
         let ogroup = self.cursors.entry(gid).or_default();
@@ -94,18 +102,18 @@ where
         style: &CursorGroupCombineStyle,
         ctx: &CursorGroupIdContext<'a, 'b, C>,
         store: &mut Store<I>,
-    ) -> EditResult {
+    ) -> EditResult<EditInfo, I> {
         let reg = ctx.2.get_register().unwrap_or(Register::UnnamedCursorGroup);
         let gid = ctx.0;
 
         // Get currently saved group.
-        let ogroup = store.cursors.get_group(self.id, &reg)?;
+        let ogroup = store.cursors.get_group(self.id.clone(), &reg)?;
 
         // Combine with current group.
         let cgroup = self.cursors.entry(gid).or_default();
         let merged = ogroup.combine(&cgroup, style, &self.text)?;
 
-        store.cursors.set_group(self.id, reg, merged)?;
+        store.cursors.set_group(self.id.clone(), reg, merged)?;
 
         Ok(None)
     }
@@ -115,7 +123,7 @@ where
         count: &Count,
         ctx: &CursorGroupIdContext<'a, 'b, C>,
         _: &mut Store<I>,
-    ) -> EditResult {
+    ) -> EditResult<EditInfo, I> {
         let count = ctx.2.resolve(count);
 
         self.get_group_mut(ctx.0).split(count);

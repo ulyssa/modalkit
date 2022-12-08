@@ -24,7 +24,7 @@
 //!
 //! fn main() {
 //!     let mut store = Store::<EmptyInfo>::default();
-//!     let buffer = store.new_buffer();
+//!     let buffer = store.load_buffer(String::from("*scratch*"));
 //!     let mut tbox = TextBoxState::new(buffer);
 //!
 //!     tbox.set_term_info(Rect::new(0, 0, 6, 4));
@@ -50,9 +50,11 @@ use tui::{
 
 use crate::editing::{
     action::{
+        Action,
         CursorAction,
         EditAction,
         EditError,
+        EditInfo,
         EditResult,
         Editable,
         HistoryAction,
@@ -81,6 +83,7 @@ use crate::editing::{
         ScrollStyle,
         TargetShape,
         ViewportContext,
+        WordStyle,
         Wrappable,
     },
     buffer::{CursorGroupId, FollowersInfo, HighlightInfo},
@@ -90,7 +93,7 @@ use crate::editing::{
     store::{SharedBuffer, Store},
 };
 
-use super::{ScrollActions, TerminalCursor, Window};
+use super::{ScrollActions, TerminalCursor, WindowOps};
 
 /// Line annotation shown in the left gutter.
 pub struct LeftGutterInfo {
@@ -130,6 +133,7 @@ impl RightGutterInfo {
 pub struct TextBoxState<I: ApplicationInfo = EmptyInfo> {
     buffer: SharedBuffer<I>,
     group_id: CursorGroupId,
+    readonly: bool,
 
     viewctx: ViewportContext<Cursor>,
     term_area: Rect,
@@ -222,11 +226,22 @@ where
         TextBoxState {
             buffer,
             group_id,
+            readonly: false,
 
             viewctx,
             term_area: Rect::default(),
             term_cursor: (0, 0),
         }
+    }
+
+    /// Get a reference to the shared buffer used by this text box.
+    pub fn buffer(&self) -> SharedBuffer<I> {
+        self.buffer.clone()
+    }
+
+    /// Set whether the buffer contents are modifiable through the [Editable] trait.
+    pub fn set_readonly(&mut self, readonly: bool) {
+        self.readonly = readonly;
     }
 
     /// Get the contents of the underlying buffer as an [EditRope].
@@ -330,7 +345,7 @@ macro_rules! c2cgi {
     };
 }
 
-impl<'a, C, I> Editable<C, I> for TextBoxState<I>
+impl<'a, C, I> Editable<C, Store<I>, I> for TextBoxState<I>
 where
     C: EditContext,
     I: ApplicationInfo,
@@ -341,37 +356,64 @@ where
         motion: &EditTarget,
         ctx: &C,
         store: &mut Store<I>,
-    ) -> EditResult {
-        self.buffer.edit(operation, motion, c2cgi!(self, ctx), store)
+    ) -> EditResult<EditInfo, I> {
+        if self.readonly && !operation.is_readonly() {
+            Err(EditError::ReadOnly)
+        } else {
+            self.buffer.edit(operation, motion, c2cgi!(self, ctx), store)
+        }
     }
 
-    fn mark(&mut self, name: Mark, ctx: &C, store: &mut Store<I>) -> EditResult {
+    fn mark(&mut self, name: Mark, ctx: &C, store: &mut Store<I>) -> EditResult<EditInfo, I> {
         self.buffer.mark(name, c2cgi!(self, ctx), store)
     }
 
-    fn insert_text(&mut self, act: InsertTextAction, ctx: &C, store: &mut Store<I>) -> EditResult {
-        self.buffer.insert_text(act, c2cgi!(self, ctx), store)
+    fn insert_text(
+        &mut self,
+        act: &InsertTextAction,
+        ctx: &C,
+        store: &mut Store<I>,
+    ) -> EditResult<EditInfo, I> {
+        if self.readonly {
+            Err(EditError::ReadOnly)
+        } else {
+            self.buffer.insert_text(act, c2cgi!(self, ctx), store)
+        }
     }
 
     fn selection_command(
         &mut self,
-        act: SelectionAction,
+        act: &SelectionAction,
         ctx: &C,
         store: &mut Store<I>,
-    ) -> EditResult {
+    ) -> EditResult<EditInfo, I> {
         self.buffer.selection_command(act, c2cgi!(self, ctx), store)
     }
 
-    fn history_command(&mut self, act: HistoryAction, ctx: &C, store: &mut Store<I>) -> EditResult {
+    fn history_command(
+        &mut self,
+        act: &HistoryAction,
+        ctx: &C,
+        store: &mut Store<I>,
+    ) -> EditResult<EditInfo, I> {
+        if self.readonly && !act.is_readonly() {
+            return Err(EditError::ReadOnly);
+        }
+
         self.buffer.history_command(act, c2cgi!(self, ctx), store)
     }
 
-    fn cursor_command(&mut self, act: &CursorAction, ctx: &C, store: &mut Store<I>) -> EditResult {
+    fn cursor_command(
+        &mut self,
+        act: &CursorAction,
+        ctx: &C,
+        store: &mut Store<I>,
+    ) -> EditResult<EditInfo, I> {
         self.buffer.cursor_command(act, c2cgi!(self, ctx), store)
     }
 }
 
-impl<'a, C, I> Jumpable<C> for TextBoxState<I>
+impl<'a, C, I> Jumpable<C, I> for TextBoxState<I>
 where
     C: EditContext,
     I: ApplicationInfo,
@@ -382,32 +424,43 @@ where
         dir: MoveDir1D,
         count: usize,
         ctx: &C,
-    ) -> UIResult<usize> {
+    ) -> UIResult<usize, I> {
         self.buffer.jump(list, dir, count, c2cgi!(self, ctx))
     }
 }
 
-impl<A, C, I> Promptable<A, C, Store<I>> for TextBoxState<I>
+impl<C, I> Promptable<C, Store<I>, I> for TextBoxState<I>
 where
     C: EditContext,
     I: ApplicationInfo,
 {
-    fn prompt(&mut self, _: PromptAction, _: &C, _: &mut Store<I>) -> EditResult<Vec<(A, C)>> {
+    fn prompt(
+        &mut self,
+        _: &PromptAction,
+        _: &C,
+        _: &mut Store<I>,
+    ) -> EditResult<Vec<(Action<I>, C)>, I> {
         Err(EditError::Failure("Not at a prompt".to_string()))
     }
 }
 
-impl<'a, C, I> Searchable<C, Store<I>> for TextBoxState<I>
+impl<'a, C, I> Searchable<C, Store<I>, I> for TextBoxState<I>
 where
     C: EditContext,
     I: ApplicationInfo,
 {
-    fn search(&mut self, dir: MoveDirMod, count: Count, ctx: &C, store: &mut Store<I>) -> UIResult {
+    fn search(
+        &mut self,
+        dir: MoveDirMod,
+        count: Count,
+        ctx: &C,
+        store: &mut Store<I>,
+    ) -> UIResult<EditInfo, I> {
         self.buffer.search(dir, count, c2cgi!(self, ctx), store)
     }
 }
 
-impl<'a, C, I> ScrollActions<C, Store<I>> for TextBoxState<I>
+impl<'a, C, I> ScrollActions<C, Store<I>, I> for TextBoxState<I>
 where
     C: EditContext,
     I: ApplicationInfo,
@@ -419,7 +472,7 @@ where
         count: &Count,
         ctx: &C,
         _: &mut Store<I>,
-    ) -> EditResult {
+    ) -> EditResult<EditInfo, I> {
         let count = ctx.resolve(count);
 
         let height = self.viewctx.dimensions.1;
@@ -460,7 +513,13 @@ where
         Ok(None)
     }
 
-    fn cursorpos(&mut self, pos: MovePosition, axis: Axis, _: &C, _: &mut Store<I>) -> EditResult {
+    fn cursorpos(
+        &mut self,
+        pos: MovePosition,
+        axis: Axis,
+        _: &C,
+        _: &mut Store<I>,
+    ) -> EditResult<EditInfo, I> {
         if axis == Axis::Horizontal && self.viewctx.wrap {
             return Ok(None);
         }
@@ -508,7 +567,7 @@ where
         count: &Count,
         ctx: &C,
         _: &mut Store<I>,
-    ) -> EditResult {
+    ) -> EditResult<EditInfo, I> {
         let mut buffer = self.buffer.write().unwrap();
         let max = buffer.get_lines();
         let line = ctx.resolve(count).min(max).saturating_sub(1);
@@ -537,12 +596,17 @@ where
     }
 }
 
-impl<'a, C, I> Scrollable<C, Store<I>> for TextBoxState<I>
+impl<'a, C, I> Scrollable<C, Store<I>, I> for TextBoxState<I>
 where
     C: EditContext,
     I: ApplicationInfo,
 {
-    fn scroll(&mut self, style: &ScrollStyle, ctx: &C, store: &mut Store<I>) -> EditResult {
+    fn scroll(
+        &mut self,
+        style: &ScrollStyle,
+        ctx: &C,
+        store: &mut Store<I>,
+    ) -> EditResult<EditInfo, I> {
         match style {
             ScrollStyle::Direction2D(dir, size, count) => {
                 return self.dirscroll(*dir, *size, count, ctx, store);
@@ -566,21 +630,18 @@ where
     }
 }
 
-impl<I> Window for TextBoxState<I>
+impl<I> WindowOps<I> for TextBoxState<I>
 where
     I: ApplicationInfo,
 {
-    fn draw(&mut self, area: Rect, buf: &mut Buffer, _: bool) {
-        TextBox::new().render(area, buf, self);
-    }
-
-    fn dup(&self) -> Self {
+    fn dup(&self, _: &mut Store<I>) -> Self {
         let buffer = self.buffer.clone();
         let group_id = buffer.write().unwrap().create_group();
 
         TextBoxState {
             buffer,
             group_id,
+            readonly: self.readonly,
 
             viewctx: self.viewctx.clone(),
             term_area: Rect::default(),
@@ -588,8 +649,20 @@ where
         }
     }
 
-    fn close(&mut self, _: CloseFlags) -> bool {
+    fn close(&mut self, _: CloseFlags, _: &mut Store<I>) -> bool {
         true
+    }
+
+    fn draw(&mut self, area: Rect, buf: &mut Buffer, _: bool, _: &mut Store<I>) {
+        TextBox::new().render(area, buf, self);
+    }
+
+    fn get_cursor_word(&self, style: &WordStyle) -> Option<String> {
+        self.buffer.read().unwrap().get_cursor_word(self.group_id, style)
+    }
+
+    fn get_selected_word(&self) -> Option<String> {
+        self.buffer.read().unwrap().get_selected_word(self.group_id)
     }
 }
 
@@ -1012,7 +1085,7 @@ mod tests {
 
     fn mkbox() -> (TextBoxState, Store<EmptyInfo>) {
         let mut store = Store::default();
-        let buffer = store.new_buffer();
+        let buffer = store.load_buffer("".to_string());
 
         (TextBoxState::new(buffer), store)
     }
@@ -1022,7 +1095,7 @@ mod tests {
         let ctx = VimContext::default();
 
         b.set_text(s);
-        b.history_command(HistoryAction::Checkpoint, &ctx, &mut store).unwrap();
+        b.history_command(&HistoryAction::Checkpoint, &ctx, &mut store).unwrap();
 
         return (b, ctx, store);
     }

@@ -13,9 +13,10 @@ use std::ops::Not;
 use tui::{buffer::Buffer, layout::Rect, widgets::StatefulWidget};
 
 use crate::widgets::util::{rect_down, rect_right, rect_zero_height, rect_zero_width};
-use crate::widgets::{TermOffset, Window, WindowContainer};
+use crate::widgets::{TermOffset, TerminalCursor, Window, WindowOps};
 
 use super::size::{ResizeInfo, ResizeInfoTrail, MIN_WIN_LEN};
+use super::slot::WindowSlot;
 use super::tree::{SubtreeOps, TreeOps};
 use super::{
     winnr_cmp,
@@ -32,7 +33,18 @@ use super::{
 use crate::util::idx_offset;
 
 use crate::editing::{
-    action::{EditResult, UIResult, WindowAction},
+    action::{
+        EditError,
+        EditInfo,
+        EditResult,
+        Jumpable,
+        UIError,
+        UIResult,
+        WindowAction,
+        WindowContainer,
+        WindowCount,
+    },
+    application::ApplicationInfo,
     base::{
         Axis,
         Axis::{Horizontal, Vertical},
@@ -44,9 +56,12 @@ use crate::editing::{
         MoveDir2D,
         MoveDir2D::{Down, Left, Right, Up},
         MovePosition,
+        OpenTarget,
+        PositionList,
         SizeChange,
     },
     context::EditContext,
+    store::Store,
 };
 
 fn windex<C: EditContext>(count: &Count, ctx: &C) -> usize {
@@ -64,7 +79,6 @@ fn slopped_length(base: u16, count: u16, slop: &mut u16) -> u16 {
 
 fn set_area_lens<W, X, Y>(node: &mut AxisTreeNode<W, X, Y>, area: Rect, info: &ResizeInfo)
 where
-    W: Window,
     X: AxisT,
     Y: AxisT,
 {
@@ -112,7 +126,6 @@ where
 
 fn set_area_equal<W, X, Y>(node: &mut AxisTreeNode<W, X, Y>, area: Rect, info: &ResizeInfo)
 where
-    W: Window,
     X: AxisT,
     Y: AxisT,
 {
@@ -163,7 +176,6 @@ where
 /// tree.
 pub(super) trait LayoutOps<W, X, Y>
 where
-    W: Window,
     X: AxisT,
     Y: AxisT,
 {
@@ -234,7 +246,10 @@ where
     fn set_area(&mut self, area: Rect, info: &ResizeInfo);
 
     /// Draw the [Windows](Window) that this tree contains.
-    fn draw(&mut self, buf: &mut Buffer, focus: Option<usize>);
+    fn draw<I>(&mut self, buf: &mut Buffer, focus: Option<usize>, store: &mut Store<I>)
+    where
+        W: WindowOps<I>,
+        I: ApplicationInfo;
 
     fn _neighbor_walk(
         &self,
@@ -243,6 +258,7 @@ where
         c: TermOffset,
         dir: MoveDir2D,
     ) -> (usize, usize);
+
     fn _neighbor_of(
         &self,
         base: usize,
@@ -254,10 +270,16 @@ where
 
     /// Find the neighbor of a given [Window] that is [*n*](Count) windows away in [MoveDir2D]
     /// direction.
-    fn neighbor(&self, at: usize, dir: MoveDir2D, count: usize) -> Option<usize>;
+    fn neighbor(&self, at: usize, dir: MoveDir2D, count: usize) -> Option<usize>
+    where
+        W: TerminalCursor;
 }
 
-impl<W: Window, X: AxisT, Y: AxisT> LayoutOps<W, X, Y> for Value<W, X, Y> {
+impl<W, X, Y> LayoutOps<W, X, Y> for Value<W, X, Y>
+where
+    X: AxisT,
+    Y: AxisT,
+{
     fn close(&mut self, idx: usize, trail: Box<ResizeInfoTrail<'_, X, Y>>) -> Option<W> {
         match self {
             Value::Window(_, _) => panic!("cannot remove element from non-tree"),
@@ -398,13 +420,20 @@ impl<W: Window, X: AxisT, Y: AxisT> LayoutOps<W, X, Y> for Value<W, X, Y> {
         }
     }
 
-    fn draw(&mut self, buf: &mut Buffer, focus: Option<usize>) {
+    fn draw<I: ApplicationInfo>(
+        &mut self,
+        buf: &mut Buffer,
+        focus: Option<usize>,
+        store: &mut Store<I>,
+    ) where
+        W: WindowOps<I>,
+    {
         match self {
             Value::Window(window, ref mut info) => {
-                window.draw(info.area, buf, matches!(focus, Some(0)));
+                window.draw(info.area, buf, matches!(focus, Some(0)), store);
             },
             Value::Tree(tree, _) => {
-                tree.draw(buf, focus);
+                tree.draw(buf, focus, store);
             },
         }
     }
@@ -483,14 +512,21 @@ impl<W: Window, X: AxisT, Y: AxisT> LayoutOps<W, X, Y> for Value<W, X, Y> {
         }
     }
 
-    fn neighbor(&self, _: usize, _: MoveDir2D, _: usize) -> Option<usize> {
+    fn neighbor(&self, _: usize, _: MoveDir2D, _: usize) -> Option<usize>
+    where
+        W: TerminalCursor,
+    {
         unreachable!();
     }
 }
 
 type HorizontalTree<W> = AxisTree<W, HorizontalT, VerticalT>;
 
-impl<W: Window, X: AxisT, Y: AxisT> LayoutOps<W, X, Y> for AxisTreeNode<W, X, Y> {
+impl<W, X, Y> LayoutOps<W, X, Y> for AxisTreeNode<W, X, Y>
+where
+    X: AxisT,
+    Y: AxisT,
+{
     fn size(&self) -> usize {
         self.info.size
     }
@@ -721,10 +757,14 @@ impl<W: Window, X: AxisT, Y: AxisT> LayoutOps<W, X, Y> for AxisTreeNode<W, X, Y>
         }
     }
 
-    fn draw(&mut self, buf: &mut Buffer, focus: Option<usize>) {
+    fn draw<I>(&mut self, buf: &mut Buffer, focus: Option<usize>, store: &mut Store<I>)
+    where
+        W: WindowOps<I>,
+        I: ApplicationInfo,
+    {
         let mut base = 0;
         let mut f = |value: &mut Value<W, X, Y>| {
-            value.draw(buf, focus.and_then(|n| n.checked_sub(base)));
+            value.draw(buf, focus.and_then(|n| n.checked_sub(base)), store);
 
             base += value.size();
         };
@@ -888,14 +928,21 @@ impl<W: Window, X: AxisT, Y: AxisT> LayoutOps<W, X, Y> for AxisTreeNode<W, X, Y>
         }
     }
 
-    fn neighbor(&self, at: usize, dir: MoveDir2D, count: usize) -> Option<usize> {
+    fn neighbor(&self, at: usize, dir: MoveDir2D, count: usize) -> Option<usize>
+    where
+        W: TerminalCursor,
+    {
         let (w, r) = self.get_area(at)?;
         let c = w.get_term_cursor().unwrap_or((r.x, r.y));
         self._neighbor_of(0, at, c, dir, count).map(|current| current.0)
     }
 }
 
-impl<W: Window, X: AxisT, Y: AxisT> LayoutOps<W, X, Y> for AxisTree<W, X, Y> {
+impl<W, X, Y> LayoutOps<W, X, Y> for AxisTree<W, X, Y>
+where
+    X: AxisT,
+    Y: AxisT,
+{
     fn size(&self) -> usize {
         match self {
             None => 0,
@@ -1040,36 +1087,42 @@ impl<W: Window, X: AxisT, Y: AxisT> LayoutOps<W, X, Y> for AxisTree<W, X, Y> {
         }
     }
 
-    fn draw(&mut self, buf: &mut Buffer, focus: Option<usize>) {
+    fn draw<I>(&mut self, buf: &mut Buffer, focus: Option<usize>, store: &mut Store<I>)
+    where
+        W: WindowOps<I>,
+        I: ApplicationInfo,
+    {
         if let Some(node) = self {
-            node.draw(buf, focus);
+            node.draw(buf, focus, store);
         }
     }
 
-    fn neighbor(&self, at: usize, dir: MoveDir2D, count: usize) -> Option<usize> {
+    fn neighbor(&self, at: usize, dir: MoveDir2D, count: usize) -> Option<usize>
+    where
+        W: TerminalCursor,
+    {
         self.as_ref().and_then(|tree| tree.neighbor(at, dir, count))
     }
 }
 
 /// Manages the current layout and focus of [Windows](Window) on the screen.
-pub struct WindowLayoutState<W: Window> {
-    root: HorizontalTree<W>,
+pub struct WindowLayoutState<W: Window<I>, I: ApplicationInfo> {
+    root: HorizontalTree<WindowSlot<W>>,
     info: TreeInfo,
     zoom: bool,
     focused: usize,
     focused_last: usize,
+    _p: PhantomData<I>,
 }
 
-impl<W: Window> WindowLayoutState<W> {
+impl<W, I> WindowLayoutState<W, I>
+where
+    W: Window<I>,
+    I: ApplicationInfo,
+{
     /// Create a new instance containing a single [Window].
     pub fn new(window: W) -> Self {
-        WindowLayoutState {
-            root: AxisTree::singleton(window),
-            info: TreeInfo::default(),
-            zoom: false,
-            focused: 0,
-            focused_last: 0,
-        }
+        WindowLayoutState::from_slot(window.into())
     }
 
     /// Create a new instance without any windows.
@@ -1080,16 +1133,51 @@ impl<W: Window> WindowLayoutState<W> {
             zoom: false,
             focused: 0,
             focused_last: 0,
+            _p: PhantomData,
+        }
+    }
+
+    /// Create a new instance containing a single [Window] displaying some content.
+    pub fn from_target<C: EditContext>(
+        &self,
+        target: &OpenTarget<I::WindowId>,
+        ctx: &C,
+        store: &mut Store<I>,
+    ) -> UIResult<Self, I> {
+        let w = self._open(target, ctx, store)?;
+        let layout = WindowLayoutState::new(w);
+
+        Ok(layout)
+    }
+
+    fn from_slot(slot: WindowSlot<W>) -> Self {
+        WindowLayoutState {
+            root: AxisTree::singleton(slot),
+            info: TreeInfo::default(),
+            zoom: false,
+            focused: 0,
+            focused_last: 0,
+            _p: PhantomData,
         }
     }
 
     /// Fetch a reference to the currently focused [Window].
     pub fn get(&self) -> Option<&W> {
-        self.root.get(self.focused)
+        self.get_slot().map(WindowSlot::get)
     }
 
     /// Fetch a mutable reference the currently focused [Window].
     pub fn get_mut(&mut self) -> Option<&mut W> {
+        self.get_slot_mut().map(WindowSlot::get_mut)
+    }
+
+    /// Fetch a mutable reference the currently focused [WindowSlot].
+    fn get_slot(&self) -> Option<&WindowSlot<W>> {
+        self.root.get(self.focused)
+    }
+
+    /// Fetch a mutable reference the currently focused [WindowSlot].
+    fn get_slot_mut(&mut self) -> Option<&mut WindowSlot<W>> {
         self.root.get_mut(self.focused)
     }
 
@@ -1098,10 +1186,10 @@ impl<W: Window> WindowLayoutState<W> {
         let at = self.focused;
         let trail = ResizeInfoTrail::new(at, &mut self.info.resized, None);
 
-        if let Some(w) = self.root.close(at, trail) {
+        if let Some(slot) = self.root.close(at, trail) {
             self._clamp_focus();
 
-            return WindowLayoutState::new(w);
+            return WindowLayoutState::from_slot(slot);
         } else {
             return WindowLayoutState::empty();
         }
@@ -1149,7 +1237,7 @@ impl<W: Window> WindowLayoutState<W> {
 
         let trail = ResizeInfoTrail::new(windex, &mut self.info.resized, None);
 
-        let nr = self.root.open(windex, w, length, rel, axis, trail);
+        let nr = self.root.open(windex, w.into(), length, rel, axis, trail);
         self.root.set_area(self.info.area, &self.info.resized);
 
         self._focus(nr);
@@ -1179,13 +1267,6 @@ impl<W: Window> WindowLayoutState<W> {
         self.root.set_area(self.info.area, &self.info.resized);
     }
 
-    fn split(&mut self, axis: Axis, rel: MoveDir1D) {
-        if let Some(w) = self.root.get(self.focused) {
-            let wd = w.dup();
-            self.open(wd, None, axis, rel);
-        }
-    }
-
     fn _focus(&mut self, focus: usize) {
         let max = self.root.size().saturating_sub(1);
 
@@ -1203,6 +1284,65 @@ impl<W: Window> WindowLayoutState<W> {
 
     fn _max_idx(&self) -> usize {
         self.root.size().saturating_sub(1)
+    }
+
+    fn _open<C: EditContext>(
+        &self,
+        target: &OpenTarget<I::WindowId>,
+        ctx: &C,
+        store: &mut Store<I>,
+    ) -> UIResult<W, I> {
+        match target {
+            OpenTarget::Alternate => {
+                let slot = self.get_slot().ok_or(UIError::NoWindow)?;
+
+                match slot.get_alt() {
+                    Some(ref alt) => Ok(alt.dup(store)),
+                    None => Err(UIError::Failure("No alternate window".into())),
+                }
+            },
+            OpenTarget::Application(id) => W::open(id.clone(), store),
+            OpenTarget::Current => {
+                let slot = self.get_slot().ok_or(UIError::NoWindow)?;
+
+                Ok(slot.get().dup(store))
+            },
+            OpenTarget::Cursor(style) => {
+                let slot = self.get_slot().ok_or(UIError::NoWindow)?;
+
+                if let Some(text) = slot.get().get_cursor_word(&style) {
+                    W::find(text, store)
+                } else {
+                    let msg = "No word under cursor".to_string();
+                    let err = UIError::Failure(msg);
+
+                    Err(err)
+                }
+            },
+            OpenTarget::List(count) => W::posn(ctx.resolve(count), store),
+            OpenTarget::Name(name) => W::find(name.clone(), store),
+            OpenTarget::Offset(dir, count) => {
+                let slot = self.get_slot().ok_or(UIError::NoWindow)?;
+                let count = ctx.resolve(count);
+
+                match slot.get_off(*dir, count) {
+                    Some(w) => Ok(w.dup(store)),
+                    None => Err(UIError::Failure("Not a valid window offset".into())),
+                }
+            },
+            OpenTarget::Selection => {
+                let slot = self.get_slot().ok_or(UIError::NoWindow)?;
+
+                if let Some(text) = slot.get().get_selected_word() {
+                    W::find(text, store)
+                } else {
+                    let msg = "No text currently selected".to_string();
+                    let err = UIError::Failure(msg);
+
+                    Err(err)
+                }
+            },
+        }
     }
 
     fn _target<C: EditContext>(&self, change: &FocusChange, ctx: &C) -> Option<usize> {
@@ -1252,8 +1392,18 @@ impl<W: Window> WindowLayoutState<W> {
     }
 }
 
-impl<W: Window, C: EditContext> WindowActions<W, C> for WindowLayoutState<W> {
-    fn window_focus(&mut self, change: &FocusChange, ctx: &C) -> EditResult {
+impl<W, C, I> WindowActions<C, I> for WindowLayoutState<W, I>
+where
+    W: Window<I>,
+    C: EditContext,
+    I: ApplicationInfo,
+{
+    fn window_focus(
+        &mut self,
+        change: &FocusChange,
+        ctx: &C,
+        _: &mut Store<I>,
+    ) -> EditResult<EditInfo, I> {
         if let Some(target) = self._target(change, ctx) {
             self.zoom = false;
             self._focus(target);
@@ -1262,7 +1412,12 @@ impl<W: Window, C: EditContext> WindowActions<W, C> for WindowLayoutState<W> {
         return Ok(None);
     }
 
-    fn window_exchange(&mut self, change: &FocusChange, ctx: &C) -> EditResult {
+    fn window_exchange(
+        &mut self,
+        change: &FocusChange,
+        ctx: &C,
+        _: &mut Store<I>,
+    ) -> EditResult<EditInfo, I> {
         if let Some(target) = self._target(change, ctx) {
             self.zoom = false;
             self.root.swap(self.focused, target);
@@ -1271,38 +1426,65 @@ impl<W: Window, C: EditContext> WindowActions<W, C> for WindowLayoutState<W> {
         return Ok(None);
     }
 
-    fn window_move_side(&mut self, dir: MoveDir2D, _: &C) -> EditResult {
+    fn window_move_side(
+        &mut self,
+        dir: MoveDir2D,
+        _: &C,
+        _: &mut Store<I>,
+    ) -> EditResult<EditInfo, I> {
         self.zoom = false;
         self.move_side(self.focused, dir);
 
         return Ok(None);
     }
 
-    fn window_rotate(&mut self, _dir: MoveDir1D, _ctx: &C) -> EditResult {
+    fn window_rotate(
+        &mut self,
+        _dir: MoveDir1D,
+        _ctx: &C,
+        _: &mut Store<I>,
+    ) -> EditResult<EditInfo, I> {
         // XXX: implement
+        let msg = "Window rotation is not currently implemented";
+        let err = EditError::Unimplemented(msg.into());
 
-        return Ok(None);
+        return Err(err);
     }
 
-    fn window_split(&mut self, axis: Axis, rel: MoveDir1D, count: Count, ctx: &C) -> EditResult {
-        let count = ctx.resolve(&count);
+    fn window_split(
+        &mut self,
+        target: &OpenTarget<I::WindowId>,
+        axis: Axis,
+        rel: MoveDir1D,
+        count: &Count,
+        ctx: &C,
+        store: &mut Store<I>,
+    ) -> UIResult<EditInfo, I> {
+        let count = ctx.resolve(count);
+        let w = self._open(&target, ctx, store)?;
 
         self.zoom = false;
 
         for _ in 0..count {
-            self.split(axis, rel);
+            self.open(w.dup(store), None, axis, rel);
         }
 
         return Ok(None);
     }
 
-    fn window_clear_sizes(&mut self, _: &C) -> EditResult {
+    fn window_clear_sizes(&mut self, _: &C, _: &mut Store<I>) -> EditResult<EditInfo, I> {
         self.clear_sizes();
 
         return Ok(None);
     }
 
-    fn window_resize(&mut self, axis: Axis, size: SizeChange<Count>, ctx: &C) -> EditResult {
+    fn window_resize(
+        &mut self,
+        axis: Axis,
+        size: &SizeChange<Count>,
+        ctx: &C,
+        _: &mut Store<I>,
+    ) -> EditResult<EditInfo, I> {
         let change: SizeChange<u16> = match &size {
             SizeChange::Equal => SizeChange::Equal,
             SizeChange::Exact(count) => SizeChange::Exact(ctx.resolve(count).try_into()?),
@@ -1316,7 +1498,13 @@ impl<W: Window, C: EditContext> WindowActions<W, C> for WindowLayoutState<W> {
         return Ok(None);
     }
 
-    fn window_close(&mut self, target: CloseTarget, flags: CloseFlags, ctx: &C) -> EditResult {
+    fn window_close(
+        &mut self,
+        target: &CloseTarget,
+        flags: CloseFlags,
+        ctx: &C,
+        _: &mut Store<I>,
+    ) -> EditResult<EditInfo, I> {
         let nwins = self.root.size();
 
         if nwins == 1 && !flags.contains(CloseFlags::QUIT) {
@@ -1351,44 +1539,134 @@ impl<W: Window, C: EditContext> WindowActions<W, C> for WindowLayoutState<W> {
         }
     }
 
-    fn window_zoom_toggle(&mut self, _: &C) -> EditResult {
+    fn window_open(
+        &mut self,
+        target: &OpenTarget<I::WindowId>,
+        axis: Axis,
+        rel: MoveDir1D,
+        count: &Count,
+        ctx: &C,
+        store: &mut Store<I>,
+    ) -> UIResult<EditInfo, I> {
+        let count: u16 = ctx.resolve(count).try_into().map_err(EditError::from)?;
+        let w = self._open(&target, ctx, store)?;
+
+        self.open(w, Some(count), axis, rel);
+
+        Ok(None)
+    }
+
+    fn window_switch(
+        &mut self,
+        target: &OpenTarget<I::WindowId>,
+        ctx: &C,
+        store: &mut Store<I>,
+    ) -> UIResult<EditInfo, I> {
+        let slot = self.get_slot_mut().ok_or(UIError::NoWindow)?;
+
+        let w = match target {
+            OpenTarget::Alternate => {
+                slot.alternate();
+
+                return Ok(None);
+            },
+            OpenTarget::Application(id) => W::open(id.clone(), store)?,
+            OpenTarget::Current => slot.get().dup(store),
+            OpenTarget::Cursor(style) => {
+                if let Some(text) = slot.get().get_cursor_word(&style) {
+                    W::find(text, store)?
+                } else {
+                    let msg = "No word under cursor".to_string();
+                    let err = UIError::Failure(msg);
+
+                    return Err(err);
+                }
+            },
+            OpenTarget::List(count) => W::posn(ctx.resolve(count), store)?,
+            OpenTarget::Name(name) => W::find(name.clone(), store)?,
+            OpenTarget::Offset(dir, count) => {
+                slot.offset(*dir, ctx.resolve(count));
+
+                return Ok(None);
+            },
+            OpenTarget::Selection => {
+                if let Some(text) = slot.get().get_selected_word() {
+                    W::find(text, store)?
+                } else {
+                    let msg = "No text currently selected".to_string();
+                    let err = UIError::Failure(msg);
+
+                    return Err(err);
+                }
+            },
+        };
+
+        slot.open(w);
+
+        Ok(None)
+    }
+
+    fn window_zoom_toggle(&mut self, _: &C, _: &mut Store<I>) -> EditResult<EditInfo, I> {
         self.zoom = self.zoom.not();
 
         Ok(None)
     }
 }
 
-impl<W: Window, C: EditContext> WindowContainer<W, C> for WindowLayoutState<W> {
+impl<W, I> WindowCount for WindowLayoutState<W, I>
+where
+    W: Window<I>,
+    I: ApplicationInfo,
+{
     fn windows(&self) -> usize {
         self.root.size()
     }
+}
 
-    fn window_open(
+impl<W, C, I> Jumpable<C, I> for WindowLayoutState<W, I>
+where
+    W: Window<I> + Jumpable<C, I>,
+    I: ApplicationInfo,
+{
+    fn jump(
         &mut self,
-        window: W,
-        axis: Axis,
-        rel: MoveDir1D,
-        count: Option<Count>,
+        list: PositionList,
+        dir: MoveDir1D,
+        count: usize,
         ctx: &C,
-    ) -> UIResult {
-        let count = count.map(|count| ctx.resolve(&count) as u16);
-
-        self.open(window, count, axis, rel);
-
-        return Ok(None);
+    ) -> UIResult<usize, I> {
+        self.get_slot_mut().ok_or(UIError::NoWindow)?.jump(list, dir, count, ctx)
     }
+}
 
-    fn window_command(&mut self, action: WindowAction, ctx: &C) -> UIResult {
+impl<W, C, I> WindowContainer<C, Store<I>, I> for WindowLayoutState<W, I>
+where
+    W: Window<I>,
+    C: EditContext,
+    I: ApplicationInfo,
+{
+    fn window_command(
+        &mut self,
+        action: &WindowAction<I>,
+        ctx: &C,
+        store: &mut Store<I>,
+    ) -> UIResult<EditInfo, I> {
         let info = match action {
-            WindowAction::Focus(target) => self.window_focus(&target, ctx)?,
-            WindowAction::MoveSide(dir) => self.window_move_side(dir, ctx)?,
-            WindowAction::Exchange(target) => self.window_exchange(&target, ctx)?,
-            WindowAction::Rotate(dir) => self.window_rotate(dir, ctx)?,
-            WindowAction::Split(axis, rel, count) => self.window_split(axis, rel, count, ctx)?,
-            WindowAction::ClearSizes => self.window_clear_sizes(ctx)?,
-            WindowAction::Resize(axis, size) => self.window_resize(axis, size, ctx)?,
-            WindowAction::Close(target, flags) => self.window_close(target, flags, ctx)?,
-            WindowAction::ZoomToggle => self.window_zoom_toggle(ctx)?,
+            WindowAction::ClearSizes => self.window_clear_sizes(ctx, store)?,
+            WindowAction::Close(target, flags) => self.window_close(target, *flags, ctx, store)?,
+            WindowAction::Exchange(target) => self.window_exchange(&target, ctx, store)?,
+            WindowAction::Focus(target) => self.window_focus(&target, ctx, store)?,
+            WindowAction::MoveSide(dir) => self.window_move_side(*dir, ctx, store)?,
+            WindowAction::Open(target, axis, rel, count) => {
+                self.window_open(target, *axis, *rel, count, ctx, store)?
+            },
+            WindowAction::Resize(axis, size) => self.window_resize(*axis, size, ctx, store)?,
+            WindowAction::Rotate(dir) => self.window_rotate(*dir, ctx, store)?,
+            WindowAction::Split(target, axis, rel, count) => {
+                self.window_split(target, *axis, *rel, count, ctx, store)?
+            },
+            WindowAction::Switch(target) => self.window_switch(target, ctx, store)?,
+            WindowAction::ZoomToggle => self.window_zoom_toggle(ctx, store)?,
         };
 
         return Ok(info);
@@ -1396,15 +1674,20 @@ impl<W: Window, C: EditContext> WindowContainer<W, C> for WindowLayoutState<W> {
 }
 
 /// Handles rendering the current window layout state to the terminal.
-pub struct WindowLayout<W: Window> {
+pub struct WindowLayout<'a, W: Window<I>, I: ApplicationInfo> {
+    store: &'a mut Store<I>,
     focused: bool,
-    _pw: PhantomData<W>,
+    _pw: PhantomData<(W, I)>,
 }
 
-impl<W: Window> WindowLayout<W> {
+impl<'a, W, I> WindowLayout<'a, W, I>
+where
+    W: Window<I>,
+    I: ApplicationInfo,
+{
     /// Create a new widget for displaying window layouts.
-    pub fn new() -> Self {
-        WindowLayout { focused: false, _pw: PhantomData }
+    pub fn new(store: &'a mut Store<I>) -> Self {
+        WindowLayout { store, focused: false, _pw: PhantomData }
     }
 
     /// Indicate whether the window layout tree is currently focused.
@@ -1414,19 +1697,17 @@ impl<W: Window> WindowLayout<W> {
     }
 }
 
-impl<W: Window> Default for WindowLayout<W> {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl<W: Window> StatefulWidget for WindowLayout<W> {
-    type State = WindowLayoutState<W>;
+impl<'a, W, I> StatefulWidget for WindowLayout<'a, W, I>
+where
+    W: Window<I>,
+    I: ApplicationInfo,
+{
+    type State = WindowLayoutState<W, I>;
 
     fn render(self, area: Rect, buf: &mut Buffer, state: &mut Self::State) {
         if state.zoom {
             if let Some(window) = state.get_mut() {
-                window.draw(area, buf, true);
+                window.draw(area, buf, true, self.store);
             }
 
             return;
@@ -1434,13 +1715,19 @@ impl<W: Window> StatefulWidget for WindowLayout<W> {
 
         state.info.area = area;
         state.root.set_area(area, &state.info.resized);
-        state.root.draw(buf, state.focused.into());
+        state.root.draw(buf, state.focused.into(), self.store);
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::editing::{
+        action::EditError,
+        application::{ApplicationContentId, ApplicationWindowId},
+        base::WordStyle,
+        store::Store,
+    };
     use crate::env::vim::VimContext;
     use crate::widgets::TerminalCursor;
     use rand::Rng;
@@ -1454,64 +1741,80 @@ mod tests {
         };
     }
 
-    macro_rules! window_open {
-        ($tree: expr, $w: expr, $axis: expr, $dir: expr, $c: expr, $ctx: expr) => {
-            $tree.window_open($w, $axis, $dir, $c.into(), $ctx).unwrap()
-        };
-    }
-
     macro_rules! window_close {
-        ($tree: expr, $ct: expr, $flags: expr, $ctx: expr) => {
-            $tree.window_close($ct, $flags, $ctx).unwrap()
+        ($tree: expr, $ct: expr, $flags: expr, $ctx: expr, $store: expr) => {
+            $tree.window_close(&$ct, $flags, $ctx, &mut $store).unwrap()
         };
     }
 
     macro_rules! window_exchange {
-        ($tree: expr, $fc: expr, $ctx: expr) => {
-            $tree.window_exchange(&$fc, $ctx).unwrap()
+        ($tree: expr, $fc: expr, $ctx: expr, $store: expr) => {
+            $tree.window_exchange(&$fc, $ctx, &mut $store).unwrap()
         };
     }
 
     macro_rules! window_focus {
-        ($tree: expr, $fc: expr, $ctx: expr) => {
-            $tree.window_focus(&$fc, $ctx).unwrap()
+        ($tree: expr, $fc: expr, $ctx: expr, $store: expr) => {
+            $tree.window_focus(&$fc, $ctx, &mut $store).unwrap()
         };
     }
 
     macro_rules! window_focus_off {
-        ($tree: expr, $c: expr, $ctx: expr) => {
-            window_focus!($tree, fc!($c), $ctx)
+        ($tree: expr, $c: expr, $ctx: expr, $store: expr) => {
+            window_focus!($tree, fc!($c), $ctx, $store)
         };
     }
 
     macro_rules! window_focus_1d {
-        ($tree: expr, $dir: expr, $c: expr, $ctx: expr) => {
-            window_focus!($tree, FocusChange::Direction1D($dir, $c, true), $ctx)
+        ($tree: expr, $dir: expr, $c: expr, $ctx: expr, $store: expr) => {
+            window_focus!($tree, FocusChange::Direction1D($dir, $c, true), $ctx, $store)
         };
     }
 
     macro_rules! window_focus_2d {
-        ($tree: expr, $dir: expr, $c: expr, $ctx: expr) => {
-            window_focus!($tree, FocusChange::Direction2D($dir, $c), $ctx)
+        ($tree: expr, $dir: expr, $c: expr, $ctx: expr, $store: expr) => {
+            window_focus!($tree, FocusChange::Direction2D($dir, $c), $ctx, $store)
         };
     }
 
     macro_rules! window_move_side {
-        ($tree: expr, $dir: expr, $ctx: expr) => {
-            $tree.window_move_side($dir, $ctx).unwrap()
+        ($tree: expr, $dir: expr, $ctx: expr, $store: expr) => {
+            $tree.window_move_side($dir, $ctx, &mut $store).unwrap()
         };
     }
 
     macro_rules! window_resize {
-        ($tree: expr, $axis: expr, $szch: expr, $ctx: expr) => {
-            $tree.window_resize($axis, $szch, $ctx).unwrap()
+        ($tree: expr, $axis: expr, $szch: expr, $ctx: expr, $store: expr) => {
+            $tree.window_resize($axis, &$szch, $ctx, &mut $store).unwrap()
+        };
+    }
+
+    macro_rules! window_switch {
+        ($tree: expr, $target: expr, $ctx: expr, $store: expr) => {
+            $tree.window_switch(&$target, $ctx, &mut $store).unwrap()
         };
     }
 
     macro_rules! window_split {
-        ($tree: expr, $axis: expr, $dir: expr, $count: expr, $ctx: expr) => {
-            $tree.window_split($axis, $dir, $count, $ctx).unwrap()
+        ($tree: expr, $axis: expr, $dir: expr, $count: expr, $ctx: expr, $store: expr) => {
+            $tree
+                .window_split(&OpenTarget::Current, $axis, $dir, &$count, $ctx, &mut $store)
+                .unwrap()
         };
+    }
+
+    #[derive(Clone, Debug, Eq, PartialEq)]
+    enum TestApp {}
+
+    impl ApplicationWindowId for Option<usize> {}
+    impl ApplicationContentId for Option<usize> {}
+
+    impl ApplicationInfo for TestApp {
+        type Error = String;
+        type Action = ();
+        type Store = ();
+        type WindowId = Option<usize>;
+        type ContentId = Option<usize>;
     }
 
     #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -1526,27 +1829,86 @@ mod tests {
         }
     }
 
+    impl From<Option<usize>> for TestWindow {
+        fn from(id: Option<usize>) -> Self {
+            TestWindow { term_area: Rect::default(), id }
+        }
+    }
+
     impl TerminalCursor for TestWindow {
         fn get_term_cursor(&self) -> Option<(u16, u16)> {
             (self.term_area.left(), self.term_area.top()).into()
         }
     }
 
-    impl Window for TestWindow {
-        fn draw(&mut self, area: Rect, _: &mut Buffer, _: bool) {
-            self.term_area = area;
-        }
-
-        fn dup(&self) -> Self {
+    impl WindowOps<TestApp> for TestWindow {
+        fn dup(&self, _: &mut Store<TestApp>) -> Self {
             self.clone()
         }
 
-        fn close(&mut self, _: CloseFlags) -> bool {
+        fn close(&mut self, _: CloseFlags, _: &mut Store<TestApp>) -> bool {
             true
+        }
+
+        fn draw(&mut self, area: Rect, _: &mut Buffer, _: bool, _: &mut Store<TestApp>) {
+            self.term_area = area;
+        }
+
+        fn get_cursor_word(&self, _: &WordStyle) -> Option<String> {
+            None
+        }
+
+        fn get_selected_word(&self) -> Option<String> {
+            None
         }
     }
 
-    fn three_by_three() -> (WindowLayoutState<TestWindow>, VimContext) {
+    impl Window<TestApp> for TestWindow {
+        fn id(&self) -> Option<usize> {
+            self.id
+        }
+
+        fn open(id: Option<usize>, _: &mut Store<TestApp>) -> UIResult<Self, TestApp> {
+            Ok(TestWindow::from(id))
+        }
+
+        fn find(name: String, _: &mut Store<TestApp>) -> UIResult<Self, TestApp> {
+            match name.parse::<usize>() {
+                Ok(n) => Ok(TestWindow::from(Some(n))),
+                Err(e) => Err(EditError::from(e).into()),
+            }
+        }
+
+        fn posn(index: usize, _: &mut Store<TestApp>) -> UIResult<Self, TestApp> {
+            Ok(TestWindow::from(Some(index)))
+        }
+    }
+
+    impl<C> Jumpable<C, TestApp> for TestWindow {
+        fn jump(
+            &mut self,
+            _: PositionList,
+            _: MoveDir1D,
+            count: usize,
+            _: &C,
+        ) -> UIResult<usize, TestApp> {
+            return Ok(count);
+        }
+    }
+
+    fn mkstorectx() -> (Store<TestApp>, VimContext<TestApp>) {
+        (Store::default(), VimContext::default())
+    }
+
+    fn mktree() -> (WindowLayoutState<TestWindow, TestApp>, Store<TestApp>, VimContext<TestApp>) {
+        let (store, ctx) = mkstorectx();
+        let tree = WindowLayoutState::new(TestWindow::new());
+
+        return (tree, store, ctx);
+    }
+
+    fn three_by_three(
+    ) -> (WindowLayoutState<TestWindow, TestApp>, Store<TestApp>, VimContext<TestApp>) {
         /*
          * Set up a 3x3 grid, and start in bottom right. The splitting order is important here, to
          * create a more interesting tree. The final result (and their window indexes) looks like:
@@ -1559,32 +1921,31 @@ mod tests {
          * | 4 | 5 | 8 |
          * +---+---+---+
          */
-        let mut tree = WindowLayoutState::new(TestWindow::new());
-        let ctx: VimContext = VimContext::default();
+        let (mut tree, mut store, ctx) = mktree();
 
-        window_split!(tree, Axis::Vertical, MoveDir1D::Previous, Count::Exact(1), &ctx);
-        window_split!(tree, Axis::Horizontal, MoveDir1D::Previous, Count::Exact(2), &ctx);
-        window_split!(tree, Axis::Vertical, MoveDir1D::Previous, Count::Exact(1), &ctx);
-        window_focus_off!(tree, 3, &ctx);
-        window_split!(tree, Axis::Vertical, MoveDir1D::Previous, Count::Exact(1), &ctx);
-        window_focus_off!(tree, 5, &ctx);
-        window_split!(tree, Axis::Vertical, MoveDir1D::Previous, Count::Exact(1), &ctx);
-        window_focus_off!(tree, 7, &ctx);
-        window_split!(tree, Axis::Horizontal, MoveDir1D::Next, Count::Exact(2), &ctx);
+        window_split!(tree, Axis::Vertical, MoveDir1D::Previous, Count::Exact(1), &ctx, store);
+        window_split!(tree, Axis::Horizontal, MoveDir1D::Previous, Count::Exact(2), &ctx, store);
+        window_split!(tree, Axis::Vertical, MoveDir1D::Previous, Count::Exact(1), &ctx, store);
+        window_focus_off!(tree, 3, &ctx, store);
+        window_split!(tree, Axis::Vertical, MoveDir1D::Previous, Count::Exact(1), &ctx, store);
+        window_focus_off!(tree, 5, &ctx, store);
+        window_split!(tree, Axis::Vertical, MoveDir1D::Previous, Count::Exact(1), &ctx, store);
+        window_focus_off!(tree, 7, &ctx, store);
+        window_split!(tree, Axis::Horizontal, MoveDir1D::Next, Count::Exact(2), &ctx, store);
 
         let mut idx = 0;
 
-        while let Some(w) = tree.root.get_mut(idx) {
-            w.id = Some(idx);
+        while let Some(slot) = tree.root.get_mut(idx) {
+            slot.get_mut().id = Some(idx);
             idx += 1;
         }
 
-        return (tree, ctx);
+        return (tree, store, ctx);
     }
 
     #[test]
     fn test_tree_get() {
-        let (mut tree, _) = three_by_three();
+        let (mut tree, _, _) = three_by_three();
 
         assert_eq!(tree.root.get(10), None);
         assert_eq!(tree.root.get(100), None);
@@ -1592,35 +1953,35 @@ mod tests {
         assert_eq!(tree.root.get_mut(10), None);
         assert_eq!(tree.root.get_mut(100), None);
 
-        assert_eq!(tree.root.get(0).unwrap().id, Some(0));
-        assert_eq!(tree.root.get(8).unwrap().id, Some(8));
+        assert_eq!(tree.root.get(0).unwrap().get().id, Some(0));
+        assert_eq!(tree.root.get(8).unwrap().get().id, Some(8));
 
-        assert_eq!(tree.root.get_mut(0).unwrap().id, Some(0));
-        assert_eq!(tree.root.get_mut(8).unwrap().id, Some(8));
+        assert_eq!(tree.root.get_mut(0).unwrap().get().id, Some(0));
+        assert_eq!(tree.root.get_mut(8).unwrap().get().id, Some(8));
     }
 
     #[test]
     fn test_tree_rotations() {
-        let ctx: VimContext = VimContext::default();
+        let (mut store, ctx) = mkstorectx();
         let flags = CloseFlags::QUIT;
 
         // Repeatedly delete the last window.
         let mut tree = WindowLayoutState::new(TestWindow::new());
-        window_split!(tree, Axis::Horizontal, MoveDir1D::Next, Count::Exact(99), &ctx);
+        window_split!(tree, Axis::Horizontal, MoveDir1D::Next, Count::Exact(99), &ctx, store);
         assert_eq!(tree.root.size(), 100);
 
         for n in 0..100 {
-            window_close!(tree, CloseTarget::Single(fc!(100 - n)), flags, &ctx);
+            window_close!(tree, CloseTarget::Single(fc!(100 - n)), flags, &ctx, store);
             assert_eq!(tree.root.size(), 99 - n);
         }
 
         // Repeatedly delete the first window.
         let mut tree = WindowLayoutState::new(TestWindow::new());
-        window_split!(tree, Axis::Horizontal, MoveDir1D::Next, Count::Exact(99), &ctx);
+        window_split!(tree, Axis::Horizontal, MoveDir1D::Next, Count::Exact(99), &ctx, store);
         assert_eq!(tree.root.size(), 100);
 
         for n in 0..100 {
-            window_close!(tree, CloseTarget::Single(fc!(1)), flags, &ctx);
+            window_close!(tree, CloseTarget::Single(fc!(1)), flags, &ctx, store);
             assert_eq!(tree.root.size(), 99 - n);
         }
 
@@ -1633,65 +1994,65 @@ mod tests {
         for n in 0..999 {
             let size = tree.root.size();
             let target = rng.gen_range(1..=size);
-            window_focus_off!(tree, target, &ctx);
-            window_split!(tree, Axis::Horizontal, MoveDir1D::Next, Count::Exact(1), &ctx);
+            window_focus_off!(tree, target, &ctx, store);
+            window_split!(tree, Axis::Horizontal, MoveDir1D::Next, Count::Exact(1), &ctx, store);
             assert_eq!(tree.root.size(), 2 + n);
         }
 
         for n in 0..1000 {
             let size = tree.root.size();
             let target = rng.gen_range(1..=size);
-            window_close!(tree, CloseTarget::Single(fc!(target)), flags, &ctx);
+            window_close!(tree, CloseTarget::Single(fc!(target)), flags, &ctx, store);
             assert_eq!(tree.root.size(), 999 - n);
         }
     }
 
     #[test]
     fn test_window_split() {
+        let (mut store, ctx) = mkstorectx();
         let mut tree = WindowLayoutState::new(TestWindow::new());
-        let ctx: VimContext = VimContext::default();
 
         assert_eq!(tree.root.size(), 1);
         assert_eq!(tree.focused, 0);
 
-        window_split!(tree, Axis::Horizontal, MoveDir1D::Previous, Count::Contextual, &ctx);
+        window_split!(tree, Axis::Horizontal, MoveDir1D::Previous, Count::Contextual, &ctx, store);
         assert_eq!(tree.root.size(), 2);
         assert_eq!(tree.focused, 0);
 
-        window_split!(tree, Axis::Vertical, MoveDir1D::Previous, Count::Contextual, &ctx);
+        window_split!(tree, Axis::Vertical, MoveDir1D::Previous, Count::Contextual, &ctx, store);
         assert_eq!(tree.root.size(), 3);
         assert_eq!(tree.focused, 0);
 
-        window_split!(tree, Axis::Vertical, MoveDir1D::Next, Count::Contextual, &ctx);
+        window_split!(tree, Axis::Vertical, MoveDir1D::Next, Count::Contextual, &ctx, store);
         assert_eq!(tree.root.size(), 4);
         assert_eq!(tree.focused, 1);
     }
 
     #[test]
     fn test_window_nav_1d() {
+        let (mut store, ctx) = mkstorectx();
         let mut tree = WindowLayoutState::new(TestWindow::new());
-        let ctx: VimContext = VimContext::default();
 
-        window_split!(tree, Axis::Horizontal, MoveDir1D::Previous, Count::Exact(5), &ctx);
+        window_split!(tree, Axis::Horizontal, MoveDir1D::Previous, Count::Exact(5), &ctx, store);
         assert_eq!(tree.root.size(), 6);
         assert_eq!(tree.focused, 0);
 
-        window_focus_1d!(tree, MoveDir1D::Next, Count::Exact(2), &ctx);
+        window_focus_1d!(tree, MoveDir1D::Next, Count::Exact(2), &ctx, store);
         assert_eq!(tree.focused, 2);
 
-        window_focus_1d!(tree, MoveDir1D::Previous, Count::Exact(1), &ctx);
+        window_focus_1d!(tree, MoveDir1D::Previous, Count::Exact(1), &ctx, store);
         assert_eq!(tree.focused, 1);
 
-        window_focus_1d!(tree, MoveDir1D::Previous, Count::Exact(2), &ctx);
+        window_focus_1d!(tree, MoveDir1D::Previous, Count::Exact(2), &ctx, store);
         assert_eq!(tree.focused, 5);
 
-        window_focus_1d!(tree, MoveDir1D::Next, Count::Exact(1), &ctx);
+        window_focus_1d!(tree, MoveDir1D::Next, Count::Exact(1), &ctx, store);
         assert_eq!(tree.focused, 0);
     }
 
     #[test]
     fn test_window_nav_2d() {
-        let (mut tree, ctx) = three_by_three();
+        let (mut tree, mut store, ctx) = three_by_three();
 
         assert_eq!(tree.root.size(), 9);
         assert_eq!(tree.focused, 8);
@@ -1699,53 +2060,53 @@ mod tests {
         // Draw so we know where the windows are inside the terminal.
         let mut buffer = Buffer::empty(Rect::new(0, 0, 100, 100));
         let area = Rect::new(0, 0, 100, 100);
-        let widget = WindowLayout::default();
+        let widget = WindowLayout::new(&mut store);
         widget.render(area, &mut buffer, &mut tree);
 
         // Move left 2 windows.
-        window_focus_2d!(tree, MoveDir2D::Left, Count::Exact(2), &ctx);
+        window_focus_2d!(tree, MoveDir2D::Left, Count::Exact(2), &ctx, store);
         assert_eq!(tree.focused, 4);
 
         // Move right 1 window.
-        window_focus_2d!(tree, MoveDir2D::Right, Count::Exact(1), &ctx);
+        window_focus_2d!(tree, MoveDir2D::Right, Count::Exact(1), &ctx, store);
         assert_eq!(tree.focused, 5);
 
         // Move up 2 windows.
-        window_focus_2d!(tree, MoveDir2D::Up, Count::Exact(2), &ctx);
+        window_focus_2d!(tree, MoveDir2D::Up, Count::Exact(2), &ctx, store);
         assert_eq!(tree.focused, 1);
 
         // We're already at the top, so we can't move up anymore.
-        window_focus_2d!(tree, MoveDir2D::Up, Count::Exact(1), &ctx);
+        window_focus_2d!(tree, MoveDir2D::Up, Count::Exact(1), &ctx, store);
         assert_eq!(tree.focused, 1);
 
         // Move down 1 window.
-        window_focus_2d!(tree, MoveDir2D::Down, Count::Exact(1), &ctx);
+        window_focus_2d!(tree, MoveDir2D::Down, Count::Exact(1), &ctx, store);
         assert_eq!(tree.focused, 3);
 
         // Try to move left 3 windows, stopping at the left side.
-        window_focus_2d!(tree, MoveDir2D::Left, Count::Exact(3), &ctx);
+        window_focus_2d!(tree, MoveDir2D::Left, Count::Exact(3), &ctx, store);
         assert_eq!(tree.focused, 2);
     }
 
     #[test]
     fn test_window_close() {
-        let (mut tree, ctx) = three_by_three();
+        let (mut tree, mut store, ctx) = three_by_three();
         let flags = CloseFlags::NONE;
 
         let target = CloseTarget::Single(fc!(8));
-        assert!(window_close!(tree, target, flags, &ctx).is_none());
+        assert!(window_close!(tree, target, flags, &ctx, store).is_none());
         assert_eq!(tree.root.size(), 8);
 
         let target = CloseTarget::Single(fc!(6));
-        assert!(window_close!(tree, target, flags, &ctx).is_none());
+        assert!(window_close!(tree, target, flags, &ctx, store).is_none());
         assert_eq!(tree.root.size(), 7);
 
         let target = CloseTarget::Single(fc!(3));
-        assert!(window_close!(tree, target, flags, &ctx).is_none());
+        assert!(window_close!(tree, target, flags, &ctx, store).is_none());
         assert_eq!(tree.root.size(), 6);
 
         let target = CloseTarget::Single(fc!(2));
-        assert!(window_close!(tree, target, flags, &ctx).is_none());
+        assert!(window_close!(tree, target, flags, &ctx, store).is_none());
         assert_eq!(tree.root.size(), 5);
 
         /*
@@ -1759,46 +2120,46 @@ mod tests {
          * | 4 | 8 |
          * +---+---+
          */
-        assert_eq!(tree.root.get(0).unwrap().id, Some(0));
-        assert_eq!(tree.root.get(1).unwrap().id, Some(3));
-        assert_eq!(tree.root.get(2).unwrap().id, Some(4));
-        assert_eq!(tree.root.get(3).unwrap().id, Some(6));
-        assert_eq!(tree.root.get(4).unwrap().id, Some(8));
+        assert_eq!(tree.root.get(0).unwrap().get().id, Some(0));
+        assert_eq!(tree.root.get(1).unwrap().get().id, Some(3));
+        assert_eq!(tree.root.get(2).unwrap().get().id, Some(4));
+        assert_eq!(tree.root.get(3).unwrap().get().id, Some(6));
+        assert_eq!(tree.root.get(4).unwrap().get().id, Some(8));
 
         let target = CloseTarget::Single(fc!(2));
-        assert!(window_close!(tree, target, flags, &ctx).is_none());
+        assert!(window_close!(tree, target, flags, &ctx, store).is_none());
         assert_eq!(tree.root.size(), 4);
 
         let target = CloseTarget::Single(fc!(3));
-        assert!(window_close!(tree, target, flags, &ctx).is_none());
+        assert!(window_close!(tree, target, flags, &ctx, store).is_none());
         assert_eq!(tree.root.size(), 3);
 
         let target = CloseTarget::Single(fc!(3));
-        assert!(window_close!(tree, target, flags, &ctx).is_none());
+        assert!(window_close!(tree, target, flags, &ctx, store).is_none());
         assert_eq!(tree.root.size(), 2);
 
         let target = CloseTarget::Single(fc!(1));
-        assert!(window_close!(tree, target, flags, &ctx).is_none());
+        assert!(window_close!(tree, target, flags, &ctx, store).is_none());
         assert_eq!(tree.root.size(), 1);
 
         // Can't close last window because flags are NONE.
         let target = CloseTarget::Single(fc!(1));
-        assert!(window_close!(tree, target, flags, &ctx).is_none());
+        assert!(window_close!(tree, target, flags, &ctx, store).is_none());
         assert_eq!(tree.root.size(), 1);
 
         // Passing QUIT does the job.
         let target = CloseTarget::Single(fc!(1));
         let flags = CloseFlags::QUIT;
-        assert!(window_close!(tree, target, flags, &ctx).is_none());
+        assert!(window_close!(tree, target, flags, &ctx, store).is_none());
         assert_eq!(tree.root.size(), 0);
     }
 
     #[test]
     fn test_window_close_allbut() {
         for idx in 1usize..=9usize {
-            let (mut tree, ctx) = three_by_three();
+            let (mut tree, mut store, ctx) = three_by_three();
             let target = CloseTarget::AllBut(fc!(idx));
-            assert!(window_close!(tree, target, CloseFlags::NONE, &ctx).is_none());
+            assert!(window_close!(tree, target, CloseFlags::NONE, &ctx, store).is_none());
             assert_eq!(tree.root.size(), 1);
             assert_eq!(tree.get().unwrap().id, Some(idx.saturating_sub(1)));
         }
@@ -1806,74 +2167,74 @@ mod tests {
 
     #[test]
     fn test_window_close_all() {
-        let (mut tree, ctx) = three_by_three();
+        let (mut tree, mut store, ctx) = three_by_three();
         let target = CloseTarget::All;
-        assert!(window_close!(tree, target, CloseFlags::NONE, &ctx).is_none());
+        assert!(window_close!(tree, target, CloseFlags::NONE, &ctx, store).is_none());
         assert_eq!(tree.root.size(), 0);
     }
 
     #[test]
     fn test_window_exchange() {
-        let (mut tree, ctx) = three_by_three();
+        let (mut tree, mut store, ctx) = three_by_three();
 
         // Verify starting conditions.
         assert_eq!(tree.root.size(), 9);
         assert_eq!(tree.focused, 8);
-        assert_eq!(tree.root.get(0).unwrap().id, Some(0));
-        assert_eq!(tree.root.get(8).unwrap().id, Some(8));
+        assert_eq!(tree.root.get(0).unwrap().get().id, Some(0));
+        assert_eq!(tree.root.get(8).unwrap().get().id, Some(8));
 
         // Swap window 9 with window 1.
-        window_exchange!(tree, &fc!(1), &ctx);
+        window_exchange!(tree, &fc!(1), &ctx, store);
         assert_eq!(tree.root.size(), 9);
         assert_eq!(tree.focused, 8);
-        assert_eq!(tree.root.get(0).unwrap().id, Some(8));
-        assert_eq!(tree.root.get(8).unwrap().id, Some(0));
+        assert_eq!(tree.root.get(0).unwrap().get().id, Some(8));
+        assert_eq!(tree.root.get(8).unwrap().get().id, Some(0));
 
         // Swap the new window 9 with window 8.
-        window_exchange!(tree, &fc!(8), &ctx);
+        window_exchange!(tree, &fc!(8), &ctx, store);
         assert_eq!(tree.root.size(), 9);
         assert_eq!(tree.focused, 8);
-        assert_eq!(tree.root.get(0).unwrap().id, Some(8));
-        assert_eq!(tree.root.get(7).unwrap().id, Some(0));
-        assert_eq!(tree.root.get(8).unwrap().id, Some(7));
+        assert_eq!(tree.root.get(0).unwrap().get().id, Some(8));
+        assert_eq!(tree.root.get(7).unwrap().get().id, Some(0));
+        assert_eq!(tree.root.get(8).unwrap().get().id, Some(7));
 
         // Focus on window 1, and swap with window 6.
-        window_focus_off!(tree, 1, &ctx);
+        window_focus_off!(tree, 1, &ctx, store);
         assert_eq!(tree.focused, 0);
 
-        window_exchange!(tree, &fc!(6), &ctx);
+        window_exchange!(tree, &fc!(6), &ctx, store);
         assert_eq!(tree.root.size(), 9);
         assert_eq!(tree.focused, 0);
-        assert_eq!(tree.root.get(0).unwrap().id, Some(5));
-        assert_eq!(tree.root.get(5).unwrap().id, Some(8));
-        assert_eq!(tree.root.get(7).unwrap().id, Some(0));
-        assert_eq!(tree.root.get(8).unwrap().id, Some(7));
+        assert_eq!(tree.root.get(0).unwrap().get().id, Some(5));
+        assert_eq!(tree.root.get(5).unwrap().get().id, Some(8));
+        assert_eq!(tree.root.get(7).unwrap().get().id, Some(0));
+        assert_eq!(tree.root.get(8).unwrap().get().id, Some(7));
     }
 
     #[test]
     fn test_window_move_side() {
-        let (mut tree, ctx) = three_by_three();
+        let (mut tree, mut store, ctx) = three_by_three();
 
         assert_eq!(tree.root.size(), 9);
         assert_eq!(tree.root.dimensions(), (3, 3));
         assert_eq!(tree.focused, 8);
 
-        window_move_side!(tree, MoveDir2D::Left, &ctx);
+        window_move_side!(tree, MoveDir2D::Left, &ctx, store);
         assert_eq!(tree.root.size(), 9);
         assert_eq!(tree.root.dimensions(), (4, 3));
         assert_eq!(tree.focused, 0);
 
-        window_move_side!(tree, MoveDir2D::Right, &ctx);
+        window_move_side!(tree, MoveDir2D::Right, &ctx, store);
         assert_eq!(tree.root.size(), 9);
         assert_eq!(tree.root.dimensions(), (4, 3));
         assert_eq!(tree.focused, 8);
 
-        window_move_side!(tree, MoveDir2D::Up, &ctx);
+        window_move_side!(tree, MoveDir2D::Up, &ctx, store);
         assert_eq!(tree.root.size(), 9);
         assert_eq!(tree.root.dimensions(), (3, 4));
         assert_eq!(tree.focused, 0);
 
-        window_move_side!(tree, MoveDir2D::Down, &ctx);
+        window_move_side!(tree, MoveDir2D::Down, &ctx, store);
         assert_eq!(tree.root.size(), 9);
         assert_eq!(tree.focused, 8);
         assert_eq!(tree.root.dimensions(), (3, 4));
@@ -1881,161 +2242,202 @@ mod tests {
 
     #[test]
     fn test_window_resize_vertical_increase() {
-        let (mut tree, ctx) = three_by_three();
+        let (mut tree, mut store, ctx) = three_by_three();
         let mut buffer = Buffer::empty(Rect::new(0, 0, 100, 100));
         let area = Rect::new(0, 0, 100, 100);
 
         // Draw so that everything gets an initial area.
-        WindowLayout::default().render(area, &mut buffer, &mut tree);
+        WindowLayout::new(&mut store).render(area, &mut buffer, &mut tree);
 
         assert_eq!(tree.root.size(), 9);
         assert_eq!(tree.root.dimensions(), (3, 3));
         assert_eq!(tree.focused, 8);
 
         // Top row before resizing.
-        assert_eq!(tree.root.get(0).unwrap().term_area, Rect::new(0, 0, 34, 34));
-        assert_eq!(tree.root.get(1).unwrap().term_area, Rect::new(34, 0, 33, 34));
-        assert_eq!(tree.root.get(6).unwrap().term_area, Rect::new(67, 0, 33, 34));
+        assert_eq!(tree.root.get(0).unwrap().get().term_area, Rect::new(0, 0, 34, 34));
+        assert_eq!(tree.root.get(1).unwrap().get().term_area, Rect::new(34, 0, 33, 34));
+        assert_eq!(tree.root.get(6).unwrap().get().term_area, Rect::new(67, 0, 33, 34));
 
         // Middle row before resizing.
-        assert_eq!(tree.root.get(2).unwrap().term_area, Rect::new(0, 34, 34, 33));
-        assert_eq!(tree.root.get(3).unwrap().term_area, Rect::new(34, 34, 33, 33));
-        assert_eq!(tree.root.get(7).unwrap().term_area, Rect::new(67, 34, 33, 33));
+        assert_eq!(tree.root.get(2).unwrap().get().term_area, Rect::new(0, 34, 34, 33));
+        assert_eq!(tree.root.get(3).unwrap().get().term_area, Rect::new(34, 34, 33, 33));
+        assert_eq!(tree.root.get(7).unwrap().get().term_area, Rect::new(67, 34, 33, 33));
 
         // Bottom row before resizing.
-        assert_eq!(tree.root.get(4).unwrap().term_area, Rect::new(0, 67, 34, 33));
-        assert_eq!(tree.root.get(5).unwrap().term_area, Rect::new(34, 67, 33, 33));
-        assert_eq!(tree.root.get(8).unwrap().term_area, Rect::new(67, 67, 33, 33));
+        assert_eq!(tree.root.get(4).unwrap().get().term_area, Rect::new(0, 67, 34, 33));
+        assert_eq!(tree.root.get(5).unwrap().get().term_area, Rect::new(34, 67, 33, 33));
+        assert_eq!(tree.root.get(8).unwrap().get().term_area, Rect::new(67, 67, 33, 33));
 
         // Resize window 8.
-        window_resize!(tree, Vertical, SizeChange::Increase(5.into()), &ctx);
+        window_resize!(tree, Vertical, SizeChange::Increase(5.into()), &ctx, store);
 
         // Draw again so that we update the saved term_area.
-        WindowLayout::default().render(area, &mut buffer, &mut tree);
+        WindowLayout::new(&mut store).render(area, &mut buffer, &mut tree);
 
         // Top row after resizing.
-        assert_eq!(tree.root.get(0).unwrap().term_area, Rect::new(0, 0, 34, 34));
-        assert_eq!(tree.root.get(1).unwrap().term_area, Rect::new(34, 0, 28, 34));
-        assert_eq!(tree.root.get(6).unwrap().term_area, Rect::new(62, 0, 38, 34));
+        assert_eq!(tree.root.get(0).unwrap().get().term_area, Rect::new(0, 0, 34, 34));
+        assert_eq!(tree.root.get(1).unwrap().get().term_area, Rect::new(34, 0, 28, 34));
+        assert_eq!(tree.root.get(6).unwrap().get().term_area, Rect::new(62, 0, 38, 34));
 
         // Middle row after resizing.
-        assert_eq!(tree.root.get(2).unwrap().term_area, Rect::new(0, 34, 34, 33));
-        assert_eq!(tree.root.get(3).unwrap().term_area, Rect::new(34, 34, 28, 33));
-        assert_eq!(tree.root.get(7).unwrap().term_area, Rect::new(62, 34, 38, 33));
+        assert_eq!(tree.root.get(2).unwrap().get().term_area, Rect::new(0, 34, 34, 33));
+        assert_eq!(tree.root.get(3).unwrap().get().term_area, Rect::new(34, 34, 28, 33));
+        assert_eq!(tree.root.get(7).unwrap().get().term_area, Rect::new(62, 34, 38, 33));
 
         // Bottom row after resizing has changed 5 and 8.
-        assert_eq!(tree.root.get(4).unwrap().term_area, Rect::new(0, 67, 34, 33));
-        assert_eq!(tree.root.get(5).unwrap().term_area, Rect::new(34, 67, 28, 33));
-        assert_eq!(tree.root.get(8).unwrap().term_area, Rect::new(62, 67, 38, 33));
+        assert_eq!(tree.root.get(4).unwrap().get().term_area, Rect::new(0, 67, 34, 33));
+        assert_eq!(tree.root.get(5).unwrap().get().term_area, Rect::new(34, 67, 28, 33));
+        assert_eq!(tree.root.get(8).unwrap().get().term_area, Rect::new(62, 67, 38, 33));
     }
 
     #[test]
     fn test_window_open_vertical_size() {
-        let (mut tree, ctx) = three_by_three();
+        let (mut tree, mut store, _) = three_by_three();
         let mut buffer = Buffer::empty(Rect::new(0, 0, 100, 100));
         let area = Rect::new(0, 0, 100, 100);
 
         // Draw so that everything gets an initial area.
-        WindowLayout::default().render(area, &mut buffer, &mut tree);
+        WindowLayout::new(&mut store).render(area, &mut buffer, &mut tree);
 
         assert_eq!(tree.root.size(), 9);
         assert_eq!(tree.root.dimensions(), (3, 3));
         assert_eq!(tree.focused, 8);
 
         // Top row before opening window.
-        assert_eq!(tree.root.get(0).unwrap().term_area, Rect::new(0, 0, 34, 34));
-        assert_eq!(tree.root.get(1).unwrap().term_area, Rect::new(34, 0, 33, 34));
-        assert_eq!(tree.root.get(6).unwrap().term_area, Rect::new(67, 0, 33, 34));
+        assert_eq!(tree.root.get(0).unwrap().get().term_area, Rect::new(0, 0, 34, 34));
+        assert_eq!(tree.root.get(1).unwrap().get().term_area, Rect::new(34, 0, 33, 34));
+        assert_eq!(tree.root.get(6).unwrap().get().term_area, Rect::new(67, 0, 33, 34));
 
         // Middle row before opening window.
-        assert_eq!(tree.root.get(2).unwrap().term_area, Rect::new(0, 34, 34, 33));
-        assert_eq!(tree.root.get(3).unwrap().term_area, Rect::new(34, 34, 33, 33));
-        assert_eq!(tree.root.get(7).unwrap().term_area, Rect::new(67, 34, 33, 33));
+        assert_eq!(tree.root.get(2).unwrap().get().term_area, Rect::new(0, 34, 34, 33));
+        assert_eq!(tree.root.get(3).unwrap().get().term_area, Rect::new(34, 34, 33, 33));
+        assert_eq!(tree.root.get(7).unwrap().get().term_area, Rect::new(67, 34, 33, 33));
 
         // Bottom row before opening window.
-        assert_eq!(tree.root.get(4).unwrap().term_area, Rect::new(0, 67, 34, 33));
-        assert_eq!(tree.root.get(5).unwrap().term_area, Rect::new(34, 67, 33, 33));
-        assert_eq!(tree.root.get(8).unwrap().term_area, Rect::new(67, 67, 33, 33));
+        assert_eq!(tree.root.get(4).unwrap().get().term_area, Rect::new(0, 67, 34, 33));
+        assert_eq!(tree.root.get(5).unwrap().get().term_area, Rect::new(34, 67, 33, 33));
+        assert_eq!(tree.root.get(8).unwrap().get().term_area, Rect::new(67, 67, 33, 33));
 
         // Open a window that is 5 columns wide.
         let w = TestWindow::new();
-        window_open!(tree, w, Vertical, MoveDir1D::Previous, Count::Exact(5), &ctx);
+        tree.open(w, Some(5), Vertical, MoveDir1D::Previous);
 
         // We should now have one more window.
         assert_eq!(tree.root.size(), 10);
 
         // Draw again so that we update the saved term_area.
-        WindowLayout::default().render(area, &mut buffer, &mut tree);
+        WindowLayout::new(&mut store).render(area, &mut buffer, &mut tree);
 
         // Top row after opening the window remains the same.
-        assert_eq!(tree.root.get(0).unwrap().term_area, Rect::new(0, 0, 34, 34));
-        assert_eq!(tree.root.get(1).unwrap().term_area, Rect::new(34, 0, 33, 34));
-        assert_eq!(tree.root.get(6).unwrap().term_area, Rect::new(67, 0, 33, 34));
+        assert_eq!(tree.root.get(0).unwrap().get().term_area, Rect::new(0, 0, 34, 34));
+        assert_eq!(tree.root.get(1).unwrap().get().term_area, Rect::new(34, 0, 33, 34));
+        assert_eq!(tree.root.get(6).unwrap().get().term_area, Rect::new(67, 0, 33, 34));
 
         // Middle row after opening the window remains the same.
-        assert_eq!(tree.root.get(2).unwrap().term_area, Rect::new(0, 34, 34, 33));
-        assert_eq!(tree.root.get(3).unwrap().term_area, Rect::new(34, 34, 33, 33));
-        assert_eq!(tree.root.get(7).unwrap().term_area, Rect::new(67, 34, 33, 33));
+        assert_eq!(tree.root.get(2).unwrap().get().term_area, Rect::new(0, 34, 34, 33));
+        assert_eq!(tree.root.get(3).unwrap().get().term_area, Rect::new(34, 34, 33, 33));
+        assert_eq!(tree.root.get(7).unwrap().get().term_area, Rect::new(67, 34, 33, 33));
 
         // Bottom row after opening window has changed widths.
-        assert_eq!(tree.root.get(4).unwrap().term_area, Rect::new(0, 67, 34, 33));
-        assert_eq!(tree.root.get(5).unwrap().term_area, Rect::new(34, 67, 33, 33));
-        assert_eq!(tree.root.get(8).unwrap().term_area, Rect::new(67, 67, 5, 33));
-        assert_eq!(tree.root.get(9).unwrap().term_area, Rect::new(72, 67, 28, 33));
+        assert_eq!(tree.root.get(4).unwrap().get().term_area, Rect::new(0, 67, 34, 33));
+        assert_eq!(tree.root.get(5).unwrap().get().term_area, Rect::new(34, 67, 33, 33));
+        assert_eq!(tree.root.get(8).unwrap().get().term_area, Rect::new(67, 67, 5, 33));
+        assert_eq!(tree.root.get(9).unwrap().get().term_area, Rect::new(72, 67, 28, 33));
     }
 
     #[test]
     fn test_window_open_vertical_no_size() {
-        let (mut tree, ctx) = three_by_three();
+        let (mut tree, mut store, _) = three_by_three();
         let mut buffer = Buffer::empty(Rect::new(0, 0, 100, 100));
         let area = Rect::new(0, 0, 100, 100);
 
         // Draw so that everything gets an initial area.
-        WindowLayout::default().render(area, &mut buffer, &mut tree);
+        WindowLayout::new(&mut store).render(area, &mut buffer, &mut tree);
 
         assert_eq!(tree.root.size(), 9);
         assert_eq!(tree.root.dimensions(), (3, 3));
         assert_eq!(tree.focused, 8);
 
         // Top row before opening window.
-        assert_eq!(tree.root.get(0).unwrap().term_area, Rect::new(0, 0, 34, 34));
-        assert_eq!(tree.root.get(1).unwrap().term_area, Rect::new(34, 0, 33, 34));
-        assert_eq!(tree.root.get(6).unwrap().term_area, Rect::new(67, 0, 33, 34));
+        assert_eq!(tree.root.get(0).unwrap().get().term_area, Rect::new(0, 0, 34, 34));
+        assert_eq!(tree.root.get(1).unwrap().get().term_area, Rect::new(34, 0, 33, 34));
+        assert_eq!(tree.root.get(6).unwrap().get().term_area, Rect::new(67, 0, 33, 34));
 
         // Middle row before opening window.
-        assert_eq!(tree.root.get(2).unwrap().term_area, Rect::new(0, 34, 34, 33));
-        assert_eq!(tree.root.get(3).unwrap().term_area, Rect::new(34, 34, 33, 33));
-        assert_eq!(tree.root.get(7).unwrap().term_area, Rect::new(67, 34, 33, 33));
+        assert_eq!(tree.root.get(2).unwrap().get().term_area, Rect::new(0, 34, 34, 33));
+        assert_eq!(tree.root.get(3).unwrap().get().term_area, Rect::new(34, 34, 33, 33));
+        assert_eq!(tree.root.get(7).unwrap().get().term_area, Rect::new(67, 34, 33, 33));
 
         // Bottom row before opening window.
-        assert_eq!(tree.root.get(4).unwrap().term_area, Rect::new(0, 67, 34, 33));
-        assert_eq!(tree.root.get(5).unwrap().term_area, Rect::new(34, 67, 33, 33));
-        assert_eq!(tree.root.get(8).unwrap().term_area, Rect::new(67, 67, 33, 33));
+        assert_eq!(tree.root.get(4).unwrap().get().term_area, Rect::new(0, 67, 34, 33));
+        assert_eq!(tree.root.get(5).unwrap().get().term_area, Rect::new(34, 67, 33, 33));
+        assert_eq!(tree.root.get(8).unwrap().get().term_area, Rect::new(67, 67, 33, 33));
 
         // Open a new window without specifying a height.
         let w = TestWindow::new();
-        window_open!(tree, w, Vertical, MoveDir1D::Previous, None, &ctx);
+        tree.open(w, None, Vertical, MoveDir1D::Previous);
 
         // We should now have one more window.
         assert_eq!(tree.root.size(), 10);
 
         // Draw again so that we update the saved term_area.
-        WindowLayout::default().render(area, &mut buffer, &mut tree);
+        WindowLayout::new(&mut store).render(area, &mut buffer, &mut tree);
 
         // Top row after opening the window remains the same.
-        assert_eq!(tree.root.get(0).unwrap().term_area, Rect::new(0, 0, 25, 34));
-        assert_eq!(tree.root.get(1).unwrap().term_area, Rect::new(25, 0, 25, 34));
-        assert_eq!(tree.root.get(6).unwrap().term_area, Rect::new(50, 0, 50, 34));
+        assert_eq!(tree.root.get(0).unwrap().get().term_area, Rect::new(0, 0, 25, 34));
+        assert_eq!(tree.root.get(1).unwrap().get().term_area, Rect::new(25, 0, 25, 34));
+        assert_eq!(tree.root.get(6).unwrap().get().term_area, Rect::new(50, 0, 50, 34));
 
         // Middle row after opening the window remains the same.
-        assert_eq!(tree.root.get(2).unwrap().term_area, Rect::new(0, 34, 25, 33));
-        assert_eq!(tree.root.get(3).unwrap().term_area, Rect::new(25, 34, 25, 33));
-        assert_eq!(tree.root.get(7).unwrap().term_area, Rect::new(50, 34, 50, 33));
+        assert_eq!(tree.root.get(2).unwrap().get().term_area, Rect::new(0, 34, 25, 33));
+        assert_eq!(tree.root.get(3).unwrap().get().term_area, Rect::new(25, 34, 25, 33));
+        assert_eq!(tree.root.get(7).unwrap().get().term_area, Rect::new(50, 34, 50, 33));
 
         // Bottom row after opening window has changed widths.
-        assert_eq!(tree.root.get(4).unwrap().term_area, Rect::new(0, 67, 25, 33));
-        assert_eq!(tree.root.get(5).unwrap().term_area, Rect::new(25, 67, 25, 33));
-        assert_eq!(tree.root.get(8).unwrap().term_area, Rect::new(50, 67, 25, 33));
-        assert_eq!(tree.root.get(9).unwrap().term_area, Rect::new(75, 67, 25, 33));
+        assert_eq!(tree.root.get(4).unwrap().get().term_area, Rect::new(0, 67, 25, 33));
+        assert_eq!(tree.root.get(5).unwrap().get().term_area, Rect::new(25, 67, 25, 33));
+        assert_eq!(tree.root.get(8).unwrap().get().term_area, Rect::new(50, 67, 25, 33));
+        assert_eq!(tree.root.get(9).unwrap().get().term_area, Rect::new(75, 67, 25, 33));
+    }
+
+    #[test]
+    fn test_window_switch_and_jump() {
+        let (mut store, ctx) = mkstorectx();
+        let mut tree = WindowLayoutState::new(TestWindow::new());
+        let next = MoveDir1D::Next;
+        let prev = MoveDir1D::Previous;
+        let jl = PositionList::JumpList;
+
+        window_switch!(tree, OpenTarget::Name("1".into()), &ctx, store);
+        assert_eq!(tree.get().unwrap().id, Some(1));
+
+        window_switch!(tree, OpenTarget::Name("2".into()), &ctx, store);
+        assert_eq!(tree.get().unwrap().id, Some(2));
+
+        window_switch!(tree, OpenTarget::Application(3.into()), &ctx, store);
+        assert_eq!(tree.get().unwrap().id, Some(3));
+
+        window_switch!(tree, OpenTarget::Alternate, &ctx, store);
+        assert_eq!(tree.get().unwrap().id, Some(2));
+
+        let count = tree.jump(jl, prev, 1, &ctx).unwrap();
+        assert_eq!(count, 0);
+        assert_eq!(tree.get().unwrap().id, Some(3));
+
+        let count = tree.jump(jl, prev, 1, &ctx).unwrap();
+        assert_eq!(count, 0);
+        assert_eq!(tree.get().unwrap().id, Some(1));
+
+        let count = tree.jump(jl, prev, 1, &ctx).unwrap();
+        assert_eq!(count, 0);
+        assert_eq!(tree.get().unwrap().id, None);
+
+        let count = tree.jump(jl, next, 2, &ctx).unwrap();
+        assert_eq!(count, 0);
+        assert_eq!(tree.get().unwrap().id, Some(3));
+
+        let count = tree.jump(jl, next, 2, &ctx).unwrap();
+        assert_eq!(count, 1);
+        assert_eq!(tree.get().unwrap().id, Some(2));
     }
 }

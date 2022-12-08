@@ -18,7 +18,7 @@ widgets = ["tui", "intervaltree"]
 [dependencies]
 anymap2 = "0.13.0"
 derive_more = "0.99.16"
-thiserror = "1.0.30"
+thiserror = "^1.0.37"
 crossterm = "0.25"
 libc = "0.2"
 tui = { version = "0.18", optional = true }

@@ -1,7 +1,6 @@
 use std::cmp::Ordering;
 use std::marker::PhantomData;
 
-use super::super::Window;
 use super::layout::LayoutOps;
 use super::size::{SizeDescription, MIN_WIN_LEN};
 use super::{AxisT, AxisTree, AxisTreeNode, Info, TreeInfo, Value};
@@ -16,20 +15,24 @@ use crate::editing::base::{
 const DELTA: usize = 3;
 const GAMMA: usize = 2;
 
-fn is_balanced<W: Window, X: AxisT, Y: AxisT>(
-    a: &AxisTree<W, X, Y>,
-    b: &AxisTree<W, X, Y>,
-) -> bool {
+fn is_balanced<W, X, Y>(a: &AxisTree<W, X, Y>, b: &AxisTree<W, X, Y>) -> bool
+where
+    X: AxisT,
+    Y: AxisT,
+{
     DELTA * (a.weight() + 1) >= (b.weight() + 1)
 }
 
-fn is_single<W: Window, X: AxisT, Y: AxisT>(a: &AxisTree<W, X, Y>, b: &AxisTree<W, X, Y>) -> bool {
+fn is_single<W, X, Y>(a: &AxisTree<W, X, Y>, b: &AxisTree<W, X, Y>) -> bool
+where
+    X: AxisT,
+    Y: AxisT,
+{
     (a.weight() + 1) < GAMMA * (b.weight() + 1)
 }
 
 fn glue<W, X, Y>(mut left: AxisTree<W, X, Y>, mut right: AxisTree<W, X, Y>) -> AxisTree<W, X, Y>
 where
-    W: Window,
     X: AxisT,
     Y: AxisT,
 {
@@ -67,7 +70,6 @@ where
 /// ([https://yoichihirai.com/bst.pdf]).
 pub(super) trait SubtreeOps<W, X, Y>
 where
-    W: Window,
     X: AxisT,
     Y: AxisT,
 {
@@ -110,7 +112,6 @@ where
 
 pub(super) trait TreeOps<W, X, Y>: SubtreeOps<W, X, Y>
 where
-    W: Window,
     X: AxisT,
     Y: AxisT,
 {
@@ -128,12 +129,20 @@ where
     fn insert_side(&mut self, open: W, side: MoveDir2D) -> usize;
 }
 
-pub(super) struct AxisTreeIter<'a, W: Window, X: AxisT, Y: AxisT> {
+pub(super) struct AxisTreeIter<'a, W, X, Y>
+where
+    X: AxisT,
+    Y: AxisT,
+{
     previous: Vec<(&'a Value<W, X, Y>, &'a AxisTree<W, X, Y>)>,
     current: &'a AxisTree<W, X, Y>,
 }
 
-impl<'a, W: Window, X: AxisT, Y: AxisT> Iterator for AxisTreeIter<'a, W, X, Y> {
+impl<'a, W, X, Y> Iterator for AxisTreeIter<'a, W, X, Y>
+where
+    X: AxisT,
+    Y: AxisT,
+{
     type Item = &'a Value<W, X, Y>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -160,7 +169,11 @@ impl<'a, W: Window, X: AxisT, Y: AxisT> Iterator for AxisTreeIter<'a, W, X, Y> {
     }
 }
 
-impl<W: Window, X: AxisT, Y: AxisT> AxisTreeNode<W, X, Y> {
+impl<W, X, Y> AxisTreeNode<W, X, Y>
+where
+    X: AxisT,
+    Y: AxisT,
+{
     pub fn new(
         value: Value<W, X, Y>,
         left: AxisTree<W, X, Y>,
@@ -352,7 +365,11 @@ impl<W: Window, X: AxisT, Y: AxisT> AxisTreeNode<W, X, Y> {
     }
 }
 
-impl<W: Window, X: AxisT, Y: AxisT> SubtreeOps<W, X, Y> for AxisTreeNode<W, X, Y> {
+impl<W, X, Y> SubtreeOps<W, X, Y> for AxisTreeNode<W, X, Y>
+where
+    X: AxisT,
+    Y: AxisT,
+{
     fn singleton(window: W) -> AxisTreeNode<W, X, Y> {
         AxisTreeNode::from(window)
     }
@@ -431,7 +448,11 @@ impl<W: Window, X: AxisT, Y: AxisT> SubtreeOps<W, X, Y> for AxisTreeNode<W, X, Y
     }
 }
 
-impl<W: Window, X: AxisT, Y: AxisT> SubtreeOps<W, X, Y> for AxisTree<W, X, Y> {
+impl<W, X, Y> SubtreeOps<W, X, Y> for AxisTree<W, X, Y>
+where
+    X: AxisT,
+    Y: AxisT,
+{
     fn singleton(window: W) -> AxisTree<W, X, Y> {
         AxisTree::from(Value::from(window))
     }
@@ -517,7 +538,11 @@ impl<W: Window, X: AxisT, Y: AxisT> SubtreeOps<W, X, Y> for AxisTree<W, X, Y> {
     }
 }
 
-impl<W: Window, X: AxisT, Y: AxisT> TreeOps<W, X, Y> for AxisTree<W, X, Y> {
+impl<W, X, Y> TreeOps<W, X, Y> for AxisTree<W, X, Y>
+where
+    X: AxisT,
+    Y: AxisT,
+{
     fn get_lengths(&self) -> Vec<SizeDescription> {
         if let Some(tree) = self {
             tree.get_lengths()

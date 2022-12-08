@@ -224,12 +224,7 @@ impl CursorGroup {
         let group = match style {
             CursorGroupCombineStyle::Append => {
                 let leader = other.leader.clone();
-                let members = other
-                    .members
-                    .iter()
-                    .chain(self.iter())
-                    .map(Clone::clone)
-                    .collect::<Vec<_>>();
+                let members = other.members.iter().chain(self.iter()).cloned().collect::<Vec<_>>();
 
                 CursorGroup::new(leader, members)
             },

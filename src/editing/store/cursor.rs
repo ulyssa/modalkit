@@ -4,30 +4,33 @@ use std::hash::Hash;
 
 use crate::editing::{
     action::{EditError, EditResult},
+    application::{ApplicationContentId, ApplicationInfo},
     base::{Mark, Register},
     cursor::{Adjustable, Cursor, CursorAdjustment, CursorGroup, CursorGroupCombineError},
 };
 
-use super::BufferId;
-
 /// Trait for objects that store cursors from multiple buffers.
-pub trait GlobalAdjustable {
+pub trait GlobalAdjustable<ID: ApplicationContentId> {
     /// Zero out cursors associated with a given buffer.
-    fn zero_id(&mut self, id: BufferId);
+    fn zero_id(&mut self, id: &ID);
 
     /// Adjust cursors associated with a given buffer.
-    fn adjust_id(&mut self, id: BufferId, adjs: &[CursorAdjustment]);
+    fn adjust_id(&mut self, id: &ID, adjs: &[CursorAdjustment]);
 }
 
-impl<C: Adjustable> GlobalAdjustable for (BufferId, C) {
-    fn zero_id(&mut self, id: BufferId) {
-        if id == self.0 {
+impl<C, ID> GlobalAdjustable<ID> for (ID, C)
+where
+    C: Adjustable,
+    ID: ApplicationContentId,
+{
+    fn zero_id(&mut self, id: &ID) {
+        if id == &self.0 {
             self.1.zero();
         }
     }
 
-    fn adjust_id(&mut self, id: BufferId, adjs: &[CursorAdjustment]) {
-        if id == self.0 {
+    fn adjust_id(&mut self, id: &ID, adjs: &[CursorAdjustment]) {
+        if id == &self.0 {
             self.1.adjust(adjs);
         }
     }
@@ -106,18 +109,19 @@ where
     }
 }
 
-impl<M, C> GlobalAdjustable for AdjustStore<M, C>
+impl<M, C, ID> GlobalAdjustable<ID> for AdjustStore<M, C>
 where
     M: Copy + Eq + Hash,
-    C: GlobalAdjustable,
+    C: GlobalAdjustable<ID>,
+    ID: ApplicationContentId,
 {
-    fn zero_id(&mut self, id: BufferId) {
+    fn zero_id(&mut self, id: &ID) {
         for vals in self.map.values_mut() {
             vals.zero_id(id);
         }
     }
 
-    fn adjust_id(&mut self, id: BufferId, adjs: &[CursorAdjustment]) {
+    fn adjust_id(&mut self, id: &ID, adjs: &[CursorAdjustment]) {
         for val in self.map.values_mut() {
             val.adjust_id(id, adjs);
         }
@@ -131,18 +135,24 @@ where
 ///
 /// [Action::Mark]: crate::editing::action::Action::Mark
 /// [CursorAction::Save]: crate::editing::action::CursorAction::Save
-pub struct CursorStore {
+pub struct CursorStore<I>
+where
+    I: ApplicationInfo,
+{
     /// Tracks global marks.
-    global: HashMap<Mark, (BufferId, Cursor)>,
+    global: HashMap<Mark, (I::ContentId, Cursor)>,
 
     /// Tracks buffer-local marks.
-    buffer: HashMap<BufferId, AdjustStore<Mark>>,
+    buffer: HashMap<I::ContentId, AdjustStore<Mark>>,
 
     /// Tracks saved cursor groups.
-    groups: HashMap<Register, (BufferId, CursorGroup)>,
+    groups: HashMap<Register, (I::ContentId, CursorGroup)>,
 }
 
-impl CursorStore {
+impl<I> CursorStore<I>
+where
+    I: ApplicationInfo,
+{
     /// Create a new mark store.
     pub fn new() -> Self {
         CursorStore {
@@ -153,7 +163,7 @@ impl CursorStore {
     }
 
     /// Get the [Cursor] mapped to by [Mark] for the specified buffer.
-    pub fn get_mark(&self, id: BufferId, mark: Mark) -> EditResult<Cursor> {
+    pub fn get_mark(&self, id: I::ContentId, mark: Mark) -> EditResult<Cursor, I> {
         let unset = EditError::MarkNotSet(mark);
 
         if mark.is_global() {
@@ -172,7 +182,7 @@ impl CursorStore {
     }
 
     /// Update the [Cursor] mapped to by [Mark] for the specified buffer.
-    pub fn set_mark(&mut self, id: BufferId, mark: Mark, cursor: Cursor) {
+    pub fn set_mark(&mut self, id: I::ContentId, mark: Mark, cursor: Cursor) {
         if mark.is_global() {
             self.global.insert(mark, (id, cursor));
         } else {
@@ -181,7 +191,7 @@ impl CursorStore {
     }
 
     /// Restore a cursor group from a given [Register].
-    pub fn get_group(&self, id: BufferId, reg: &Register) -> EditResult<CursorGroup> {
+    pub fn get_group(&self, id: I::ContentId, reg: &Register) -> EditResult<CursorGroup, I> {
         let (owner, group) = self
             .groups
             .get(reg)
@@ -196,7 +206,12 @@ impl CursorStore {
     }
 
     /// Save a cursor group to a given [Register].
-    pub fn set_group(&mut self, id: BufferId, reg: Register, group: CursorGroup) -> EditResult<()> {
+    pub fn set_group(
+        &mut self,
+        id: I::ContentId,
+        reg: Register,
+        group: CursorGroup,
+    ) -> EditResult<(), I> {
         if reg.is_cursor_storage() {
             self.groups.insert(reg, (id, group));
 
@@ -210,9 +225,12 @@ impl CursorStore {
     }
 }
 
-impl GlobalAdjustable for CursorStore {
+impl<I> GlobalAdjustable<I::ContentId> for CursorStore<I>
+where
+    I: ApplicationInfo,
+{
     /// Update all marks associated with a buffer to point to the first column of the first line.
-    fn zero_id(&mut self, id: BufferId) {
+    fn zero_id(&mut self, id: &I::ContentId) {
         for val in self.global.values_mut() {
             val.zero_id(id);
         }
@@ -227,7 +245,7 @@ impl GlobalAdjustable for CursorStore {
     }
 
     /// Adjust all marks associated with a buffer as described.
-    fn adjust_id(&mut self, id: BufferId, adjs: &[CursorAdjustment]) {
+    fn adjust_id(&mut self, id: &I::ContentId, adjs: &[CursorAdjustment]) {
         for val in self.global.values_mut() {
             val.adjust_id(id, adjs);
         }
@@ -242,8 +260,11 @@ impl GlobalAdjustable for CursorStore {
     }
 }
 
-impl Default for CursorStore {
-    fn default() -> CursorStore {
+impl<I> Default for CursorStore<I>
+where
+    I: ApplicationInfo,
+{
+    fn default() -> CursorStore<I> {
         CursorStore::new()
     }
 }

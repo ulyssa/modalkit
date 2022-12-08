@@ -85,6 +85,7 @@ use crate::editing::{
         MoveTerminus,
         MoveType,
         NumberChange,
+        OpenTarget,
         PositionList,
         RangeType,
         Register,
@@ -1106,6 +1107,12 @@ macro_rules! tab {
     };
 }
 
+macro_rules! tab_open {
+    ($target: expr, $fc: expr) => {
+        tab!(TabAction::Open($target, $fc))
+    };
+}
+
 macro_rules! tab_focus {
     ($fc: expr) => {
         tab!(TabAction::Focus($fc))
@@ -1121,6 +1128,15 @@ macro_rules! window {
     };
     ($act1: expr, $act2: expr) => {
         count_alters!(Action::Window($act1), Action::Window($act2), VimMode::Normal)
+    };
+}
+
+macro_rules! window_switch {
+    ($st: expr) => {
+        window!(WindowAction::Switch($st))
+    };
+    ($st1: expr, $st2: expr) => {
+        window!(WindowAction::Switch($st1), WindowAction::Switch($st2))
     };
 }
 
@@ -1183,14 +1199,29 @@ macro_rules! window_split {
         isv!(
             vec![],
             vec![ExternalAction::CountAlters(
-                vec![WindowAction::Split($axis, MoveDir1D::Previous, Count::Contextual).into()],
-                vec![
-                    WindowAction::Split($axis, MoveDir1D::Previous, Count::Exact(1)).into(),
-                    WindowAction::Resize($axis, SizeChange::Exact(Count::Contextual)).into(),
-                ],
+                vec![WindowAction::Split(
+                    OpenTarget::Current,
+                    $axis,
+                    MoveDir1D::Previous,
+                    Count::Contextual
+                )
+                .into()],
+                vec![WindowAction::Open(
+                    OpenTarget::Current,
+                    $axis,
+                    MoveDir1D::Previous,
+                    Count::Contextual
+                )
+                .into()],
             )],
             VimMode::Normal
         )
+    };
+}
+
+macro_rules! window_file {
+    ($target: expr) => {
+        window!(WindowAction::Split($target, Axis::Horizontal, MoveDir1D::Previous, 1.into()))
     };
 }
 
@@ -1534,7 +1565,7 @@ fn default_keys<I: ApplicationInfo>() -> Vec<(MappedModes, &'static str, InputSt
         ( NMAP, "<C-T>", unmapped!() ),
         ( NMAP, "<C-X>", edit!(EditAction::ChangeNumber(NumberChange::DecreaseOne), MoveType::LinePos(MovePosition::End)) ),
         ( NMAP, "<C-Z>", act!(Action::Suspend) ),
-        ( NMAP, "<C-^>", unmapped!() ),
+        ( NMAP, "<C-^>", window_switch!(OpenTarget::Alternate, OpenTarget::List(Count::Contextual)) ),
         ( NMAP, "<Del>", edit_nocount!(EditAction::Delete, MoveType::Column(MoveDir1D::Next, false)) ),
         ( NMAP, "<Esc>", normal!() ),
         ( NMAP, "<Insert>", insert!(InsertStyle::Insert) ),
@@ -1555,6 +1586,7 @@ fn default_keys<I: ApplicationInfo>() -> Vec<(MappedModes, &'static str, InputSt
         ( XMAP, "C", change_selection_nochar!(SelectionCursorChange::Beginning, EditTarget::Motion(MoveType::LinePos(MovePosition::End), Count::Exact(0))) ),
         ( XMAP, "d", edit_selection!(EditAction::Delete) ),
         ( XMAP, "D", delete_selection_nochar!(SelectionCursorChange::Beginning, EditTarget::Motion(MoveType::LinePos(MovePosition::End), Count::Exact(0))) ),
+        ( XMAP, "gf", window_switch!(OpenTarget::Selection) ),
         ( XMAP, "gJ", edit_selection!(EditAction::Join(JoinStyle::NoChange)) ),
         ( XMAP, "gn", selection_resize_search!(SelectionResizeStyle::Extend, MoveDir1D::Next) ),
         ( XMAP, "gN", selection_resize_search!(SelectionResizeStyle::Extend, MoveDir1D::Previous) ),
@@ -1589,6 +1621,9 @@ fn default_keys<I: ApplicationInfo>() -> Vec<(MappedModes, &'static str, InputSt
         ( XMAP, "<", edit_selection!(EditAction::Indent(IndentChange::Decrease(Count::Contextual))) ),
         ( XMAP, ">", edit_selection!(EditAction::Indent(IndentChange::Increase(Count::Contextual))) ),
         ( XMAP, "<C-G>", goto!(VimMode::Select) ),
+        ( XMAP, "<C-W>f", window_file!(OpenTarget::Selection) ),
+        ( XMAP, "<C-W>gf", tab_open!(OpenTarget::Selection, FocusChange::Current) ),
+        ( XMAP, "<C-W><C-F>", window_file!(OpenTarget::Selection) ),
 
         // Select mode
         ( SMAP, "<C-G>", goto!(VimMode::Visual) ),
@@ -1869,7 +1904,7 @@ impl<I: ApplicationInfo> VimBindings<I> {
 
     /// Remap `<C-D>` in Normal and Insert mode to abort entry when the prompt is empty.
     pub fn ctrlcd_is_abort(mut self) -> Self {
-        self.search = ctrlcd_is_abort();
+        self.ctrlcd = ctrlcd_is_abort();
         self
     }
 }
@@ -3808,8 +3843,13 @@ mod tests {
         assert_normal!(vm, ctx);
 
         // Without a count ^Wv splits the window.
-        let act: Action =
-            WindowAction::Split(Axis::Vertical, MoveDir1D::Previous, Count::Contextual).into();
+        let act: Action = WindowAction::Split(
+            OpenTarget::Current,
+            Axis::Vertical,
+            MoveDir1D::Previous,
+            Count::Contextual,
+        )
+        .into();
         ctx.action.count = None;
         vm.input_key(ctl!('w'));
         vm.input_key(key!('v'));
@@ -3817,17 +3857,19 @@ mod tests {
         assert_normal!(vm, ctx);
 
         // With a count ^Wv splits the window and resizes it.
-        let acts: Action =
-            WindowAction::Split(Axis::Vertical, MoveDir1D::Previous, Count::Exact(1)).into();
-        let actr: Action =
-            WindowAction::Resize(Axis::Vertical, SizeChange::Exact(Count::Contextual)).into();
+        let acts: Action = WindowAction::Open(
+            OpenTarget::Current,
+            Axis::Vertical,
+            MoveDir1D::Previous,
+            Count::Contextual,
+        )
+        .into();
         ctx.action.count = Some(10);
         vm.input_key(key!('1'));
         vm.input_key(key!('0'));
         vm.input_key(ctl!('w'));
         vm.input_key(key!('v'));
         assert_pop1!(vm, acts, ctx);
-        assert_pop1!(vm, actr, ctx);
         assert_normal!(vm, ctx);
     }
 

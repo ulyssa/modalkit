@@ -237,6 +237,10 @@ pub fn is_keyword(c: char) -> bool {
     return c >= '!' && c <= '/' || c >= '[' && c <= '^' || c >= '{' && c <= '~' || c == '`';
 }
 
+pub fn is_filename_char(c: char) -> bool {
+    return is_word_char(c) || "@/.-_+,#$%~=".contains(c) || c > '\u{007F}';
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

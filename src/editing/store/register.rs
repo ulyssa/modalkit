@@ -188,10 +188,10 @@ impl RegisterStore {
             Register::UnnamedMacro => self.unnamed_macro.clone(),
             Register::UnnamedCursorGroup => RegisterCell::default(),
             Register::RecentlyDeleted(off) => {
-                self.last_deleted.get(*off).map(Clone::clone).unwrap_or_default()
+                self.last_deleted.get(*off).cloned().unwrap_or_default()
             },
             Register::SmallDelete => self.small_delete.clone(),
-            Register::Named(name) => self.named.get(&name).map(Clone::clone).unwrap_or_default(),
+            Register::Named(name) => self.named.get(&name).cloned().unwrap_or_default(),
             Register::AltBufName => self.altbufname.clone(),
             Register::LastSearch => self.last_search.clone(),
             Register::LastYanked => self.last_yanked.clone(),

@@ -17,6 +17,7 @@ use crate::editing::{
     action::{
         CursorAction,
         EditAction,
+        EditInfo,
         EditResult,
         Editable,
         HistoryAction,
@@ -32,7 +33,7 @@ use crate::editing::{
     cursor::Cursor,
     history::{HistoryList, ScrollbackState},
     rope::EditRope,
-    store::{BufferId, Store},
+    store::Store,
 };
 
 pub struct EditorContext {
@@ -64,8 +65,7 @@ impl<I> Editor<I>
 where
     I: ApplicationInfo,
 {
-    pub fn new() -> Self {
-        let id = BufferId(0);
+    pub fn new(id: I::ContentId) -> Self {
         let mut buffer = EditBuffer::new(id);
         let mut viewctx = ViewportContext::default();
         viewctx.set_wrap(true);
@@ -326,7 +326,7 @@ where
             }
         }
 
-        history.find(needle, dir, inc).map(Clone::clone)
+        history.find(needle, dir, inc).cloned()
     }
 
     pub fn recall(
@@ -363,7 +363,7 @@ where
     }
 }
 
-impl<C, I> Editable<C, I> for Editor<I>
+impl<C, I> Editable<C, Store<I>, I> for Editor<I>
 where
     C: EditContext,
     I: ApplicationInfo,
@@ -374,19 +374,24 @@ where
         motion: &EditTarget,
         ctx: &C,
         store: &mut Store<I>,
-    ) -> EditResult {
+    ) -> EditResult<EditInfo, I> {
         let ctx = (self.gid, &self.viewctx, ctx);
 
         self.buffer.edit(operation, motion, &ctx, store)
     }
 
-    fn mark(&mut self, name: Mark, ctx: &C, store: &mut Store<I>) -> EditResult {
+    fn mark(&mut self, name: Mark, ctx: &C, store: &mut Store<I>) -> EditResult<EditInfo, I> {
         let ctx = (self.gid, &self.viewctx, ctx);
 
         self.buffer.mark(name, &ctx, store)
     }
 
-    fn insert_text(&mut self, act: InsertTextAction, ctx: &C, store: &mut Store<I>) -> EditResult {
+    fn insert_text(
+        &mut self,
+        act: &InsertTextAction,
+        ctx: &C,
+        store: &mut Store<I>,
+    ) -> EditResult<EditInfo, I> {
         let ctx = (self.gid, &self.viewctx, ctx);
 
         self.buffer.insert_text(act, &ctx, store)
@@ -394,29 +399,39 @@ where
 
     fn selection_command(
         &mut self,
-        act: SelectionAction,
+        act: &SelectionAction,
         ctx: &C,
         store: &mut Store<I>,
-    ) -> EditResult {
+    ) -> EditResult<EditInfo, I> {
         let ctx = (self.gid, &self.viewctx, ctx);
 
         self.buffer.selection_command(act, &ctx, store)
     }
 
-    fn history_command(&mut self, act: HistoryAction, ctx: &C, store: &mut Store<I>) -> EditResult {
+    fn history_command(
+        &mut self,
+        act: &HistoryAction,
+        ctx: &C,
+        store: &mut Store<I>,
+    ) -> EditResult<EditInfo, I> {
         let ctx = (self.gid, &self.viewctx, ctx);
 
         self.buffer.history_command(act, &ctx, store)
     }
 
-    fn cursor_command(&mut self, act: &CursorAction, ctx: &C, store: &mut Store<I>) -> EditResult {
+    fn cursor_command(
+        &mut self,
+        act: &CursorAction,
+        ctx: &C,
+        store: &mut Store<I>,
+    ) -> EditResult<EditInfo, I> {
         let ctx = (self.gid, &self.viewctx, ctx);
 
         self.buffer.cursor_command(act, &ctx, store)
     }
 }
 
-impl<C, I> Jumpable<C> for Editor<I>
+impl<C, I> Jumpable<C, I> for Editor<I>
 where
     C: EditContext,
     I: ApplicationInfo,
@@ -427,7 +442,7 @@ where
         dir: MoveDir1D,
         count: usize,
         ctx: &C,
-    ) -> UIResult<usize> {
+    ) -> UIResult<usize, I> {
         let ctx = (self.gid, &self.viewctx, ctx);
 
         self.buffer.jump(list, dir, count, &ctx)
@@ -436,14 +451,14 @@ where
 
 #[cfg(test)]
 mod tests {
+    use super::super::{ReadLineId, ReadLineInfo};
     use super::*;
-    use crate::editing::application::EmptyInfo;
 
-    fn mked() -> Editor<EmptyInfo> {
-        Editor::new()
+    fn mked() -> Editor<ReadLineInfo> {
+        Editor::new(ReadLineId::Line)
     }
 
-    fn mkedstr(s: &str) -> Editor<EmptyInfo> {
+    fn mkedstr(s: &str) -> Editor<ReadLineInfo> {
         let mut ed = mked();
         ed.set_text(s);
 

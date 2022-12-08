@@ -48,8 +48,8 @@ where
     I: ApplicationInfo,
 {
     /// Create state for a [CommandBar] widget.
-    pub fn new(store: &mut Store<I>) -> Self {
-        let buffer = store.new_buffer();
+    pub fn new(id: I::ContentId, store: &mut Store<I>) -> Self {
+        let buffer = store.load_buffer(id);
 
         CommandBarState {
             scrollback: ScrollbackState::Pending,
@@ -96,12 +96,12 @@ where
     }
 }
 
-impl<C, I> PromptActions<Action<I>, C, Store<I>> for CommandBarState<I>
+impl<C, I> PromptActions<C, Store<I>, I> for CommandBarState<I>
 where
     C: Default + EditContext,
     I: ApplicationInfo,
 {
-    fn submit(&mut self, ctx: &C, store: &mut Store<I>) -> EditResult<Vec<(Action<I>, C)>> {
+    fn submit(&mut self, ctx: &C, store: &mut Store<I>) -> EditResult<Vec<(Action<I>, C)>, I> {
         let unfocus = CommandBarAction::Unfocus.into();
 
         let action = match self.cmdtype {
@@ -133,7 +133,7 @@ where
         _empty: bool,
         ctx: &C,
         store: &mut Store<I>,
-    ) -> EditResult<Vec<(Action<I>, C)>> {
+    ) -> EditResult<Vec<(Action<I>, C)>, I> {
         // We always unfocus currently, regardless of whether _empty=true.
         let act = Action::CommandBar(CommandBarAction::Unfocus).into();
 
@@ -157,7 +157,7 @@ where
         count: &Count,
         ctx: &C,
         store: &mut Store<I>,
-    ) -> EditResult<Vec<(Action<I>, C)>> {
+    ) -> EditResult<Vec<(Action<I>, C)>, I> {
         let count = ctx.resolve(count);
         let rope = self.tbox.get();
 
@@ -176,20 +176,20 @@ where
     }
 }
 
-impl<'a, C, I> Promptable<Action<I>, C, Store<I>> for CommandBarState<I>
+impl<'a, C, I> Promptable<C, Store<I>, I> for CommandBarState<I>
 where
     C: Default + EditContext,
     I: ApplicationInfo,
 {
     fn prompt(
         &mut self,
-        act: PromptAction,
+        act: &PromptAction,
         ctx: &C,
         store: &mut Store<I>,
-    ) -> EditResult<Vec<(Action<I>, C)>> {
+    ) -> EditResult<Vec<(Action<I>, C)>, I> {
         match act {
-            PromptAction::Abort(empty) => self.abort(empty, ctx, store),
-            PromptAction::Recall(dir, count) => self.recall(&dir, &count, ctx, store),
+            PromptAction::Abort(empty) => self.abort(*empty, ctx, store),
+            PromptAction::Recall(dir, count) => self.recall(dir, count, ctx, store),
             PromptAction::Submit => self.submit(ctx, store),
         }
     }

@@ -37,7 +37,6 @@
 //! ```
 use crate::{
     editing::context::{EditContext, Resolve},
-    editing::store::BufferId,
     input::bindings::SequenceStatus,
     input::commands::{Command, CommandError, CommandMachine},
     input::key::MacroError,
@@ -45,7 +44,6 @@ use crate::{
 
 use super::application::*;
 use super::base::*;
-use super::store::Store;
 
 /// The various actions that can be taken on text.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -87,9 +85,31 @@ pub enum EditAction {
 }
 
 impl EditAction {
+    /// Returns true if this [EditAction] doesn't modify a buffer's text.
+    pub fn is_readonly(&self) -> bool {
+        match self {
+            EditAction::Motion => true,
+            EditAction::Yank => true,
+
+            EditAction::ChangeCase(_) => false,
+            EditAction::ChangeNumber(_) => false,
+            EditAction::Delete => false,
+            EditAction::Format => false,
+            EditAction::Indent(_) => false,
+            EditAction::Join(_) => false,
+            EditAction::Replace(_) => false,
+        }
+    }
+
     /// Returns true if the value is [EditAction::Motion].
     pub fn is_motion(&self) -> bool {
         matches!(self, EditAction::Motion)
+    }
+
+    /// Returns true if this [EditAction] is allowed to trigger a [WindowAction::Switch] after an
+    /// error.
+    pub fn is_switchable<C: EditContext>(&self, _: &C) -> bool {
+        self.is_motion()
     }
 }
 
@@ -100,7 +120,7 @@ impl Default for EditAction {
 }
 
 /// An object capable of performing editing operations.
-pub trait Editable<C, I>
+pub trait Editable<C, S, I>
 where
     I: ApplicationInfo,
 {
@@ -110,28 +130,43 @@ where
         action: &EditAction,
         target: &EditTarget,
         ctx: &C,
-        store: &mut Store<I>,
-    ) -> EditResult;
+        store: &mut S,
+    ) -> EditResult<EditInfo, I>;
 
     /// Create or update a cursor mark based on the leader's cursor position.
-    fn mark(&mut self, name: Mark, ctx: &C, store: &mut Store<I>) -> EditResult;
+    fn mark(&mut self, name: Mark, ctx: &C, store: &mut S) -> EditResult<EditInfo, I>;
 
     /// Insert text relative to the current cursor position.
-    fn insert_text(&mut self, act: InsertTextAction, ctx: &C, store: &mut Store<I>) -> EditResult;
+    fn insert_text(
+        &mut self,
+        act: &InsertTextAction,
+        ctx: &C,
+        store: &mut S,
+    ) -> EditResult<EditInfo, I>;
 
     /// Modify the current selection.
     fn selection_command(
         &mut self,
-        act: SelectionAction,
+        act: &SelectionAction,
         ctx: &C,
-        store: &mut Store<I>,
-    ) -> EditResult;
+        store: &mut S,
+    ) -> EditResult<EditInfo, I>;
 
     /// Perform an action over a cursor group.
-    fn cursor_command(&mut self, act: &CursorAction, ctx: &C, store: &mut Store<I>) -> EditResult;
+    fn cursor_command(
+        &mut self,
+        act: &CursorAction,
+        ctx: &C,
+        store: &mut S,
+    ) -> EditResult<EditInfo, I>;
 
     /// Move to a different point in the buffer's editing history.
-    fn history_command(&mut self, act: HistoryAction, ctx: &C, store: &mut Store<I>) -> EditResult;
+    fn history_command(
+        &mut self,
+        act: &HistoryAction,
+        ctx: &C,
+        store: &mut S,
+    ) -> EditResult<EditInfo, I>;
 }
 
 /// Selection manipulation
@@ -200,6 +235,17 @@ pub enum HistoryAction {
     Undo(Count),
 }
 
+impl HistoryAction {
+    /// Returns true if this [HistoryAction] doesn't modify a buffer's text.
+    pub fn is_readonly(&self) -> bool {
+        match self {
+            HistoryAction::Redo(_) => false,
+            HistoryAction::Undo(_) => false,
+            HistoryAction::Checkpoint => true,
+        }
+    }
+}
+
 /// Cursor group actions
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[non_exhaustive]
@@ -226,6 +272,21 @@ pub enum CursorAction {
     Split(Count),
 }
 
+impl CursorAction {
+    /// Returns true if this [CursorAction] is allowed to trigger a [WindowAction::Switch] after an
+    /// error.
+    pub fn is_switchable<C: EditContext>(&self, _: &C) -> bool {
+        match self {
+            CursorAction::Restore(_) => true,
+
+            CursorAction::Close(_) => false,
+            CursorAction::Rotate(..) => false,
+            CursorAction::Save(_) => false,
+            CursorAction::Split(_) => false,
+        }
+    }
+}
+
 /// Command actions
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[non_exhaustive]
@@ -240,27 +301,33 @@ pub enum CommandAction {
 }
 
 /// Trait for objects which can process [CommandActions](CommandAction).
-pub trait Commandable<C: Command> {
+pub trait Commandable<C, I>
+where
+    C: Command,
+    I: ApplicationInfo,
+{
     /// Execute a command action.
     fn command(
         &mut self,
-        action: CommandAction,
+        action: &CommandAction,
         ctx: &C::Context,
-    ) -> UIResult<Vec<(C::Action, C::Context)>>;
+    ) -> UIResult<Vec<(C::Action, C::Context)>, I>;
 }
 
-impl<C: Command> Commandable<C> for CommandMachine<C>
+impl<C, I> Commandable<C, I> for CommandMachine<C>
 where
+    C: Command,
     C::Context: EditContext,
+    I: ApplicationInfo,
 {
     fn command(
         &mut self,
-        action: CommandAction,
+        action: &CommandAction,
         ctx: &C::Context,
-    ) -> UIResult<Vec<(C::Action, C::Context)>> {
+    ) -> UIResult<Vec<(C::Action, C::Context)>, I> {
         match action {
             CommandAction::Repeat(count) => {
-                let count = ctx.resolve(&count);
+                let count = ctx.resolve(count);
                 let mut acts = Vec::new();
                 let cmd = self.get_last_command();
 
@@ -310,9 +377,17 @@ pub enum PromptAction {
 }
 
 /// A widget that the user can switch focus of keyboard input to.
-pub trait Promptable<A, C, S> {
+pub trait Promptable<C, S, I>
+where
+    I: ApplicationInfo,
+{
     /// Execute a prompt action.
-    fn prompt(&mut self, act: PromptAction, ctx: &C, store: &mut S) -> EditResult<Vec<(A, C)>>;
+    fn prompt(
+        &mut self,
+        act: &PromptAction,
+        ctx: &C,
+        store: &mut S,
+    ) -> EditResult<Vec<(Action<I>, C)>, I>;
 }
 
 /// Macro actions
@@ -332,7 +407,7 @@ pub enum MacroAction {
 /// Tab actions
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[non_exhaustive]
-pub enum TabAction {
+pub enum TabAction<I: ApplicationInfo> {
     /// Close the [CloseTarget] tabs with [CloseFlags] options.
     Close(CloseTarget, CloseFlags),
 
@@ -353,22 +428,31 @@ pub enum TabAction {
     Move(FocusChange),
 
     /// Open a new tab after the tab targeted by [FocusChange].
-    Open(FocusChange),
+    New(FocusChange),
+
+    /// Open a new tab that displays the given content.
+    Open(OpenTarget<I::WindowId>, FocusChange),
+}
+
+/// Trait counting tabs withing an object.
+pub trait TabCount {
+    /// Number of currently open tabs.
+    fn tabs(&self) -> usize;
 }
 
 /// Trait for objects that contain tabbed content.
-pub trait TabContainer<C, S> {
-    /// Number of currently open tabs.
-    fn tabs(&self) -> usize;
-
+pub trait TabContainer<C, S, I>: TabCount
+where
+    I: ApplicationInfo,
+{
     /// Execute a tab action.
-    fn tab_command(&mut self, act: TabAction, ctx: &C, store: &mut S) -> UIResult;
+    fn tab_command(&mut self, act: &TabAction<I>, ctx: &C, store: &mut S) -> UIResult<EditInfo, I>;
 }
 
 /// Window actions
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[non_exhaustive]
-pub enum WindowAction {
+pub enum WindowAction<I: ApplicationInfo> {
     /// Close the [CloseTarget] windows with [CloseFlags] options.
     Close(CloseTarget, CloseFlags),
 
@@ -381,12 +465,22 @@ pub enum WindowAction {
     /// Move the currently focused window to the [MoveDir2D] side of the screen.
     MoveSide(MoveDir2D),
 
+    /// Open a new window that is [*n*](Count) columns along [an axis](Axis), moving the focus in
+    /// [MoveDir1D] direction afterwards.
+    Open(OpenTarget<I::WindowId>, Axis, MoveDir1D, Count),
+
     /// Visually rotate the windows in [MoveDir2D] direction.
     Rotate(MoveDir1D),
 
-    /// Split the currently focused window along [*n* times](Count) along [an axis](Axis), moving
+    /// Split the currently focused window [*n* times](Count) along [an axis](Axis), moving
     /// the focus in [MoveDir1D] direction after performing the split.
-    Split(Axis, MoveDir1D, Count),
+    Split(OpenTarget<I::WindowId>, Axis, MoveDir1D, Count),
+
+    /// Switch what content the window is currently showing.
+    ///
+    /// If there are no currently open windows in the tab, then this behaves like
+    /// [WindowAction::Open].
+    Switch(OpenTarget<I::WindowId>),
 
     /// Clear all of the explicitly set window sizes, and instead try to equally distribute
     /// available rows and columns.
@@ -398,6 +492,27 @@ pub enum WindowAction {
     /// Zoom in on the currently focused window so that it takes up the whole screen. If there is
     /// already a zoomed-in window, then return to showing all windows.
     ZoomToggle,
+}
+
+/// Trait for counting windows within an object.
+pub trait WindowCount {
+    /// Number of currently open windows.
+    fn windows(&self) -> usize;
+}
+
+/// Trait for objects that contain windows.
+pub trait WindowContainer<C, S, I>: WindowCount
+where
+    C: EditContext,
+    I: ApplicationInfo,
+{
+    /// Execute a window action.
+    fn window_command(
+        &mut self,
+        action: &WindowAction<I>,
+        ctx: &C,
+        store: &mut S,
+    ) -> UIResult<EditInfo, I>;
 }
 
 /// The result of either pressing a complete keybinding sequence, or parsing a command.
@@ -465,10 +580,10 @@ pub enum Action<I: ApplicationInfo = EmptyInfo> {
     Prompt(PromptAction),
 
     /// Perform a tab-related action.
-    Tab(TabAction),
+    Tab(TabAction<I>),
 
     /// Perform a window-related action.
-    Window(WindowAction),
+    Window(WindowAction<I>),
 
     /// Application-specific command.
     Application(I::Action),
@@ -597,6 +712,35 @@ impl<I: ApplicationInfo> Action<I> {
             },
         }
     }
+
+    /// Returns true if this [Action] is allowed to trigger a [WindowAction::Switch] after an error.
+    pub fn is_switchable<C: EditContext>(&self, ctx: &C) -> bool {
+        match self {
+            Action::Application(act) => act.is_switchable(ctx),
+            Action::Cursor(act) => act.is_switchable(ctx),
+            Action::Edit(act, _) => ctx.resolve(act).is_switchable(ctx),
+            Action::Jump(..) => true,
+
+            Action::CommandBar(_) => false,
+            Action::Command(_) => false,
+            Action::Complete(_, _) => false,
+            Action::History(_) => false,
+            Action::InsertText(_) => false,
+            Action::KeywordLookup => false,
+            Action::Macro(_) => false,
+            Action::Mark(_) => false,
+            Action::NoOp => false,
+            Action::Prompt(_) => false,
+            Action::RedrawScreen => false,
+            Action::Repeat(_) => false,
+            Action::Scroll(_) => false,
+            Action::Search(_, _) => false,
+            Action::Selection(_) => false,
+            Action::Suspend => false,
+            Action::Tab(_) => false,
+            Action::Window(_) => false,
+        }
+    }
 }
 
 impl<I: ApplicationInfo> Default for Action<I> {
@@ -653,20 +797,23 @@ impl<I: ApplicationInfo> From<PromptAction> for Action<I> {
     }
 }
 
-impl<I: ApplicationInfo> From<WindowAction> for Action<I> {
-    fn from(act: WindowAction) -> Self {
+impl<I: ApplicationInfo> From<WindowAction<I>> for Action<I> {
+    fn from(act: WindowAction<I>) -> Self {
         Action::Window(act)
     }
 }
 
-impl<I: ApplicationInfo> From<TabAction> for Action<I> {
-    fn from(act: TabAction) -> Self {
+impl<I: ApplicationInfo> From<TabAction<I>> for Action<I> {
+    fn from(act: TabAction<I>) -> Self {
         Action::Tab(act)
     }
 }
 
 /// Trait for objects that can move through a [PositionList].
-pub trait Jumpable<C> {
+pub trait Jumpable<C, I>
+where
+    I: ApplicationInfo,
+{
     /// Move through a [PositionList] in [MoveDir1D] direction `count` times.
     ///
     /// The result indicates any leftover `count`.
@@ -676,42 +823,63 @@ pub trait Jumpable<C> {
         dir: MoveDir1D,
         count: usize,
         ctx: &C,
-    ) -> UIResult<usize>;
+    ) -> UIResult<usize, I>;
 }
 
 /// Trait for objects that can be scrolled.
-pub trait Scrollable<C, S> {
+pub trait Scrollable<C, S, I>
+where
+    I: ApplicationInfo,
+{
     /// Scroll the viewable content in this object.
-    fn scroll(&mut self, style: &ScrollStyle, ctx: &C, store: &mut S) -> EditResult;
+    fn scroll(&mut self, style: &ScrollStyle, ctx: &C, store: &mut S) -> EditResult<EditInfo, I>;
 }
 
 /// Trait for objects that can be searched.
-pub trait Searchable<C, S> {
+pub trait Searchable<C, S, I>
+where
+    I: ApplicationInfo,
+{
     /// Search for the [*n*<sup>th</sup>](Count) result in [MoveDirMod] direction.
-    fn search(&mut self, dir: MoveDirMod, count: Count, ctx: &C, store: &mut S) -> UIResult;
+    fn search(
+        &mut self,
+        dir: MoveDirMod,
+        count: Count,
+        ctx: &C,
+        store: &mut S,
+    ) -> UIResult<EditInfo, I>;
 }
 
 /// Additional information returned after an editing operation.
-pub struct EditInfo {
+pub struct InfoMessage {
     msg: String,
 }
 
-impl EditInfo {
-    pub(crate) fn new(msg: &str) -> Self {
-        EditInfo { msg: msg.to_string() }
+impl From<&str> for InfoMessage {
+    fn from(msg: &str) -> Self {
+        InfoMessage::from(msg.to_string())
     }
 }
 
-impl std::fmt::Display for EditInfo {
+impl From<String> for InfoMessage {
+    fn from(msg: String) -> Self {
+        InfoMessage { msg }
+    }
+}
+
+impl std::fmt::Display for InfoMessage {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.msg)
     }
 }
 
+/// An optional, information message provided during editing.
+pub type EditInfo = Option<InfoMessage>;
+
 /// Errors returned from editing operation.
 #[derive(thiserror::Error, Debug)]
 #[non_exhaustive]
-pub enum EditError {
+pub enum EditError<I: ApplicationInfo> {
     /// Failure to fetch a word at a cursor position.
     #[error("No word underneath cursor")]
     NoCursorWord,
@@ -742,7 +910,7 @@ pub enum EditError {
 
     /// Failure due to referencing a cursor position in another buffer.
     #[error("Position is located in another buffer")]
-    WrongBuffer(BufferId),
+    WrongBuffer(I::ContentId),
 
     /// Failure while combining cursor groups.
     #[error("Failed to combine cursor groups: {0}")]
@@ -751,6 +919,14 @@ pub enum EditError {
     /// Failure due to invalid input where an integer was expected.
     #[error("Integer conversion error: {0}")]
     IntConversionError(#[from] std::num::TryFromIntError),
+
+    /// Failure due to invalid input where an integer was expected.
+    #[error("Integer parsing error: {0}")]
+    IntParseError(#[from] std::num::ParseIntError),
+
+    /// Failure due to an unimplemented feature.
+    #[error("Buffer is read-only")]
+    ReadOnly,
 
     /// Failure due to an unimplemented feature.
     #[error("Unimplemented: {0}")]
@@ -768,14 +944,21 @@ pub enum EditError {
 /// Wrapper for various Errors that consumers may want to combine.
 #[derive(thiserror::Error, Debug)]
 #[non_exhaustive]
-pub enum UIError {
+pub enum UIError<I>
+where
+    I: ApplicationInfo,
+{
+    /// Failure in application-specific code.
+    #[error("{0}")]
+    Application(I::Error),
+
     /// Failure during Input/Output.
     #[error("Input/Output Error: {0}")]
     IOError(#[from] std::io::Error),
 
     /// Failure during editing.
     #[error("Editing error: {0}")]
-    EditingFailure(#[from] EditError),
+    EditingFailure(#[from] EditError<I>),
 
     /// Failure while attempting to execute a command.
     #[error("Failed command: {0}")]
@@ -792,10 +975,18 @@ pub enum UIError {
     /// Failure when there's no currently selected window.
     #[error("No window currently selected")]
     NoWindow,
+
+    /// Failure due to an unimplemented feature.
+    #[error("Unimplemented: {0}")]
+    Unimplemented(String),
+
+    /// Generic failure.
+    #[error("Error: {0}")]
+    Failure(String),
 }
 
 /// Common result type for editing operations.
-pub type EditResult<V = Option<EditInfo>> = Result<V, EditError>;
+pub type EditResult<V, I> = Result<V, EditError<I>>;
 
 /// Common result type for rendering and application functions.
-pub type UIResult<V = Option<EditInfo>> = Result<V, UIError>;
+pub type UIResult<V, I> = Result<V, UIError<I>>;

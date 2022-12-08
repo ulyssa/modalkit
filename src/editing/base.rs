@@ -6,13 +6,23 @@
 //!
 //! [actions]: super::action
 use std::fmt::Debug;
+use std::hash::Hash;
 
 use bitflags::bitflags;
 use regex::Regex;
 
 use crate::{
+    editing::application::ApplicationWindowId,
     input::bindings::SequenceClass,
-    util::{is_horizontal_space, is_keyword, is_newline, is_space_char, is_word_char, sort2},
+    util::{
+        is_filename_char,
+        is_horizontal_space,
+        is_keyword,
+        is_newline,
+        is_space_char,
+        is_word_char,
+        sort2,
+    },
 };
 
 use super::action::EditAction;
@@ -223,6 +233,12 @@ pub enum WordStyle {
     /// An empty line is also a Big word. Vim calls this a `WORD`.
     Big,
 
+    /// A sequence of characters that match a test function.
+    CharSet(fn(char) -> bool),
+
+    /// A filename.
+    Filename,
+
     /// Either a sequence of alphanumeric characters and underscores, or a sequence of other
     /// non-blank characters.
     ///
@@ -288,6 +304,20 @@ impl BoundaryTest for WordStyle {
                 } else {
                     // First character is always counted.
                     return true;
+                }
+            },
+            WordStyle::CharSet(f) => {
+                if let Some(before) = ctx.before {
+                    f(ctx.current) && !f(before)
+                } else {
+                    f(ctx.current)
+                }
+            },
+            WordStyle::Filename => {
+                if let Some(before) = ctx.before {
+                    is_filename_char(ctx.current) && !is_filename_char(before)
+                } else {
+                    is_filename_char(ctx.current)
                 }
             },
             WordStyle::Little => {
@@ -379,6 +409,20 @@ impl BoundaryTest for WordStyle {
                 } else {
                     // Last character is always a word ending.
                     return true;
+                }
+            },
+            WordStyle::CharSet(f) => {
+                if let Some(after) = ctx.after {
+                    f(ctx.current) && !f(after)
+                } else {
+                    f(ctx.current)
+                }
+            },
+            WordStyle::Filename => {
+                if let Some(after) = ctx.after {
+                    is_filename_char(ctx.current) && !is_filename_char(after)
+                } else {
+                    is_filename_char(ctx.current)
                 }
             },
             WordStyle::Little => {
@@ -802,6 +846,37 @@ pub enum NumberChange {
     /// Increase the first number of each line in the targeted text by [*n*](Count) on the first
     /// number seen, [*n*](Count) times two for the second number seen, etc.
     IncreaseAll,
+}
+
+/// Targets for [WindowAction::Open] and [WindowAction::Switch].
+///
+/// [WindowAction::Open]: crate::editing::action::WindowAction::Open
+/// [WindowAction::Switch]: crate::editing::action::WindowAction::Switch
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum OpenTarget<W: ApplicationWindowId> {
+    /// An alternate window. This is usually the previous window.
+    Alternate,
+
+    /// An application-specific identifier to switch to.
+    Application(W),
+
+    /// Use the current window as the target.
+    Current,
+
+    /// Use the [word](WordStyle) under the cursor as a target name.
+    Cursor(WordStyle),
+
+    /// An absolute position in a list of targets.
+    List(Count),
+
+    /// A named target (e.g., a filename to open).
+    Name(String),
+
+    /// A window offset from the current one.
+    Offset(MoveDir1D, Count),
+
+    /// Use the selected text as a target name.
+    Selection,
 }
 
 /// This represents what windows are targeted by a window command.

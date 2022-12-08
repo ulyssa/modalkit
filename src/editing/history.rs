@@ -4,10 +4,11 @@ use std::collections::vec_deque::{Iter, VecDeque};
 use regex::Regex;
 
 use super::{
+    application::ApplicationContentId,
     base::{CursorSearch, MoveDir1D},
     cursor::{Adjustable, Cursor, CursorAdjustment},
     rope::EditRope,
-    store::{BufferId, GlobalAdjustable},
+    store::GlobalAdjustable,
 };
 
 /// Current status of scrolling through a prompt's previous values.
@@ -299,11 +300,12 @@ where
     }
 }
 
-impl<T> GlobalAdjustable for HistoryList<T>
+impl<T, ID> GlobalAdjustable<ID> for HistoryList<T>
 where
-    T: GlobalAdjustable,
+    T: GlobalAdjustable<ID>,
+    ID: ApplicationContentId,
 {
-    fn zero_id(&mut self, id: BufferId) {
+    fn zero_id(&mut self, id: &ID) {
         for p in self.past.iter_mut() {
             p.zero_id(id);
         }
@@ -315,7 +317,7 @@ where
         self.current.zero_id(id);
     }
 
-    fn adjust_id(&mut self, id: BufferId, adjs: &[CursorAdjustment]) {
+    fn adjust_id(&mut self, id: &ID, adjs: &[CursorAdjustment]) {
         for p in self.past.iter_mut() {
             p.adjust_id(id, adjs);
         }
@@ -392,7 +394,7 @@ impl<T: ToString> HistoryList<T> {
 #[cfg(test)]
 impl HistoryList<char> {
     pub(crate) fn chars(&self) -> Vec<char> {
-        self.iter().map(Clone::clone).collect()
+        self.iter().cloned().collect()
     }
 }
 

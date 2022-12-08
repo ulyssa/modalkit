@@ -1,5 +1,8 @@
+use std::collections::hash_map::{Entry, HashMap};
 use std::collections::VecDeque;
 use std::io::{stdout, Stdout};
+use std::ops::{Deref, DerefMut};
+use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
 use modalkit::crossterm::{
@@ -11,6 +14,7 @@ use modalkit::crossterm::{
 
 use modalkit::tui::{
     backend::CrosstermBackend,
+    buffer::Buffer,
     layout::Rect,
     style::{Color, Style},
     text::Span,
@@ -23,18 +27,46 @@ use modalkit::{
         action::{
             Action,
             Commandable,
+            CursorAction,
+            EditAction,
             EditError,
+            EditInfo,
+            EditResult,
             Editable,
+            HistoryAction,
+            InsertTextAction,
             Jumpable,
+            PromptAction,
             Promptable,
             Scrollable,
             Searchable,
+            SelectionAction,
             TabContainer,
+            TabCount,
+            UIError,
             UIResult,
+            WindowContainer,
         },
-        application::ApplicationInfo,
-        base::RepeatType,
-        context::Resolve,
+        application::{
+            ApplicationContentId,
+            ApplicationInfo,
+            ApplicationStore,
+            ApplicationWindowId,
+        },
+        base::{
+            CloseFlags,
+            Count,
+            EditTarget,
+            Mark,
+            MoveDir1D,
+            MoveDirMod,
+            PositionList,
+            RepeatType,
+            ScrollStyle,
+            WordStyle,
+        },
+        buffer::EditBuffer,
+        context::{EditContext, Resolve},
         key::KeyManager,
         store::Store,
     },
@@ -44,25 +76,280 @@ use modalkit::{
     },
     input::{bindings::BindingMachine, key::TerminalKey},
     widgets::{
+        cmdbar::CommandBarState,
         screen::{Screen, ScreenState},
         textbox::TextBoxState,
+        TermOffset,
         TerminalCursor,
         TerminalExtOps,
-        WindowContainer,
+        Window,
+        WindowOps,
     },
 };
 
 type Context = MixedContext<EditorInfo>;
 type EditorAction = Action<EditorInfo>;
-type EditorBox = TextBoxState<EditorInfo>;
-type EditorStore = Store<EditorInfo>;
+
+struct EditorStore {
+    filenames: HashMap<String, usize>,
+    fileindex: usize,
+}
+
+impl Default for EditorStore {
+    fn default() -> Self {
+        EditorStore { filenames: HashMap::default(), fileindex: 0 }
+    }
+}
+
+impl ApplicationStore for EditorStore {}
+
+struct EditorBox(TextBoxState<EditorInfo>);
+
+impl From<TextBoxState<EditorInfo>> for EditorBox {
+    fn from(tbox: TextBoxState<EditorInfo>) -> Self {
+        EditorBox(tbox)
+    }
+}
+
+impl Deref for EditorBox {
+    type Target = TextBoxState<EditorInfo>;
+
+    fn deref(&self) -> &Self::Target {
+        return &self.0;
+    }
+}
+
+impl DerefMut for EditorBox {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        return &mut self.0;
+    }
+}
+
+impl TerminalCursor for EditorBox {
+    fn get_term_cursor(&self) -> Option<TermOffset> {
+        self.0.get_term_cursor()
+    }
+}
+
+impl WindowOps<EditorInfo> for EditorBox {
+    fn dup(&self, store: &mut Store<EditorInfo>) -> Self {
+        return EditorBox(self.0.dup(store));
+    }
+
+    fn close(&mut self, flags: CloseFlags, store: &mut Store<EditorInfo>) -> bool {
+        return self.0.close(flags, store);
+    }
+
+    fn draw(&mut self, area: Rect, buf: &mut Buffer, focused: bool, store: &mut Store<EditorInfo>) {
+        self.0.draw(area, buf, focused, store)
+    }
+
+    fn get_cursor_word(&self, style: &WordStyle) -> Option<String> {
+        self.0.get_cursor_word(style)
+    }
+
+    fn get_selected_word(&self) -> Option<String> {
+        self.0.get_selected_word()
+    }
+}
+
+fn load_file(name: String, store: &mut Store<EditorInfo>) -> UIResult<EditorBox, EditorInfo> {
+    let index = store
+        .application
+        .filenames
+        .get(&name)
+        .cloned()
+        .unwrap_or(store.application.fileindex);
+
+    let window = match store.buffers.entry(EditorContentId::File(index)) {
+        Entry::Vacant(v) => {
+            let s = std::fs::read_to_string(name.as_str())?;
+            let buffer = EditBuffer::from_str(v.key().clone(), s.as_str());
+            let buffer = Arc::new(RwLock::new(buffer));
+
+            v.insert(buffer.clone());
+
+            TextBoxState::new(buffer).into()
+        },
+        Entry::Occupied(o) => TextBoxState::new(o.get().clone()).into(),
+    };
+
+    if index == store.application.fileindex {
+        store.application.fileindex += 1;
+    }
+
+    return Ok(window);
+}
+
+impl Window<EditorInfo> for EditorBox {
+    fn id(&self) -> EditorContentId {
+        return self.0.buffer().read().unwrap().id();
+    }
+
+    fn open(id: EditorContentId, store: &mut Store<EditorInfo>) -> UIResult<Self, EditorInfo> {
+        match id {
+            id @ (EditorContentId::Scratch | EditorContentId::File(_)) => {
+                let buffer = store.load_buffer(id);
+
+                Ok(TextBoxState::new(buffer).into())
+            },
+            EditorContentId::Command => {
+                let msg = "Cannot open command bar in a window";
+
+                Err(UIError::Failure(msg.into()))
+            },
+        }
+    }
+
+    fn find(name: String, store: &mut Store<EditorInfo>) -> UIResult<Self, EditorInfo> {
+        return load_file(name, store);
+    }
+
+    fn posn(index: usize, store: &mut Store<EditorInfo>) -> UIResult<Self, EditorInfo> {
+        let id = EditorContentId::File(index);
+
+        match store.buffers.entry(id) {
+            Entry::Occupied(o) => {
+                let ebuf = o.get().clone();
+                let tbox = TextBoxState::new(ebuf);
+
+                Ok(tbox.into())
+            },
+            Entry::Vacant(_) => {
+                let msg = "";
+                let err = UIError::Failure(msg.into());
+
+                Err(err)
+            },
+        }
+    }
+}
+
+impl<C> Editable<C, Store<EditorInfo>, EditorInfo> for EditorBox
+where
+    C: EditContext,
+{
+    fn edit(
+        &mut self,
+        operation: &EditAction,
+        motion: &EditTarget,
+        ctx: &C,
+        store: &mut Store<EditorInfo>,
+    ) -> EditResult<EditInfo, EditorInfo> {
+        self.0.edit(operation, motion, ctx, store)
+    }
+
+    fn mark(
+        &mut self,
+        name: Mark,
+        ctx: &C,
+        store: &mut Store<EditorInfo>,
+    ) -> EditResult<EditInfo, EditorInfo> {
+        self.0.mark(name, ctx, store)
+    }
+
+    fn insert_text(
+        &mut self,
+        act: &InsertTextAction,
+        ctx: &C,
+        store: &mut Store<EditorInfo>,
+    ) -> EditResult<EditInfo, EditorInfo> {
+        self.0.insert_text(act, ctx, store)
+    }
+
+    fn selection_command(
+        &mut self,
+        act: &SelectionAction,
+        ctx: &C,
+        store: &mut Store<EditorInfo>,
+    ) -> EditResult<EditInfo, EditorInfo> {
+        self.0.selection_command(act, ctx, store)
+    }
+
+    fn history_command(
+        &mut self,
+        act: &HistoryAction,
+        ctx: &C,
+        store: &mut Store<EditorInfo>,
+    ) -> EditResult<EditInfo, EditorInfo> {
+        self.0.history_command(act, ctx, store)
+    }
+
+    fn cursor_command(
+        &mut self,
+        act: &CursorAction,
+        ctx: &C,
+        store: &mut Store<EditorInfo>,
+    ) -> EditResult<EditInfo, EditorInfo> {
+        self.0.cursor_command(act, ctx, store)
+    }
+}
+
+impl<C: EditContext> Jumpable<C, EditorInfo> for EditorBox {
+    fn jump(
+        &mut self,
+        list: PositionList,
+        dir: MoveDir1D,
+        count: usize,
+        ctx: &C,
+    ) -> UIResult<usize, EditorInfo> {
+        self.0.jump(list, dir, count, ctx)
+    }
+}
+
+impl<C: EditContext> Promptable<C, Store<EditorInfo>, EditorInfo> for EditorBox {
+    fn prompt(
+        &mut self,
+        act: &PromptAction,
+        ctx: &C,
+        store: &mut Store<EditorInfo>,
+    ) -> EditResult<Vec<(Action<EditorInfo>, C)>, EditorInfo> {
+        self.0.prompt(act, ctx, store)
+    }
+}
+
+impl<C: EditContext> Scrollable<C, Store<EditorInfo>, EditorInfo> for EditorBox {
+    fn scroll(
+        &mut self,
+        style: &ScrollStyle,
+        ctx: &C,
+        store: &mut Store<EditorInfo>,
+    ) -> EditResult<EditInfo, EditorInfo> {
+        self.0.scroll(style, ctx, store)
+    }
+}
+
+impl<C: EditContext> Searchable<C, Store<EditorInfo>, EditorInfo> for EditorBox {
+    fn search(
+        &mut self,
+        dir: MoveDirMod,
+        count: Count,
+        ctx: &C,
+        store: &mut Store<EditorInfo>,
+    ) -> UIResult<EditInfo, EditorInfo> {
+        self.0.search(dir, count, ctx, store)
+    }
+}
+
+#[derive(Clone, Debug, Hash, Eq, PartialEq)]
+enum EditorContentId {
+    Command,
+    File(usize),
+    Scratch,
+}
+
+impl ApplicationWindowId for EditorContentId {}
+impl ApplicationContentId for EditorContentId {}
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 enum EditorInfo {}
 
 impl ApplicationInfo for EditorInfo {
+    type Error = String;
     type Action = ();
-    type Store = ();
+    type Store = EditorStore;
+    type WindowId = EditorContentId;
+    type ContentId = EditorContentId;
 }
 
 struct Editor {
@@ -71,7 +358,7 @@ struct Editor {
     actstack: VecDeque<(EditorAction, Context)>,
     cmds: VimCommandMachine<Context, EditorInfo>,
     screen: ScreenState<EditorBox, EditorInfo>,
-    store: EditorStore,
+    store: Store<EditorInfo>,
 }
 
 impl Editor {
@@ -90,9 +377,10 @@ impl Editor {
         let bindings = KeyManager::new(bindings);
         let cmds = VimCommandMachine::default();
 
-        let buf = store.new_buffer();
-        let win = TextBoxState::new(buf);
-        let screen = ScreenState::new(win, &mut store);
+        let buf = store.load_buffer(EditorContentId::Scratch);
+        let win = EditorBox(TextBoxState::new(buf));
+        let cmd = CommandBarState::new(EditorContentId::Command, &mut store);
+        let screen = ScreenState::new(win, cmd);
 
         let actstack = VecDeque::new();
 
@@ -102,7 +390,7 @@ impl Editor {
     pub fn run(&mut self) -> Result<(), std::io::Error> {
         self.terminal.clear()?;
 
-        while TabContainer::<Context, EditorStore>::tabs(&self.screen) != 0 {
+        while self.screen.tabs() != 0 {
             let key = self.step()?;
 
             self.bindings.input_key(key);
@@ -116,19 +404,13 @@ impl Editor {
                         continue;
                     },
                     Ok(Some(info)) => {
-                        let s = info.to_string();
-                        let style = Style::default();
-
-                        self.screen.push_message(s, style);
+                        self.screen.push_info(info);
 
                         // Continue processing; we'll redraw later.
                         continue;
                     },
                     Err(e) => {
-                        let s = e.to_string();
-                        let style = Style::default().fg(Color::Red);
-
-                        self.screen.push_message(s, style);
+                        self.screen.push_error(e);
 
                         // Skip processing any more keypress Actions until the next key.
                         keyskip = true;
@@ -191,28 +473,28 @@ impl Editor {
         }
     }
 
-    fn action_run(&mut self, action: EditorAction, ctx: Context) -> UIResult {
+    fn action_run(&mut self, action: EditorAction, ctx: Context) -> UIResult<EditInfo, EditorInfo> {
         let info = match action {
             // Do nothing.
             Action::Application(()) => None,
             Action::NoOp => None,
 
             // Simple delegations.
-            Action::CommandBar(act) => self.screen.command_bar(act, &ctx)?,
+            Action::CommandBar(act) => self.screen.command_bar(&act, &ctx)?,
             Action::Cursor(act) => self.screen.cursor_command(&act, &ctx, &mut self.store)?,
             Action::Edit(action, mov) => {
                 self.screen.edit(&ctx.resolve(&action), &mov, &ctx, &mut self.store)?
             },
-            Action::History(act) => self.screen.history_command(act, &ctx, &mut self.store)?,
-            Action::InsertText(act) => self.screen.insert_text(act, &ctx, &mut self.store)?,
-            Action::Macro(act) => self.bindings.macro_command(act, &ctx, &mut self.store)?,
+            Action::History(act) => self.screen.history_command(&act, &ctx, &mut self.store)?,
+            Action::InsertText(act) => self.screen.insert_text(&act, &ctx, &mut self.store)?,
+            Action::Macro(act) => self.bindings.macro_command(&act, &ctx, &mut self.store)?,
             Action::Mark(mark) => self.screen.mark(ctx.resolve(&mark), &ctx, &mut self.store)?,
             Action::Scroll(style) => self.screen.scroll(&style, &ctx, &mut self.store)?,
             Action::Search(dir, count) => self.screen.search(dir, count, &ctx, &mut self.store)?,
-            Action::Selection(act) => self.screen.selection_command(act, &ctx, &mut self.store)?,
+            Action::Selection(act) => self.screen.selection_command(&act, &ctx, &mut self.store)?,
             Action::Suspend => self.terminal.program_suspend()?,
-            Action::Tab(cmd) => self.screen.tab_command(cmd, &ctx, &mut self.store)?,
-            Action::Window(cmd) => self.screen.window_command(cmd, &ctx)?,
+            Action::Tab(cmd) => self.screen.tab_command(&cmd, &ctx, &mut self.store)?,
+            Action::Window(cmd) => self.screen.window_command(&cmd, &ctx, &mut self.store)?,
 
             Action::Jump(l, dir, count) => {
                 let _ = self.screen.jump(l, dir, ctx.resolve(&count), &ctx)?;
@@ -230,13 +512,13 @@ impl Editor {
 
             // Actions that create more Actions.
             Action::Prompt(act) => {
-                let acts = self.screen.prompt(act, &ctx, &mut self.store)?;
+                let acts = self.screen.prompt(&act, &ctx, &mut self.store)?;
                 self.action_prepend(acts);
 
                 None
             },
             Action::Command(act) => {
-                let acts = self.cmds.command(act, &ctx)?;
+                let acts = self.cmds.command(&act, &ctx)?;
                 self.action_prepend(acts);
 
                 None
@@ -272,6 +554,7 @@ impl Editor {
         let modestr = self.bindings.showmode();
         let cursor = self.bindings.get_cursor_indicator();
         let sstate = &mut self.screen;
+        let store = &mut self.store;
         let term = &mut self.terminal;
 
         if full {
@@ -281,7 +564,7 @@ impl Editor {
         term.draw(|f| {
             let area = f.size();
 
-            let screen = Screen::new().showmode(modestr);
+            let screen = Screen::new(store).showmode(modestr);
             f.render_stateful_widget(screen, area, sstate);
 
             if let Some((cx, cy)) = sstate.get_term_cursor() {
