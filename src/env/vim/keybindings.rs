@@ -1865,6 +1865,16 @@ fn ctrlcd_is_abort<I: ApplicationInfo>() -> Vec<(MappedModes, &'static str, Inpu
     ].to_vec()
 }
 
+#[rustfmt::skip]
+fn cursor_open<I: ApplicationInfo>(style: WordStyle) -> Vec<(MappedModes, &'static str, InputStep<I>)> {
+    [
+        ( NMAP, "gf", window_switch!(OpenTarget::Cursor(style.clone())) ),
+        ( NMAP, "<C-W>f", window_file!(OpenTarget::Cursor(style.clone())) ),
+        ( NMAP, "<C-W>gf", tab_open!(OpenTarget::Cursor(style.clone()), FocusChange::Current) ),
+        ( NMAP, "<C-W><C-F>", window_file!(OpenTarget::Cursor(style)) ),
+    ].to_vec()
+}
+
 #[inline]
 fn add_prefix<I: ApplicationInfo>(
     machine: &mut VimMachine<TerminalKey, I>,
@@ -1903,6 +1913,7 @@ pub struct VimBindings<I: ApplicationInfo> {
     enter: Vec<(MappedModes, &'static str, InputStep<I>)>,
     search: Vec<(MappedModes, &'static str, InputStep<I>)>,
     ctrlcd: Vec<(MappedModes, &'static str, InputStep<I>)>,
+    cursor_open: Vec<(MappedModes, &'static str, InputStep<I>)>,
 }
 
 impl<I: ApplicationInfo> VimBindings<I> {
@@ -1924,6 +1935,12 @@ impl<I: ApplicationInfo> VimBindings<I> {
         self.ctrlcd = ctrlcd_is_abort();
         self
     }
+
+    /// Change what [WordStyle] is used with keys that map to a [OpenTarget::Cursor] value.
+    pub fn cursor_open(mut self, style: WordStyle) -> Self {
+        self.cursor_open = cursor_open(style);
+        self
+    }
 }
 
 impl<I: ApplicationInfo> Default for VimBindings<I> {
@@ -1934,6 +1951,7 @@ impl<I: ApplicationInfo> Default for VimBindings<I> {
             enter: default_enter(),
             search: default_search(),
             ctrlcd: default_ctrlcd(),
+            cursor_open: cursor_open(WordStyle::Filename),
         }
     }
 }
@@ -1957,6 +1975,10 @@ impl<I: ApplicationInfo> InputBindings<TerminalKey, InputStep<I>> for VimBinding
         }
 
         for (modes, keys, action) in self.ctrlcd.iter() {
+            add_mapping(machine, modes, keys, action);
+        }
+
+        for (modes, keys, action) in self.cursor_open.iter() {
             add_mapping(machine, modes, keys, action);
         }
     }
