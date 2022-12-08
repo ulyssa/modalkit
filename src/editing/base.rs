@@ -1673,3 +1673,9 @@ impl MoveDirMod {
         }
     }
 }
+
+impl From<MoveDir1D> for MoveDirMod {
+    fn from(dir: MoveDir1D) -> Self {
+        MoveDirMod::Exact(dir)
+    }
+}

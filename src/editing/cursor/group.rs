@@ -111,7 +111,7 @@ pub struct CursorGroup {
 }
 
 impl CursorGroup {
-    fn new(leader: CursorState, members: Vec<CursorState>) -> Self {
+    pub(crate) fn new(leader: CursorState, members: Vec<CursorState>) -> Self {
         let mut group = CursorGroup { leader, members };
 
         group.merge();

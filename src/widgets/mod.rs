@@ -26,6 +26,7 @@ use crate::editing::{
 };
 
 pub mod cmdbar;
+pub mod list;
 pub mod screen;
 pub mod textbox;
 pub mod windows;

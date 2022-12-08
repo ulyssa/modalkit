@@ -1,7 +1,8 @@
 use std::collections::hash_map::{Entry, HashMap};
 use std::collections::VecDeque;
+use std::fs::{DirEntry, FileType};
 use std::io::{stdout, Stdout};
-use std::ops::{Deref, DerefMut};
+use std::path::Path;
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
@@ -16,8 +17,8 @@ use modalkit::tui::{
     backend::CrosstermBackend,
     buffer::Buffer,
     layout::Rect,
-    style::{Color, Style},
-    text::Span,
+    style::{Color, Modifier as StyleModifier, Style},
+    text::{Span, Spans, Text},
     widgets::Paragraph,
     Terminal,
 };
@@ -41,6 +42,7 @@ use modalkit::{
             TabCount,
             UIError,
             UIResult,
+            WindowAction,
             WindowContainer,
         },
         application::{
@@ -54,9 +56,11 @@ use modalkit::{
             Count,
             MoveDir1D,
             MoveDirMod,
+            OpenTarget,
             PositionList,
             RepeatType,
             ScrollStyle,
+            ViewportContext,
             WordStyle,
         },
         buffer::EditBuffer,
@@ -71,6 +75,7 @@ use modalkit::{
     input::{bindings::BindingMachine, key::TerminalKey},
     widgets::{
         cmdbar::CommandBarState,
+        list::{ListCursor, ListItem, ListState},
         screen::{Screen, ScreenState},
         textbox::TextBoxState,
         TermOffset,
@@ -82,6 +87,74 @@ use modalkit::{
 };
 
 type Context = MixedContext<EditorInfo>;
+
+#[derive(Clone)]
+struct DirectoryItem {
+    ftype: FileType,
+    entry: String,
+}
+
+impl ToString for DirectoryItem {
+    fn to_string(&self) -> String {
+        return self.entry.clone();
+    }
+}
+
+impl<C: EditContext> Promptable<C, Store<EditorInfo>, EditorInfo> for DirectoryItem {
+    fn prompt(
+        &mut self,
+        act: &PromptAction,
+        ctx: &C,
+        _: &mut Store<EditorInfo>,
+    ) -> EditResult<Vec<(Action<EditorInfo>, C)>, EditorInfo> {
+        if let PromptAction::Submit = act {
+            let target = OpenTarget::Name(self.entry.clone());
+            let act = WindowAction::Switch(target);
+
+            Ok(vec![(act.into(), ctx.clone())])
+        } else {
+            let msg = format!("Cannot perform {:?} inside a list", act);
+            let err = EditError::Unimplemented(msg);
+
+            Err(err)
+        }
+    }
+}
+
+impl DirectoryItem {
+    fn new(entry: DirEntry) -> Option<Self> {
+        let ftype = entry.file_type().ok()?;
+        let entry = entry.path().to_str()?.to_owned();
+
+        Some(Self { ftype, entry })
+    }
+}
+
+impl ListItem<EditorInfo> for DirectoryItem {
+    fn show(
+        &self,
+        selected: bool,
+        _: &ViewportContext<ListCursor>,
+        _: &mut Store<EditorInfo>,
+    ) -> Text {
+        let mut style = Style::default();
+
+        if selected {
+            style = style.add_modifier(StyleModifier::REVERSED);
+        }
+
+        let suffix = if self.ftype.is_dir() {
+            Span::from("/")
+        } else {
+            Span::from("")
+        };
+
+        let entry = Span::styled(self.entry.as_str(), style);
+        let line = Spans(vec![entry, suffix]);
+
+        return Text::from(line);
+    }
+}
 
 struct EditorStore {
     filenames: HashMap<String, usize>,
@@ -96,57 +169,88 @@ impl Default for EditorStore {
 
 impl ApplicationStore for EditorStore {}
 
-struct EditorBox(TextBoxState<EditorInfo>);
+enum EditorWindow {
+    Text(TextBoxState<EditorInfo>),
+    Listing(ListState<DirectoryItem, EditorInfo>),
+}
 
-impl From<TextBoxState<EditorInfo>> for EditorBox {
+impl From<ListState<DirectoryItem, EditorInfo>> for EditorWindow {
+    fn from(tbox: ListState<DirectoryItem, EditorInfo>) -> Self {
+        EditorWindow::Listing(tbox)
+    }
+}
+
+impl From<TextBoxState<EditorInfo>> for EditorWindow {
     fn from(tbox: TextBoxState<EditorInfo>) -> Self {
-        EditorBox(tbox)
+        EditorWindow::Text(tbox)
     }
 }
 
-impl Deref for EditorBox {
-    type Target = TextBoxState<EditorInfo>;
-
-    fn deref(&self) -> &Self::Target {
-        return &self.0;
-    }
-}
-
-impl DerefMut for EditorBox {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        return &mut self.0;
-    }
-}
-
-impl TerminalCursor for EditorBox {
+impl TerminalCursor for EditorWindow {
     fn get_term_cursor(&self) -> Option<TermOffset> {
-        self.0.get_term_cursor()
+        match self {
+            EditorWindow::Text(tbox) => tbox.get_term_cursor(),
+            EditorWindow::Listing(ls) => ls.get_term_cursor(),
+        }
     }
 }
 
-impl WindowOps<EditorInfo> for EditorBox {
+impl WindowOps<EditorInfo> for EditorWindow {
     fn dup(&self, store: &mut Store<EditorInfo>) -> Self {
-        return EditorBox(self.0.dup(store));
+        match self {
+            EditorWindow::Text(tbox) => tbox.dup(store).into(),
+            EditorWindow::Listing(ls) => ls.dup(store).into(),
+        }
     }
 
     fn close(&mut self, flags: CloseFlags, store: &mut Store<EditorInfo>) -> bool {
-        return self.0.close(flags, store);
+        match self {
+            EditorWindow::Text(tbox) => tbox.close(flags, store),
+            EditorWindow::Listing(ls) => ls.close(flags, store),
+        }
     }
 
     fn draw(&mut self, area: Rect, buf: &mut Buffer, focused: bool, store: &mut Store<EditorInfo>) {
-        self.0.draw(area, buf, focused, store)
+        match self {
+            EditorWindow::Text(tbox) => tbox.draw(area, buf, focused, store),
+            EditorWindow::Listing(ls) => ls.draw(area, buf, focused, store),
+        }
     }
 
     fn get_cursor_word(&self, style: &WordStyle) -> Option<String> {
-        self.0.get_cursor_word(style)
+        match self {
+            EditorWindow::Text(tbox) => tbox.get_cursor_word(style),
+            EditorWindow::Listing(ls) => ls.get_cursor_word(style),
+        }
     }
 
     fn get_selected_word(&self) -> Option<String> {
-        self.0.get_selected_word()
+        match self {
+            EditorWindow::Text(tbox) => tbox.get_selected_word(),
+            EditorWindow::Listing(ls) => ls.get_selected_word(),
+        }
     }
 }
 
-fn load_file(name: String, store: &mut Store<EditorInfo>) -> UIResult<EditorBox, EditorInfo> {
+fn load_file(name: String, store: &mut Store<EditorInfo>) -> UIResult<EditorWindow, EditorInfo> {
+    let path = Path::new(name.as_str());
+
+    if path.is_dir() {
+        let ls = path
+            .read_dir()?
+            .filter_map(|entry| {
+                if let Ok(entry) = entry {
+                    return DirectoryItem::new(entry);
+                } else {
+                    return None;
+                }
+            })
+            .collect();
+        let id = EditorContentId::Directory(name);
+
+        return Ok(ListState::new(id, ls).into());
+    }
+
     let index = store
         .application
         .filenames
@@ -174,9 +278,16 @@ fn load_file(name: String, store: &mut Store<EditorInfo>) -> UIResult<EditorBox,
     return Ok(window);
 }
 
-impl Window<EditorInfo> for EditorBox {
+impl Window<EditorInfo> for EditorWindow {
     fn id(&self) -> EditorContentId {
-        return self.0.buffer().read().unwrap().id();
+        match self {
+            EditorWindow::Text(tbox) => {
+                return tbox.buffer().read().unwrap().id();
+            },
+            EditorWindow::Listing(ls) => {
+                return ls.id();
+            },
+        }
     }
 
     fn open(id: EditorContentId, store: &mut Store<EditorInfo>) -> UIResult<Self, EditorInfo> {
@@ -186,6 +297,7 @@ impl Window<EditorInfo> for EditorBox {
 
                 Ok(TextBoxState::new(buffer).into())
             },
+            EditorContentId::Directory(name) => load_file(name, store),
             EditorContentId::Command => {
                 let msg = "Cannot open command bar in a window";
 
@@ -218,7 +330,7 @@ impl Window<EditorInfo> for EditorBox {
     }
 }
 
-impl<C> Editable<C, Store<EditorInfo>, EditorInfo> for EditorBox
+impl<C> Editable<C, Store<EditorInfo>, EditorInfo> for EditorWindow
 where
     C: EditContext,
 {
@@ -228,11 +340,14 @@ where
         ctx: &C,
         store: &mut Store<EditorInfo>,
     ) -> EditResult<EditInfo, EditorInfo> {
-        self.0.editor_command(act, ctx, store)
+        match self {
+            EditorWindow::Text(tbox) => tbox.editor_command(act, ctx, store),
+            EditorWindow::Listing(ls) => ls.editor_command(act, ctx, store),
+        }
     }
 }
 
-impl<C: EditContext> Jumpable<C, EditorInfo> for EditorBox {
+impl<C: EditContext> Jumpable<C, EditorInfo> for EditorWindow {
     fn jump(
         &mut self,
         list: PositionList,
@@ -240,33 +355,42 @@ impl<C: EditContext> Jumpable<C, EditorInfo> for EditorBox {
         count: usize,
         ctx: &C,
     ) -> UIResult<usize, EditorInfo> {
-        self.0.jump(list, dir, count, ctx)
+        match self {
+            EditorWindow::Text(tbox) => tbox.jump(list, dir, count, ctx),
+            EditorWindow::Listing(ls) => ls.jump(list, dir, count, ctx),
+        }
     }
 }
 
-impl<C: EditContext> Promptable<C, Store<EditorInfo>, EditorInfo> for EditorBox {
+impl<C: EditContext> Promptable<C, Store<EditorInfo>, EditorInfo> for EditorWindow {
     fn prompt(
         &mut self,
         act: &PromptAction,
         ctx: &C,
         store: &mut Store<EditorInfo>,
     ) -> EditResult<Vec<(Action<EditorInfo>, C)>, EditorInfo> {
-        self.0.prompt(act, ctx, store)
+        match self {
+            EditorWindow::Text(tbox) => tbox.prompt(act, ctx, store),
+            EditorWindow::Listing(ls) => ls.prompt(act, ctx, store),
+        }
     }
 }
 
-impl<C: EditContext> Scrollable<C, Store<EditorInfo>, EditorInfo> for EditorBox {
+impl<C: EditContext> Scrollable<C, Store<EditorInfo>, EditorInfo> for EditorWindow {
     fn scroll(
         &mut self,
         style: &ScrollStyle,
         ctx: &C,
         store: &mut Store<EditorInfo>,
     ) -> EditResult<EditInfo, EditorInfo> {
-        self.0.scroll(style, ctx, store)
+        match self {
+            EditorWindow::Text(tbox) => tbox.scroll(style, ctx, store),
+            EditorWindow::Listing(ls) => ls.scroll(style, ctx, store),
+        }
     }
 }
 
-impl<C: EditContext> Searchable<C, Store<EditorInfo>, EditorInfo> for EditorBox {
+impl<C: EditContext> Searchable<C, Store<EditorInfo>, EditorInfo> for EditorWindow {
     fn search(
         &mut self,
         dir: MoveDirMod,
@@ -274,13 +398,17 @@ impl<C: EditContext> Searchable<C, Store<EditorInfo>, EditorInfo> for EditorBox 
         ctx: &C,
         store: &mut Store<EditorInfo>,
     ) -> UIResult<EditInfo, EditorInfo> {
-        self.0.search(dir, count, ctx, store)
+        match self {
+            EditorWindow::Text(tbox) => tbox.search(dir, count, ctx, store),
+            EditorWindow::Listing(ls) => ls.search(dir, count, ctx, store),
+        }
     }
 }
 
 #[derive(Clone, Debug, Hash, Eq, PartialEq)]
 enum EditorContentId {
     Command,
+    Directory(String),
     File(usize),
     Scratch,
 }
@@ -304,7 +432,7 @@ struct Editor {
     bindings: KeyManager<TerminalKey, Action<EditorInfo>, RepeatType, Context>,
     actstack: VecDeque<(Action<EditorInfo>, Context)>,
     cmds: VimCommandMachine<Context, EditorInfo>,
-    screen: ScreenState<EditorBox, EditorInfo>,
+    screen: ScreenState<EditorWindow, EditorInfo>,
     store: Store<EditorInfo>,
 }
 
@@ -325,7 +453,7 @@ impl Editor {
         let cmds = VimCommandMachine::default();
 
         let buf = store.load_buffer(EditorContentId::Scratch);
-        let win = EditorBox(TextBoxState::new(buf));
+        let win = EditorWindow::Text(TextBoxState::new(buf));
         let cmd = CommandBarState::new(EditorContentId::Command, &mut store);
         let screen = ScreenState::new(win, cmd);
 
