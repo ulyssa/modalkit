@@ -29,6 +29,8 @@ use crate::editing::{
         EditInfo,
         EditResult,
         Editable,
+        EditorAction,
+        EditorActions,
         HistoryAction,
         InsertTextAction,
         Jumpable,
@@ -1043,7 +1045,7 @@ where
     }
 }
 
-impl<'a, 'b, 'c, C, I> Editable<CursorGroupIdContext<'a, 'b, C>, Store<I>, I> for EditBuffer<I>
+impl<'a, 'b, 'c, C, I> EditorActions<CursorGroupIdContext<'a, 'b, C>, Store<I>, I> for EditBuffer<I>
 where
     C: EditContext,
     I: ApplicationInfo,
@@ -1198,6 +1200,40 @@ where
     }
 }
 
+impl<'a, 'b, 'c, C, I> Editable<CursorGroupIdContext<'a, 'b, C>, Store<I>, I> for EditBuffer<I>
+where
+    C: EditContext,
+    I: ApplicationInfo,
+{
+    fn editor_command(
+        &mut self,
+        act: &EditorAction,
+        ctx: &CursorGroupIdContext<'a, 'b, C>,
+        store: &mut Store<I>,
+    ) -> EditResult<EditInfo, I> {
+        match act {
+            EditorAction::Edit(ea, et) => {
+                let ea = ctx.2.resolve(ea);
+
+                self.edit(&ea, et, ctx, store)
+            },
+
+            EditorAction::Cursor(act) => self.cursor_command(act, ctx, store),
+            EditorAction::History(act) => self.history_command(act, ctx, store),
+            EditorAction::InsertText(act) => self.insert_text(act, ctx, store),
+            EditorAction::Mark(name) => self.mark(ctx.2.resolve(name), ctx, store),
+            EditorAction::Selection(act) => self.selection_command(act, ctx, store),
+
+            EditorAction::Complete(_, _) => {
+                let msg = "Completion is not yet implemented";
+                let err = EditError::Unimplemented(msg.into());
+
+                Err(err)
+            },
+        }
+    }
+}
+
 impl<'a, 'b, 'c, C, I> Jumpable<CursorGroupIdContext<'a, 'b, C>, I> for EditBuffer<I>
 where
     C: EditContext,
@@ -1297,59 +1333,13 @@ where
     C: EditContext,
     I: ApplicationInfo,
 {
-    fn edit(
+    fn editor_command(
         &mut self,
-        operation: &EditAction,
-        motion: &EditTarget,
+        act: &EditorAction,
         ctx: &CursorGroupIdContext<'a, 'b, C>,
         store: &mut Store<I>,
     ) -> EditResult<EditInfo, I> {
-        self.write().unwrap().edit(operation, motion, ctx, store)
-    }
-
-    fn mark(
-        &mut self,
-        name: Mark,
-        ctx: &CursorGroupIdContext<'a, 'b, C>,
-        store: &mut Store<I>,
-    ) -> EditResult<EditInfo, I> {
-        self.write().unwrap().mark(name, ctx, store)
-    }
-
-    fn insert_text(
-        &mut self,
-        act: &InsertTextAction,
-        ctx: &CursorGroupIdContext<'a, 'b, C>,
-        store: &mut Store<I>,
-    ) -> EditResult<EditInfo, I> {
-        self.write().unwrap().insert_text(act, ctx, store)
-    }
-
-    fn selection_command(
-        &mut self,
-        act: &SelectionAction,
-        ctx: &CursorGroupIdContext<'a, 'b, C>,
-        store: &mut Store<I>,
-    ) -> EditResult<EditInfo, I> {
-        self.write().unwrap().selection_command(act, ctx, store)
-    }
-
-    fn cursor_command(
-        &mut self,
-        act: &CursorAction,
-        ctx: &CursorGroupIdContext<'a, 'b, C>,
-        store: &mut Store<I>,
-    ) -> EditResult<EditInfo, I> {
-        self.write().unwrap().cursor_command(act, ctx, store)
-    }
-
-    fn history_command(
-        &mut self,
-        act: &HistoryAction,
-        ctx: &CursorGroupIdContext<'a, 'b, C>,
-        store: &mut Store<I>,
-    ) -> EditResult<EditInfo, I> {
-        self.write().unwrap().history_command(act, ctx, store)
+        self.write().unwrap().editor_command(act, ctx, store)
     }
 }
 

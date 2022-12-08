@@ -51,20 +51,16 @@ use tui::{
 use crate::editing::{
     action::{
         Action,
-        CursorAction,
-        EditAction,
         EditError,
         EditInfo,
         EditResult,
         Editable,
-        HistoryAction,
-        InsertTextAction,
+        EditorAction,
         Jumpable,
         PromptAction,
         Promptable,
         Scrollable,
         Searchable,
-        SelectionAction,
         UIResult,
     },
     application::{ApplicationInfo, EmptyInfo},
@@ -72,8 +68,6 @@ use crate::editing::{
         Axis,
         CloseFlags,
         Count,
-        EditTarget,
-        Mark,
         MoveDir1D,
         MoveDir2D,
         MoveDirMod,
@@ -350,66 +344,17 @@ where
     C: EditContext,
     I: ApplicationInfo,
 {
-    fn edit(
+    fn editor_command(
         &mut self,
-        operation: &EditAction,
-        motion: &EditTarget,
+        act: &EditorAction,
         ctx: &C,
         store: &mut Store<I>,
     ) -> EditResult<EditInfo, I> {
-        if self.readonly && !operation.is_readonly() {
+        if self.readonly && !act.is_readonly(ctx) {
             Err(EditError::ReadOnly)
         } else {
-            self.buffer.edit(operation, motion, c2cgi!(self, ctx), store)
+            self.buffer.editor_command(act, c2cgi!(self, ctx), store)
         }
-    }
-
-    fn mark(&mut self, name: Mark, ctx: &C, store: &mut Store<I>) -> EditResult<EditInfo, I> {
-        self.buffer.mark(name, c2cgi!(self, ctx), store)
-    }
-
-    fn insert_text(
-        &mut self,
-        act: &InsertTextAction,
-        ctx: &C,
-        store: &mut Store<I>,
-    ) -> EditResult<EditInfo, I> {
-        if self.readonly {
-            Err(EditError::ReadOnly)
-        } else {
-            self.buffer.insert_text(act, c2cgi!(self, ctx), store)
-        }
-    }
-
-    fn selection_command(
-        &mut self,
-        act: &SelectionAction,
-        ctx: &C,
-        store: &mut Store<I>,
-    ) -> EditResult<EditInfo, I> {
-        self.buffer.selection_command(act, c2cgi!(self, ctx), store)
-    }
-
-    fn history_command(
-        &mut self,
-        act: &HistoryAction,
-        ctx: &C,
-        store: &mut Store<I>,
-    ) -> EditResult<EditInfo, I> {
-        if self.readonly && !act.is_readonly() {
-            return Err(EditError::ReadOnly);
-        }
-
-        self.buffer.history_command(act, c2cgi!(self, ctx), store)
-    }
-
-    fn cursor_command(
-        &mut self,
-        act: &CursorAction,
-        ctx: &C,
-        store: &mut Store<I>,
-    ) -> EditResult<EditInfo, I> {
-        self.buffer.cursor_command(act, c2cgi!(self, ctx), store)
     }
 }
 
@@ -1048,7 +993,8 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::editing::base::{MoveDir1D, MoveType};
+    use crate::editing::action::{EditAction, HistoryAction};
+    use crate::editing::base::{EditTarget, MoveDir1D, MoveType};
     use crate::editing::store::Store;
     use crate::env::vim::VimContext;
 
@@ -1095,7 +1041,8 @@ mod tests {
         let ctx = VimContext::default();
 
         b.set_text(s);
-        b.history_command(&HistoryAction::Checkpoint, &ctx, &mut store).unwrap();
+        b.editor_command(&HistoryAction::Checkpoint.into(), &ctx, &mut store)
+            .unwrap();
 
         return (b, ctx, store);
     }
@@ -1227,11 +1174,13 @@ mod tests {
 
         // Move the cursor to the second column of the fifth line, and vertically position cursor.
         let mov = mv!(MoveType::BufferLineOffset, 5);
-        tbox.edit(&EditAction::Motion, &mov, &ctx, &mut store).unwrap();
+        let act = EditorAction::Edit(EditAction::Motion.into(), mov);
+        tbox.editor_command(&act, &ctx, &mut store).unwrap();
         assert_eq!(tbox.get_cursor(), Cursor::new(4, 0));
 
         let mov = mv!(MoveType::LineColumnOffset, 2);
-        tbox.edit(&EditAction::Motion, &mov, &ctx, &mut store).unwrap();
+        let act = EditorAction::Edit(EditAction::Motion.into(), mov);
+        tbox.editor_command(&act, &ctx, &mut store).unwrap();
         assert_eq!(tbox.get_cursor(), Cursor::new(4, 1));
 
         cursorpos!(tbox, MovePosition::Beginning, Axis::Vertical, &ctx, store);
@@ -1248,7 +1197,8 @@ mod tests {
 
         // Move the cursor to the fifth column, and horizontally position cursor.
         let mov = mv!(MoveType::LineColumnOffset, 5);
-        tbox.edit(&EditAction::Motion, &mov, &ctx, &mut store).unwrap();
+        let act = EditorAction::Edit(EditAction::Motion.into(), mov);
+        tbox.editor_command(&act, &ctx, &mut store).unwrap();
         assert_eq!(tbox.get_cursor(), Cursor::new(4, 4));
 
         cursorpos!(tbox, MovePosition::Beginning, Axis::Horizontal, &ctx, store);
@@ -1265,7 +1215,8 @@ mod tests {
 
         // Vertically positioning the cursor after a FirstWord.
         let mov = MoveType::FirstWord(MoveDir1D::Next);
-        tbox.edit(&EditAction::Motion, &mv!(mov, 0), &ctx, &mut store).unwrap();
+        let act = EditorAction::Edit(EditAction::Motion.into(), mv!(mov, 0));
+        tbox.editor_command(&act, &ctx, &mut store).unwrap();
         cursorpos!(tbox, MovePosition::Beginning, Axis::Vertical, &ctx, store);
         assert_eq!(tbox.get_cursor(), Cursor::new(4, 0));
         assert_eq!(tbox.viewctx.corner, Cursor::new(4, 0));
@@ -1335,7 +1286,8 @@ mod tests {
         let (mut tbox, ctx, mut store) = mkboxstr("foo\nbar\nbaz");
 
         let mov = mv!(MoveType::BufferLineOffset, 3);
-        tbox.edit(&EditAction::Motion, &mov, &ctx, &mut store).unwrap();
+        let act = EditorAction::Edit(EditAction::Motion.into(), mov);
+        tbox.editor_command(&act, &ctx, &mut store).unwrap();
 
         assert_eq!(tbox.get_text(), "foo\nbar\nbaz\n");
         assert_eq!(tbox.get_cursor(), Cursor::new(2, 0));
@@ -1364,7 +1316,8 @@ mod tests {
 
         // Move the cursor to the fourth line, thereby moving corner.
         let mov = mv!(MoveType::BufferLineOffset, 4);
-        tbox.edit(&EditAction::Motion, &mov, &ctx, &mut store).unwrap();
+        let act = EditorAction::Edit(EditAction::Motion.into(), mov);
+        tbox.editor_command(&act, &ctx, &mut store).unwrap();
 
         TextBox::new().prompt("> ").render(area, &mut buffer, &mut tbox);
 
@@ -1374,7 +1327,8 @@ mod tests {
 
         // Move the cursor to the end of the fourth line, again moving corner.
         let mov = mv!(MoveType::LineColumnOffset, 14);
-        tbox.edit(&EditAction::Motion, &mov, &ctx, &mut store).unwrap();
+        let act = EditorAction::Edit(EditAction::Motion.into(), mov);
+        tbox.editor_command(&act, &ctx, &mut store).unwrap();
 
         TextBox::new().prompt("> ").render(area, &mut buffer, &mut tbox);
 
@@ -1384,7 +1338,8 @@ mod tests {
 
         // Now move back to the top-left corner.
         let mov = mv!(MoveType::BufferByteOffset, 0);
-        tbox.edit(&EditAction::Motion, &mov, &ctx, &mut store).unwrap();
+        let act = EditorAction::Edit(EditAction::Motion.into(), mov);
+        tbox.editor_command(&act, &ctx, &mut store).unwrap();
 
         TextBox::new().prompt("> ").render(area, &mut buffer, &mut tbox);
 

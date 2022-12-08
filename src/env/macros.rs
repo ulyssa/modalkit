@@ -4,12 +4,21 @@ macro_rules! unmapped {
     };
 }
 
+macro_rules! editor {
+    ($ea: expr) => {
+        act!(Action::Editor($ea))
+    };
+    ($ea: expr, $ns: expr) => {
+        act!(Action::Editor($ea), $ns)
+    };
+}
+
 macro_rules! insert_text {
     ($it: expr) => {
-        act!(Action::InsertText($it))
+        editor!(EditorAction::InsertText($it))
     };
     ($it: expr, $ns: expr) => {
-        act!(Action::InsertText($it), $ns)
+        editor!(EditorAction::InsertText($it), $ns)
     };
 }
 
@@ -75,16 +84,16 @@ macro_rules! command {
 
 macro_rules! selection {
     ($ea: expr) => {
-        act!(Action::Selection($ea))
+        editor!(EditorAction::Selection($ea))
     };
     ($ea: expr, $ns: expr) => {
-        act!(Action::Selection($ea), $ns)
+        editor!(EditorAction::Selection($ea), $ns)
     };
 }
 
 macro_rules! history {
     ($act: expr) => {
-        act!(Action::History($act), Default::default())
+        editor!(EditorAction::History($act), Default::default())
     };
 }
 
@@ -114,10 +123,10 @@ macro_rules! scroll2d {
 
 macro_rules! edit_target {
     ($ea: expr, $et: expr) => {
-        act!(Action::Edit(Specifier::Exact($ea), $et))
+        act!(Action::from(EditorAction::Edit(Specifier::Exact($ea), $et)))
     };
     ($ea: expr, $et: expr, $mode: expr) => {
-        act!(Action::Edit(Specifier::Exact($ea), $et), $mode)
+        act!(Action::from(EditorAction::Edit(Specifier::Exact($ea), $et)), $mode)
     };
 }
 

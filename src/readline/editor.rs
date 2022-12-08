@@ -14,20 +14,9 @@ use crossterm::{
 use crate::util::is_newline;
 
 use crate::editing::{
-    action::{
-        CursorAction,
-        EditAction,
-        EditInfo,
-        EditResult,
-        Editable,
-        HistoryAction,
-        InsertTextAction,
-        Jumpable,
-        SelectionAction,
-        UIResult,
-    },
+    action::{EditInfo, EditResult, Editable, EditorAction, Jumpable, UIResult},
     application::ApplicationInfo,
-    base::{EditTarget, Mark, MoveDir1D, PositionList, TargetShape, ViewportContext, Wrappable},
+    base::{MoveDir1D, PositionList, TargetShape, ViewportContext, Wrappable},
     buffer::{CursorGroupId, EditBuffer},
     context::EditContext,
     cursor::Cursor,
@@ -368,66 +357,15 @@ where
     C: EditContext,
     I: ApplicationInfo,
 {
-    fn edit(
+    fn editor_command(
         &mut self,
-        operation: &EditAction,
-        motion: &EditTarget,
+        act: &EditorAction,
         ctx: &C,
         store: &mut Store<I>,
     ) -> EditResult<EditInfo, I> {
         let ctx = (self.gid, &self.viewctx, ctx);
 
-        self.buffer.edit(operation, motion, &ctx, store)
-    }
-
-    fn mark(&mut self, name: Mark, ctx: &C, store: &mut Store<I>) -> EditResult<EditInfo, I> {
-        let ctx = (self.gid, &self.viewctx, ctx);
-
-        self.buffer.mark(name, &ctx, store)
-    }
-
-    fn insert_text(
-        &mut self,
-        act: &InsertTextAction,
-        ctx: &C,
-        store: &mut Store<I>,
-    ) -> EditResult<EditInfo, I> {
-        let ctx = (self.gid, &self.viewctx, ctx);
-
-        self.buffer.insert_text(act, &ctx, store)
-    }
-
-    fn selection_command(
-        &mut self,
-        act: &SelectionAction,
-        ctx: &C,
-        store: &mut Store<I>,
-    ) -> EditResult<EditInfo, I> {
-        let ctx = (self.gid, &self.viewctx, ctx);
-
-        self.buffer.selection_command(act, &ctx, store)
-    }
-
-    fn history_command(
-        &mut self,
-        act: &HistoryAction,
-        ctx: &C,
-        store: &mut Store<I>,
-    ) -> EditResult<EditInfo, I> {
-        let ctx = (self.gid, &self.viewctx, ctx);
-
-        self.buffer.history_command(act, &ctx, store)
-    }
-
-    fn cursor_command(
-        &mut self,
-        act: &CursorAction,
-        ctx: &C,
-        store: &mut Store<I>,
-    ) -> EditResult<EditInfo, I> {
-        let ctx = (self.gid, &self.viewctx, ctx);
-
-        self.buffer.cursor_command(act, &ctx, store)
+        self.buffer.editor_command(act, &ctx, store)
     }
 }
 

@@ -17,7 +17,7 @@ use crate::{
 };
 
 use crate::editing::{
-    action::{Action, CursorAction, EditAction, HistoryAction, InsertTextAction},
+    action::{Action, CursorAction, EditAction, EditorAction, HistoryAction, InsertTextAction},
     application::{ApplicationInfo, EmptyInfo},
     base::{
         Char,
@@ -104,7 +104,7 @@ impl<I: ApplicationInfo> Mode<Action<I>, VimContext<I>> for VimMode {
 
                         return vec![
                             CursorAction::Close(CursorCloseTarget::Followers).into(),
-                            Action::Edit(action, target),
+                            EditorAction::Edit(action, target).into(),
                             HistoryAction::Checkpoint.into(),
                         ];
                     },
@@ -119,7 +119,7 @@ impl<I: ApplicationInfo> Mode<Action<I>, VimContext<I>> for VimMode {
 
                         return vec![
                             CursorAction::Close(CursorCloseTarget::Followers).into(),
-                            Action::Edit(action, target),
+                            EditorAction::Edit(action, target).into(),
                             HistoryAction::Checkpoint.into(),
                         ];
                     },
@@ -143,7 +143,7 @@ impl<I: ApplicationInfo> Mode<Action<I>, VimContext<I>> for VimMode {
                         let action = EditAction::Motion.into();
                         let target = EditTarget::CurrentPosition;
 
-                        return vec![Action::Edit(action, target)];
+                        return vec![EditorAction::Edit(action, target).into()];
                     },
                 }
             },
@@ -259,12 +259,13 @@ impl<I: ApplicationInfo> ModeKeys<TerminalKey, Action<I>, VimContext<I>> for Vim
                 if let Some(c) = ke.get_char() {
                     ctx.persist.insert = Some(InsertStyle::Insert);
 
-                    let delete = Action::Edit(EditAction::Delete.into(), EditTarget::Selection);
+                    let delete = EditAction::Delete.into();
+                    let delete = EditorAction::Edit(delete, EditTarget::Selection);
 
                     let ch = Char::Single(c).into();
                     let it = InsertTextAction::Type(ch, MoveDir1D::Previous, 1.into());
 
-                    (vec![delete, it.into()], Some(VimMode::Insert))
+                    (vec![delete.into(), it.into()], Some(VimMode::Insert))
                 } else {
                     (vec![], None)
                 }

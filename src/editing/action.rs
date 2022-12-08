@@ -11,24 +11,24 @@
 //! ## Examples
 //!
 //! ```
-//! use modalkit::editing::action::{Action, EditAction};
+//! use modalkit::editing::action::{Action, EditAction, EditorAction};
 //! use modalkit::editing::base::EditTarget;
 //!
 //! // Delete the current text selection.
-//! let _: Action = Action::Edit(EditAction::Delete.into(), EditTarget::Selection);
+//! let _: Action = EditorAction::Edit(EditAction::Delete.into(), EditTarget::Selection).into();
 //!
 //! // Copy the next three lines.
 //! use modalkit::editing::base::{RangeType};
 //!
-//! let _: Action = Action::Edit(EditAction::Yank.into(), EditTarget::Range(RangeType::Line, true, 3.into()));
+//! let _: Action = EditorAction::Edit(EditAction::Yank.into(), EditTarget::Range(RangeType::Line, true, 3.into())).into();
 //!
 //! // Make some contextually specified number of words lowercase.
 //! use modalkit::editing::base::{Case, Count, MoveDir1D, MoveType, WordStyle};
 //!
-//! let _: Action = Action::Edit(
+//! let _: Action = EditorAction::Edit(
 //!     EditAction::ChangeCase(Case::Lower).into(),
 //!     EditTarget::Motion(MoveType::WordBegin(WordStyle::Big, MoveDir1D::Next), Count::Contextual)
-//! );
+//! ).into();
 //!
 //! // Scroll the viewport so that line 10 is at the top of the screen.
 //! use modalkit::editing::base::{MovePosition, ScrollStyle};
@@ -120,7 +120,7 @@ impl Default for EditAction {
 }
 
 /// An object capable of performing editing operations.
-pub trait Editable<C, S, I>
+pub trait EditorActions<C, S, I>
 where
     I: ApplicationInfo,
 {
@@ -164,6 +164,20 @@ where
     fn history_command(
         &mut self,
         act: &HistoryAction,
+        ctx: &C,
+        store: &mut S,
+    ) -> EditResult<EditInfo, I>;
+}
+
+/// Trait for objects which can process [EditorActions](EditorAction).
+pub trait Editable<C, S, I>
+where
+    I: ApplicationInfo,
+{
+    /// Execute an editor action.
+    fn editor_command(
+        &mut self,
+        act: &EditorAction,
         ctx: &C,
         store: &mut S,
     ) -> EditResult<EditInfo, I>;
@@ -515,6 +529,153 @@ where
     ) -> UIResult<EditInfo, I>;
 }
 
+/// Editor manipulation
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[non_exhaustive]
+pub enum EditorAction {
+    /// Complete the rest of the word typed thus far.
+    Complete(MoveDir1D, bool),
+
+    /// Modify the current cursor group.
+    Cursor(CursorAction),
+
+    /// Perform the specified [action](EditAction) on [a target](EditTarget).
+    Edit(Specifier<EditAction>, EditTarget),
+
+    /// Perform a history operation.
+    History(HistoryAction),
+
+    /// Insert text.
+    InsertText(InsertTextAction),
+
+    /// Create a new [Mark] at the current leader position.
+    Mark(Specifier<Mark>),
+
+    /// Modify the current selection.
+    Selection(SelectionAction),
+}
+
+impl EditorAction {
+    /// Indicates if this is a read-only action.
+    pub fn is_readonly<C: EditContext>(&self, ctx: &C) -> bool {
+        match self {
+            EditorAction::Complete(_, _) => false,
+            EditorAction::History(_) => false,
+            EditorAction::InsertText(_) => false,
+
+            EditorAction::Cursor(_) => true,
+            EditorAction::Mark(_) => true,
+            EditorAction::Selection(_) => true,
+
+            EditorAction::Edit(act, _) => ctx.resolve(act).is_readonly(),
+        }
+    }
+
+    /// Indicates how an action gets included in [RepeatType::EditSequence].
+    ///
+    /// `motion` indicates what to do with [EditAction::Motion].
+    pub fn is_edit_sequence<C: EditContext>(
+        &self,
+        motion: SequenceStatus,
+        ctx: &C,
+    ) -> SequenceStatus {
+        match self {
+            EditorAction::History(_) => SequenceStatus::Break,
+            EditorAction::Mark(_) => SequenceStatus::Break,
+            EditorAction::InsertText(_) => SequenceStatus::Track,
+            EditorAction::Cursor(_) => SequenceStatus::Track,
+            EditorAction::Selection(_) => SequenceStatus::Track,
+            EditorAction::Complete(_, _) => SequenceStatus::Track,
+            EditorAction::Edit(act, _) => {
+                match ctx.resolve(act) {
+                    EditAction::Motion => motion,
+                    EditAction::Yank => SequenceStatus::Ignore,
+                    _ => SequenceStatus::Track,
+                }
+            },
+        }
+    }
+
+    /// Indicates how an action gets included in [RepeatType::LastAction].
+    pub fn is_last_action<C: EditContext>(&self, _: &C) -> SequenceStatus {
+        match self {
+            EditorAction::History(HistoryAction::Checkpoint) => SequenceStatus::Ignore,
+            EditorAction::History(HistoryAction::Undo(_)) => SequenceStatus::Atom,
+            EditorAction::History(HistoryAction::Redo(_)) => SequenceStatus::Atom,
+
+            EditorAction::Complete(_, _) => SequenceStatus::Atom,
+            EditorAction::Cursor(_) => SequenceStatus::Atom,
+            EditorAction::Edit(_, _) => SequenceStatus::Atom,
+            EditorAction::InsertText(_) => SequenceStatus::Atom,
+            EditorAction::Mark(_) => SequenceStatus::Atom,
+            EditorAction::Selection(_) => SequenceStatus::Atom,
+        }
+    }
+
+    /// Indicates how an action gets included in [RepeatType::LastSelection].
+    pub fn is_last_selection<C: EditContext>(&self, ctx: &C) -> SequenceStatus {
+        match self {
+            EditorAction::History(_) => SequenceStatus::Ignore,
+            EditorAction::Mark(_) => SequenceStatus::Ignore,
+            EditorAction::InsertText(_) => SequenceStatus::Ignore,
+            EditorAction::Cursor(_) => SequenceStatus::Ignore,
+            EditorAction::Complete(_, _) => SequenceStatus::Ignore,
+
+            EditorAction::Selection(SelectionAction::Resize(_, _)) => SequenceStatus::Track,
+            EditorAction::Selection(_) => SequenceStatus::Ignore,
+
+            EditorAction::Edit(act, _) => {
+                if let EditAction::Motion = ctx.resolve(act) {
+                    if ctx.get_target_shape().is_some() {
+                        SequenceStatus::Restart
+                    } else {
+                        SequenceStatus::Ignore
+                    }
+                } else {
+                    SequenceStatus::Ignore
+                }
+            },
+        }
+    }
+
+    /// Returns true if this [Action] is allowed to trigger a [WindowAction::Switch] after an error.
+    pub fn is_switchable<C: EditContext>(&self, ctx: &C) -> bool {
+        match self {
+            EditorAction::Cursor(act) => act.is_switchable(ctx),
+            EditorAction::Edit(act, _) => ctx.resolve(act).is_switchable(ctx),
+            EditorAction::Complete(_, _) => false,
+            EditorAction::History(_) => false,
+            EditorAction::InsertText(_) => false,
+            EditorAction::Mark(_) => false,
+            EditorAction::Selection(_) => false,
+        }
+    }
+}
+
+impl From<CursorAction> for EditorAction {
+    fn from(act: CursorAction) -> Self {
+        EditorAction::Cursor(act)
+    }
+}
+
+impl From<HistoryAction> for EditorAction {
+    fn from(act: HistoryAction) -> Self {
+        EditorAction::History(act)
+    }
+}
+
+impl From<InsertTextAction> for EditorAction {
+    fn from(act: InsertTextAction) -> Self {
+        EditorAction::InsertText(act)
+    }
+}
+
+impl From<SelectionAction> for EditorAction {
+    fn from(act: SelectionAction) -> Self {
+        EditorAction::Selection(act)
+    }
+}
+
 /// The result of either pressing a complete keybinding sequence, or parsing a command.
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[non_exhaustive]
@@ -522,20 +683,11 @@ pub enum Action<I: ApplicationInfo = EmptyInfo> {
     /// Do nothing.
     NoOp,
 
-    /// Perform a history operation.
-    History(HistoryAction),
+    /// Perform an editor action.
+    Editor(EditorAction),
 
     /// Perform a macro-related action.
     Macro(MacroAction),
-
-    /// Complete the rest of the word typed thus far.
-    Complete(MoveDir1D, bool),
-
-    /// Perform the specified [action](EditAction) on [a target](EditTarget).
-    Edit(Specifier<EditAction>, EditTarget),
-
-    /// Insert text.
-    InsertText(InsertTextAction),
 
     /// Navigate through the cursor positions in [the specified list](PositionList).
     ///
@@ -543,20 +695,11 @@ pub enum Action<I: ApplicationInfo = EmptyInfo> {
     /// windows.
     Jump(PositionList, MoveDir1D, Count),
 
-    /// Create a new [Mark] at the current leader position.
-    Mark(Specifier<Mark>),
-
     /// Repeat an action sequence with the current context.
     Repeat(RepeatType),
 
     /// Scroll the viewport in [the specified manner](ScrollStyle).
     Scroll(ScrollStyle),
-
-    /// Modify the current selection.
-    Selection(SelectionAction),
-
-    /// Modify the current cursor group.
-    Cursor(CursorAction),
 
     /// Lookup the keyword under the cursor.
     KeywordLookup,
@@ -602,13 +745,12 @@ impl<I: ApplicationInfo> Action<I> {
             Action::Repeat(_) => SequenceStatus::Ignore,
 
             Action::Application(act) => act.is_edit_sequence(ctx),
+            Action::Editor(act) => act.is_edit_sequence(motion, ctx),
 
             Action::Command(_) => SequenceStatus::Break,
             Action::CommandBar(_) => SequenceStatus::Break,
-            Action::History(_) => SequenceStatus::Break,
             Action::Jump(_, _, _) => SequenceStatus::Break,
             Action::Macro(_) => SequenceStatus::Break,
-            Action::Mark(_) => SequenceStatus::Break,
             Action::Prompt(_) => SequenceStatus::Break,
             Action::Tab(_) => SequenceStatus::Break,
             Action::Window(_) => SequenceStatus::Break,
@@ -619,19 +761,6 @@ impl<I: ApplicationInfo> Action<I> {
             Action::Scroll(_) => SequenceStatus::Ignore,
             Action::Search(_, _) => SequenceStatus::Ignore,
             Action::Suspend => SequenceStatus::Ignore,
-
-            Action::InsertText(_) => SequenceStatus::Track,
-            Action::Cursor(_) => SequenceStatus::Track,
-            Action::Selection(_) => SequenceStatus::Track,
-            Action::Complete(_, _) => SequenceStatus::Track,
-
-            Action::Edit(act, _) => {
-                match ctx.resolve(act) {
-                    EditAction::Motion => motion,
-                    EditAction::Yank => SequenceStatus::Ignore,
-                    _ => SequenceStatus::Track,
-                }
-            },
         }
     }
 
@@ -642,17 +771,13 @@ impl<I: ApplicationInfo> Action<I> {
             Action::Repeat(RepeatType::LastAction) => SequenceStatus::Ignore,
             Action::Repeat(RepeatType::LastSelection) => SequenceStatus::Atom,
 
-            Action::History(HistoryAction::Checkpoint) => SequenceStatus::Ignore,
-            Action::History(HistoryAction::Undo(_)) => SequenceStatus::Atom,
-            Action::History(HistoryAction::Redo(_)) => SequenceStatus::Atom,
-
             Action::Application(act) => act.is_last_action(ctx),
+            Action::Editor(act) => act.is_last_action(ctx),
 
             Action::Command(_) => SequenceStatus::Atom,
             Action::CommandBar(_) => SequenceStatus::Atom,
             Action::Jump(_, _, _) => SequenceStatus::Atom,
             Action::Macro(_) => SequenceStatus::Atom,
-            Action::Mark(_) => SequenceStatus::Atom,
             Action::Tab(_) => SequenceStatus::Atom,
             Action::Window(_) => SequenceStatus::Atom,
             Action::KeywordLookup => SequenceStatus::Atom,
@@ -662,11 +787,6 @@ impl<I: ApplicationInfo> Action<I> {
             Action::Scroll(_) => SequenceStatus::Atom,
             Action::Search(_, _) => SequenceStatus::Atom,
             Action::Suspend => SequenceStatus::Atom,
-            Action::InsertText(_) => SequenceStatus::Atom,
-            Action::Cursor(_) => SequenceStatus::Atom,
-            Action::Selection(_) => SequenceStatus::Atom,
-            Action::Complete(_, _) => SequenceStatus::Atom,
-            Action::Edit(_, _) => SequenceStatus::Atom,
         }
     }
 
@@ -676,13 +796,12 @@ impl<I: ApplicationInfo> Action<I> {
             Action::Repeat(_) => SequenceStatus::Ignore,
 
             Action::Application(act) => act.is_last_selection(ctx),
+            Action::Editor(act) => act.is_last_selection(ctx),
 
             Action::Command(_) => SequenceStatus::Ignore,
             Action::CommandBar(_) => SequenceStatus::Ignore,
-            Action::History(_) => SequenceStatus::Ignore,
             Action::Jump(_, _, _) => SequenceStatus::Ignore,
             Action::Macro(_) => SequenceStatus::Ignore,
-            Action::Mark(_) => SequenceStatus::Ignore,
             Action::Tab(_) => SequenceStatus::Ignore,
             Action::Window(_) => SequenceStatus::Ignore,
             Action::KeywordLookup => SequenceStatus::Ignore,
@@ -692,24 +811,6 @@ impl<I: ApplicationInfo> Action<I> {
             Action::Scroll(_) => SequenceStatus::Ignore,
             Action::Search(_, _) => SequenceStatus::Ignore,
             Action::Suspend => SequenceStatus::Ignore,
-            Action::InsertText(_) => SequenceStatus::Ignore,
-            Action::Cursor(_) => SequenceStatus::Ignore,
-            Action::Complete(_, _) => SequenceStatus::Ignore,
-
-            Action::Selection(SelectionAction::Resize(_, _)) => SequenceStatus::Track,
-            Action::Selection(_) => SequenceStatus::Ignore,
-
-            Action::Edit(act, _) => {
-                if let EditAction::Motion = ctx.resolve(act) {
-                    if ctx.get_target_shape().is_some() {
-                        SequenceStatus::Restart
-                    } else {
-                        SequenceStatus::Ignore
-                    }
-                } else {
-                    SequenceStatus::Ignore
-                }
-            },
         }
     }
 
@@ -717,25 +818,19 @@ impl<I: ApplicationInfo> Action<I> {
     pub fn is_switchable<C: EditContext>(&self, ctx: &C) -> bool {
         match self {
             Action::Application(act) => act.is_switchable(ctx),
-            Action::Cursor(act) => act.is_switchable(ctx),
-            Action::Edit(act, _) => ctx.resolve(act).is_switchable(ctx),
+            Action::Editor(act) => act.is_switchable(ctx),
             Action::Jump(..) => true,
 
             Action::CommandBar(_) => false,
             Action::Command(_) => false,
-            Action::Complete(_, _) => false,
-            Action::History(_) => false,
-            Action::InsertText(_) => false,
             Action::KeywordLookup => false,
             Action::Macro(_) => false,
-            Action::Mark(_) => false,
             Action::NoOp => false,
             Action::Prompt(_) => false,
             Action::RedrawScreen => false,
             Action::Repeat(_) => false,
             Action::Scroll(_) => false,
             Action::Search(_, _) => false,
-            Action::Selection(_) => false,
             Action::Suspend => false,
             Action::Tab(_) => false,
             Action::Window(_) => false,
@@ -751,25 +846,31 @@ impl<I: ApplicationInfo> Default for Action<I> {
 
 impl<I: ApplicationInfo> From<SelectionAction> for Action<I> {
     fn from(act: SelectionAction) -> Self {
-        Action::Selection(act)
+        Action::Editor(EditorAction::Selection(act))
     }
 }
 
 impl<I: ApplicationInfo> From<InsertTextAction> for Action<I> {
     fn from(act: InsertTextAction) -> Self {
-        Action::InsertText(act)
+        Action::Editor(EditorAction::InsertText(act))
     }
 }
 
 impl<I: ApplicationInfo> From<HistoryAction> for Action<I> {
     fn from(act: HistoryAction) -> Self {
-        Action::History(act)
+        Action::Editor(EditorAction::History(act))
     }
 }
 
 impl<I: ApplicationInfo> From<CursorAction> for Action<I> {
     fn from(act: CursorAction) -> Self {
-        Action::Cursor(act)
+        Action::Editor(EditorAction::Cursor(act))
+    }
+}
+
+impl<I: ApplicationInfo> From<EditorAction> for Action<I> {
+    fn from(act: EditorAction) -> Self {
+        Action::Editor(act)
     }
 }
 

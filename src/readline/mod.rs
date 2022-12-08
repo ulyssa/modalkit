@@ -58,11 +58,11 @@ use crate::editing::{
     action::{
         Action,
         CommandBarAction,
-        EditAction,
         EditError,
         EditInfo,
         EditResult,
         Editable,
+        EditorAction,
         InsertTextAction,
         Jumpable,
         PromptAction,
@@ -291,11 +291,12 @@ where
                 Event::Paste(s) => {
                     let mut ctx = self.bindings.context().clone();
                     let act = InsertTextAction::Transcribe(s, MoveDir1D::Previous, 1.into());
+                    let act = EditorAction::InsertText(act);
 
                     // Reset action-specific state.
                     ctx.reset();
 
-                    let _ = focused_mut!(self).insert_text(&act, &ctx, &mut self.store)?;
+                    let _ = focused_mut!(self).editor_command(&act, &ctx, &mut self.store)?;
                 },
                 Event::Resize(width, height) => {
                     self.resize(width, height);
@@ -486,25 +487,30 @@ where
         Ok(())
     }
 
-    fn edit(&mut self, action: EditAction, mov: EditTarget, ctx: C) -> EditResult<EditInfo, I> {
-        match (action, mov) {
-            (ea @ EditAction::Motion, EditTarget::Motion(MoveType::Line(dir), count)) => {
-                let n = focused_mut!(self).line_leftover(dir, ctx.resolve(&count));
+    fn edit(&mut self, act: EditorAction, ctx: C) -> EditResult<EditInfo, I> {
+        match act {
+            EditorAction::Edit(ea, EditTarget::Motion(MoveType::Line(dir), count)) => {
+                let ea = ctx.resolve(&ea);
 
-                if n > 0 {
-                    // If we move by more lines than there are in the buffer, then we
-                    // treat the remainder as history recall.
-                    self.recall(dir, n);
+                if ea.is_motion() {
+                    let n = focused_mut!(self).line_leftover(dir, ctx.resolve(&count));
 
-                    Ok(None)
-                } else {
-                    let mov = EditTarget::Motion(MoveType::Line(dir), count);
+                    if n > 0 {
+                        // If we move by more lines than there are in the buffer, then we
+                        // treat the remainder as history recall.
+                        self.recall(dir, n);
 
-                    focused_mut!(self).edit(&ea, &mov, &ctx, &mut self.store)
+                        return Ok(None);
+                    }
                 }
+
+                let mov = EditTarget::Motion(MoveType::Line(dir), count);
+                let act = EditorAction::Edit(ea.into(), mov);
+
+                focused_mut!(self).editor_command(&act, &ctx, &mut self.store)
             },
-            (ea, mov) => {
-                let res = focused_mut!(self).edit(&ea, &mov, &ctx, &mut self.store)?;
+            act => {
+                let res = focused_mut!(self).editor_command(&act, &ctx, &mut self.store)?;
 
                 // Perform an incremental search if we need to.
                 self.incsearch()?;
@@ -625,18 +631,21 @@ where
                 None
             },
 
+            // Simple delegations.
             Action::CommandBar(cb) => return self.command_bar(&cb, ctx),
+            Action::Macro(act) => self.bindings.macro_command(&act, &ctx, store)?,
             Action::Prompt(p) => return self.prompt(p, ctx),
+            Action::Search(flip, count) => self.search(flip, count, &ctx)?,
             Action::Suspend => return self.suspend(),
 
-            // Simple delegations.
-            Action::Edit(action, mov) => self.edit(ctx.resolve(&action), mov, ctx)?,
-            Action::Macro(act) => self.bindings.macro_command(&act, &ctx, store)?,
-            Action::Mark(mark) => focused_mut!(self).mark(ctx.resolve(&mark), &ctx, store)?,
-            Action::Cursor(act) => focused_mut!(self).cursor_command(&act, &ctx, store)?,
-            Action::Selection(act) => focused_mut!(self).selection_command(&act, &ctx, store)?,
-            Action::History(act) => focused_mut!(self).history_command(&act, &ctx, store)?,
-            Action::Search(flip, count) => self.search(flip, count, &ctx)?,
+            Action::Editor(act) => {
+                let res = self.edit(act, ctx)?;
+
+                // Perform an incremental search if we need to.
+                self.incsearch()?;
+
+                res
+            },
 
             Action::RedrawScreen => {
                 self.context.top = 0;
@@ -644,14 +653,6 @@ where
                 None
             },
 
-            Action::InsertText(act) => {
-                let res = focused_mut!(self).insert_text(&act, &ctx, store)?;
-
-                // Perform an incremental search if we need to.
-                self.incsearch()?;
-
-                res
-            },
             Action::Jump(list, dir, ref count) => {
                 let _ = focused_mut!(self).jump(list, dir, ctx.resolve(count), &ctx)?;
 
@@ -664,10 +665,6 @@ where
             },
 
             // Unimplemented.
-            Action::Complete(_, _) => {
-                // XXX: implement
-                None
-            },
             Action::Command(_) => {
                 // XXX: implement
                 None

@@ -27,20 +27,16 @@ use modalkit::{
         action::{
             Action,
             Commandable,
-            CursorAction,
-            EditAction,
             EditError,
             EditInfo,
             EditResult,
             Editable,
-            HistoryAction,
-            InsertTextAction,
+            EditorAction,
             Jumpable,
             PromptAction,
             Promptable,
             Scrollable,
             Searchable,
-            SelectionAction,
             TabContainer,
             TabCount,
             UIError,
@@ -56,8 +52,6 @@ use modalkit::{
         base::{
             CloseFlags,
             Count,
-            EditTarget,
-            Mark,
             MoveDir1D,
             MoveDirMod,
             PositionList,
@@ -88,7 +82,6 @@ use modalkit::{
 };
 
 type Context = MixedContext<EditorInfo>;
-type EditorAction = Action<EditorInfo>;
 
 struct EditorStore {
     filenames: HashMap<String, usize>,
@@ -229,59 +222,13 @@ impl<C> Editable<C, Store<EditorInfo>, EditorInfo> for EditorBox
 where
     C: EditContext,
 {
-    fn edit(
+    fn editor_command(
         &mut self,
-        operation: &EditAction,
-        motion: &EditTarget,
+        act: &EditorAction,
         ctx: &C,
         store: &mut Store<EditorInfo>,
     ) -> EditResult<EditInfo, EditorInfo> {
-        self.0.edit(operation, motion, ctx, store)
-    }
-
-    fn mark(
-        &mut self,
-        name: Mark,
-        ctx: &C,
-        store: &mut Store<EditorInfo>,
-    ) -> EditResult<EditInfo, EditorInfo> {
-        self.0.mark(name, ctx, store)
-    }
-
-    fn insert_text(
-        &mut self,
-        act: &InsertTextAction,
-        ctx: &C,
-        store: &mut Store<EditorInfo>,
-    ) -> EditResult<EditInfo, EditorInfo> {
-        self.0.insert_text(act, ctx, store)
-    }
-
-    fn selection_command(
-        &mut self,
-        act: &SelectionAction,
-        ctx: &C,
-        store: &mut Store<EditorInfo>,
-    ) -> EditResult<EditInfo, EditorInfo> {
-        self.0.selection_command(act, ctx, store)
-    }
-
-    fn history_command(
-        &mut self,
-        act: &HistoryAction,
-        ctx: &C,
-        store: &mut Store<EditorInfo>,
-    ) -> EditResult<EditInfo, EditorInfo> {
-        self.0.history_command(act, ctx, store)
-    }
-
-    fn cursor_command(
-        &mut self,
-        act: &CursorAction,
-        ctx: &C,
-        store: &mut Store<EditorInfo>,
-    ) -> EditResult<EditInfo, EditorInfo> {
-        self.0.cursor_command(act, ctx, store)
+        self.0.editor_command(act, ctx, store)
     }
 }
 
@@ -354,8 +301,8 @@ impl ApplicationInfo for EditorInfo {
 
 struct Editor {
     terminal: Terminal<CrosstermBackend<Stdout>>,
-    bindings: KeyManager<TerminalKey, EditorAction, RepeatType, Context>,
-    actstack: VecDeque<(EditorAction, Context)>,
+    bindings: KeyManager<TerminalKey, Action<EditorInfo>, RepeatType, Context>,
+    actstack: VecDeque<(Action<EditorInfo>, Context)>,
     cmds: VimCommandMachine<Context, EditorInfo>,
     screen: ScreenState<EditorBox, EditorInfo>,
     store: Store<EditorInfo>,
@@ -455,13 +402,13 @@ impl Editor {
         }
     }
 
-    fn action_prepend(&mut self, acts: Vec<(EditorAction, Context)>) {
+    fn action_prepend(&mut self, acts: Vec<(Action<EditorInfo>, Context)>) {
         let mut acts = VecDeque::from(acts);
         acts.append(&mut self.actstack);
         self.actstack = acts;
     }
 
-    fn action_pop(&mut self, keyskip: bool) -> Option<(EditorAction, Context)> {
+    fn action_pop(&mut self, keyskip: bool) -> Option<(Action<EditorInfo>, Context)> {
         if let res @ Some(_) = self.actstack.pop_front() {
             return res;
         }
@@ -473,7 +420,11 @@ impl Editor {
         }
     }
 
-    fn action_run(&mut self, action: EditorAction, ctx: Context) -> UIResult<EditInfo, EditorInfo> {
+    fn action_run(
+        &mut self,
+        action: Action<EditorInfo>,
+        ctx: Context,
+    ) -> UIResult<EditInfo, EditorInfo> {
         let info = match action {
             // Do nothing.
             Action::Application(()) => None,
@@ -481,17 +432,10 @@ impl Editor {
 
             // Simple delegations.
             Action::CommandBar(act) => self.screen.command_bar(&act, &ctx)?,
-            Action::Cursor(act) => self.screen.cursor_command(&act, &ctx, &mut self.store)?,
-            Action::Edit(action, mov) => {
-                self.screen.edit(&ctx.resolve(&action), &mov, &ctx, &mut self.store)?
-            },
-            Action::History(act) => self.screen.history_command(&act, &ctx, &mut self.store)?,
-            Action::InsertText(act) => self.screen.insert_text(&act, &ctx, &mut self.store)?,
+            Action::Editor(act) => self.screen.editor_command(&act, &ctx, &mut self.store)?,
             Action::Macro(act) => self.bindings.macro_command(&act, &ctx, &mut self.store)?,
-            Action::Mark(mark) => self.screen.mark(ctx.resolve(&mark), &ctx, &mut self.store)?,
             Action::Scroll(style) => self.screen.scroll(&style, &ctx, &mut self.store)?,
             Action::Search(dir, count) => self.screen.search(dir, count, &ctx, &mut self.store)?,
-            Action::Selection(act) => self.screen.selection_command(&act, &ctx, &mut self.store)?,
             Action::Suspend => self.terminal.program_suspend()?,
             Action::Tab(cmd) => self.screen.tab_command(&cmd, &ctx, &mut self.store)?,
             Action::Window(cmd) => self.screen.window_command(&cmd, &ctx, &mut self.store)?,
@@ -529,10 +473,6 @@ impl Editor {
                 None
             },
 
-            Action::Complete(_, _) => {
-                // XXX: implement
-                None
-            },
             Action::KeywordLookup => {
                 // XXX: implement
                 None

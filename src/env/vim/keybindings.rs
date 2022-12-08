@@ -11,7 +11,7 @@
 //! use modalkit::env::vim::VimMode;
 //! use modalkit::env::vim::keybindings::VimMachine;
 //!
-//! use modalkit::editing::action::{Action, EditAction, HistoryAction};
+//! use modalkit::editing::action::{Action, EditAction, EditorAction, HistoryAction};
 //! use modalkit::editing::base::{Count, EditTarget, RangeType};
 //! use modalkit::editing::context::Resolve;
 //!
@@ -35,7 +35,8 @@
 //!     keybindings.input_key(key(KeyCode::Char('d'), KeyModifiers::NONE).into());
 //!
 //!     let (act, ctx) = keybindings.pop().unwrap();
-//!     assert_eq!(act, Action::Edit(EditAction::Delete.into(), RangeType::Line.into()));
+//!     let exp = EditorAction::Edit(EditAction::Delete.into(), RangeType::Line.into());
+//!     assert_eq!(act, Action::from(exp));
 //!     assert_eq!(ctx.resolve(&Count::Contextual), 5);
 //!
 //!     // Returning to Normal mode causes history checkpoint.
@@ -55,6 +56,7 @@ use crate::editing::{
         CommandBarAction,
         CursorAction,
         EditAction,
+        EditorAction,
         HistoryAction,
         InsertTextAction,
         MacroAction,
@@ -330,7 +332,7 @@ impl<I: ApplicationInfo> ExternalAction<I> {
             },
             ExternalAction::PostAction => {
                 if let Some(target) = context.action.target.take() {
-                    vec![Action::Edit(Specifier::Contextual, target)]
+                    vec![EditorAction::Edit(Specifier::Contextual, target).into()]
                 } else {
                     vec![Action::NoOp]
                 }
@@ -461,10 +463,10 @@ impl<I: ApplicationInfo> Step<TerminalKey> for InputStep<I> {
 
 macro_rules! act {
     ($ext: expr) => {
-        isv!(vec![], vec![ExternalAction::Something($ext)])
+        isv!(vec![], vec![ExternalAction::Something($ext.into())])
     };
     ($ext: expr, $ns: expr) => {
-        isv!(vec![], vec![ExternalAction::Something($ext)], $ns)
+        isv!(vec![], vec![ExternalAction::Something($ext.into())], $ns)
     };
 }
 
@@ -518,10 +520,10 @@ macro_rules! isv {
 
 macro_rules! is {
     ($int: expr, $ext: expr) => {
-        isv!(vec![$int], vec![ExternalAction::Something($ext)])
+        isv!(vec![$int], vec![ExternalAction::Something($ext.into())])
     };
     ($int: expr, $ext: expr, $ns: expr) => {
-        isv!(vec![$int], vec![ExternalAction::Something($ext)], $ns)
+        isv!(vec![$int], vec![ExternalAction::Something($ext.into())], $ns)
     };
 }
 
@@ -568,10 +570,13 @@ macro_rules! scrollcpv {
     ($p: expr, $fw: literal) => {
         if $fw {
             isv!(vec![], vec![
-                ExternalAction::Something(Action::Edit(
-                    Specifier::Exact(EditAction::Motion),
-                    EditTarget::Motion(MoveType::FirstWord(MoveDir1D::Next), Count::Exact(0))
-                )),
+                ExternalAction::Something(
+                    EditorAction::Edit(
+                        Specifier::Exact(EditAction::Motion),
+                        EditTarget::Motion(MoveType::FirstWord(MoveDir1D::Next), Count::Exact(0))
+                    )
+                    .into()
+                ),
                 ExternalAction::CountAlters(
                     vec![Action::Scroll(ScrollStyle::CursorPos($p, Axis::Vertical))],
                     vec![Action::Scroll(ScrollStyle::LinePos($p, Count::Contextual))],
@@ -594,10 +599,10 @@ macro_rules! scrollcph {
 
 macro_rules! edit_target_nocount {
     ($ea: expr, $et: expr, $mode: expr) => {
-        count_alters!(Action::Edit(Specifier::Exact($ea), $et), Action::NoOp, $mode)
+        count_alters!(EditorAction::Edit(Specifier::Exact($ea), $et).into(), Action::NoOp, $mode)
     };
     ($ea: expr, $et: expr) => {
-        count_alters!(Action::Edit(Specifier::Exact($ea), $et), Action::NoOp)
+        count_alters!(EditorAction::Edit(Specifier::Exact($ea), $et).into(), Action::NoOp)
     };
 }
 
@@ -625,10 +630,11 @@ macro_rules! edit_selection_nocount {
 macro_rules! tilde {
     () => {
         isv!(vec![InternalAction::SetCursorEnd(CursorEnd::End)], vec![ExternalAction::Something(
-            Action::Edit(
+            EditorAction::Edit(
                 Specifier::Exact(EditAction::ChangeCase(Case::Toggle)),
                 EditTarget::Motion(MoveType::Column(MoveDir1D::Next, false), Count::Contextual),
             )
+            .into()
         )])
     };
 }
@@ -637,10 +643,9 @@ macro_rules! change_target {
     ($et: expr) => {
         isv!(
             vec![InternalAction::SetInsertStyle(InsertStyle::Insert)],
-            vec![ExternalAction::Something(Action::Edit(
-                Specifier::Exact(EditAction::Delete),
-                $et
-            ))],
+            vec![ExternalAction::Something(
+                EditorAction::Edit(Specifier::Exact(EditAction::Delete), $et).into()
+            )],
             VimMode::Insert
         )
     };
@@ -734,10 +739,10 @@ macro_rules! change_selection_lines {
                 InternalAction::SetTargetShape(TargetShapeFilter::ALL, TargetShape::LineWise),
                 InternalAction::SetInsertStyle(InsertStyle::Insert),
             ],
-            vec![ExternalAction::Something(Action::Edit(
-                Specifier::Exact(EditAction::Delete),
-                EditTarget::Selection
-            ))],
+            vec![ExternalAction::Something(
+                EditorAction::Edit(Specifier::Exact(EditAction::Delete), EditTarget::Selection)
+                    .into()
+            )],
             VimMode::Insert
         )
     };
@@ -779,21 +784,21 @@ macro_rules! edit_lines {
 
 macro_rules! edit_target_end {
     ($et: expr) => {
-        act!(Action::Edit(Specifier::Contextual, $et))
+        act!(EditorAction::Edit(Specifier::Contextual, $et))
     };
 }
 
 macro_rules! edit_target_end_shaped {
     ($shape: expr, $et: expr) => {
-        shaped!($shape, Action::Edit(Specifier::Contextual, $et))
+        shaped!($shape, EditorAction::Edit(Specifier::Contextual, $et))
     };
 }
 
 macro_rules! edit_target_end_ca {
     ($et1: expr, $et2: expr) => {
         count_alters!(
-            Action::Edit(Specifier::Contextual, $et1),
-            Action::Edit(Specifier::Contextual, $et2)
+            EditorAction::Edit(Specifier::Contextual, $et1).into(),
+            EditorAction::Edit(Specifier::Contextual, $et2).into()
         )
     };
 }
@@ -829,7 +834,7 @@ macro_rules! edit_word_search_end {
     ($style: expr, $boundary: expr, $dir: expr) => {
         is!(
             InternalAction::SetSearchRegexParams($dir),
-            Action::Edit(
+            EditorAction::Edit(
                 Specifier::Contextual,
                 EditTarget::Search(
                     SearchType::Word($style, $boundary),
@@ -894,10 +899,13 @@ macro_rules! insert {
         isv!(
             vec![InternalAction::SetInsertStyle($style)],
             vec![
-                ExternalAction::Something(Action::Edit(
-                    Specifier::Exact(EditAction::Motion),
-                    EditTarget::Motion($mt, Count::Exact(1))
-                )),
+                ExternalAction::Something(
+                    EditorAction::Edit(
+                        Specifier::Exact(EditAction::Motion),
+                        EditTarget::Motion($mt, Count::Exact(1))
+                    )
+                    .into()
+                ),
                 ExternalAction::Something(CursorAction::Split(Count::MinusOne).into()),
             ],
             VimMode::Insert
@@ -907,10 +915,13 @@ macro_rules! insert {
         isv!(
             vec![InternalAction::SetInsertStyle($style)],
             vec![
-                ExternalAction::Something(Action::Edit(
-                    Specifier::Exact(EditAction::Motion),
-                    EditTarget::Motion($mt, Count::Exact($c))
-                )),
+                ExternalAction::Something(
+                    EditorAction::Edit(
+                        Specifier::Exact(EditAction::Motion),
+                        EditTarget::Motion($mt, Count::Exact($c))
+                    )
+                    .into()
+                ),
                 ExternalAction::Something(CursorAction::Split(Count::MinusOne).into()),
             ],
             VimMode::Insert
@@ -922,13 +933,13 @@ macro_rules! paste_register {
     ($dir: expr, $reg: expr) => {
         is!(
             InternalAction::SetRegister($reg),
-            Action::InsertText(InsertTextAction::Paste($dir, Count::Contextual))
+            EditorAction::InsertText(InsertTextAction::Paste($dir, Count::Contextual))
         )
     };
     ($dir: expr, $reg: expr, $nm: expr) => {
         is!(
             InternalAction::SetRegister($reg),
-            Action::InsertText(InsertTextAction::Paste($dir, Count::Contextual)),
+            EditorAction::InsertText(InsertTextAction::Paste($dir, Count::Contextual)),
             $nm
         )
     };
@@ -954,7 +965,7 @@ macro_rules! edit_selection_nochar {
         shaped_filter!(
             TargetShapeFilter::CHAR,
             TargetShape::LineWise,
-            Action::Edit(Specifier::Exact($ea), EditTarget::Selection),
+            EditorAction::Edit(Specifier::Exact($ea), EditTarget::Selection),
             VimMode::Normal
         )
     };
@@ -973,7 +984,9 @@ macro_rules! delete_selection_nochar {
                         .into()
                 ),
                 ExternalAction::Something(SelectionAction::CursorSet($cursor).into()),
-                ExternalAction::Something(Action::Edit(EditAction::Delete.into(), $et)),
+                ExternalAction::Something(
+                    EditorAction::Edit(EditAction::Delete.into(), $et).into()
+                ),
             ],
             VimMode::Normal
         )
@@ -993,7 +1006,9 @@ macro_rules! change_selection_nochar {
                         .into()
                 ),
                 ExternalAction::Something(SelectionAction::CursorSet($cursor).into()),
-                ExternalAction::Something(Action::Edit(EditAction::Delete.into(), $et)),
+                ExternalAction::Something(
+                    EditorAction::Edit(EditAction::Delete.into(), $et).into()
+                ),
                 ExternalAction::Something(CursorAction::Split(Count::MinusOne).into()),
             ],
             VimMode::Insert
@@ -1026,10 +1041,10 @@ macro_rules! insert_visual {
                 ),
                 ExternalAction::Something(SelectionAction::CursorSet($cursor).into()),
                 ExternalAction::Something(CursorAction::Split(Count::MinusOne).into()),
-                ExternalAction::Something(Action::Edit(
-                    EditAction::Motion.into(),
-                    EditTarget::Motion($mt, $c)
-                )),
+                ExternalAction::Something(
+                    EditorAction::Edit(EditAction::Motion.into(), EditTarget::Motion($mt, $c))
+                        .into()
+                ),
             ],
             VimMode::Insert
         )
@@ -1046,7 +1061,9 @@ macro_rules! change_visual {
                         .into()
                 ),
                 ExternalAction::Something(SelectionAction::CursorSet($cursor).into()),
-                ExternalAction::Something(Action::Edit(EditAction::Delete.into(), $et)),
+                ExternalAction::Something(
+                    EditorAction::Edit(EditAction::Delete.into(), $et).into()
+                ),
                 ExternalAction::Something(CursorAction::Split(Count::MinusOne).into()),
             ],
             VimMode::Insert
@@ -1067,7 +1084,7 @@ macro_rules! start_selection {
     ($shape: expr, $mode: expr) => {
         shaped!(
             $shape,
-            Action::Edit(Specifier::Exact(EditAction::Motion), EditTarget::CurrentPosition),
+            EditorAction::Edit(Specifier::Exact(EditAction::Motion), EditTarget::CurrentPosition),
             $mode
         )
     };
@@ -1077,7 +1094,7 @@ macro_rules! selection_resize_search {
     ($style: expr, $dir: expr) => {
         shaped!(
             TargetShape::CharWise,
-            Action::Selection(SelectionAction::Resize(
+            EditorAction::Selection(SelectionAction::Resize(
                 $style,
                 EditTarget::Search(SearchType::Regex, MoveDirMod::Exact($dir), Count::Contextual)
             )),
@@ -1411,7 +1428,7 @@ fn default_keys<I: ApplicationInfo>() -> Vec<(MappedModes, &'static str, InputSt
         ( NXMAP, "gt", tab_focus!(FocusChange::Direction1D(MoveDir1D::Next, Count::Exact(1), true), FocusChange::Offset(Count::Contextual, false)) ),
         ( NXMAP, "gT", tab_focus!(FocusChange::Direction1D(MoveDir1D::Previous, Count::Contextual, true)) ),
         ( NXMAP, "g<C-H>", select!(TargetShape::BlockWise) ),
-        ( NXMAP, "m{mark}", act!(Action::Mark(Specifier::Contextual)) ),
+        ( NXMAP, "m{mark}", act!(EditorAction::Mark(Specifier::Contextual)) ),
         ( NXMAP, "q{register}", isv!(vec![], vec![ExternalAction::MacroToggle(false)]) ),
         ( NXMAP, "q", isv!(vec![], vec![ExternalAction::MacroToggle(true)]) ),
         ( NXMAP, "v", visual!(TargetShape::CharWise) ),
@@ -1553,9 +1570,9 @@ fn default_keys<I: ApplicationInfo>() -> Vec<(MappedModes, &'static str, InputSt
         ( NMAP, "~", tilde!() ),
         ( NMAP, ".", act!(Action::Repeat(RepeatType::EditSequence)) ),
         ( NMAP, ":", cmdbar_focus!(CommandType::Command) ),
-        ( NMAP, "@{register}", act!(MacroAction::Execute(Count::Contextual).into()) ),
+        ( NMAP, "@{register}", act!(MacroAction::Execute(Count::Contextual)) ),
         ( NMAP, "@:", command!(CommandAction::Repeat(Count::Contextual)) ),
-        ( NMAP, "@@", act!(MacroAction::Repeat(Count::Contextual).into()) ),
+        ( NMAP, "@@", act!(MacroAction::Repeat(Count::Contextual)) ),
         ( NMAP, "<C-A>", edit!(EditAction::ChangeNumber(NumberChange::IncreaseOne), MoveType::LinePos(MovePosition::End)) ),
         ( NMAP, "<C-I>", jump!(PositionList::JumpList, MoveDir1D::Next) ),
         ( NMAP, "<C-G>", unmapped!() ),
@@ -1669,9 +1686,9 @@ fn default_keys<I: ApplicationInfo>() -> Vec<(MappedModes, &'static str, InputSt
         ( IMAP, "<C-G><C-K>", unmapped!() ),
         ( IMAP, "<C-G><Down>", unmapped!() ),
         ( IMAP, "<C-G><Up>", unmapped!() ),
-        ( IMAP, "<C-N>", act!(Action::Complete(MoveDir1D::Next, true)) ),
+        ( IMAP, "<C-N>", editor!(EditorAction::Complete(MoveDir1D::Next, true)) ),
         ( IMAP, "<C-O>", fallthrough!(VimMode::Normal) ),
-        ( IMAP, "<C-P>", act!(Action::Complete(MoveDir1D::Previous, true)) ),
+        ( IMAP, "<C-P>", editor!(EditorAction::Complete(MoveDir1D::Previous, true)) ),
         ( IMAP, "<C-R><C-P>{register}", unmapped!() ),
         ( IMAP, "<C-T>", edit_lines!(EditAction::Indent(IndentChange::Increase(Count::Exact(1)))) ),
         ( IMAP, "<C-X><C-E>", scroll2d!(MoveDir2D::Down, ScrollSize::Cell) ),
@@ -1706,8 +1723,8 @@ fn default_keys<I: ApplicationInfo>() -> Vec<(MappedModes, &'static str, InputSt
         ( CMAP, "<C-P>", unmapped!() ),
         ( CMAP, "<C-\\><C-N>", command_unfocus!() ),
         ( CMAP, "<Esc>", command_unfocus!() ),
-        ( CMAP, "<Tab>", act!(Action::Complete(MoveDir1D::Next, false)) ),
-        ( CMAP, "<S-Tab>", act!(Action::Complete(MoveDir1D::Previous, false)) ),
+        ( CMAP, "<Tab>", editor!(EditorAction::Complete(MoveDir1D::Next, false)) ),
+        ( CMAP, "<S-Tab>", editor!(EditorAction::Complete(MoveDir1D::Previous, false)) ),
         ( CMAP, "<S-Left>", edit!(EditAction::Motion, MoveType::WordBegin(WordStyle::Big, MoveDir1D::Previous)) ),
         ( CMAP, "<C-Left>", edit!(EditAction::Motion, MoveType::WordBegin(WordStyle::Big, MoveDir1D::Previous)) ),
         ( CMAP, "<S-Right>", edit!(EditAction::Motion, MoveType::WordBegin(WordStyle::Big, MoveDir1D::Next)) ),
@@ -2005,85 +2022,129 @@ mod tests {
 
     macro_rules! mvop {
         ($ea: expr, $mt: expr) => {
-            Action::Edit(
+            Action::from(EditorAction::Edit(
                 Specifier::Exact($ea.clone()),
                 EditTarget::Motion($mt.clone(), Count::Contextual),
-            )
+            ))
         };
         ($ea: expr, $mt: expr, $c: literal) => {
-            Action::Edit(
+            Action::from(EditorAction::Edit(
                 Specifier::Exact($ea.clone()),
                 EditTarget::Motion($mt.clone(), Count::Exact($c)),
-            )
+            ))
         };
         ($ea: expr, $mt: expr, $c: expr) => {
-            Action::Edit(Specifier::Exact($ea.clone()), EditTarget::Motion($mt.clone(), $c))
+            Action::from(EditorAction::Edit(
+                Specifier::Exact($ea.clone()),
+                EditTarget::Motion($mt.clone(), $c),
+            ))
         };
     }
 
     macro_rules! mv {
         ($mt: expr) => {
-            Action::Edit(Specifier::Contextual, EditTarget::Motion($mt.clone(), Count::Contextual))
+            Action::from(EditorAction::Edit(
+                Specifier::Contextual,
+                EditTarget::Motion($mt.clone(), Count::Contextual),
+            ))
         };
         ($mt: expr, $c: literal) => {
-            Action::Edit(Specifier::Contextual, EditTarget::Motion($mt.clone(), Count::Exact($c)))
+            Action::from(EditorAction::Edit(
+                Specifier::Contextual,
+                EditTarget::Motion($mt.clone(), Count::Exact($c)),
+            ))
         };
         ($mt: expr, $c: expr) => {
-            Action::Edit(Specifier::Contextual, EditTarget::Motion($mt.clone(), $c))
+            Action::from(EditorAction::Edit(
+                Specifier::Contextual,
+                EditTarget::Motion($mt.clone(), $c),
+            ))
         };
     }
 
     macro_rules! rangeop {
         ($ea: expr, $rt: expr) => {
-            Action::Edit(Specifier::Exact($ea), EditTarget::Range($rt, true, Count::Contextual))
+            Action::from(EditorAction::Edit(
+                Specifier::Exact($ea),
+                EditTarget::Range($rt, true, Count::Contextual),
+            ))
         };
         ($ea: expr, $rt: expr, $inc: expr) => {
-            Action::Edit(Specifier::Exact($ea), EditTarget::Range($rt, $inc, Count::Contextual))
+            Action::from(EditorAction::Edit(
+                Specifier::Exact($ea),
+                EditTarget::Range($rt, $inc, Count::Contextual),
+            ))
         };
         ($ea: expr, $rt: expr, $inc: expr, $c: literal) => {
-            Action::Edit(Specifier::Exact($ea), EditTarget::Range($rt, $inc, Count::Exact($c)))
+            Action::from(EditorAction::Edit(
+                Specifier::Exact($ea),
+                EditTarget::Range($rt, $inc, Count::Exact($c)),
+            ))
         };
         ($ea: expr, $rt: expr, $inc: expr, $c: expr) => {
-            Action::Edit(Specifier::Exact($ea), EditTarget::Range($rt, $inc, $c))
+            Action::from(EditorAction::Edit(
+                Specifier::Exact($ea),
+                EditTarget::Range($rt, $inc, $c),
+            ))
         };
     }
 
     macro_rules! range {
         ($rt: expr) => {
-            Action::Edit(Specifier::Contextual, EditTarget::Range($rt, true, Count::Contextual))
+            Action::from(EditorAction::Edit(
+                Specifier::Contextual,
+                EditTarget::Range($rt, true, Count::Contextual),
+            ))
         };
         ($rt: expr, $inc: expr) => {
-            Action::Edit(Specifier::Contextual, EditTarget::Range($rt, $inc, Count::Contextual))
+            Action::from(EditorAction::Edit(
+                Specifier::Contextual,
+                EditTarget::Range($rt, $inc, Count::Contextual),
+            ))
         };
         ($rt: expr, $inc: expr, $c: literal) => {
-            Action::Edit(Specifier::Contextual, EditTarget::Range($rt, $inc, Count::Exact($c)))
+            Action::from(EditorAction::Edit(
+                Specifier::Contextual,
+                EditTarget::Range($rt, $inc, Count::Exact($c)),
+            ))
         };
         ($rt: expr, $inc: expr, $c: expr) => {
-            Action::Edit(Specifier::Contextual, EditTarget::Range($rt, $inc, $c))
+            Action::from(EditorAction::Edit(
+                Specifier::Contextual,
+                EditTarget::Range($rt, $inc, $c),
+            ))
+        };
+    }
+
+    macro_rules! selop {
+        ($ea: expr) => {
+            Action::from(EditorAction::Edit(Specifier::Exact($ea), EditTarget::Selection))
         };
     }
 
     macro_rules! typechar {
         ($c: literal) => {
-            Action::InsertText(InsertTextAction::Type(
+            Action::from(EditorAction::InsertText(InsertTextAction::Type(
                 Char::Single($c).into(),
                 MoveDir1D::Previous,
                 1.into(),
-            ))
+            )))
         };
     }
 
-    const CURRENT_POS: Action =
-        Action::Edit(Specifier::Exact(EditAction::Motion), EditTarget::CurrentPosition);
-    const COLUMN_NEXT: Action = Action::Edit(
+    const CURRENT_POS: Action = Action::Editor(EditorAction::Edit(
+        Specifier::Exact(EditAction::Motion),
+        EditTarget::CurrentPosition,
+    ));
+    const COLUMN_NEXT: Action = Action::Editor(EditorAction::Edit(
         Specifier::Exact(EditAction::Motion),
         EditTarget::Motion(MoveType::Column(MoveDir1D::Next, false), Count::Exact(1)),
-    );
-    const COLUMN_PREV: Action = Action::Edit(
+    ));
+    const COLUMN_PREV: Action = Action::Editor(EditorAction::Edit(
         Specifier::Exact(EditAction::Motion),
         EditTarget::Motion(MoveType::Column(MoveDir1D::Previous, false), Count::Exact(1)),
-    );
-    const CHECKPOINT: Action = Action::History(HistoryAction::Checkpoint);
+    ));
+    const CHECKPOINT: Action = Action::Editor(EditorAction::History(HistoryAction::Checkpoint));
     const CMDBAR: Action = Action::CommandBar(CommandBarAction::Focus(CommandType::Command));
     const CMDBAR_ABORT: Action = Action::Prompt(PromptAction::Abort(false));
     const CMDBAR_SEARCH_NEXT: Action =
@@ -2091,24 +2152,26 @@ mod tests {
     const CMDBAR_SEARCH_PREV: Action = Action::CommandBar(CommandBarAction::Focus(
         CommandType::Search(MoveDir1D::Previous, false),
     ));
-    const CURSOR_CLOSE: Action = Action::Cursor(CursorAction::Close(CursorCloseTarget::Followers));
-    const CURSOR_SPLIT: Action = Action::Cursor(CursorAction::Split(Count::MinusOne));
-    const SEL_SPLIT: Action = Action::Selection(SelectionAction::Split(
+    const CURSOR_CLOSE: Action =
+        Action::Editor(EditorAction::Cursor(CursorAction::Close(CursorCloseTarget::Followers)));
+    const CURSOR_SPLIT: Action =
+        Action::Editor(EditorAction::Cursor(CursorAction::Split(Count::MinusOne)));
+    const SEL_SPLIT: Action = Action::Editor(EditorAction::Selection(SelectionAction::Split(
         SelectionSplitStyle::Lines,
         TargetShapeFilter::ALL,
-    ));
-    const BLOCK_SPLIT: Action = Action::Selection(SelectionAction::Split(
+    )));
+    const BLOCK_SPLIT: Action = Action::Editor(EditorAction::Selection(SelectionAction::Split(
         SelectionSplitStyle::Lines,
         TargetShapeFilter::BLOCK,
-    ));
-    const BLOCK_BEG: Action =
-        Action::Selection(SelectionAction::CursorSet(SelectionCursorChange::Beginning));
-    const BLOCK_END: Action =
-        Action::Selection(SelectionAction::CursorSet(SelectionCursorChange::End));
-    const TYPE_CONTEXTUAL: Action = Action::InsertText(InsertTextAction::Type(
-        Specifier::Contextual,
-        MoveDir1D::Previous,
-        Count::Exact(1),
+    )));
+    const BLOCK_BEG: Action = Action::Editor(EditorAction::Selection(SelectionAction::CursorSet(
+        SelectionCursorChange::Beginning,
+    )));
+    const BLOCK_END: Action = Action::Editor(EditorAction::Selection(SelectionAction::CursorSet(
+        SelectionCursorChange::End,
+    )));
+    const TYPE_CONTEXTUAL: Action = Action::Editor(EditorAction::InsertText(
+        InsertTextAction::Type(Specifier::Contextual, MoveDir1D::Previous, Count::Exact(1)),
     ));
 
     #[test]
@@ -2471,8 +2534,9 @@ mod tests {
 
         ctx.persist.insert = Some(InsertStyle::Insert);
 
+        let mov = selop!(EditAction::Delete);
         vm.input_key(key!('H'));
-        assert_pop1!(vm, Action::Edit(EditAction::Delete.into(), EditTarget::Selection), ctx);
+        assert_pop1!(vm, mov, ctx);
         assert_pop1!(vm, typechar!('H'), ctx);
 
         ctx.persist.shape = None;
@@ -2674,35 +2738,37 @@ mod tests {
         let mut ctx = VimContext::default();
 
         // Create local mark 'c.
+        let act = EditorAction::Mark(Specifier::Contextual);
         ctx.action.mark = Some(Mark::BufferNamed('c'));
         vm.input_key(key!('m'));
         vm.input_key(key!('c'));
-        assert_pop1!(vm, Action::Mark(Specifier::Contextual), ctx);
+        assert_pop1!(vm, Action::from(act), ctx);
         assert_normal!(vm, ctx);
 
         // Create global mark 'C.
+        let act = EditorAction::Mark(Specifier::Contextual);
         ctx.action.mark = Some(Mark::GlobalNamed('C'));
         vm.input_key(key!('m'));
         vm.input_key(key!('C'));
-        assert_pop1!(vm, Action::Mark(Specifier::Contextual), ctx);
+        assert_pop1!(vm, Action::from(act), ctx);
         assert_normal!(vm, ctx);
 
         // Go to the line of last inserted text.
         let target = EditTarget::LineJump(Specifier::Contextual);
-        let mov = Action::Edit(Specifier::Contextual, target);
+        let mov = EditorAction::Edit(Specifier::Contextual, target);
         ctx.action.mark = Some(Mark::LastInserted);
         vm.input_key(key!('\''));
         vm.input_key(key!('^'));
-        assert_pop1!(vm, mov, ctx);
+        assert_pop1!(vm, Action::from(mov), ctx);
         assert_normal!(vm, ctx);
 
         // Go to the column of the end of the last visual selection.
         let target = EditTarget::CharJump(Specifier::Contextual);
-        let mov = Action::Edit(Specifier::Contextual, target);
+        let mov = EditorAction::Edit(Specifier::Contextual, target);
         ctx.action.mark = Some(Mark::VisualEnd);
         vm.input_key(key!('`'));
         vm.input_key(key!('>'));
-        assert_pop1!(vm, mov, ctx);
+        assert_pop1!(vm, Action::from(mov), ctx);
         assert_normal!(vm, ctx);
     }
 
@@ -2968,8 +3034,8 @@ mod tests {
         let flip_target =
             EditTarget::Search(SearchType::Char(false), MoveDirMod::Flip, Count::Contextual);
 
-        let same = Action::Edit(Specifier::Contextual, same_target.clone());
-        let flip = Action::Edit(Specifier::Contextual, flip_target.clone());
+        let same = Action::from(EditorAction::Edit(Specifier::Contextual, same_target.clone()));
+        let flip = Action::from(EditorAction::Edit(Specifier::Contextual, flip_target.clone()));
 
         // "fa" should update search params, and then continue character search.
         ctx.persist.charsearch_params = (MoveDir1D::Next, true);
@@ -3170,8 +3236,7 @@ mod tests {
         assert_eq!(vm.mode(), VimMode::Visual);
 
         // Delete with "d"
-        let op = EditAction::Delete;
-        let mov = Action::Edit(op.into(), EditTarget::Selection);
+        let mov = selop!(EditAction::Delete);
         vm.input_key(key!('d'));
         assert_pop1!(vm, mov, ctx);
 
@@ -3188,8 +3253,7 @@ mod tests {
         assert_eq!(vm.mode(), VimMode::Visual);
 
         // Yank with "y"
-        let op = EditAction::Yank;
-        let mov = Action::Edit(op.into(), EditTarget::Selection);
+        let mov = selop!(EditAction::Yank);
         vm.input_key(key!('y'));
         assert_pop1!(vm, mov, ctx);
 
@@ -3206,8 +3270,7 @@ mod tests {
         assert_eq!(vm.mode(), VimMode::Visual);
 
         // Uppercase with "gu"
-        let op = EditAction::ChangeCase(Case::Lower);
-        let mov = Action::Edit(op.into(), EditTarget::Selection);
+        let mov = selop!(EditAction::ChangeCase(Case::Lower));
         vm.input_key(key!('g'));
         vm.input_key(key!('u'));
         assert_pop1!(vm, mov, ctx);
@@ -3225,8 +3288,7 @@ mod tests {
         assert_eq!(vm.mode(), VimMode::Visual);
 
         // Uppercase with "gu"
-        let op = EditAction::ChangeCase(Case::Upper);
-        let mov = Action::Edit(op.into(), EditTarget::Selection);
+        let mov = selop!(EditAction::ChangeCase(Case::Upper));
         vm.input_key(key!('g'));
         vm.input_key(key!('U'));
         assert_pop1!(vm, mov, ctx);
@@ -3265,8 +3327,7 @@ mod tests {
         assert_eq!(vm.mode(), VimMode::Visual);
 
         // Shape made LineWise with "Y".
-        let op = EditAction::Yank;
-        let mov = Action::Edit(op.into(), EditTarget::Selection);
+        let mov = selop!(EditAction::Yank);
         ctx.persist.shape = Some(TargetShape::LineWise);
         vm.input_key(key!('Y'));
         assert_pop1!(vm, mov, ctx);
@@ -3284,8 +3345,7 @@ mod tests {
         assert_eq!(vm.mode(), VimMode::Visual);
 
         // Shape made LineWise with "X"
-        let op = EditAction::Delete;
-        let mov = Action::Edit(op.into(), EditTarget::Selection);
+        let mov = selop!(EditAction::Delete);
         ctx.persist.shape = Some(TargetShape::LineWise);
         vm.input_key(key!('X'));
         assert_pop1!(vm, SEL_SPLIT, ctx);
@@ -3305,8 +3365,7 @@ mod tests {
         assert_eq!(vm.mode(), VimMode::Visual);
 
         // Shape made LineWise with "R"
-        let op = EditAction::Delete;
-        let mov = Action::Edit(op.into(), EditTarget::Selection);
+        let mov = selop!(EditAction::Delete);
         ctx.persist.shape = Some(TargetShape::LineWise);
         ctx.persist.insert = Some(InsertStyle::Insert);
         vm.input_key(key!('R'));
@@ -3328,8 +3387,7 @@ mod tests {
         assert_eq!(vm.mode(), VimMode::Visual);
 
         // Shape made LineWise with "S"
-        let op = EditAction::Delete;
-        let mov = Action::Edit(op.into(), EditTarget::Selection);
+        let mov = selop!(EditAction::Delete);
         ctx.persist.shape = Some(TargetShape::LineWise);
         ctx.persist.insert = Some(InsertStyle::Insert);
         vm.input_key(key!('S'));
@@ -3351,8 +3409,7 @@ mod tests {
         assert_eq!(vm.mode(), VimMode::Visual);
 
         // Shape remains BlockWise with "X"
-        let op = EditAction::Delete;
-        let mov = Action::Edit(op.into(), EditTarget::Selection);
+        let mov = selop!(EditAction::Delete);
         vm.input_key(key!('X'));
         assert_pop1!(vm, SEL_SPLIT, ctx);
         assert_pop1!(vm, BLOCK_BEG, ctx);
@@ -3371,8 +3428,7 @@ mod tests {
         assert_eq!(vm.mode(), VimMode::Visual);
 
         // Shape remains BlockWise with "Y".
-        let op = EditAction::Yank;
-        let mov = Action::Edit(op.into(), EditTarget::Selection);
+        let mov = selop!(EditAction::Yank);
         vm.input_key(key!('Y'));
         assert_pop1!(vm, mov, ctx);
 
@@ -3441,8 +3497,7 @@ mod tests {
 
         // Change block ("c").
         ctx.persist.insert = Some(InsertStyle::Insert);
-        let del = EditAction::Delete.into();
-        let act = Action::Edit(del, EditTarget::Selection);
+        let act = selop!(EditAction::Delete.into());
         vm.input_key(key!('c'));
         assert_pop1!(vm, BLOCK_SPLIT, ctx);
         assert_pop1!(vm, BLOCK_BEG, ctx);
@@ -4091,9 +4146,9 @@ mod tests {
         let op = EditAction::Delete;
         let mov = MoveType::Column(MoveDir1D::Next, false);
         let mov = EditTarget::Motion(mov, Count::Contextual);
-        let mov = Action::Edit(op.into(), mov);
+        let mov = EditorAction::Edit(op.into(), mov);
         vm.input_key(key!(KeyCode::Delete));
-        assert_pop1!(vm, mov, ctx);
+        assert_pop1!(vm, Action::from(mov), ctx);
         assert_normal!(vm, ctx);
 
         // With a count, Delete does nothing.

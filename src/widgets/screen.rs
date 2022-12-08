@@ -32,21 +32,17 @@ use crate::editing::{
     action::{
         Action,
         CommandBarAction,
-        CursorAction,
-        EditAction,
         EditError,
         EditInfo,
         EditResult,
         Editable,
-        HistoryAction,
+        EditorAction,
         InfoMessage,
-        InsertTextAction,
         Jumpable,
         PromptAction,
         Promptable,
         Scrollable,
         Searchable,
-        SelectionAction,
         TabAction,
         TabContainer,
         TabCount,
@@ -62,9 +58,7 @@ use crate::editing::{
         CloseTarget,
         CommandType,
         Count,
-        EditTarget,
         FocusChange,
-        Mark,
         MoveDir1D,
         MoveDir2D,
         MoveDirMod,
@@ -580,54 +574,13 @@ where
     C: EditContext,
     I: ApplicationInfo,
 {
-    fn edit(
+    fn editor_command(
         &mut self,
-        action: &EditAction,
-        target: &EditTarget,
+        act: &EditorAction,
         ctx: &C,
         store: &mut Store<I>,
     ) -> EditResult<EditInfo, I> {
-        delegate_focus!(self, f => f.edit(action, target, ctx, store))
-    }
-
-    fn insert_text(
-        &mut self,
-        act: &InsertTextAction,
-        ctx: &C,
-        store: &mut Store<I>,
-    ) -> EditResult<EditInfo, I> {
-        delegate_focus!(self, f => f.insert_text(act, ctx, store))
-    }
-
-    fn cursor_command(
-        &mut self,
-        act: &CursorAction,
-        ctx: &C,
-        store: &mut Store<I>,
-    ) -> EditResult<EditInfo, I> {
-        delegate_focus!(self, f => f.cursor_command(act, ctx, store))
-    }
-
-    fn selection_command(
-        &mut self,
-        act: &SelectionAction,
-        ctx: &C,
-        store: &mut Store<I>,
-    ) -> EditResult<EditInfo, I> {
-        delegate_focus!(self, f => f.selection_command(act, ctx, store))
-    }
-
-    fn mark(&mut self, name: Mark, ctx: &C, store: &mut Store<I>) -> EditResult<EditInfo, I> {
-        delegate_focus!(self, f => f.mark(name, ctx, store))
-    }
-
-    fn history_command(
-        &mut self,
-        act: &HistoryAction,
-        ctx: &C,
-        store: &mut Store<I>,
-    ) -> EditResult<EditInfo, I> {
-        delegate_focus!(self, f => f.history_command(act, ctx, store))
+        delegate_focus!(self, f => f.editor_command(act, ctx, store))
     }
 }
 

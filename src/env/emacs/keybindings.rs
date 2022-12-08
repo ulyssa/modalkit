@@ -18,6 +18,7 @@ use crate::editing::{
         Action,
         CommandBarAction,
         EditAction,
+        EditorAction,
         HistoryAction,
         InsertTextAction,
         PromptAction,
@@ -301,10 +302,10 @@ macro_rules! isv {
 
 macro_rules! is {
     ($int: expr, $ext: expr) => {
-        isv!(vec![$int], vec![ExternalAction::Something($ext)])
+        isv!(vec![$int], vec![ExternalAction::Something($ext.into())])
     };
     ($int: expr, $ext: expr, $ns: expr) => {
-        isv!(vec![$int], vec![ExternalAction::Something($ext)], $ns)
+        isv!(vec![$int], vec![ExternalAction::Something($ext.into())], $ns)
     };
 }
 
@@ -312,7 +313,7 @@ macro_rules! motion {
     ($mt: expr) => {
         is!(
             InternalAction::ClearTargetShape(true),
-            Action::Edit(
+            EditorAction::Edit(
                 Specifier::Exact(EditAction::Motion),
                 EditTarget::Motion($mt, Count::Contextual)
             )
@@ -321,7 +322,7 @@ macro_rules! motion {
     ($mt: expr, $c: literal) => {
         is!(
             InternalAction::ClearTargetShape(true),
-            Action::Edit(
+            EditorAction::Edit(
                 Specifier::Exact(EditAction::Motion),
                 EditTarget::Motion($mt, Count::Exact($c))
             )
@@ -330,7 +331,7 @@ macro_rules! motion {
     ($mt: expr, $c: expr) => {
         is!(
             InternalAction::ClearTargetShape(true),
-            Action::Edit(Specifier::Exact(EditAction::Motion), EditTarget::Motion($mt, $c))
+            EditorAction::Edit(Specifier::Exact(EditAction::Motion), EditTarget::Motion($mt, $c))
         )
     };
 }
@@ -366,7 +367,7 @@ macro_rules! erase_target {
     ($et: expr) => {
         is!(
             InternalAction::SetRegister(Register::Blackhole),
-            Action::Edit(EditAction::Delete.into(), $et)
+            EditorAction::Edit(EditAction::Delete.into(), $et)
         )
     };
 }
@@ -386,10 +387,10 @@ macro_rules! erase_range {
 macro_rules! just_one_space {
     () => {
         isv!(vec![InternalAction::SetRegister(Register::Blackhole)], vec![
-            Action::Edit(
+            Action::from(EditorAction::Edit(
                 EditAction::Delete.into(),
                 RangeType::Word(WordStyle::Whitespace(false)).into()
-            )
+            ))
             .into(),
             Action::from(InsertTextAction::Type(
                 Char::Single(' ').into(),
@@ -467,7 +468,7 @@ macro_rules! start_selection {
     ($shape: expr) => {
         is!(
             InternalAction::SetTargetShape($shape, false),
-            Action::Selection(SelectionAction::Resize(
+            EditorAction::Selection(SelectionAction::Resize(
                 SelectionResizeStyle::Restart,
                 EditTarget::CurrentPosition
             ))
@@ -476,7 +477,10 @@ macro_rules! start_selection {
     ($shape: expr, $target: expr) => {
         is!(
             InternalAction::SetTargetShape($shape, false),
-            Action::Selection(SelectionAction::Resize(SelectionResizeStyle::Restart, $target))
+            EditorAction::Selection(SelectionAction::Resize(
+                SelectionResizeStyle::Restart,
+                $target
+            ))
         )
     };
 }
@@ -485,7 +489,7 @@ macro_rules! start_shift_selection {
     ($target: expr) => {
         is!(
             InternalAction::SetTargetShape(TargetShape::CharWise, true),
-            Action::Edit(Specifier::Exact(EditAction::Motion), $target)
+            EditorAction::Edit(Specifier::Exact(EditAction::Motion), $target)
         )
     };
 }
@@ -538,7 +542,7 @@ fn default_keys<I: ApplicationInfo>() -> Vec<(MappedModes, &'static str, InputSt
         ( ICMAP, "z", isv!(vec![], vec![ExternalAction::Repeat(true)]) ),
 
         // Insert mode keybindings.
-        ( IMAP, "<C-G>", is!(InternalAction::ClearTargetShape(false), Action::Edit(EditAction::Motion.into(), EditTarget::CurrentPosition), EmacsMode::Insert) ),
+        ( IMAP, "<C-G>", is!(InternalAction::ClearTargetShape(false), EditorAction::Edit(EditAction::Motion.into(), EditTarget::CurrentPosition), EmacsMode::Insert) ),
         ( IMAP, "<C-J>", chartype!(Char::Single('\n')) ),
         ( IMAP, "<C-L>", scroll!(ScrollStyle::CursorPos(MovePosition::Middle, Axis::Vertical)) ),
         ( IMAP, "<C-N>", motion!(MoveType::Line(MoveDir1D::Next)) ),
@@ -746,23 +750,29 @@ mod tests {
 
     macro_rules! mv {
         ($mt: expr) => {
-            Action::Edit(EditAction::Motion.into(), EditTarget::Motion($mt, Count::Contextual))
+            Action::from(EditorAction::Edit(
+                EditAction::Motion.into(),
+                EditTarget::Motion($mt, Count::Contextual),
+            ))
         };
         ($mt: expr, $c: literal) => {
-            Action::Edit(EditAction::Motion.into(), EditTarget::Motion($mt, Count::Exact($c)))
+            Action::from(EditorAction::Edit(
+                EditAction::Motion.into(),
+                EditTarget::Motion($mt, Count::Exact($c)),
+            ))
         };
         ($mt: expr, $c: expr) => {
-            Action::Edit(EditAction::Motion.into(), EditTarget::Motion($mt, $c))
+            Action::from(EditorAction::Edit(EditAction::Motion.into(), EditTarget::Motion($mt, $c)))
         };
     }
 
     macro_rules! typechar {
         ($c: literal) => {
-            Action::InsertText(InsertTextAction::Type(
+            Action::from(EditorAction::InsertText(InsertTextAction::Type(
                 Char::Single($c).into(),
                 MoveDir1D::Previous,
                 Count::Contextual,
-            ))
+            )))
         };
     }
 

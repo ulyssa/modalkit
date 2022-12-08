@@ -20,6 +20,7 @@ use crate::editing::{
         CommandBarAction,
         EditAction,
         EditResult,
+        EditorAction,
         PromptAction,
         Promptable,
     },
@@ -121,7 +122,7 @@ where
                 let target =
                     EditTarget::Search(SearchType::Regex, MoveDirMod::Same, Count::Contextual);
 
-                Action::Edit(EditAction::Motion.into(), target)
+                EditorAction::Edit(EditAction::Motion.into(), target).into()
             },
         };
 

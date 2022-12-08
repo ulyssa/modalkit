@@ -130,10 +130,10 @@ where
 
 /// Tracks important cursors and cursor groups:
 ///
-/// - Saved cursors (see [Action::Mark])
+/// - Saved cursors (see [EditorAction::Mark])
 /// - Saved cursor groups (see [CursorAction::Save])
 ///
-/// [Action::Mark]: crate::editing::action::Action::Mark
+/// [EditorAction::Mark]: crate::editing::action::EditorAction::Mark
 /// [CursorAction::Save]: crate::editing::action::CursorAction::Save
 pub struct CursorStore<I>
 where
