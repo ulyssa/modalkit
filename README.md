@@ -9,8 +9,18 @@
 
 This is a Rust library for building modal editing applications.
 
+## Usage
+
+This crate is [on crates.io](https://crates.io/crates/modalkit) and can be
+used by adding `modalkit` to your dependencies in your project's `Cargo.toml`.
+
+```toml
+[dependencies]
+modalkit = "0.0.6"
+```
+
 ## License
 
 `modalkit` is released under the [Apache License, Version 2.0].
 
-[Apache License, Version 2.0]: https://github.com/ulyssa/iamb/blob/master/LICENSE
+[Apache License, Version 2.0]: https://github.com/ulyssa/modalkit/blob/master/LICENSE
