@@ -319,7 +319,7 @@ where
 
             for line in self.buffer.read().unwrap().lines(0) {
                 count += 1;
-                count += line.len().saturating_sub(1) / width;
+                count += line.len_chars().saturating_sub(1) / width;
 
                 if count >= max {
                     return max;
@@ -779,12 +779,12 @@ where
 
             let mut first = true;
             let mut off = 0;
-            let slen = s.len();
+            let slen = s.len_chars();
 
             while off < slen && (wrapped.len() < height || !sawcursor) {
                 let start = off;
                 let end = (start + width).min(slen);
-                let swrapped = s[start..end].to_string();
+                let swrapped = s.slice(start..end).to_string();
 
                 let cursor_line = line == cursor.y && (start..=end).contains(&cursor.x);
 
@@ -881,7 +881,7 @@ where
                 let lgutter = text.get_line_info::<LeftGutterInfo>(line);
                 let rgutter = text.get_line_info::<RightGutterInfo>(line);
 
-                let slen = s.len();
+                let slen = s.len_chars();
                 let start = cbx;
                 let end = slen;
 
@@ -891,7 +891,7 @@ where
                 }
 
                 if cbx < slen {
-                    let _ = buf.set_stringn(x, y, &s[start..end], width, unstyled);
+                    let _ = buf.set_stringn(x, y, s.slice(start..end).to_string(), width, unstyled);
                 }
 
                 if let Some(ref rgi) = rgutter {

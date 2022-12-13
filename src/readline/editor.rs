@@ -162,12 +162,12 @@ where
             }
 
             let mut off = 0;
-            let slen = s.len();
+            let slen = s.len_chars();
 
             while off < slen && (wrapped.len() < height || !sawcursor) {
                 let start = off;
                 let end = (start + width).min(slen);
-                let swrapped = s[start..end].to_string();
+                let swrapped = s.slice(start..end).to_string();
 
                 let cursor_line = line == cursor.y && (start..=end).contains(&cursor.x);
 

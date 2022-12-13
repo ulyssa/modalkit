@@ -13,12 +13,7 @@ use std::ops::Add;
 use std::ops::AddAssign;
 
 use regex::{Match, Regex};
-
-use xi_rope::delta::DeltaElement;
-use xi_rope::diff::{Diff, LineHashDiff};
-use xi_rope::rope::{BaseMetric, LinesMetric, Utf16CodeUnitsMetric};
-use xi_rope::rope::{Rope, RopeInfo};
-use xi_rope::tree::Cursor as RopeCursor;
+use ropey::{Rope, RopeSlice};
 
 use crate::editing::{
     action::EditAction,
@@ -45,7 +40,9 @@ use crate::editing::{
     cursor::{Cursor, CursorAdjustment, CursorChoice},
 };
 
-/// Byte offset into an [EditRope].
+mod diff;
+
+/// Character offset into an [EditRope].
 #[derive(
     Clone,
     Copy,
@@ -57,21 +54,19 @@ use crate::editing::{
     derive_more::From,
     derive_more::Into,
 )]
-pub struct ByteOff(usize);
+pub struct CharOff(usize);
 
-impl PartialOrd for ByteOff {
+impl PartialOrd for CharOff {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         self.0.partial_cmp(&other.0)
     }
 }
 
-impl Ord for ByteOff {
+impl Ord for CharOff {
     fn cmp(&self, other: &Self) -> Ordering {
         self.0.cmp(&other.0)
     }
 }
-
-struct U16Off(usize);
 
 pub(super) type CursorContext<'a> = (&'a EditRope, usize, bool);
 
@@ -237,11 +232,11 @@ impl PrivateCursorOps for Cursor {
 
     fn skip_space_rev<'a>(&mut self, ctx: &CursorContext<'a>) {
         let off = ctx.0.cursor_to_offset(self);
-        let mut rc = RopeCursor::new(&ctx.0.rope, off.0);
+        let mut rc = ctx.0.offset_to_rc(off);
         let mut x = self.x;
 
         while x > 0 {
-            match rc.peek_next_codepoint() {
+            match rc.peek() {
                 None => break,
                 Some(c) => {
                     if !c.is_ascii_whitespace() {
@@ -252,7 +247,7 @@ impl PrivateCursorOps for Cursor {
                 },
             }
 
-            rc.prev::<BaseMetric>();
+            rc.prev();
         }
 
         self.set_column(x, ctx);
@@ -346,23 +341,28 @@ fn next_utf8(text: &[u8], i: usize) -> usize {
 
 /// Iterator over a rope's characters.
 pub struct CharacterIterator<'a> {
-    rc_pos: RopeCursor<'a, RopeInfo>,
-    rc_end: RopeCursor<'a, RopeInfo>,
+    rc_pos: RopeCursor<'a>,
+    rc_end: RopeCursor<'a>,
 
-    pos: Option<usize>,
-    end: Option<usize>,
+    pos: Option<CharOff>,
+    end: Option<CharOff>,
 
     first: usize,
     last: usize,
 }
 
+/// Iterator over a rope's lines.
+pub(crate) struct LineIterator<'a> {
+    iter: ropey::iter::Lines<'a>,
+}
+
 /// Iterator over a rope's newlines.
 pub struct NewlineIterator<'a> {
-    rc: RopeCursor<'a, RopeInfo>,
+    rc: RopeCursor<'a>,
 }
 
 impl<'a> CharacterIterator<'a> {
-    fn new(rope: &'a Rope, pos: usize, end: usize) -> Self {
+    fn new(rope: &'a EditRope, pos: usize, end: usize) -> Self {
         let rc_pos = RopeCursor::new(rope, pos);
         let rc_end = RopeCursor::new(rope, end);
 
@@ -382,21 +382,21 @@ impl<'a> CharacterIterator<'a> {
     fn done(&self) -> bool {
         match (self.pos, self.end) {
             (Some(pos), Some(end)) => pos >= end,
-            (Some(pos), None) => pos > self.last,
-            (None, Some(end)) => self.first > end,
+            (Some(pos), None) => pos.0 > self.last,
+            (None, Some(end)) => self.first > end.0,
             (None, None) => false,
         }
     }
 
     /// Byte offset into the underlying rope of the last character returned from [Iterator::next].
-    pub fn pos(&self) -> ByteOff {
-        ByteOff(self.pos.expect("next() hasn't been called yet"))
+    pub fn pos(&self) -> CharOff {
+        self.pos.expect("next() hasn't been called yet")
     }
 
     /// Byte offset into the underlying rope of the last character returned from
     /// [DoubleEndedIterator::next_back].
-    pub fn pos_back(&self) -> ByteOff {
-        ByteOff(self.end.expect("next_back() hasn't been called yet"))
+    pub fn pos_back(&self) -> CharOff {
+        self.end.expect("next_back() hasn't been called yet")
     }
 }
 
@@ -404,42 +404,71 @@ impl<'a> Iterator for CharacterIterator<'a> {
     type Item = char;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let res = self.rc_pos.peek_next_codepoint();
+        let res = self.rc_pos.peek()?;
 
         self.pos = self.rc_pos.pos().into();
-        self.rc_pos.next::<BaseMetric>();
+        self.rc_pos.next();
 
         if self.done() {
             return None;
         } else {
-            return res;
+            return Some(res);
         }
     }
 }
 
 impl<'a> DoubleEndedIterator for CharacterIterator<'a> {
     fn next_back(&mut self) -> Option<Self::Item> {
-        let res = self.rc_end.peek_next_codepoint();
+        let res = self.rc_end.peek()?;
 
         self.end = self.rc_end.pos().into();
-        self.rc_end.prev::<BaseMetric>();
+        self.rc_end.prev();
 
         if self.done() {
             return None;
         } else {
-            return res;
+            return Some(res);
         }
     }
 }
 
-impl<'a> Iterator for NewlineIterator<'a> {
-    type Item = ByteOff;
+fn trimnl(slice: RopeSlice<'_>) -> RopeSlice<'_> {
+    let len = slice.len_chars();
+    let max = len.saturating_sub(1);
+
+    if let Some('\n') = slice.get_char(max) {
+        return slice.slice(..max);
+    } else {
+        return slice;
+    }
+}
+
+impl<'a> Iterator for LineIterator<'a> {
+    type Item = RopeSlice<'a>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let nl = self.rc.next::<LinesMetric>()?;
-        let nl = nl.saturating_sub(1);
+        Some(trimnl(self.iter.next()?))
+    }
+}
 
-        Some(ByteOff(nl))
+impl<'a> Iterator for NewlineIterator<'a> {
+    type Item = CharOff;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        while let Some(nl) = self.rc.peek() {
+            if nl != '\n' {
+                self.rc.next();
+                continue;
+            }
+
+            let pos = self.rc.pos();
+
+            self.rc.next();
+
+            return Some(pos);
+        }
+
+        return None;
     }
 }
 
@@ -447,9 +476,9 @@ struct BoundaryTestIterator<'a> {
     chars: CharacterIterator<'a>,
     ctx: BoundaryTestContext,
 
-    coff: ByteOff,
-    aoff: ByteOff,
-    boff: ByteOff,
+    coff: CharOff,
+    aoff: CharOff,
+    boff: CharOff,
 }
 
 impl<'a> BoundaryTestIterator<'a> {
@@ -458,13 +487,13 @@ impl<'a> BoundaryTestIterator<'a> {
             chars,
             ctx,
 
-            aoff: ByteOff(0),
-            boff: ByteOff(0),
-            coff: ByteOff(0),
+            aoff: CharOff(0),
+            boff: CharOff(0),
+            coff: CharOff(0),
         }
     }
 
-    fn pos(&self) -> ByteOff {
+    fn pos(&self) -> CharOff {
         return self.coff;
     }
 
@@ -553,35 +582,66 @@ impl<'a> BoundaryTestIterator<'a> {
     }
 }
 
-fn cursor_from_rc(rc: &RopeCursor<'_, RopeInfo>) -> Cursor {
-    let rope = rc.root();
-    let tlen = rc.total_len();
-    let maxi = tlen.saturating_sub(1);
-
-    let off = rc.pos().min(maxi);
-    let line = rope.line_of_offset(off);
-    let col = off - rope.offset_of_line(line);
-
-    Cursor::new(line, col)
+struct RopeCursor<'a> {
+    rope: &'a EditRope,
+    index: Option<usize>,
 }
 
-#[inline]
-fn move_cursor(rc: &mut RopeCursor<'_, RopeInfo>, dir: &MoveDir1D) -> Option<char> {
-    let _ = match dir {
-        MoveDir1D::Previous => rc.prev::<BaseMetric>(),
-        MoveDir1D::Next => rc.next::<BaseMetric>(),
-    };
+impl<'a> RopeCursor<'a> {
+    fn new(rope: &'a EditRope, index: usize) -> Self {
+        RopeCursor { rope, index: Some(index) }
+    }
 
-    rc.peek_next_codepoint()
+    fn pos(&self) -> CharOff {
+        CharOff(self.index.expect("invalid position"))
+    }
+
+    fn set(&mut self, pos: CharOff) {
+        self.index = pos.0.into();
+    }
+
+    fn offset(&mut self, dir: MoveDir1D) {
+        match dir {
+            MoveDir1D::Next => self.next(),
+            MoveDir1D::Previous => self.prev(),
+        }
+    }
+
+    fn peek(&self) -> Option<char> {
+        self.index.and_then(|idx| self.rope.rope.get_char(idx))
+    }
+
+    fn next(&mut self) {
+        if let Some(idx) = self.index {
+            let len = self.rope.rope.len_chars();
+            let nxt = idx + 1;
+
+            if nxt < len {
+                self.index = Some(nxt);
+            } else {
+                self.index = None;
+            }
+        }
+    }
+
+    fn prev(&mut self) {
+        if let Some(idx) = self.index {
+            self.index = idx.checked_sub(1);
+        }
+    }
+
+    fn to_cursor(&self) -> Cursor {
+        self.rope.offset_to_cursor(self.index.expect("invalid position").into())
+    }
 }
 
 fn roperepeat(rope: &Rope, shape: TargetShape, mut times: usize) -> Rope {
     match shape {
         TargetShape::CharWise | TargetShape::LineWise => {
-            let mut result = rope.slice(..);
+            let mut result = rope.clone();
 
             while times > 1 {
-                result.edit(result.len().., rope.slice(..));
+                result.append(rope.clone());
 
                 times -= 1;
             }
@@ -592,14 +652,14 @@ fn roperepeat(rope: &Rope, shape: TargetShape, mut times: usize) -> Rope {
             let mut first = true;
             let mut result = Rope::from("");
 
-            for line in rope.lines(0..) {
+            for line in rope.lines().map(trimnl) {
                 if first {
                     first = false;
                 } else {
-                    result = result + Rope::from("\n");
+                    result.append(Rope::from("\n"));
                 }
 
-                result = result + Rope::from(line.repeat(times));
+                result.append(Rope::from(line.to_string().repeat(times)));
             }
 
             return result;
@@ -661,6 +721,12 @@ impl EditRope {
         EditRope::from("")
     }
 
+    fn from_slice(slice: RopeSlice) -> EditRope {
+        let rope = Rope::from(slice);
+
+        EditRope { rope }
+    }
+
     /// Calculate the max indexable column in a given line given the current context.
     ///
     /// This function expects to be given a valid line number as input.
@@ -696,7 +762,7 @@ impl EditRope {
 
             for line in self.lines_at(start, view.corner.x) {
                 wrapped += 1;
-                wrapped += line.len().saturating_sub(1) / width;
+                wrapped += line.len_chars().saturating_sub(1) / width;
                 actual += 1;
 
                 if wrapped >= height {
@@ -722,7 +788,7 @@ impl EditRope {
             let mut l = 0;
 
             for line in self.lines_at(view.corner.y, view.corner.x) {
-                let w = 1 + line.len().saturating_sub(1) / width;
+                let w = 1 + line.len_chars().saturating_sub(1) / width;
 
                 for _ in 0..w {
                     lines.push(l);
@@ -754,55 +820,51 @@ impl EditRope {
     /// Split the rope into three different parts.
     pub fn split(
         &self,
-        ByteOff(start): ByteOff,
-        ByteOff(end): ByteOff,
+        CharOff(start): CharOff,
+        CharOff(end): CharOff,
         inclusive: bool,
     ) -> (EditRope, EditRope, EditRope) {
-        let size = self.rope.len();
+        let size = self.rope.len_chars();
         let beg = start.min(size);
         let end = end.min(size);
 
         if inclusive {
-            let prefix = EditRope { rope: self.rope.slice(..beg) };
-            let middle = EditRope { rope: self.rope.slice(beg..=end) };
-            let suffix = EditRope { rope: self.rope.slice(end.saturating_add(1)..) };
+            let prefix = EditRope::from_slice(self.rope.slice(..beg));
+            let middle = EditRope::from_slice(self.rope.slice(beg..=end));
+            let suffix = EditRope::from_slice(self.rope.slice(end.saturating_add(1)..));
 
             return (prefix, middle, suffix);
         } else {
-            let prefix = EditRope { rope: self.rope.slice(..beg) };
-            let middle = EditRope { rope: self.rope.slice(beg..end) };
-            let suffix = EditRope { rope: self.rope.slice(end..) };
+            let prefix = EditRope::from_slice(self.rope.slice(..beg));
+            let middle = EditRope::from_slice(self.rope.slice(beg..end));
+            let suffix = EditRope::from_slice(self.rope.slice(end..));
 
             return (prefix, middle, suffix);
         }
     }
 
-    fn _trim_start_idx(&self) -> Option<ByteOff> {
-        let mut rc = RopeCursor::new(&self.rope, 0);
-
-        while let Some(c) = rc.peek_next_codepoint() {
+    fn _trim_start_idx(&self) -> Option<CharOff> {
+        for (i, c) in self.rope.chars().enumerate() {
             if c.is_ascii_whitespace() {
-                rc.next::<BaseMetric>();
                 continue;
             }
 
-            return Some(ByteOff(rc.pos()));
+            return Some(CharOff(i));
         }
 
         return None;
     }
 
-    fn _trim_end_idx(&self) -> Option<ByteOff> {
-        let last = self.last_offset();
-        let mut rc = RopeCursor::new(&self.rope, last.0);
+    fn _trim_end_idx(&self) -> Option<CharOff> {
+        let len = self.rope.len_chars();
+        let max = len.saturating_sub(1);
 
-        while let Some(c) = rc.peek_next_codepoint() {
+        for (i, c) in self.rope.chars_at(len).reversed().enumerate() {
             if c.is_ascii_whitespace() {
-                rc.prev::<BaseMetric>();
                 continue;
             }
 
-            return Some(ByteOff(rc.pos()));
+            return Some(CharOff(max - i));
         }
 
         return None;
@@ -810,21 +872,19 @@ impl EditRope {
 
     /// Remove leading whitespace from the rope.
     pub fn trim_start(&self) -> EditRope {
-        if let Some(start) = self._trim_start_idx() {
-            let end = self.last_offset();
-
-            self.slice(start, end, true)
+        if let Some(CharOff(start)) = self._trim_start_idx() {
+            EditRope::from_slice(self.rope.slice(start..))
         } else {
-            EditRope::from("")
+            EditRope::empty()
         }
     }
 
     /// Remove trailing whitespace from the rope.
     pub fn trim_end(&self) -> EditRope {
-        if let Some(end) = self._trim_end_idx() {
-            self.slice(ByteOff(0), end, true)
+        if let Some(CharOff(end)) = self._trim_end_idx() {
+            EditRope::from_slice(self.rope.slice(..=end))
         } else {
-            EditRope::from("")
+            EditRope::empty()
         }
     }
 
@@ -833,17 +893,12 @@ impl EditRope {
     where
         F: Fn(char) -> bool,
     {
-        let mut rc = RopeCursor::new(&self.rope, 0);
-
-        while let Some(c) = rc.peek_next_codepoint() {
+        for (i, c) in self.rope.chars().enumerate() {
             if matches(c) {
-                rc.next::<BaseMetric>();
                 continue;
             }
 
-            let rope = self.rope.slice(rc.pos()..);
-
-            return EditRope { rope };
+            return EditRope::from_slice(self.rope.slice(i..));
         }
 
         return EditRope::empty();
@@ -854,18 +909,15 @@ impl EditRope {
     where
         F: Fn(char) -> bool,
     {
-        let last = self.last_offset();
-        let mut rc = RopeCursor::new(&self.rope, last.0);
+        let len = self.rope.len_chars();
+        let max = len.saturating_sub(1);
 
-        while let Some(c) = rc.peek_next_codepoint() {
+        for (i, c) in self.rope.chars_at(len).reversed().enumerate() {
             if matches(c) {
-                rc.prev::<BaseMetric>();
                 continue;
             }
 
-            let rope = self.rope.slice(..=rc.pos());
-
-            return EditRope { rope };
+            return EditRope::from_slice(self.rope.slice(..=max - i));
         }
 
         return EditRope::empty();
@@ -876,8 +928,8 @@ impl EditRope {
         let start = self._trim_start_idx();
         let end = self._trim_end_idx();
 
-        if let (Some(start), Some(end)) = (start, end) {
-            self.slice(start, end, true)
+        if let (Some(CharOff(start)), Some(CharOff(end))) = (start, end) {
+            EditRope::from_slice(self.rope.slice(start..=end))
         } else {
             EditRope::empty()
         }
@@ -886,11 +938,11 @@ impl EditRope {
     /// Returns a slice of a range within the rope.
     pub fn slice(
         &self,
-        ByteOff(start): ByteOff,
-        ByteOff(end): ByteOff,
+        CharOff(start): CharOff,
+        CharOff(end): CharOff,
         inclusive: bool,
     ) -> EditRope {
-        let size = self.rope.len();
+        let size = self.rope.len_chars();
         let beg = start.min(size);
         let end = end.min(size);
 
@@ -900,22 +952,18 @@ impl EditRope {
             self.rope.slice(beg..end)
         };
 
-        EditRope { rope }
+        EditRope::from_slice(rope)
     }
 
     /// Replace a range within the rope with some new text.
-    pub fn replace(
-        &mut self,
-        ByteOff(start): ByteOff,
-        ByteOff(end): ByteOff,
-        inclusive: bool,
-        s: &str,
-    ) {
+    pub fn replace(&mut self, start: CharOff, end: CharOff, inclusive: bool, s: &str) {
         if inclusive {
-            self.rope.edit(start..=end, s);
+            self.rope.remove(start.0..=end.0);
         } else {
-            self.rope.edit(start..end, s);
+            self.rope.remove(start.0..end.0);
         }
+
+        self.rope.insert(start.0, s);
     }
 
     /// Return the rope repeated *n* times.
@@ -926,8 +974,8 @@ impl EditRope {
     /// Transform a range within the rope with function *f*, and return the updated version.
     pub fn transform(
         &self,
-        start: ByteOff,
-        end: ByteOff,
+        start: CharOff,
+        end: CharOff,
         inclusive: bool,
         f: impl Fn(EditRope) -> EditRope,
     ) -> EditRope {
@@ -956,11 +1004,11 @@ impl EditRope {
         cursor: &Cursor,
         text: EditRope,
     ) -> (CursorChoice, Vec<CursorAdjustment>) {
-        let off = self.offset_of_line(cursor.y).0;
+        let off = self.offset_of_line(cursor.y);
         let tlines = text.get_lines() as isize;
         let tlen = text.len();
 
-        self.rope.edit(off..off, text.rope);
+        self._insert_at(off.0, text.rope);
 
         let adj = CursorAdjustment::Line {
             line_start: cursor.y,
@@ -969,8 +1017,8 @@ impl EditRope {
             amount_after: 0,
         };
 
-        let start = self.offset_to_cursor(ByteOff(off));
-        let end = self.offset_to_cursor(ByteOff(off + tlen));
+        let start = self.offset_to_cursor(off);
+        let end = self.offset_to_cursor(CharOff(off.0 + tlen));
 
         let mut default = start.clone();
         let cctx = &(&*self, 0, true);
@@ -987,20 +1035,19 @@ impl EditRope {
         text: EditRope,
     ) -> (CursorChoice, Vec<CursorAdjustment>) {
         let coff = self.cursor_to_offset(cursor);
-        let mut rc = self.offset_to_rc(coff);
         let tlines = text.get_lines() as isize;
-        let tlen = text.len();
+        let tlen = text.len_offset();
 
-        let soff = match rc.next::<LinesMetric>() {
+        let soff = match self.line_after(cursor.y) {
             Some(end) => {
-                self.rope.edit(end..end, text.rope);
+                self._insert_at(end.0, text.rope);
                 end
             },
             None => {
-                let end = self.rope.len();
-                self.rope.edit(end..end, text.rope);
-                self.rope.edit(end..end, Rope::from("\n"));
-                end
+                let end = self.rope.len_chars();
+                self.rope.insert_char(end, '\n');
+                self.rope.append(text.rope);
+                end.into()
             },
         };
 
@@ -1012,8 +1059,8 @@ impl EditRope {
             amount_after: 0,
         };
 
-        let start = self.offset_to_cursor(ByteOff(soff));
-        let end = self.offset_to_cursor(ByteOff(soff + tlen));
+        let start = self.offset_to_cursor(soff);
+        let end = self.offset_to_cursor(soff + tlen);
 
         let mut default = start.clone();
         let cctx = &(&*self, 0usize, true);
@@ -1040,15 +1087,15 @@ impl EditRope {
 
         let sline = self.offset_of_line(c.y).0;
         let ilines = text.get_lines().saturating_add(1);
-        let alines = self.rope.slice(sline..).measure::<LinesMetric>();
+        let alines = self.rope.slice(sline..).len_lines();
 
         let loff = text.offset_of_line(ilines.min(alines));
 
-        for line in text.rope.lines(0..loff.0) {
+        for line in text.rope.slice(0..loff.0).lines().map(trimnl) {
             let colmax = self.max_column_idx(c.y, true);
             let cstart = c.x.saturating_add(off).min(colmax);
             let ioff = self.lincol_to_offset(c.y, cstart).0;
-            let tlen = line.len();
+            let tlen = line.len_chars();
 
             adjs.push(CursorAdjustment::Column {
                 line: c.y,
@@ -1057,20 +1104,21 @@ impl EditRope {
                 amt_col: tlen as isize,
             });
 
-            self.rope.edit(ioff..ioff, line);
+            self._insert_at(ioff, Rope::from(line));
 
-            eoff = ByteOff(ioff + tlen);
+            eoff = CharOff(ioff + tlen);
 
             c.down(1);
         }
 
+        self.trailing_newline();
+
         if ilines > alines {
             let start = text.offset_of_line(alines).0;
-            let append = text.rope.slice(start..) + Rope::from("\n");
-            let alen = append.len();
-            let len = self.rope.len();
-            self.rope.edit(len..len, append);
-            eoff = ByteOff(len + alen);
+            let append = text.rope.slice(start..);
+            self.rope.append(append.into());
+            self.rope.append(Rope::from("\n"));
+            eoff = self.len_offset();
         }
 
         let start = self.offset_to_cursor(coff);
@@ -1078,6 +1126,12 @@ impl EditRope {
         let default = start.clone();
 
         return (CursorChoice::Range(start, end, default), adjs);
+    }
+
+    fn _insert_at(&mut self, off: usize, rope: Rope) {
+        let tail = self.rope.split_off(off);
+        self.rope.append(rope);
+        self.rope.append(tail);
     }
 
     fn _insert(
@@ -1099,10 +1153,11 @@ impl EditRope {
 
         match style {
             InsertStyle::Replace => {
-                self.rope.edit(ioff.0..ioff.0 + tlen, text.rope);
+                self.rope.remove(ioff.0..ioff.0 + tlen);
+                self._insert_at(ioff.0, text.rope);
             },
             InsertStyle::Insert => {
-                self.rope.edit(ioff.0..ioff.0, text.rope);
+                self._insert_at(ioff.0, text.rope);
             },
         }
 
@@ -1138,11 +1193,9 @@ impl EditRope {
         }
 
         let start = self.offset_to_cursor(ioff);
-        let end = self.offset_to_cursor(ByteOff(ioff.0 + tlen));
+        let end = self.offset_to_cursor(CharOff(ioff.0 + tlen));
 
-        let noff = self.offset_to_u16(insend);
-        let noff = noff.0.saturating_sub(1).saturating_add(co);
-        let noff = self.u16_to_offset(U16Off(noff));
+        let noff = insend.0.saturating_sub(1).saturating_add(co).into();
         let default = self.offset_to_cursor(noff);
 
         return (CursorChoice::Range(start, end, default), adjs);
@@ -1206,15 +1259,14 @@ impl EditRope {
 
     /// Mutably force this rope to contain a trailing newline if it doesn't already.
     pub fn trailing_newline(&mut self) {
-        let len = self.rope.len();
+        let len = self.rope.len_chars();
         let end = len.saturating_sub(1);
-        let s = self.rope.slice(end..).to_string();
-        match s.as_str() {
-            "\n" => return,
-            _ => {
-                self.rope.edit(len..len, "\n");
-            },
+
+        if let Some('\n') = self.rope.get_char(end) {
+            return;
         }
+
+        self.rope.insert_char(len, '\n');
     }
 
     /// Returns the character (if it exists) at a given cursor position.
@@ -1265,7 +1317,7 @@ impl EditRope {
     }
 
     /// Returns true if the inclusive range of bytes contains only whitespace characters.
-    pub fn is_blank_range(&self, start: ByteOff, end: ByteOff) -> bool {
+    pub fn is_blank_range(&self, start: CharOff, end: CharOff) -> bool {
         for c in self.chars_until(start, end) {
             if !c.is_ascii_whitespace() {
                 return false;
@@ -1275,102 +1327,92 @@ impl EditRope {
         return true;
     }
 
-    /// Return the length in bytes as a [ByteOff].
-    pub fn len_offset(&self) -> ByteOff {
-        ByteOff(self.len())
+    /// Return the length in number of characters as a [CharOff].
+    pub fn len_offset(&self) -> CharOff {
+        CharOff(self.len())
     }
 
-    /// Return the length in bytes.
+    /// Return the length in number of characters.
     pub fn len(&self) -> usize {
-        self.rope.len()
+        self.rope.len_chars()
     }
 
     /// Return the number of lines in this rope.
     pub fn get_lines(&self) -> usize {
-        self.rope.measure::<LinesMetric>()
+        self.rope.len_lines().saturating_sub(1)
+    }
+
+    /// Get the character offset of the start of the following line.
+    pub fn line_after(&self, line: usize) -> Option<CharOff> {
+        let len = self.rope.len_lines();
+        let max = len.saturating_sub(1);
+
+        if line < max {
+            self.offset_of_line(line + 1).into()
+        } else {
+            None
+        }
     }
 
     /// Return the number of columns on the given line.
     pub fn get_columns(&self, line: usize) -> usize {
         let lbeg_off = self.offset_of_line(line);
-        let lbeg_u16 = self.offset_to_u16(lbeg_off);
 
-        let mut rc = self.offset_to_rc(lbeg_off);
-
-        match rc.next::<LinesMetric>() {
-            Some(lend_off) => {
-                let lend_off = ByteOff(lend_off);
-                let lend_u16 = self.offset_to_u16(lend_off);
-
-                return lend_u16.0.saturating_sub(lbeg_u16.0).saturating_sub(1);
-            },
-            None => {
-                let lend_off = ByteOff(self.rope.len());
-                let lend_u16 = self.offset_to_u16(lend_off);
-
-                return lend_u16.0.saturating_sub(lbeg_u16.0);
-            },
+        if let Some(lend_off) = self.line_after(line) {
+            return (lend_off - lbeg_off).0.saturating_sub(1);
+        } else {
+            return self.len() - lbeg_off.0;
         }
     }
 
-    pub(crate) fn lines(&self, line: usize) -> xi_rope::rope::Lines {
-        let off = self.offset_of_line(line).0;
-
-        self.rope.lines(off..)
+    pub(crate) fn lines(&self, line: usize) -> LineIterator {
+        self.lines_at(line, 0)
     }
 
-    pub(crate) fn lines_at(&self, line: usize, column: usize) -> xi_rope::rope::Lines {
+    pub(crate) fn lines_at(&self, line: usize, column: usize) -> LineIterator {
+        let len = self.rope.len_chars();
+        let max = len.saturating_sub(1);
         let off = self.lincol_to_offset(line, column).0;
 
-        self.rope.lines(off..)
+        let slice = if let Some('\n') = self.rope.get_char(max) {
+            self.rope.slice(off..max)
+        } else {
+            self.rope.slice(off..)
+        };
+
+        LineIterator { iter: slice.lines() }
     }
 
-    /// Return the line number of the given byte offset.
-    pub fn line_of_offset(&self, off: ByteOff) -> usize {
-        self.rope.line_of_offset(off.0)
+    /// Return the line number of the given character offset.
+    pub fn line_of_offset(&self, off: CharOff) -> usize {
+        self.rope.char_to_line(off.0)
     }
 
-    /// Return the byte offset of the start of a given line.
-    pub fn offset_of_line(&self, line: usize) -> ByteOff {
-        ByteOff(self.rope.offset_of_line(line))
+    /// Return the character offset of the start of a given line.
+    pub fn offset_of_line(&self, line: usize) -> CharOff {
+        CharOff(self.rope.line_to_char(line))
     }
 
     /// Convert a byte offset to a [Cursor].
-    pub fn offset_to_cursor<'a>(&self, off: ByteOff) -> Cursor {
+    pub fn offset_to_cursor<'a>(&self, off: CharOff) -> Cursor {
         let off = off.min(self.last_offset());
 
         let line = self.line_of_offset(off);
         let loff = self.offset_of_line(line);
-        let lu16 = self.offset_to_u16(loff);
-        let off_u16 = self.offset_to_u16(off);
 
-        Cursor::new(line, off_u16.0 - lu16.0)
+        Cursor::new(line, off.0 - loff.0)
     }
 
-    fn offset_to_rc<'a>(&self, off: ByteOff) -> RopeCursor<'_, RopeInfo> {
-        RopeCursor::new(&self.rope, off.0)
+    fn offset_to_rc<'a>(&'a self, off: CharOff) -> RopeCursor<'a> {
+        RopeCursor::new(self, off.0)
     }
 
-    fn offset_to_u16(&self, off: ByteOff) -> U16Off {
-        U16Off(self.rope.count::<Utf16CodeUnitsMetric>(off.0))
-    }
-
-    fn lincol_to_u16(&self, line: usize, col: usize) -> U16Off {
-        let linoff = self.offset_of_line(line);
-
-        U16Off(self.offset_to_u16(linoff).0 + col)
-    }
-
-    fn u16_to_offset(&self, U16Off(u16off): U16Off) -> ByteOff {
-        ByteOff(self.rope.count_base_units::<Utf16CodeUnitsMetric>(u16off))
-    }
-
-    fn lincol_to_offset(&self, line: usize, col: usize) -> ByteOff {
-        self.u16_to_offset(self.lincol_to_u16(line, col))
+    fn lincol_to_offset(&self, line: usize, col: usize) -> CharOff {
+        self.offset_of_line(line) + CharOff(col)
     }
 
     /// Convert a cursor to a byte offset.
-    pub fn cursor_to_offset(&self, cursor: &Cursor) -> ByteOff {
+    pub fn cursor_to_offset(&self, cursor: &Cursor) -> CharOff {
         self.lincol_to_offset(cursor.y, cursor.x)
     }
 
@@ -1379,9 +1421,9 @@ impl EditRope {
         Cursor::new(0, 0)
     }
 
-    /// Return the last byte offset in the rope.
-    pub fn last_offset(&self) -> ByteOff {
-        ByteOff(self.rope.len().saturating_sub(1))
+    /// Return the last character offset in the rope.
+    pub fn last_offset(&self) -> CharOff {
+        CharOff(self.rope.len_chars().saturating_sub(1))
     }
 
     /// Return a cursor located at the last character in the rope.
@@ -1392,9 +1434,11 @@ impl EditRope {
     /// Compare this rope with a new version, and return a vector of adjustments needed to fix
     /// cursors and marks when moving to the new version.
     pub fn diff(&self, other: &EditRope) -> Vec<CursorAdjustment> {
-        let delta = LineHashDiff::compute_delta(&self.rope, &other.rope);
+        use diff::{compute_delta, DeltaElement};
+
+        let delta = compute_delta(&self.rope, &other.rope);
         let mut adjs = Vec::new();
-        let mut last = ByteOff(0);
+        let mut last = CharOff(0);
         let mut inserted = 0;
 
         for el in delta.els.into_iter() {
@@ -1405,8 +1449,8 @@ impl EditRope {
                      * the other rope. Gaps between the offsets are therefore deletions, and we
                      * need to adjust later lines and anything following removed columns.
                      */
-                    let start = ByteOff(start);
-                    let end = ByteOff(end);
+                    let start = CharOff(start);
+                    let end = CharOff(end);
 
                     if start == last {
                         last = end;
@@ -1417,14 +1461,11 @@ impl EditRope {
                     let sline = self.line_of_offset(start);
 
                     if clast.y == sline {
-                        let lu16 = self.offset_to_u16(last);
-                        let su16 = self.offset_to_u16(start);
-
                         adjs.push(CursorAdjustment::Column {
                             line: clast.y + inserted,
                             column_start: clast.x,
                             amt_line: 0,
-                            amt_col: -(su16.0 as isize - lu16.0 as isize),
+                            amt_col: -(start.0 as isize - last.0 as isize),
                         });
                     } else {
                         adjs.push(CursorAdjustment::Column {
@@ -1446,11 +1487,11 @@ impl EditRope {
                     last = end;
                 },
                 DeltaElement::Insert(node) => {
-                    let nlines = node.measure::<LinesMetric>();
+                    let nlines = node.len_lines().saturating_sub(1);
 
                     if nlines == 0 {
                         let clast = self.offset_to_cursor(last);
-                        let added = node.measure::<Utf16CodeUnitsMetric>();
+                        let added = node.len_chars();
 
                         adjs.push(CursorAdjustment::Column {
                             line: clast.y + inserted,
@@ -1612,14 +1653,13 @@ impl EditRope {
         motion: bool,
     ) -> Option<BoundaryTestIterator> {
         let off = self.cursor_to_offset(&nc);
-        let off_u16 = self.offset_to_u16(off);
 
-        let boff = self.u16_to_offset(U16Off(off_u16.0.saturating_sub(1)));
-        let aoff = self.u16_to_offset(U16Off(off_u16.0.saturating_add(1)));
+        let boff = off.0.saturating_sub(1).into();
+        let aoff = off.0.saturating_add(1).into();
 
         let (chars, skip_first) = match dir {
             MoveDir1D::Next => {
-                if off_u16.0 > 0 {
+                if off.0 > 0 {
                     (self.chars(boff), true)
                 } else {
                     (self.chars(off), false)
@@ -1629,9 +1669,9 @@ impl EditRope {
                 let last = self.last_offset();
 
                 if aoff > last {
-                    (self.chars_until(ByteOff(0), last), false)
+                    (self.chars_until(CharOff(0), last), false)
                 } else {
-                    (self.chars_until(ByteOff(0), aoff), true)
+                    (self.chars_until(CharOff(0), aoff), true)
                 }
             },
         };
@@ -1686,18 +1726,18 @@ impl EditRope {
         Some(cursor)
     }
 
-    fn find_quote_start<'a>(&self, rc: &mut RopeCursor<'_, RopeInfo>, quote: char) -> Option<()> {
+    fn find_quote_start<'a>(&self, rc: &mut RopeCursor<'a>, quote: char) -> Option<()> {
         loop {
-            rc.prev::<BaseMetric>();
+            rc.prev();
 
-            match rc.peek_next_codepoint()? {
+            match rc.peek()? {
                 c if c == quote => {
                     // Make sure the quote isn't preceded by an escape.
                     let off = rc.pos();
 
-                    rc.prev::<BaseMetric>();
+                    rc.prev();
 
-                    match rc.peek_next_codepoint() {
+                    match rc.peek() {
                         Some('\\') | None => {
                             continue;
                         },
@@ -1716,17 +1756,17 @@ impl EditRope {
         }
     }
 
-    fn find_quote_end<'a>(&self, rc: &mut RopeCursor<'_, RopeInfo>, quote: char) -> Option<()> {
+    fn find_quote_end<'a>(&self, rc: &mut RopeCursor<'a>, quote: char) -> Option<()> {
         loop {
-            rc.next::<BaseMetric>();
+            rc.next();
 
-            match rc.peek_next_codepoint()? {
+            match rc.peek()? {
                 c if c == quote => {
                     return Some(());
                 },
                 '\\' => {
                     // Skip next character.
-                    rc.next::<BaseMetric>();
+                    rc.next();
                 },
                 _ => {
                     continue;
@@ -1737,7 +1777,7 @@ impl EditRope {
 
     fn find_match<'a>(
         &self,
-        rc: RopeCursor<'_, RopeInfo>,
+        rc: RopeCursor<'a>,
         close: char,
         open: char,
         dir: MoveDir1D,
@@ -1747,14 +1787,16 @@ impl EditRope {
 
     fn find_bracket<'a>(
         &self,
-        mut rc: RopeCursor<'_, RopeInfo>,
+        mut rc: RopeCursor<'a>,
         close: char,
         open: char,
         dir: MoveDir1D,
         mut count: usize,
     ) -> Option<Cursor> {
         while count != 0 {
-            match move_cursor(&mut rc, &dir)? {
+            rc.offset(dir);
+
+            match rc.peek()? {
                 c if c == open => {
                     count += 1;
                 },
@@ -1777,7 +1819,7 @@ impl EditRope {
             }
         }
 
-        return cursor_from_rc(&rc).into();
+        return rc.to_cursor().into();
     }
 
     fn find_bracketed(
@@ -1793,7 +1835,7 @@ impl EditRope {
         let rcr = self.offset_to_rc(off);
 
         // Account for any bracket underneath the starting position.
-        let c = rcl.peek_next_codepoint()?;
+        let c = rcl.peek()?;
 
         let (lcount, rcount) = if c == left {
             (count.saturating_sub(1), count)
@@ -1824,7 +1866,7 @@ impl EditRope {
         let off = self.cursor_to_offset(nc);
         let mut rc = self.offset_to_rc(off);
 
-        while let Some(c) = rc.peek_next_codepoint() {
+        while let Some(c) = rc.peek() {
             match c {
                 '(' => {
                     return self.find_match(rc, ')', '(', MoveDir1D::Next);
@@ -1848,7 +1890,7 @@ impl EditRope {
                     return None;
                 },
                 _ => {
-                    rc.next::<BaseMetric>();
+                    rc.next();
                     continue;
                 },
             }
@@ -1861,40 +1903,40 @@ impl EditRope {
         let off = self.cursor_to_offset(nc);
         let mut rc = self.offset_to_rc(off);
 
-        while let Some(c) = rc.peek_next_codepoint() {
+        while let Some(c) = rc.peek() {
             let (start, end) = match c {
                 '(' => {
-                    let start = cursor_from_rc(&rc);
+                    let start = rc.to_cursor();
                     let end = self.find_match(rc, ')', '(', MoveDir1D::Next)?;
 
                     (start, end)
                 },
                 ')' => {
-                    let end = cursor_from_rc(&rc);
+                    let end = rc.to_cursor();
                     let start = self.find_match(rc, '(', ')', MoveDir1D::Previous)?;
 
                     (start, end)
                 },
                 '[' => {
-                    let start = cursor_from_rc(&rc);
+                    let start = rc.to_cursor();
                     let end = self.find_match(rc, ']', '[', MoveDir1D::Next)?;
 
                     (start, end)
                 },
                 ']' => {
-                    let end = cursor_from_rc(&rc);
+                    let end = rc.to_cursor();
                     let start = self.find_match(rc, '[', ']', MoveDir1D::Previous)?;
 
                     (start, end)
                 },
                 '{' => {
-                    let start = cursor_from_rc(&rc);
+                    let start = rc.to_cursor();
                     let end = self.find_match(rc, '}', '{', MoveDir1D::Next)?;
 
                     (start, end)
                 },
                 '}' => {
-                    let end = cursor_from_rc(&rc);
+                    let end = rc.to_cursor();
                     let start = self.find_match(rc, '{', '}', MoveDir1D::Previous)?;
 
                     (start, end)
@@ -1903,7 +1945,7 @@ impl EditRope {
                     return None;
                 },
                 _ => {
-                    rc.next::<BaseMetric>();
+                    rc.next();
                     continue;
                 },
             };
@@ -1925,7 +1967,7 @@ impl EditRope {
         let mut rcr = self.offset_to_rc(off);
 
         // Check if the cursor is already on the quote mark.
-        if rcl.peek_next_codepoint()? == quote {
+        if rcl.peek()? == quote {
             // XXX: implement
             return None;
         } else {
@@ -1933,8 +1975,8 @@ impl EditRope {
             self.find_quote_end(&mut rcr, quote)?;
         }
 
-        let mut start = cursor_from_rc(&rcl);
-        let mut end = cursor_from_rc(&rcr);
+        let mut start = rcl.to_cursor();
+        let mut end = rcr.to_cursor();
 
         if !inclusive {
             start.right(1);
@@ -1952,7 +1994,7 @@ impl EditRope {
         obj: &O,
         terminus: MoveTerminus,
         mut bti: BoundaryTestIterator<'a>,
-    ) -> Option<ByteOff> {
+    ) -> Option<CharOff> {
         let mut res = None;
 
         while bti.ctx.count > 0 {
@@ -1996,22 +2038,22 @@ impl EditRope {
     }
 
     /// Returns an iterator over the newlines within this rope following `offset`.
-    pub fn newlines(&self, offset: ByteOff) -> NewlineIterator {
+    pub fn newlines(&self, offset: CharOff) -> NewlineIterator {
         let rc = self.offset_to_rc(offset);
 
         NewlineIterator { rc }
     }
 
     /// Returns an iterator over the characters within this rope following `position`.
-    pub fn chars(&self, ByteOff(pos): ByteOff) -> CharacterIterator {
+    pub fn chars(&self, pos: CharOff) -> CharacterIterator {
         let end = self.last_offset().0;
 
-        CharacterIterator::new(&self.rope, pos, end)
+        CharacterIterator::new(self, pos.0, end)
     }
 
     /// Returns an iterator over the characters within this rope following `position`.
-    pub fn chars_until(&self, ByteOff(pos): ByteOff, ByteOff(end): ByteOff) -> CharacterIterator {
-        CharacterIterator::new(&self.rope, pos, end)
+    pub fn chars_until(&self, pos: CharOff, end: CharOff) -> CharacterIterator {
+        CharacterIterator::new(self, pos.0, end.0)
     }
 
     /// Returns the [word](WordStyle) underneath the [Cursor], and updates it to point at the
@@ -2046,17 +2088,16 @@ impl EditRope {
 impl Add for EditRope {
     type Output = Self;
 
-    fn add(self, rhs: Self) -> Self {
-        let rope = self.rope + rhs.rope;
+    fn add(mut self, rhs: Self) -> Self {
+        self.rope.append(rhs.rope);
 
-        EditRope { rope }
+        return self;
     }
 }
 
 impl AddAssign for EditRope {
     fn add_assign(&mut self, rhs: EditRope) {
-        let rope = self.rope.slice(..) + rhs.rope;
-        self.rope = rope;
+        self.rope.append(rhs.rope);
     }
 }
 
@@ -2086,8 +2127,7 @@ impl PartialEq for EditRope {
             return false;
         }
 
-        let mut scanner = xi_rope::compare::RopeScanner::new(&self.rope, &other.rope);
-        return scanner.find_ne_char(0, 0, None) == len;
+        return self.rope.eq(&other.rope);
     }
 }
 
@@ -2126,9 +2166,11 @@ impl<C: EditContext> CursorMovements<Cursor, C> for EditRope {
         match (movement, ctx.context.resolve(count)) {
             // buffer position movements
             (MoveType::BufferByteOffset, off) => {
-                let off = ByteOff(off.saturating_sub(1));
+                let bmax = self.rope.len_bytes().saturating_sub(1);
+                let boff = off.saturating_sub(1).min(bmax);
+                let coff = self.rope.byte_to_char(boff);
 
-                nc = self.offset_to_cursor(off);
+                nc = self.offset_to_cursor(coff.into());
 
                 PrivateCursorOps::clamp(&mut nc, cctx);
             },
@@ -2455,18 +2497,20 @@ impl CursorSearch<Cursor> for EditRope {
         let mut haystack = self.offset_to_rc(off);
         if !inclusive {
             // Move so we ignore any adjacent, matching character.
-            let _ = move_cursor(&mut haystack, &dir);
+            let _ = haystack.offset(dir);
         }
 
         // Count occurrences of the character until we reach our goal.
         while count > 0 {
-            match move_cursor(&mut haystack, &dir) {
+            haystack.offset(dir);
+
+            match haystack.peek() {
                 None => return None,
                 Some('\n') if !multiline => return None,
                 Some(c) => {
                     if needle == c {
                         count -= 1;
-                        nc = cursor_from_rc(&haystack);
+                        nc = haystack.to_cursor();
                     }
                 },
             }
@@ -2521,6 +2565,13 @@ mod tests {
     }
 
     #[test]
+    fn test_max_line_idx() {
+        let r = EditRope::from("a\nbc\n\ndefg\nhijkl\n");
+
+        assert_eq!(r.max_line_idx(), 4);
+    }
+
+    #[test]
     fn test_get_line_columns() {
         let r = EditRope::from("a\nbc\n\ndefg\nhijkl\n");
 
@@ -2534,6 +2585,24 @@ mod tests {
         let r = EditRope::from("a b c");
 
         assert_eq!(r.get_columns(0), 5);
+
+        // 2-byte characters.
+        let r = EditRope::from("ЊЊЊ\nߚߚߚߚ\n");
+
+        assert_eq!(r.get_columns(0), 3);
+        assert_eq!(r.get_columns(1), 4);
+
+        // 3-byte characters.
+        let r = EditRope::from("∀∀∀∀∀\nლლლ\n");
+
+        assert_eq!(r.get_columns(0), 5);
+        assert_eq!(r.get_columns(1), 3);
+
+        // 4-byte characters.
+        let r = EditRope::from("𐍉𐍉𐍉𐍉\n𐎮𐎮𐎮𐎮𐎮\n");
+
+        assert_eq!(r.get_columns(0), 4);
+        assert_eq!(r.get_columns(1), 5);
     }
 
     #[test]
@@ -2571,6 +2640,52 @@ mod tests {
         assert_eq!(r.is_blank_range(1.into(), 1.into()), true);
         assert_eq!(r.is_blank_range(5.into(), 6.into()), true);
         assert_eq!(r.is_blank_range(12.into(), 21.into()), true);
+    }
+
+    #[test]
+    fn test_line_after() {
+        let r = EditRope::from("a b c\nd e f\n");
+
+        assert_eq!(r.line_after(0), Some(6.into()));
+        assert_eq!(r.line_after(1), Some(12.into()));
+
+        let r = EditRope::from("\n\na b c\nd e f\n");
+
+        assert_eq!(r.line_after(0), Some(1.into()));
+        assert_eq!(r.line_after(1), Some(2.into()));
+        assert_eq!(r.line_after(2), Some(8.into()));
+        assert_eq!(r.line_after(3), Some(14.into()));
+        assert_eq!(r.line_after(4), None);
+    }
+
+    #[test]
+    fn test_lines_at_iter() {
+        let r = EditRope::from("a b c d e f\ng h i j k l\n\nm n o p\n");
+
+        let mut iter = r.lines(0);
+        assert_eq!(iter.next().unwrap(), "a b c d e f");
+        assert_eq!(iter.next().unwrap(), "g h i j k l");
+        assert_eq!(iter.next().unwrap(), "");
+        assert_eq!(iter.next().unwrap(), "m n o p");
+        assert_eq!(iter.next(), None);
+
+        let mut iter = r.lines(2);
+        assert_eq!(iter.next().unwrap(), "");
+        assert_eq!(iter.next().unwrap(), "m n o p");
+        assert_eq!(iter.next(), None);
+
+        let mut iter = r.lines_at(0, 4);
+        assert_eq!(iter.next().unwrap(), "c d e f");
+        assert_eq!(iter.next().unwrap(), "g h i j k l");
+        assert_eq!(iter.next().unwrap(), "");
+        assert_eq!(iter.next().unwrap(), "m n o p");
+        assert_eq!(iter.next(), None);
+
+        let mut iter = r.lines_at(1, 6);
+        assert_eq!(iter.next().unwrap(), "j k l");
+        assert_eq!(iter.next().unwrap(), "");
+        assert_eq!(iter.next().unwrap(), "m n o p");
+        assert_eq!(iter.next(), None);
     }
 
     #[test]
@@ -2765,20 +2880,48 @@ mod tests {
     }
 
     #[test]
+    fn test_trailing_newline() {
+        // Empty rope.
+        let mut r = EditRope::from("");
+        r.trailing_newline();
+        assert_eq!(r.to_string(), "\n");
+
+        // Rope that doesn't contain any newlines.
+        let mut r = EditRope::from("foo");
+        r.trailing_newline();
+        assert_eq!(r.to_string(), "foo\n");
+
+        // Rope w/ newlines, but not at end.
+        let mut r = EditRope::from("foo\nbar");
+        r.trailing_newline();
+        assert_eq!(r.to_string(), "foo\nbar\n");
+
+        // Rope w/ newline at end.
+        let mut r = EditRope::from("foo\nbar\n");
+        r.trailing_newline();
+        assert_eq!(r.to_string(), "foo\nbar\n");
+
+        // Multibyte character.
+        let mut r = EditRope::from("𐎮");
+        r.trailing_newline();
+        assert_eq!(r.to_string(), "𐎮\n");
+    }
+
+    #[test]
     fn test_offset_to_cursor() {
         let rope = EditRope::from("a b c\nd e f\ng h i\n");
 
-        assert_eq!(rope.offset_to_cursor(ByteOff(0)), Cursor::new(0, 0));
-        assert_eq!(rope.offset_to_cursor(ByteOff(2)), Cursor::new(0, 2));
-        assert_eq!(rope.offset_to_cursor(ByteOff(5)), Cursor::new(0, 5));
+        assert_eq!(rope.offset_to_cursor(0.into()), Cursor::new(0, 0));
+        assert_eq!(rope.offset_to_cursor(2.into()), Cursor::new(0, 2));
+        assert_eq!(rope.offset_to_cursor(5.into()), Cursor::new(0, 5));
 
-        assert_eq!(rope.offset_to_cursor(ByteOff(6)), Cursor::new(1, 0));
-        assert_eq!(rope.offset_to_cursor(ByteOff(8)), Cursor::new(1, 2));
-        assert_eq!(rope.offset_to_cursor(ByteOff(11)), Cursor::new(1, 5));
+        assert_eq!(rope.offset_to_cursor(6.into()), Cursor::new(1, 0));
+        assert_eq!(rope.offset_to_cursor(8.into()), Cursor::new(1, 2));
+        assert_eq!(rope.offset_to_cursor(11.into()), Cursor::new(1, 5));
 
-        assert_eq!(rope.offset_to_cursor(ByteOff(12)), Cursor::new(2, 0));
-        assert_eq!(rope.offset_to_cursor(ByteOff(14)), Cursor::new(2, 2));
-        assert_eq!(rope.offset_to_cursor(ByteOff(17)), Cursor::new(2, 5));
+        assert_eq!(rope.offset_to_cursor(12.into()), Cursor::new(2, 0));
+        assert_eq!(rope.offset_to_cursor(14.into()), Cursor::new(2, 2));
+        assert_eq!(rope.offset_to_cursor(17.into()), Cursor::new(2, 5));
     }
 
     #[test]
@@ -2786,17 +2929,17 @@ mod tests {
         let rope = EditRope::from("a b c\nd e f\ng h i\n");
 
         // All characters in first line are on line 0.
-        assert_eq!(rope.line_of_offset(ByteOff(0)), 0);
-        assert_eq!(rope.line_of_offset(ByteOff(1)), 0);
-        assert_eq!(rope.line_of_offset(ByteOff(2)), 0);
-        assert_eq!(rope.line_of_offset(ByteOff(3)), 0);
-        assert_eq!(rope.line_of_offset(ByteOff(4)), 0);
+        assert_eq!(rope.line_of_offset(0.into()), 0);
+        assert_eq!(rope.line_of_offset(1.into()), 0);
+        assert_eq!(rope.line_of_offset(2.into()), 0);
+        assert_eq!(rope.line_of_offset(3.into()), 0);
+        assert_eq!(rope.line_of_offset(4.into()), 0);
 
         // Newline character is counted as the line that it ends.
-        assert_eq!(rope.line_of_offset(ByteOff(5)), 0);
+        assert_eq!(rope.line_of_offset(5.into()), 0);
 
         // First character after newline is on the next line (line 1).
-        assert_eq!(rope.line_of_offset(ByteOff(6)), 1);
+        assert_eq!(rope.line_of_offset(6.into()), 1);
     }
 
     #[test]
@@ -2948,6 +3091,10 @@ mod tests {
 
     #[test]
     fn test_rope_first_last() {
+        let rope = EditRope::from("");
+        assert_eq!(rope.first(), Cursor::new(0, 0));
+        assert_eq!(rope.last(), Cursor::new(0, 0));
+
         let rope = EditRope::from("a b c");
         assert_eq!(rope.first(), Cursor::new(0, 0));
         assert_eq!(rope.last(), Cursor::new(0, 4));
@@ -2959,6 +3106,10 @@ mod tests {
         let rope = EditRope::from("a\nb\nc\n");
         assert_eq!(rope.first(), Cursor::new(0, 0));
         assert_eq!(rope.last(), Cursor::new(2, 1));
+
+        let rope = EditRope::from("𐎮𐎮𐎮𐎮");
+        assert_eq!(rope.first(), Cursor::new(0, 0));
+        assert_eq!(rope.last(), Cursor::new(0, 3));
     }
 
     #[test]
@@ -5046,8 +5197,8 @@ mod tests {
         let rope = EditRope::from("\u{00AB}a\u{00BB}\n");
 
         assert_eq!(rope.cursor_to_offset(&Cursor::new(0, 0)).0, 0);
-        assert_eq!(rope.cursor_to_offset(&Cursor::new(0, 1)).0, 2);
-        assert_eq!(rope.cursor_to_offset(&Cursor::new(0, 2)).0, 3);
+        assert_eq!(rope.cursor_to_offset(&Cursor::new(0, 1)).0, 1);
+        assert_eq!(rope.cursor_to_offset(&Cursor::new(0, 2)).0, 2);
     }
 
     #[test]

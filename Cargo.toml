@@ -22,12 +22,12 @@ thiserror = "^1.0.37"
 crossterm = "0.25"
 libc = "0.2"
 tui = { version = "0.18", optional = true }
-xi-rope = "0.3.0"
 intervaltree = { version = "0.2.6", optional = true }
 bitflags = "1.2"
 lazy_static = "1.4.0"
 nom = "7.0.0"
 regex = "1.5.4"
+ropey = "1.5.0"
 
 [dev-dependencies]
 rand = "0.8.4"

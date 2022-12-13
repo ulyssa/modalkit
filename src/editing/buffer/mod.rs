@@ -74,7 +74,7 @@ use crate::editing::{
     },
     history::HistoryList,
     lineinfo::LineInfoStore,
-    rope::{ByteOff, CursorContext, EditRope, PrivateCursorOps},
+    rope::{CharOff, CursorContext, EditRope, LineIterator, PrivateCursorOps},
     store::{AdjustStore, DigraphStore, GlobalAdjustable, SharedBuffer, Store},
 };
 
@@ -497,7 +497,7 @@ where
         &self,
         range: &CursorRange,
         forced: Option<TargetShape>,
-    ) -> (TargetShape, Vec<(ByteOff, ByteOff, bool)>) {
+    ) -> (TargetShape, Vec<(CharOff, CharOff, bool)>) {
         match forced.unwrap_or(range.shape) {
             TargetShape::CharWise => {
                 let start = self.text.cursor_to_offset(&range.start);
@@ -509,8 +509,7 @@ where
             TargetShape::LineWise => {
                 let start = self.text.offset_of_line(range.start.y);
                 let end = self.text.offset_of_line(range.end.y);
-                let mut iter = self.text.newlines(end);
-                let ranges = match iter.next() {
+                let ranges = match self.text.newlines(end).next() {
                     Some(end) => {
                         vec![(start, end, true)]
                     },
@@ -888,11 +887,11 @@ where
         CursorGroupId(self.cgidgen.next())
     }
 
-    pub(crate) fn lines(&self, line: usize) -> xi_rope::rope::Lines {
+    pub(crate) fn lines(&self, line: usize) -> LineIterator<'_> {
         self.get().lines(line)
     }
 
-    pub(crate) fn lines_at(&self, line: usize, column: usize) -> xi_rope::rope::Lines {
+    pub(crate) fn lines_at(&self, line: usize, column: usize) -> LineIterator<'_> {
         self.get().lines_at(line, column)
     }
 
@@ -1893,9 +1892,6 @@ mod tests {
         let count = ebuf.jump(jl, next, 1, ctx!(gid, vwctx, vctx)).unwrap();
         assert_eq!(count, 1);
         assert_eq!(ebuf.get_leader(gid), Cursor::new(3, 1));
-
-        println!("{}", ebuf.jumped.get(gid).unwrap().past_len());
-        println!("{}", ebuf.jumped.get(gid).unwrap().future_len());
 
         // Move back twice in the jumplist.
         let count = ebuf.jump(jl, prev, 2, ctx!(gid, vwctx, vctx)).unwrap();
