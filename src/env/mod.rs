@@ -199,3 +199,14 @@ impl CharacterContext {
         self.any.as_ref().map(ToString::to_string)
     }
 }
+
+/// Configure an [InputBindings] instance so that it's suitable for shell-like contexts.
+///
+/// For example, the Enter key usually types a newline when inserting text, but would be expected
+/// to instead submit text in a shell context.
+///
+/// [InputBindings]: crate::input::bindings::InputBindings
+pub trait ShellBindings {
+    /// Configure bindings so that they can used in a shell-like context.
+    fn shell(self) -> Self;
+}

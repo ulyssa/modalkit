@@ -60,7 +60,7 @@ use crate::editing::{
 };
 
 use super::{
-    super::{keyparse::parse, CommonKeyClass},
+    super::{keyparse::parse, CommonKeyClass, ShellBindings},
     EmacsContext,
     EmacsMode,
 };
@@ -309,6 +309,15 @@ macro_rules! is {
     };
 }
 
+macro_rules! blackhole {
+    ($act: expr) => {
+        is!(InternalAction::SetRegister(Register::Blackhole), $act)
+    };
+    ($act: expr, $nm: expr) => {
+        is!(InternalAction::SetRegister(Register::Blackhole), $act, $nm)
+    };
+}
+
 macro_rules! motion {
     ($mt: expr) => {
         is!(
@@ -360,27 +369,6 @@ macro_rules! kill {
     };
     ($mt: expr, $c: expr) => {
         edit!(EditAction::Delete, $mt, $c)
-    };
-}
-
-macro_rules! erase_target {
-    ($et: expr) => {
-        is!(
-            InternalAction::SetRegister(Register::Blackhole),
-            EditorAction::Edit(EditAction::Delete.into(), $et)
-        )
-    };
-}
-
-macro_rules! erase {
-    ($mt: expr) => {
-        erase_target!(EditTarget::Motion($mt, Count::Contextual))
-    };
-}
-
-macro_rules! erase_range {
-    ($rt: expr) => {
-        erase_target!(EditTarget::Range($rt, true, Count::Contextual))
     };
 }
 
@@ -544,7 +532,7 @@ fn default_keys<I: ApplicationInfo>() -> Vec<(MappedModes, &'static str, InputSt
         // Insert mode keybindings.
         ( IMAP, "<C-G>", is!(InternalAction::ClearTargetShape(false), EditorAction::Edit(EditAction::Motion.into(), EditTarget::CurrentPosition), EmacsMode::Insert) ),
         ( IMAP, "<C-J>", chartype!(Char::Single('\n')) ),
-        ( IMAP, "<C-L>", scroll!(ScrollStyle::CursorPos(MovePosition::Middle, Axis::Vertical)) ),
+        ( IMAP, "<C-L>", scrollcp!(MovePosition::Middle, Axis::Vertical) ),
         ( IMAP, "<C-N>", motion!(MoveType::Line(MoveDir1D::Next)) ),
         ( IMAP, "<C-O>", insert_text!(InsertTextAction::OpenLine(TargetShape::CharWise, MoveDir1D::Previous, Count::Contextual)) ),
         ( IMAP, "<C-P>", motion!(MoveType::Line(MoveDir1D::Previous)) ),
@@ -683,7 +671,7 @@ fn add_mapping<I: ApplicationInfo>(
     keys: &str,
     action: &InputStep<I>,
 ) {
-    let (_, evs) = parse(keys).expect(&format!("invalid vim keybinding: {}", keys));
+    let (_, evs) = parse(keys).expect(&format!("invalid Emacs keybinding: {}", keys));
     let modes = modes.split();
 
     for mode in modes {
@@ -704,6 +692,12 @@ impl<I: ApplicationInfo> EmacsBindings<I> {
     pub fn submit_on_enter(mut self) -> Self {
         self.enter = submit_on_enter();
         self
+    }
+}
+
+impl<I: ApplicationInfo> ShellBindings for EmacsBindings<I> {
+    fn shell(self) -> Self {
+        self.submit_on_enter()
     }
 }
 

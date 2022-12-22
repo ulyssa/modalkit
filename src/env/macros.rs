@@ -1,3 +1,12 @@
+//! # Common keybinding macros
+//!
+//! This private module contains convenience macros for helping to define actions to take for
+//! different keybindings. Consumers are expected to define the following macros themselves:
+//!
+//! - isv!()
+//! - act!()
+//! - blackhole!()
+//!
 macro_rules! unmapped {
     () => {
         isv!()
@@ -109,6 +118,12 @@ macro_rules! scroll {
     };
 }
 
+macro_rules! scrollcp {
+    ($p: expr, $axis: expr) => {
+        scroll!(ScrollStyle::CursorPos($p, $axis))
+    };
+}
+
 macro_rules! scroll2d {
     ($d: expr, $t: expr) => {
         scroll!(ScrollStyle::Direction2D($d, $t, Count::Contextual))
@@ -159,5 +174,35 @@ macro_rules! edit {
     };
     ($ea: expr, $mt: expr, $c: expr, $mode: expr) => {
         edit_target!($ea, EditTarget::Motion($mt, $c), $mode)
+    };
+}
+
+macro_rules! edit_selection {
+    ($ea: expr) => {
+        edit_target!($ea, EditTarget::Selection, Default::default())
+    };
+    ($ea: expr, $mode: expr) => {
+        edit_target!($ea, EditTarget::Selection, $mode)
+    };
+}
+
+macro_rules! erase_target {
+    ($et: expr) => {
+        blackhole!(EditorAction::Edit(EditAction::Delete.into(), $et))
+    };
+}
+
+macro_rules! erase {
+    ($mt: expr) => {
+        erase_target!(EditTarget::Motion($mt, Count::Contextual))
+    };
+    ($mt: expr, $c: literal) => {
+        erase_target!(EditTarget::Motion($mt, Count::Exact($c)))
+    };
+}
+
+macro_rules! erase_range {
+    ($rt: expr) => {
+        erase_target!(EditTarget::Range($rt, true, Count::Contextual))
     };
 }

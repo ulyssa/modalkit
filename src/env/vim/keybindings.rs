@@ -107,7 +107,7 @@ use crate::editing::{
 };
 
 use super::{
-    super::{keyparse::parse, CommonKeyClass},
+    super::{keyparse::parse, CommonKeyClass, ShellBindings},
     VimContext,
     VimMode,
 };
@@ -549,6 +549,9 @@ macro_rules! fallthrough {
 }
 
 macro_rules! shaped_filter {
+    ($f: expr, $shape: expr) => {
+        iact!(InternalAction::SetTargetShape($f, $shape))
+    };
     ($f: expr, $shape: expr, $act: expr) => {
         is!(InternalAction::SetTargetShape($f, $shape), $act)
     };
@@ -558,11 +561,23 @@ macro_rules! shaped_filter {
 }
 
 macro_rules! shaped {
+    ($shape: expr) => {
+        shaped_filter!(TargetShapeFilter::ALL, $shape)
+    };
     ($shape: expr, $act: expr) => {
         shaped_filter!(TargetShapeFilter::ALL, $shape, $act)
     };
     ($shape: expr, $act: expr, $nm: expr) => {
         shaped_filter!(TargetShapeFilter::ALL, $shape, $act, $nm)
+    };
+}
+
+macro_rules! blackhole {
+    ($act: expr) => {
+        is!(InternalAction::SetRegister(Register::Blackhole), $act)
+    };
+    ($act: expr, $nm: expr) => {
+        is!(InternalAction::SetRegister(Register::Blackhole), $act, $nm)
     };
 }
 
@@ -593,7 +608,7 @@ macro_rules! scrollcpv {
 
 macro_rules! scrollcph {
     ($p: expr) => {
-        scroll!(ScrollStyle::CursorPos($p, Axis::Horizontal))
+        scrollcp!($p, Axis::Horizontal)
     };
 }
 
@@ -720,15 +735,6 @@ macro_rules! charreplace_suffix {
             vec![ExternalAction::PostAction],
             VimMode::Normal
         )
-    };
-}
-
-macro_rules! edit_selection {
-    ($ea: expr) => {
-        edit_target!($ea, EditTarget::Selection, VimMode::Normal)
-    };
-    ($ea: expr, $mode: expr) => {
-        edit_target!($ea, EditTarget::Selection, $mode)
     };
 }
 
@@ -1068,15 +1074,6 @@ macro_rules! change_visual {
             ],
             VimMode::Insert
         )
-    };
-}
-
-macro_rules! shape {
-    ($shape: expr) => {
-        iact!(InternalAction::SetTargetShape(TargetShapeFilter::ALL, $shape))
-    };
-    ($shape: expr, $mode: expr) => {
-        iact!(InternalAction::SetTargetShape(TargetShapeFilter::ALL, $shape), $mode)
     };
 }
 
@@ -1647,7 +1644,7 @@ fn default_keys<I: ApplicationInfo>() -> Vec<(MappedModes, &'static str, InputSt
         ( SMAP, "<C-O>", fallthrough!(VimMode::Visual) ),
 
         // Insert, Command mode
-        ( ICMAP, "<C-H>", edit!(EditAction::Delete, MoveType::Column(MoveDir1D::Previous, true)) ),
+        ( ICMAP, "<C-H>", erase!(MoveType::Column(MoveDir1D::Previous, true)) ),
         ( ICMAP, "<C-K>", iact!(InternalAction::SetCursorChar('?')) ),
         ( ICMAP, "<C-K>{digraph1}", iact!(InternalAction::SetCursorDigraph) ),
         ( ICMAP, "<C-K>{digraph1}{digraph2}", chartype!() ),
@@ -1656,7 +1653,7 @@ fn default_keys<I: ApplicationInfo>() -> Vec<(MappedModes, &'static str, InputSt
         ( ICMAP, "<C-R><C-C>", normal!() ),
         ( ICMAP, "<C-R><C-O>{register}", unmapped!() ),
         ( ICMAP, "<C-R><C-R>{register}", unmapped!() ),
-        ( ICMAP, "<C-U>", edit!(EditAction::Delete,  MoveType::LinePos(MovePosition::Beginning), 0) ),
+        ( ICMAP, "<C-U>", erase!(MoveType::LinePos(MovePosition::Beginning), 0) ),
         ( ICMAP, "<C-V>", iact!(InternalAction::SetCursorChar('^')) ),
         ( ICMAP, "<C-V>o{oct<=3}", chartype!() ),
         ( ICMAP, "<C-V>O{oct<=3}", chartype!() ),
@@ -1666,13 +1663,11 @@ fn default_keys<I: ApplicationInfo>() -> Vec<(MappedModes, &'static str, InputSt
         ( ICMAP, "<C-V>U{hex<=8}", chartype!() ),
         ( ICMAP, "<C-V>{dec<=3}", chartype!() ),
         ( ICMAP, "<C-V>{any}", chartype!() ),
-        ( ICMAP, "<C-W>", edit!(EditAction::Delete, MoveType::WordBegin(WordStyle::Little, MoveDir1D::Previous)) ),
-        ( ICMAP, "<Left>", edit!(EditAction::Motion, MoveType::Column(MoveDir1D::Previous, false)) ),
-        ( ICMAP, "<Right>", edit!(EditAction::Motion, MoveType::Column(MoveDir1D::Next, false)) ),
+        ( ICMAP, "<C-W>", erase!(MoveType::WordBegin(WordStyle::Little, MoveDir1D::Previous)) ),
         ( ICMAP, "<Home>", edit!(EditAction::Motion, MoveType::LinePos(MovePosition::Beginning), 0) ),
         ( ICMAP, "<End>", edit!(EditAction::Motion, MoveType::LinePos(MovePosition::End), 0) ),
-        ( ICMAP, "<BS>", edit!(EditAction::Delete, MoveType::Column(MoveDir1D::Previous, true)) ),
-        ( ICMAP, "<Del>", edit!(EditAction::Delete, MoveType::Column(MoveDir1D::Next, true)) ),
+        ( ICMAP, "<BS>", erase!(MoveType::Column(MoveDir1D::Previous, true)) ),
+        ( ICMAP, "<Del>", erase!(MoveType::Column(MoveDir1D::Next, true)) ),
 
         // Insert Mode
         ( IMAP, "<C-@>", paste_register!(MoveDir1D::Previous, Register::LastInserted, VimMode::Normal) ),
@@ -1696,6 +1691,8 @@ fn default_keys<I: ApplicationInfo>() -> Vec<(MappedModes, &'static str, InputSt
         ( IMAP, "<C-Y>", chartype!(Char::CopyLine(MoveDir1D::Previous)) ),
         ( IMAP, "<Up>", edit!(EditAction::Motion, MoveType::Line(MoveDir1D::Previous)) ),
         ( IMAP, "<Down>", edit!(EditAction::Motion, MoveType::Line(MoveDir1D::Next)) ),
+        ( IMAP, "<Left>", edit!(EditAction::Motion, MoveType::Column(MoveDir1D::Previous, false)) ),
+        ( IMAP, "<Right>", edit!(EditAction::Motion, MoveType::Column(MoveDir1D::Next, false)) ),
         ( IMAP, "<S-Up>", scroll2d!(MoveDir2D::Up, ScrollSize::Page) ),
         ( IMAP, "<S-Down>", scroll2d!(MoveDir2D::Down, ScrollSize::Page) ),
         ( IMAP, "<S-Left>", edit!(EditAction::Motion, MoveType::WordBegin(WordStyle::Little, MoveDir1D::Previous)) ),
@@ -1723,6 +1720,7 @@ fn default_keys<I: ApplicationInfo>() -> Vec<(MappedModes, &'static str, InputSt
         ( CMAP, "<C-P>", unmapped!() ),
         ( CMAP, "<C-\\><C-N>", command_unfocus!() ),
         ( CMAP, "<Esc>", command_unfocus!() ),
+        ( CMAP, "<NL>", prompt!(PromptAction::Submit, VimMode::Normal) ),
         ( CMAP, "<Tab>", editor!(EditorAction::Complete(MoveDir1D::Next, false)) ),
         ( CMAP, "<S-Tab>", editor!(EditorAction::Complete(MoveDir1D::Previous, false)) ),
         ( CMAP, "<S-Left>", edit!(EditAction::Motion, MoveType::WordBegin(WordStyle::Big, MoveDir1D::Previous)) ),
@@ -1731,6 +1729,8 @@ fn default_keys<I: ApplicationInfo>() -> Vec<(MappedModes, &'static str, InputSt
         ( CMAP, "<C-Right>", edit!(EditAction::Motion, MoveType::WordBegin(WordStyle::Big, MoveDir1D::Next)) ),
         ( CMAP, "<Up>", prompt!(PromptAction::Recall(MoveDir1D::Previous, Count::Contextual)) ),
         ( CMAP, "<Down>", prompt!(PromptAction::Recall(MoveDir1D::Next, Count::Contextual)) ),
+        ( CMAP, "<Left>", edit!(EditAction::Motion, MoveType::Column(MoveDir1D::Previous, true)) ),
+        ( CMAP, "<Right>", edit!(EditAction::Motion, MoveType::Column(MoveDir1D::Next, true)) ),
         ( CMAP, "<S-Up>", prompt!(PromptAction::Recall(MoveDir1D::Previous, Count::Contextual)) ),
         ( CMAP, "<S-Down>", prompt!(PromptAction::Recall(MoveDir1D::Next, Count::Contextual)) ),
         ( CMAP, "<PageUp>", prompt!(PromptAction::Recall(MoveDir1D::Previous, Count::Contextual)) ),
@@ -1781,9 +1781,9 @@ fn default_pfxs<I: ApplicationInfo>() -> Vec<(MappedModes, &'static str, Option<
         ( NXMAP, "\"{register}", None ),
 
         // Operator-Pending mode keys can be prefixed w/ the forced-motion keys.
-        ( OMAP, "v", Some(shape!(TargetShape::CharWise)) ),
-        ( OMAP, "V", Some(shape!(TargetShape::LineWise)) ),
-        ( OMAP, "<C-V>", Some(shape!(TargetShape::BlockWise)) ),
+        ( OMAP, "v", Some(shaped!(TargetShape::CharWise)) ),
+        ( OMAP, "V", Some(shaped!(TargetShape::LineWise)) ),
+        ( OMAP, "<C-V>", Some(shaped!(TargetShape::BlockWise)) ),
     ].to_vec()
 }
 
@@ -1940,6 +1940,12 @@ impl<I: ApplicationInfo> VimBindings<I> {
     pub fn cursor_open(mut self, style: WordStyle) -> Self {
         self.cursor_open = cursor_open(style);
         self
+    }
+}
+
+impl<I: ApplicationInfo> ShellBindings for VimBindings<I> {
+    fn shell(self) -> Self {
+        self.submit_on_enter().search_is_action().ctrlcd_is_abort()
     }
 }
 
