@@ -51,3 +51,12 @@ where
         }
     }
 }
+
+impl<L> Default for LineInfoStore<L>
+where
+    L: Eq + Hash,
+{
+    fn default() -> Self {
+        Self::new()
+    }
+}

@@ -81,22 +81,13 @@ impl Info {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
 struct TreeInfo {
     area: Rect,
     resized: ResizeInfo,
 }
 
-impl Default for TreeInfo {
-    fn default() -> Self {
-        TreeInfo {
-            area: Rect::default(),
-            resized: ResizeInfo::default(),
-        }
-    }
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
 struct WindowInfo {
     area: Rect,
 }
@@ -120,12 +111,6 @@ impl WindowInfo {
             Axis::Horizontal => self.area.height,
             Axis::Vertical => self.area.width,
         }
-    }
-}
-
-impl Default for WindowInfo {
-    fn default() -> Self {
-        WindowInfo { area: Rect::default() }
     }
 }
 

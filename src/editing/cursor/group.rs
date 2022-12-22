@@ -101,7 +101,7 @@ impl<'a> DoubleEndedIterator for CursorGroupIterMut<'a> {
 }
 
 /// A group of cursors, where one of them has on-screen focus.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct CursorGroup {
     /// The members of the cursor group which do not have have on-screen focus.
     pub members: Vec<CursorState>,
@@ -129,7 +129,7 @@ impl CursorGroup {
     }
 
     /// Iterate over mutable references to the [CursorState] values in this group, in cursor order.
-    pub fn iter_mut<'a>(&'a mut self) -> CursorGroupIterMut<'a> {
+    pub fn iter_mut(&mut self) -> CursorGroupIterMut<'_> {
         self.sort();
 
         CursorGroupIterMut {
@@ -139,7 +139,7 @@ impl CursorGroup {
     }
 
     /// Iterate over references to the [CursorState] values in this group, in cursor order.
-    pub fn iter<'a>(&'a self) -> CursorGroupIter<'a> {
+    pub fn iter(&self) -> CursorGroupIter<'_> {
         let mut members = self.members.iter().collect::<Vec<_>>();
         members.sort();
 
@@ -186,7 +186,7 @@ impl CursorGroup {
 
     /// Rotate the cursor leader forwards or backwards *n* times.
     pub fn rotate(&mut self, dir: MoveDir1D, offset: usize) {
-        if self.members.len() == 0 {
+        if self.members.is_empty() {
             return;
         }
 
@@ -276,7 +276,7 @@ impl CursorGroup {
 
     /// Merge any overlapping selections.
     pub fn merge(&mut self) {
-        if self.members.len() == 0 {
+        if self.members.is_empty() {
             // There's nothing to merge.
             return;
         }
@@ -314,12 +314,6 @@ impl CursorGroup {
                 self.members.push(m);
             }
         }
-    }
-}
-
-impl Default for CursorGroup {
-    fn default() -> Self {
-        CursorGroup { leader: CursorState::default(), members: vec![] }
     }
 }
 

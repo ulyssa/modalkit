@@ -66,3 +66,12 @@ where
         }
     }
 }
+
+impl<I> Default for BufferStore<I>
+where
+    I: ApplicationInfo,
+{
+    fn default() -> Self {
+        Self::new()
+    }
+}

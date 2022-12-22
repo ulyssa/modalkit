@@ -231,8 +231,8 @@ where
     fn clone(&self) -> Self {
         Self {
             context: self.context.clone(),
-            axis: self.axis.clone(),
-            rel: self.rel.clone(),
+            axis: self.axis,
+            rel: self.rel,
         }
     }
 }
@@ -274,10 +274,7 @@ where
 
 impl<C: EditContext> InputCmdContext for CommandContext<C> {}
 
-fn sum_mods<C: EditContext>(
-    mods: &Vec<RangeEndingModifier>,
-    ctx: &C,
-) -> Option<(MoveDir1D, usize)> {
+fn sum_mods<C: EditContext>(mods: &[RangeEndingModifier], ctx: &C) -> Option<(MoveDir1D, usize)> {
     let mut dir = MoveDir1D::Next;
     let mut off = 0;
 
@@ -342,11 +339,11 @@ fn range_to_fc<C: EditContext>(
             }
         },
         RangeSpec::Single(RangeEnding(RangeEndingType::Last, mods)) => {
-            if mods.len() != 0 {
+            if mods.is_empty() {
+                FocusChange::Position(MovePosition::End)
+            } else {
                 return Err(CommandError::InvalidRange);
             }
-
-            FocusChange::Position(MovePosition::End)
         },
         _ => {
             return Err(CommandError::InvalidRange);
@@ -482,19 +479,19 @@ fn tab_next<C: EditContext, I: ApplicationInfo>(
     desc: CommandDescription,
     ctx: &mut CommandContext<C>,
 ) -> CommandResult<C, I> {
-    let range = match (desc.range, desc.arg.text.len() > 0) {
-        (None, true) => {
+    let range = match (desc.range, desc.arg.text.is_empty()) {
+        (None, false) => {
             if let Ok((_, range)) = desc.arg.range() {
                 Some(range)
             } else {
                 return Err(CommandError::InvalidArgument);
             }
         },
-        (Some(_), true) => {
+        (Some(_), false) => {
             return Err(CommandError::InvalidArgument);
         },
-        (None, false) => None,
-        (r @ Some(_), false) => r,
+        (None, true) => None,
+        (r @ Some(_), true) => r,
     };
 
     let change = range
@@ -510,29 +507,29 @@ fn tab_prev<C: EditContext, I: ApplicationInfo>(
     desc: CommandDescription,
     ctx: &mut CommandContext<C>,
 ) -> CommandResult<C, I> {
-    let range = match (desc.range, desc.arg.text.len() > 0) {
-        (None, true) => {
+    let range = match (desc.range, desc.arg.text.is_empty()) {
+        (None, false) => {
             if let Ok((_, range)) = desc.arg.range() {
                 Some(range)
             } else {
                 return Err(CommandError::InvalidArgument);
             }
         },
-        (Some(_), true) => {
+        (Some(_), false) => {
             return Err(CommandError::InvalidArgument);
         },
-        (None, false) => None,
-        (r @ Some(_), false) => r,
+        (None, true) => None,
+        (r @ Some(_), true) => r,
     };
 
     let change = match range {
         Some(RangeSpec::Single(RangeEnding(RangeEndingType::Absolute(count), mods))) => {
-            if mods.len() != 0 {
+            if mods.is_empty() {
+                // Move back {count} pages.
+                FocusChange::Direction1D(MoveDir1D::Previous, count, true)
+            } else {
                 return Err(CommandError::InvalidRange);
             }
-
-            // Move back {count} pages.
-            FocusChange::Direction1D(MoveDir1D::Previous, count, true)
         },
         Some(_) => {
             return Err(CommandError::InvalidRange);

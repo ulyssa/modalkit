@@ -27,16 +27,16 @@ impl CursorState {
     /// Get a reference to the anchor of a selection.
     pub fn anchor(&self) -> &Cursor {
         match self {
-            CursorState::Location(cursor) => &cursor,
-            CursorState::Selection(_, anchor, _) => &anchor,
+            CursorState::Location(cursor) => cursor,
+            CursorState::Selection(_, anchor, _) => anchor,
         }
     }
 
     /// Get a reference to the cursor.
     pub fn cursor(&self) -> &Cursor {
         match self {
-            CursorState::Location(cursor) => &cursor,
-            CursorState::Selection(cursor, _, _) => &cursor,
+            CursorState::Location(cursor) => cursor,
+            CursorState::Selection(cursor, _, _) => cursor,
         }
     }
 
@@ -186,7 +186,7 @@ impl CursorState {
     /// Returns the cursor or the anchor, depending on which comes earlier in the text.
     pub fn start(&self) -> &Cursor {
         match self {
-            CursorState::Location(cursor) => &cursor,
+            CursorState::Location(cursor) => cursor,
             CursorState::Selection(cursor, anchor, _) => sort2(&cursor, &anchor).0,
         }
     }
@@ -194,7 +194,7 @@ impl CursorState {
     /// Returns the cursor or the anchor, depending on which comes later in the text.
     pub fn end(&self) -> &Cursor {
         match self {
-            CursorState::Location(cursor) => &cursor,
+            CursorState::Location(cursor) => cursor,
             CursorState::Selection(cursor, anchor, _) => sort2(&cursor, &anchor).1,
         }
     }
@@ -331,11 +331,11 @@ impl PartialOrd for CursorState {
 impl Ord for CursorState {
     fn cmp(&self, other: &CursorState) -> Ordering {
         match (self, other) {
-            (CursorState::Location(c1), CursorState::Location(c2)) => c1.cmp(&c2),
-            (CursorState::Location(c1), CursorState::Selection(c2, ..)) => c1.cmp(&c2),
-            (CursorState::Selection(c1, ..), CursorState::Location(c2)) => c1.cmp(&c2),
+            (CursorState::Location(c1), CursorState::Location(c2)) => c1.cmp(c2),
+            (CursorState::Location(c1), CursorState::Selection(c2, ..)) => c1.cmp(c2),
+            (CursorState::Selection(c1, ..), CursorState::Location(c2)) => c1.cmp(c2),
             (CursorState::Selection(c1, a1, _), CursorState::Selection(c2, a2, _)) => {
-                c1.cmp(&c2).then(a1.cmp(&a2))
+                c1.cmp(c2).then(a1.cmp(a2))
             },
         }
     }

@@ -475,7 +475,6 @@ where
         }
 
         let (width, height) = self.viewctx.dimensions;
-        let (width, height) = (width as usize, height as usize);
         let cursor = self.get_cursor();
         shift_corner(&mut self.viewctx, &cursor, width, height);
 
@@ -522,7 +521,7 @@ where
         let max = buffer.get_lines();
         let line = ctx.resolve(count).min(max).saturating_sub(1);
 
-        let height = self.viewctx.dimensions.1 as usize;
+        let height = self.viewctx.get_height();
 
         buffer.set_leader(self.group_id, Cursor::new(line, 0));
 

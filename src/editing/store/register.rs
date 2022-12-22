@@ -172,7 +172,7 @@ impl RegisterStore {
 
     fn _push_deleted(&mut self, cell: RegisterCell) {
         if cell.value.get_lines() < 1 {
-            self.small_delete = cell.clone();
+            self.small_delete = cell;
         } else {
             self.last_deleted.insert(0, cell);
             self.last_deleted.truncate(9);
@@ -191,7 +191,7 @@ impl RegisterStore {
                 self.last_deleted.get(*off).cloned().unwrap_or_default()
             },
             Register::SmallDelete => self.small_delete.clone(),
-            Register::Named(name) => self.named.get(&name).cloned().unwrap_or_default(),
+            Register::Named(name) => self.named.get(name).cloned().unwrap_or_default(),
             Register::AltBufName => self.altbufname.clone(),
             Register::LastSearch => self.last_search.clone(),
             Register::LastYanked => self.last_yanked.clone(),
@@ -310,9 +310,11 @@ impl RegisterStore {
 
     /// Return the contents of a register for macro execution.
     pub fn get_macro(&mut self, reg: Register) -> EditRope {
+        let res = self.get(&reg).value;
+
         self.last_macro = Some(reg);
 
-        return self.get(&reg).value;
+        return res;
     }
 
     /// Return the same contents as the last call to [RegisterStore::get_macro].

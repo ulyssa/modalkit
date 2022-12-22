@@ -152,7 +152,7 @@ impl InternalAction {
                 }
             },
             InternalAction::SetRegister(reg) => {
-                ctx.action.register = Some(*reg);
+                ctx.action.register = Some(reg.clone());
             },
             InternalAction::SetTargetShape(shape, shifted) => {
                 ctx.persist.shape = Some(*shape);
@@ -208,7 +208,7 @@ impl<I: ApplicationInfo> From<Action<I>> for ExternalAction<I> {
 }
 
 /// Description of actions to take after an input sequence.
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct InputStep<I: ApplicationInfo> {
     internal: Vec<InternalAction>,
     external: Vec<ExternalAction<I>>,
@@ -233,7 +233,7 @@ impl<I: ApplicationInfo> Clone for InputStep<I> {
         Self {
             internal: self.internal.clone(),
             external: self.external.clone(),
-            nextm: self.nextm.clone(),
+            nextm: self.nextm,
         }
     }
 }
@@ -248,7 +248,7 @@ impl<I: ApplicationInfo> Step<TerminalKey> for InputStep<I> {
     fn is_unmapped(&self) -> bool {
         match self {
             InputStep { internal, external, nextm: None } => {
-                internal.len() == 0 && external.len() == 0
+                internal.is_empty() && external.is_empty()
             },
             _ => false,
         }
@@ -656,11 +656,12 @@ fn add_prefix<I: ApplicationInfo>(
     keys: &str,
     action: &Option<InputStep<I>>,
 ) {
-    let (_, evs) = parse(keys).expect(&format!("invalid Emacs keybinding: {}", keys));
-    let modes = modes.split();
-
-    for mode in modes {
-        machine.add_prefix(mode, &evs, &action);
+    if let Ok((_, evs)) = parse(keys) {
+        for mode in modes.split() {
+            machine.add_prefix(mode, &evs, action);
+        }
+    } else {
+        panic!("invalid Emacs keybinding: {}", keys);
     }
 }
 
@@ -671,11 +672,12 @@ fn add_mapping<I: ApplicationInfo>(
     keys: &str,
     action: &InputStep<I>,
 ) {
-    let (_, evs) = parse(keys).expect(&format!("invalid Emacs keybinding: {}", keys));
-    let modes = modes.split();
-
-    for mode in modes {
-        machine.add_mapping(mode, &evs, &action);
+    if let Ok((_, evs)) = parse(keys) {
+        for mode in modes.split() {
+            machine.add_mapping(mode, &evs, action);
+        }
+    } else {
+        panic!("invalid Emacs keybinding: {}", keys);
     }
 }
 

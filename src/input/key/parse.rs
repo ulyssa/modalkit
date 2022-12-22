@@ -199,7 +199,7 @@ fn parse_keyname(input: &str) -> IResult<&str, KeyCode> {
 }
 
 fn parse_base10_u8(input: &str) -> Result<u8, std::num::ParseIntError> {
-    u8::from_str_radix(input, 10)
+    input.parse::<u8>()
 }
 
 fn parse_function(input: &str) -> IResult<&str, KeyCode> {

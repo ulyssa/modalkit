@@ -16,19 +16,17 @@
 //!     widgets::list::ListState,
 //! };
 //!
-//! fn main() {
-//!     let mut store = Store::default();
-//!     let ctx = VimContext::<EmptyInfo>::default();
+//! let mut store = Store::default();
+//! let ctx = VimContext::<EmptyInfo>::default();
 //!
-//!     // Create new list state.
-//!     let items = vec!["Alice".into(), "Bob".into(), "Eve".into()];
-//!     let mut list = ListState::<String, EmptyInfo>::new("People".into(), items);
+//! // Create new list state.
+//! let items = vec!["Alice".into(), "Bob".into(), "Eve".into()];
+//! let mut list = ListState::<String, EmptyInfo>::new("People".into(), items);
 //!
-//!     // Jump to end of the list.
-//!     let op = EditAction::Motion;
-//!     let mv = MoveType::BufferPos(MovePosition::End);
-//!     let _ = list.edit(&op, &mv.into(), &ctx, &mut store).unwrap();
-//! }
+//! // Jump to end of the list.
+//! let op = EditAction::Motion;
+//! let mv = MoveType::BufferPos(MovePosition::End);
+//! let _ = list.edit(&op, &mv.into(), &ctx, &mut store).unwrap();
 //! ```
 use std::cmp::{Ord, Ordering, PartialOrd};
 use std::marker::PhantomData;
@@ -574,7 +572,7 @@ where
     }
 }
 
-impl<'a, C, T, I> EditorActions<C, Store<I>, I> for ListState<T, I>
+impl<C, T, I> EditorActions<C, Store<I>, I> for ListState<T, I>
 where
     C: EditContext,
     T: ListItem<I>,
@@ -848,7 +846,7 @@ where
     }
 }
 
-impl<'a, C, T, I> Editable<C, Store<I>, I> for ListState<T, I>
+impl<C, T, I> Editable<C, Store<I>, I> for ListState<T, I>
 where
     C: EditContext,
     T: ListItem<I>,
@@ -878,7 +876,7 @@ where
     }
 }
 
-impl<'a, C, T, I> Jumpable<C, I> for ListState<T, I>
+impl<C, T, I> Jumpable<C, I> for ListState<T, I>
 where
     C: EditContext,
     T: ListItem<I>,
@@ -952,7 +950,7 @@ where
     }
 }
 
-impl<'a, C, I, T> Searchable<C, Store<I>, I> for ListState<T, I>
+impl<C, I, T> Searchable<C, Store<I>, I> for ListState<T, I>
 where
     C: EditContext,
     I: ApplicationInfo,
@@ -971,7 +969,7 @@ where
     }
 }
 
-impl<'a, C, I, T> ScrollActions<C, Store<I>, I> for ListState<T, I>
+impl<C, I, T> ScrollActions<C, Store<I>, I> for ListState<T, I>
 where
     C: EditContext,
     I: ApplicationInfo,
@@ -985,7 +983,7 @@ where
         ctx: &C,
         store: &mut Store<I>,
     ) -> EditResult<EditInfo, I> {
-        if self.items.len() == 0 {
+        if self.items.is_empty() {
             return Ok(None);
         }
 
@@ -1041,7 +1039,7 @@ where
 
                         rows -= 1;
                     } else if corner.text_row + rows <= max {
-                        corner.text_row = corner.text_row + rows;
+                        corner.text_row += rows;
                         break;
                     } else {
                         corner.position = pos.saturating_add(1);
@@ -1104,7 +1102,7 @@ where
     }
 }
 
-impl<'a, C, I, T> Scrollable<C, Store<I>, I> for ListState<T, I>
+impl<C, I, T> Scrollable<C, Store<I>, I> for ListState<T, I>
 where
     C: EditContext,
     I: ApplicationInfo,

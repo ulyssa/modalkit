@@ -243,7 +243,7 @@ impl InternalAction {
                 ctx.persist.regexsearch_dir = *dir;
             },
             InternalAction::SetRegister(reg) => {
-                ctx.action.register = Some(*reg);
+                ctx.action.register = Some(reg.clone());
             },
             InternalAction::SetReplaceChar(c) => {
                 if c.is_some() {
@@ -344,9 +344,9 @@ impl<I: ApplicationInfo> ExternalAction<I> {
                     return vec![];
                 } else if recording {
                     context.persist.recording = None;
-                } else if let Some(reg) = context.action.register {
+                } else if let Some(ref reg) = context.action.register {
                     let append = context.action.register_append;
-                    context.persist.recording = Some((reg, append));
+                    context.persist.recording = Some((reg.clone(), append));
                 } else {
                     context.persist.recording = Some((Register::UnnamedMacro, false));
                 }
@@ -371,7 +371,7 @@ impl<I: ApplicationInfo> Clone for ExternalAction<I> {
 }
 
 /// Description of actions to take after an input sequence.
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct InputStep<I: ApplicationInfo> {
     internal: Vec<InternalAction>,
     external: Vec<ExternalAction<I>>,
@@ -402,8 +402,8 @@ impl<I: ApplicationInfo> Clone for InputStep<I> {
         Self {
             internal: self.internal.clone(),
             external: self.external.clone(),
-            fallthrough_mode: self.fallthrough_mode.clone(),
-            nextm: self.nextm.clone(),
+            fallthrough_mode: self.fallthrough_mode,
+            nextm: self.nextm,
         }
     }
 }
@@ -422,7 +422,7 @@ impl<I: ApplicationInfo> Step<TerminalKey> for InputStep<I> {
                 external,
                 fallthrough_mode: None,
                 nextm: None,
-            } => internal.len() == 0 && external.len() == 0,
+            } => internal.is_empty() && external.is_empty(),
             _ => false,
         }
     }
@@ -451,10 +451,10 @@ impl<I: ApplicationInfo> Step<TerminalKey> for InputStep<I> {
                 let external: Vec<Action<I>> =
                     self.external.iter().flat_map(|act| act.resolve(ctx)).collect();
 
-                if external.len() > 0 {
-                    return (external, ctx.action.postmode.take().or(self.nextm));
-                } else {
+                if external.is_empty() {
                     return (external, self.nextm);
+                } else {
+                    return (external, ctx.action.postmode.take().or(self.nextm));
                 }
             },
         }
@@ -1882,11 +1882,12 @@ fn add_prefix<I: ApplicationInfo>(
     keys: &str,
     action: &Option<InputStep<I>>,
 ) {
-    let (_, evs) = parse(keys).expect(&format!("invalid vim keybinding: {}", keys));
-    let modes = modes.split();
-
-    for mode in modes {
-        machine.add_prefix(mode, &evs, &action);
+    if let Ok((_, evs)) = parse(keys) {
+        for mode in modes.split() {
+            machine.add_prefix(mode, &evs, action);
+        }
+    } else {
+        panic!("invalid vim keybinding: {}", keys);
     }
 }
 
@@ -1897,11 +1898,12 @@ fn add_mapping<I: ApplicationInfo>(
     keys: &str,
     action: &InputStep<I>,
 ) {
-    let (_, evs) = parse(keys).expect(&format!("invalid vim keybinding: {}", keys));
-    let modes = modes.split();
-
-    for mode in modes {
-        machine.add_mapping(mode, &evs, &action);
+    if let Ok((_, evs)) = parse(keys) {
+        for mode in modes.split() {
+            machine.add_mapping(mode, &evs, action);
+        }
+    } else {
+        panic!("invalid vim keybinding: {}", keys);
     }
 }
 
@@ -2894,7 +2896,7 @@ mod tests {
         ctx.action.cursor_end = None;
         ctx.action.operation = EditAction::Replace(false);
         ctx.action.replace = Some('A'.into());
-        ctx.ch.any = Some(key!('A').into());
+        ctx.ch.any = Some(key!('A'));
         vm.input_key(key!('r'));
         vm.input_key(key!('A'));
         assert_pop1!(vm, mov, ctx);
@@ -3068,7 +3070,7 @@ mod tests {
         // "fa" should update search params, and then continue character search.
         ctx.persist.charsearch_params = (MoveDir1D::Next, true);
         ctx.persist.charsearch = Some('a'.into());
-        ctx.ch.any = Some(key!('a').into());
+        ctx.ch.any = Some(key!('a'));
         vm.input_key(key!('f'));
         vm.input_key(key!('a'));
         assert_pop1!(vm, same, ctx);
@@ -3525,7 +3527,7 @@ mod tests {
 
         // Change block ("c").
         ctx.persist.insert = Some(InsertStyle::Insert);
-        let act = selop!(EditAction::Delete.into());
+        let act = selop!(EditAction::Delete);
         vm.input_key(key!('c'));
         assert_pop1!(vm, BLOCK_SPLIT, ctx);
         assert_pop1!(vm, BLOCK_BEG, ctx);
@@ -3726,7 +3728,7 @@ mod tests {
         ctx.action.cursor = Some('^');
         ctx.ch.digraph1 = None;
         ctx.ch.digraph2 = None;
-        ctx.ch.any = Some(ctl!('g').into());
+        ctx.ch.any = Some(ctl!('g'));
         vm.input_key(ctl!('g'));
         assert_pop1!(vm, TYPE_CONTEXTUAL, ctx);
         assert_eq!(vm.mode(), VimMode::Insert);
@@ -4023,7 +4025,7 @@ mod tests {
         assert_eq!(vm.get_cursor_indicator(), Some('^'));
 
         ctx.action.cursor = Some('^');
-        ctx.ch.any = Some(key!(KeyCode::Esc).into());
+        ctx.ch.any = Some(key!(KeyCode::Esc));
         vm.input_key(key!(KeyCode::Esc));
         assert_pop2!(vm, TYPE_CONTEXTUAL, ctx);
         assert_eq!(vm.mode(), VimMode::Insert);
@@ -4212,7 +4214,7 @@ mod tests {
 
         // Type "gqq" to format.
         let format = rangeop!(EditAction::Format, RangeType::Line);
-        ctx.action.operation = EditAction::Format.into();
+        ctx.action.operation = EditAction::Format;
         vm.input_key(key!('g'));
         vm.input_key(key!('q'));
         vm.input_key(key!('q'));

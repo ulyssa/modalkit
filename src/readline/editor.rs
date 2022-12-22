@@ -151,12 +151,11 @@ where
         let cbx = self.viewctx.corner.x;
 
         let mut line = cby;
-        let mut lines = self.buffer.lines_at(line, cbx);
 
         let mut wrapped = Vec::new();
         let mut sawcursor = false;
 
-        while let Some(s) = lines.next() {
+        for s in self.buffer.lines_at(line, cbx) {
             if wrapped.len() >= height && sawcursor {
                 break;
             }
@@ -256,7 +255,7 @@ where
             y += 1;
         }
 
-        context.stdout.queue(MoveTo(term_cursor.0 as u16, term_cursor.1 as u16))?;
+        context.stdout.queue(MoveTo(term_cursor.0, term_cursor.1))?;
 
         Ok(lines as u16)
     }
@@ -306,12 +305,12 @@ where
         if self.scrollback == ScrollbackState::Pending {
             let rope = self.get_trim();
 
-            if rope.len() > 0 {
+            if rope.is_empty() {
+                self.scrollback = ScrollbackState::Empty;
+            } else {
                 self.scrollback = ScrollbackState::Typed;
 
                 history.append(rope);
-            } else {
-                self.scrollback = ScrollbackState::Empty;
             }
         }
 

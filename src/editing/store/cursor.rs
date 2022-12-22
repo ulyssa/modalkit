@@ -195,7 +195,7 @@ where
         let (owner, group) = self
             .groups
             .get(reg)
-            .ok_or(EditError::from(CursorGroupCombineError::Empty(*reg)))?
+            .ok_or_else(|| EditError::from(CursorGroupCombineError::Empty(reg.clone())))?
             .to_owned();
 
         if id == owner {
@@ -239,7 +239,7 @@ where
             val.zero_id(id);
         }
 
-        if let Some(bmarks) = self.buffer.get_mut(&id) {
+        if let Some(bmarks) = self.buffer.get_mut(id) {
             bmarks.zero();
         }
     }
@@ -254,7 +254,7 @@ where
             val.adjust_id(id, adjs);
         }
 
-        if let Some(bmarks) = self.buffer.get_mut(&id) {
+        if let Some(bmarks) = self.buffer.get_mut(id) {
             bmarks.adjust(adjs);
         }
     }

@@ -26,7 +26,7 @@ impl SizeDescription {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(super) struct ResizeInfo {
     pub lengths: Option<Vec<SizeDescription>>,
 }
@@ -39,12 +39,6 @@ impl ResizeInfo {
 
     pub fn clear_sizes(&mut self) {
         self.lengths = None;
-    }
-}
-
-impl Default for ResizeInfo {
-    fn default() -> Self {
-        ResizeInfo { lengths: None }
     }
 }
 
@@ -79,10 +73,9 @@ impl<'a, X: AxisT, Y: AxisT> ResizeInfoTrail<'a, X, Y> {
 
     fn find_index(&mut self) -> Option<usize> {
         self.current.lengths.as_ref().and_then(|lengths| {
-            let mut iter = lengths.iter().enumerate();
             let mut lidx = None;
 
-            while let Some((i, size)) = iter.next() {
+            for (i, size) in lengths.iter().enumerate() {
                 if size.range.contains(&self.windex) {
                     lidx = Some(i);
                     break;
@@ -157,9 +150,7 @@ impl<'a, X: AxisT, Y: AxisT> ResizeInfoTrail<'a, X, Y> {
         match self.current.lengths {
             None => return 0,
             Some(ref mut lengths) => {
-                let mut iter = lengths.iter_mut();
-
-                while let Some(ref mut size) = iter.next() {
+                for ref mut size in lengths.iter_mut() {
                     if !size.range.contains(&self.windex) {
                         continue;
                     }
@@ -404,7 +395,7 @@ mod tests {
     }
 
     impl TestResizeContext {
-        fn trail<'a>(&'a mut self) -> Box<ResizeInfoTrailV<'a>> {
+        fn trail(&mut self) -> Box<ResizeInfoTrailV<'_>> {
             let outer = ResizeInfoTrail::new(self.idxo, &mut self.outer, None);
             let inner = ResizeInfoTrail::new(self.idxi, &mut self.inner, Some(outer));
 
@@ -434,7 +425,7 @@ mod tests {
         }
     }
 
-    fn mk_info<'a>(idx: usize) -> TestResizeContext {
+    fn mk_info(idx: usize) -> TestResizeContext {
         let o = mk_info_outer();
 
         match idx {

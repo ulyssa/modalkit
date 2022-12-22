@@ -92,18 +92,18 @@ where
                 (rope.to_string(), ctx.resolve(count))
             },
             MacroAction::ToggleRecording => {
-                if let Some((reg, append)) = self.recording {
+                if let Some((reg, append)) = &self.recording {
                     // Save macro to register.
                     let mut rope = EditRope::from("");
                     std::mem::swap(&mut rope, &mut self.committed);
 
                     let mut flags = RegisterPutFlags::NOTEXT;
 
-                    if append {
+                    if *append {
                         flags |= RegisterPutFlags::APPEND;
                     }
 
-                    store.registers.put(&reg, rope.into(), flags);
+                    store.registers.put(reg, rope.into(), flags);
 
                     // Stop recording.
                     self.recording = None;
@@ -225,7 +225,7 @@ mod tests {
 
             ctx.action.count = ctx.action.counting;
 
-            (act, self.1.clone())
+            (act, self.1)
         }
     }
 

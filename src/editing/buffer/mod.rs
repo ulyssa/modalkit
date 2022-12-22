@@ -477,7 +477,7 @@ where
                 return Ok(range);
             },
             EditTarget::Selection => {
-                let shape = ctx.context.get_target_shape().unwrap_or(state.shape());
+                let shape = ctx.context.get_target_shape().unwrap_or_else(|| state.shape());
                 let selnc = state.anchor().clone();
                 let selnx = selnc.x;
                 let range = CursorRange::inclusive(selnc.goal(selnx), cursor, shape);
@@ -647,7 +647,7 @@ where
 
             match target {
                 EditTarget::Boundary(range, inclusive, term, count) => {
-                    if let Some(r) = self.text.range(&cursor, range, *inclusive, count, &ctx) {
+                    if let Some(r) = self.text.range(cursor, range, *inclusive, count, &ctx) {
                         let nc = match term {
                             MoveTerminus::Beginning => r.start,
                             MoveTerminus::End => r.end,
@@ -668,18 +668,18 @@ where
                     state.set_cursor(nc);
                 },
                 EditTarget::Motion(mv, count) => {
-                    if let Some(nc) = self.text.movement(&cursor, mv, count, &ctx) {
+                    if let Some(nc) = self.text.movement(cursor, mv, count, &ctx) {
                         state.set_cursor(nc);
                     }
                 },
                 EditTarget::Range(range, inclusive, count) => {
-                    if let Some(r) = self.text.range(&cursor, range, *inclusive, count, &ctx) {
+                    if let Some(r) = self.text.range(cursor, range, *inclusive, count, &ctx) {
                         state.set_cursor(r.end);
                     }
                 },
                 EditTarget::Search(search, flip, count) => {
                     if let Some(r) =
-                        self._search(&cursor, search, flip, count, ctx.context, store)?
+                        self._search(cursor, search, flip, count, ctx.context, store)?
                     {
                         state.set_cursor(r.start);
                     }
@@ -854,10 +854,10 @@ where
             .filter_map(CursorState::to_selection)
             .collect::<Vec<_>>();
 
-        if sels.len() > 0 {
-            Some(sels)
-        } else {
+        if sels.is_empty() {
             None
+        } else {
+            Some(sels)
         }
     }
 
@@ -875,10 +875,10 @@ where
             .filter_map(CursorState::to_selection)
             .collect::<Vec<_>>();
 
-        if sels.len() > 0 {
-            Some(sels)
-        } else {
+        if sels.is_empty() {
             None
+        } else {
+            Some(sels)
         }
     }
 
@@ -922,7 +922,7 @@ where
 
     /// Clamp the line and column of the cursors in a [CursorState] so that they refer to a valid
     /// point within the buffer.
-    pub fn clamp_state<'a, 'b, 'c, C: EditContext>(
+    pub fn clamp_state<'a, 'b, C: EditContext>(
         &self,
         state: &mut CursorState,
         ctx: &CursorGroupIdContext<'a, 'b, C>,
@@ -939,7 +939,7 @@ where
     }
 
     /// Clamp the line and column of a cursor so that it refers to a valid point within the buffer.
-    pub fn clamp<'a, 'b, 'c, C: EditContext>(
+    pub fn clamp<'a, 'b, C: EditContext>(
         &self,
         cursor: &mut Cursor,
         ctx: &CursorGroupIdContext<'a, 'b, C>,
@@ -993,7 +993,7 @@ where
     }
 }
 
-impl<'a, 'b, 'c, C, I> HistoryActions<CursorGroupIdContext<'a, 'b, C>, I> for EditBuffer<I>
+impl<'a, 'b, C, I> HistoryActions<CursorGroupIdContext<'a, 'b, C>, I> for EditBuffer<I>
 where
     C: EditContext,
     I: ApplicationInfo,
@@ -1044,7 +1044,7 @@ where
     }
 }
 
-impl<'a, 'b, 'c, C, I> EditorActions<CursorGroupIdContext<'a, 'b, C>, Store<I>, I> for EditBuffer<I>
+impl<'a, 'b, C, I> EditorActions<CursorGroupIdContext<'a, 'b, C>, Store<I>, I> for EditBuffer<I>
 where
     C: EditContext,
     I: ApplicationInfo,
@@ -1141,7 +1141,7 @@ where
             },
             InsertTextAction::Type(c, dir, count) => {
                 if let Some(c) = ctx.2.resolve(c) {
-                    self.type_char(c, *dir, count, &ctx, store)
+                    self.type_char(c, *dir, count, ctx, store)
                 } else {
                     Ok(None)
                 }
@@ -1156,12 +1156,12 @@ where
         store: &mut Store<I>,
     ) -> EditResult<EditInfo, I> {
         match act {
-            SelectionAction::CursorSet(change) => self.selection_cursor_set(&change, ctx, store),
+            SelectionAction::CursorSet(change) => self.selection_cursor_set(change, ctx, store),
             SelectionAction::Duplicate(dir, count) => {
                 self.selection_duplicate(*dir, count, ctx, store)
             },
             SelectionAction::Resize(style, target) => {
-                self.selection_resize(style, &target, ctx, store)
+                self.selection_resize(style, target, ctx, store)
             },
             SelectionAction::Split(style, filter) => {
                 self.selection_split(style, *filter, ctx, store)
@@ -1177,7 +1177,7 @@ where
         store: &mut Store<I>,
     ) -> EditResult<EditInfo, I> {
         match act {
-            CursorAction::Close(target) => self.cursor_close(&target, ctx, store),
+            CursorAction::Close(target) => self.cursor_close(target, ctx, store),
             CursorAction::Split(count) => self.cursor_split(count, ctx, store),
             CursorAction::Restore(style) => self.cursor_restore(style, ctx, store),
             CursorAction::Rotate(dir, count) => self.cursor_rotate(*dir, count, ctx, store),
@@ -1199,7 +1199,7 @@ where
     }
 }
 
-impl<'a, 'b, 'c, C, I> Editable<CursorGroupIdContext<'a, 'b, C>, Store<I>, I> for EditBuffer<I>
+impl<'a, 'b, C, I> Editable<CursorGroupIdContext<'a, 'b, C>, Store<I>, I> for EditBuffer<I>
 where
     C: EditContext,
     I: ApplicationInfo,
@@ -1233,7 +1233,7 @@ where
     }
 }
 
-impl<'a, 'b, 'c, C, I> Jumpable<CursorGroupIdContext<'a, 'b, C>, I> for EditBuffer<I>
+impl<'a, 'b, C, I> Jumpable<CursorGroupIdContext<'a, 'b, C>, I> for EditBuffer<I>
 where
     C: EditContext,
     I: ApplicationInfo,
@@ -1327,7 +1327,7 @@ where
     }
 }
 
-impl<'a, 'b, 'c, C, I> Editable<CursorGroupIdContext<'a, 'b, C>, Store<I>, I> for SharedBuffer<I>
+impl<'a, 'b, C, I> Editable<CursorGroupIdContext<'a, 'b, C>, Store<I>, I> for SharedBuffer<I>
 where
     C: EditContext,
     I: ApplicationInfo,
@@ -1342,7 +1342,7 @@ where
     }
 }
 
-impl<'a, 'b, 'c, C, I> Searchable<CursorGroupIdContext<'a, 'b, C>, Store<I>, I> for EditBuffer<I>
+impl<'a, 'b, C, I> Searchable<CursorGroupIdContext<'a, 'b, C>, Store<I>, I> for EditBuffer<I>
 where
     C: EditContext,
     I: ApplicationInfo,
@@ -1360,7 +1360,7 @@ where
     }
 }
 
-impl<'a, 'b, 'c, C, I> Jumpable<CursorGroupIdContext<'a, 'b, C>, I> for SharedBuffer<I>
+impl<'a, 'b, C, I> Jumpable<CursorGroupIdContext<'a, 'b, C>, I> for SharedBuffer<I>
 where
     C: EditContext,
     I: ApplicationInfo,
@@ -1376,7 +1376,7 @@ where
     }
 }
 
-impl<'a, 'b, 'c, C, I> Searchable<CursorGroupIdContext<'a, 'b, C>, Store<I>, I> for SharedBuffer<I>
+impl<'a, 'b, C, I> Searchable<CursorGroupIdContext<'a, 'b, C>, Store<I>, I> for SharedBuffer<I>
 where
     C: EditContext,
     I: ApplicationInfo,
@@ -1805,7 +1805,7 @@ mod tests {
         assert_eq!(ebuf.get_text(), "12345\n   7890\nabce\nfghij\n klmno\n");
 
         // Checkpoint current state, so that we can push another position.
-        ebuf.history_command(&HistoryAction::Checkpoint, &ctx!(gid, vwctx, vctx), &mut store)
+        ebuf.history_command(&HistoryAction::Checkpoint, ctx!(gid, vwctx, vctx), &mut store)
             .unwrap();
 
         // Move down.

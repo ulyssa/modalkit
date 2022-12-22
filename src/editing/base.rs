@@ -1163,7 +1163,7 @@ impl From<char> for Char {
 }
 
 /// Locations for temporarily storing text shared between buffers.
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 #[non_exhaustive]
 pub enum Register {
     /// The default register.
@@ -1431,8 +1431,8 @@ impl<Cursor: Clone> Clone for ViewportContext<Cursor> {
     fn clone(&self) -> Self {
         ViewportContext {
             corner: self.corner.clone(),
-            dimensions: self.dimensions.clone(),
-            wrap: self.wrap.clone(),
+            dimensions: self.dimensions,
+            wrap: self.wrap,
         }
     }
 }
@@ -1667,9 +1667,9 @@ impl MoveDirMod {
     /// Modify a given direction.
     pub fn resolve(&self, dir: &MoveDir1D) -> MoveDir1D {
         match self {
-            MoveDirMod::Same => dir.clone(),
+            MoveDirMod::Same => *dir,
             MoveDirMod::Flip => dir.flip(),
-            MoveDirMod::Exact(exact) => exact.clone(),
+            MoveDirMod::Exact(exact) => *exact,
         }
     }
 }

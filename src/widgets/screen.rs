@@ -348,7 +348,7 @@ where
                     }
                 }
 
-                if self.tabs.len() == 0 {
+                if self.tabs.is_empty() {
                     return Ok(None);
                 } else {
                     let msg = "unable to close all windows in some tabs".into();
@@ -568,7 +568,7 @@ macro_rules! delegate_focus {
     };
 }
 
-impl<'a, W, C, I> Editable<C, Store<I>, I> for ScreenState<W, I>
+impl<W, C, I> Editable<C, Store<I>, I> for ScreenState<W, I>
 where
     W: Window<I> + Editable<C, Store<I>, I>,
     C: EditContext,
@@ -635,7 +635,7 @@ where
     }
 }
 
-impl<'a, W, C, I> Scrollable<C, Store<I>, I> for ScreenState<W, I>
+impl<W, C, I> Scrollable<C, Store<I>, I> for ScreenState<W, I>
 where
     W: Window<I> + Scrollable<C, Store<I>, I>,
     C: EditContext,

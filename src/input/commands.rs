@@ -128,11 +128,11 @@ impl<C: Command> CommandMachine<C> {
         loop {
             let cmd = match C::Parsed::from_str(&input) {
                 Ok(cmd) => cmd,
-                Err(e) => return Err(CommandError::ParseFailed(e.into())),
+                Err(e) => return Err(CommandError::ParseFailed(e)),
             };
             let name = cmd.name();
 
-            if name == "" {
+            if name.is_empty() {
                 return Ok(results);
             }
 

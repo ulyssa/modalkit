@@ -15,12 +15,10 @@
 //!     env::vim::VimContext,
 //! };
 //!
-//! fn main() {
-//!     let store: SharedStore<EmptyInfo> = Store::default().shared();
-//!     let locked = store.try_read().unwrap();
+//! let store: SharedStore<EmptyInfo> = Store::default().shared();
+//! let locked = store.try_read().unwrap();
 //!
-//!     assert_eq!(locked.digraphs.get(('>', '>')), Some('\u{00BB}'));
-//! }
+//! assert_eq!(locked.digraphs.get(('>', '>')), Some('\u{00BB}'));
 //! ```
 use std::sync::{Arc, RwLock};
 
@@ -105,10 +103,10 @@ where
     pub fn set_aborted_cmd<T: Into<EditRope>>(&mut self, text: T) {
         let rope = text.into();
 
-        if rope.len() > 0 {
-            self.commands.select(rope);
-        } else {
+        if rope.is_empty() {
             let _ = self.commands.end();
+        } else {
+            self.commands.select(rope);
         }
     }
 
@@ -120,10 +118,10 @@ where
     pub fn set_aborted_search<T: Into<EditRope>>(&mut self, text: T) {
         let rope = text.into();
 
-        if rope.len() > 0 {
-            self.searches.select(rope);
-        } else {
+        if rope.is_empty() {
             let _ = self.searches.end();
+        } else {
+            self.searches.select(rope);
         }
     }
 
@@ -133,7 +131,7 @@ where
     pub fn set_last_cmd<T: Into<EditRope>>(&mut self, text: T) {
         let rope = text.into();
 
-        if rope.len() == 0 {
+        if rope.is_empty() {
             // Disallow empty commands.
             return;
         }
@@ -148,7 +146,7 @@ where
     pub fn set_last_search<T: Into<EditRope>>(&mut self, text: T) {
         let rope = text.into();
 
-        if rope.len() == 0 {
+        if rope.is_empty() {
             // Disallow empty searches.
             return;
         }

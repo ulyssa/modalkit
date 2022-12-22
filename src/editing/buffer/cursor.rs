@@ -111,7 +111,7 @@ where
 
         // Combine with current group.
         let cgroup = self.cursors.entry(gid).or_default();
-        let merged = ogroup.combine(&cgroup, style, &self.text)?;
+        let merged = ogroup.combine(cgroup, style, &self.text)?;
 
         store.cursors.set_group(self.id.clone(), reg, merged)?;
 

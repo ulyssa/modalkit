@@ -6,18 +6,25 @@
 //! the Vim text editor.
 //!
 
+// Require docs for public APIs, and disable the more annoying clippy lints.
+#![deny(missing_docs)]
+#![allow(clippy::bool_to_int_with_if)]
+#![allow(clippy::field_reassign_with_default)]
+#![allow(clippy::len_without_is_empty)]
+#![allow(clippy::manual_range_contains)]
+#![allow(clippy::match_like_matches_macro)]
+#![allow(clippy::needless_return)]
+#![allow(clippy::too_many_arguments)]
+#![allow(clippy::type_complexity)]
+
 #[macro_use]
 mod util;
 
-#[deny(missing_docs)]
 pub mod editing;
-#[deny(missing_docs)]
 pub mod env;
-#[deny(missing_docs)]
 pub mod input;
 
 #[cfg(feature = "readline")]
-#[deny(missing_docs)]
 pub mod readline;
 
 pub use crossterm;
@@ -26,5 +33,4 @@ pub use crossterm;
 pub use tui;
 
 #[cfg(feature = "widgets")]
-#[deny(missing_docs)]
 pub mod widgets;

@@ -198,7 +198,7 @@ where
                     let s = self._str(ch.clone(), cursor, &store.digraphs)?;
                     let text = EditRope::from(s.as_str());
 
-                    let mut res = self.text.insert(&cursor, dir, text, style);
+                    let mut res = self.text.insert(cursor, dir, text, style);
                     choice = res.0;
 
                     for typed in typed.iter_mut() {

@@ -169,7 +169,7 @@ impl<I: ApplicationInfo> Mode<Action<I>, VimContext<I>> for VimMode {
     }
 
     fn show(&self, ctx: &VimContext<I>) -> Option<String> {
-        let recording = ctx.persist.recording.and_then(register_to_char);
+        let recording = ctx.persist.recording.as_ref().and_then(register_to_char);
 
         let msg = match self {
             VimMode::Visual => {
@@ -206,7 +206,7 @@ impl<I: ApplicationInfo> Mode<Action<I>, VimContext<I>> for VimMode {
         match (recording, msg) {
             (Some(c), Some(msg)) => format!("{} (recording @{})", msg, c).into(),
             (Some(c), None) => format!("recording @{}", c).into(),
-            (None, Some(msg)) => format!("{}", msg).into(),
+            (None, Some(msg)) => msg.to_string().into(),
             (None, None) => None,
         }
     }
@@ -376,7 +376,7 @@ impl<I: ApplicationInfo> InputContext for VimContext<I> {
         // Allow overriding the two fields that can prefix keybindings.
 
         if other.action.count.is_some() {
-            self.action.count = other.action.count.clone();
+            self.action.count = other.action.count;
         }
 
         if other.action.register.is_some() {
@@ -426,7 +426,7 @@ impl<I: ApplicationInfo> InputKeyContext<TerminalKey, CommonKeyClass> for VimCon
 
             // Track literals, codepoints, etc.
             EdgeEvent::Any => {
-                self.ch.any = Some(ke.clone());
+                self.ch.any = Some(*ke);
             },
             EdgeEvent::Class(CommonKeyClass::Octal) => {
                 if let Some(n) = keycode_to_num(ke, 8) {
@@ -463,7 +463,7 @@ impl<I: ApplicationInfo> InputKeyContext<TerminalKey, CommonKeyClass> for VimCon
     }
 
     fn get_cursor_indicator(&self) -> Option<char> {
-        self.action.cursor.clone()
+        self.action.cursor
     }
 }
 
@@ -495,11 +495,11 @@ impl<I: ApplicationInfo> EditContext for VimContext<I> {
     }
 
     fn get_target_shape(&self) -> Option<TargetShape> {
-        self.persist.shape.clone()
+        self.persist.shape
     }
 
     fn get_insert_style(&self) -> Option<InsertStyle> {
-        self.persist.insert.clone()
+        self.persist.insert
     }
 
     fn get_last_column(&self) -> bool {
@@ -602,10 +602,10 @@ impl<I: ApplicationInfo> Resolve<Specifier<EditAction>, EditAction> for VimConte
     }
 }
 
-fn register_to_char((reg, append): (Register, bool)) -> Option<String> {
+fn register_to_char((reg, append): &(Register, bool)) -> Option<String> {
     let c = match reg {
         Register::Named(c) => {
-            if append {
+            if *append {
                 return c.to_uppercase().to_string().into();
             } else {
                 return c.to_string().into();
@@ -767,15 +767,15 @@ mod tests {
 
     #[test]
     fn test_register_to_char() {
-        assert_eq!(register_to_char((Register::Named('a'), false)).unwrap(), "a");
-        assert_eq!(register_to_char((Register::Named('a'), true)).unwrap(), "A");
-        assert_eq!(register_to_char((Register::LastYanked, false)).unwrap(), "0");
-        assert_eq!(register_to_char((Register::RecentlyDeleted(0), false)).unwrap(), "1");
-        assert_eq!(register_to_char((Register::RecentlyDeleted(2), false)).unwrap(), "3");
-        assert_eq!(register_to_char((Register::Unnamed, false)).unwrap(), "\"");
-        assert_eq!(register_to_char((Register::LastSearch, false)).unwrap(), "/");
+        assert_eq!(register_to_char(&(Register::Named('a'), false)).unwrap(), "a");
+        assert_eq!(register_to_char(&(Register::Named('a'), true)).unwrap(), "A");
+        assert_eq!(register_to_char(&(Register::LastYanked, false)).unwrap(), "0");
+        assert_eq!(register_to_char(&(Register::RecentlyDeleted(0), false)).unwrap(), "1");
+        assert_eq!(register_to_char(&(Register::RecentlyDeleted(2), false)).unwrap(), "3");
+        assert_eq!(register_to_char(&(Register::Unnamed, false)).unwrap(), "\"");
+        assert_eq!(register_to_char(&(Register::LastSearch, false)).unwrap(), "/");
 
         // Registers that don't have names.
-        assert_eq!(register_to_char((Register::UnnamedCursorGroup, false)), None);
+        assert_eq!(register_to_char(&(Register::UnnamedCursorGroup, false)), None);
     }
 }

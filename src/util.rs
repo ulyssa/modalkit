@@ -68,7 +68,7 @@ macro_rules! strs {
     };
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub(crate) struct IdGenerator {
     next_id: u64,
 }
@@ -84,12 +84,6 @@ impl IdGenerator {
         self.next_id += 1;
 
         return id;
-    }
-}
-
-impl Default for IdGenerator {
-    fn default() -> IdGenerator {
-        IdGenerator { next_id: 0 }
     }
 }
 
@@ -230,7 +224,7 @@ pub fn is_newline(c: char) -> bool {
 }
 
 pub fn is_word_char(c: char) -> bool {
-    return c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '_';
+    return c.is_ascii_alphanumeric() || c == '_';
 }
 
 pub fn is_keyword(c: char) -> bool {

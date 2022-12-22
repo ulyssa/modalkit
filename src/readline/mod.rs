@@ -98,13 +98,13 @@ enum InternalResult {
 
 fn command_to_str(ct: &CommandType) -> Option<String> {
     match ct {
-        &CommandType::Search(MoveDir1D::Next, _) => {
+        CommandType::Search(MoveDir1D::Next, _) => {
             return "/".to_string().into();
         },
-        &CommandType::Search(MoveDir1D::Previous, _) => {
+        CommandType::Search(MoveDir1D::Previous, _) => {
             return "?".to_string().into();
         },
-        &CommandType::Command => {
+        CommandType::Command => {
             return ":".to_string().into();
         },
     }
@@ -263,7 +263,7 @@ where
 
                         crossterm::terminal::disable_raw_mode()?;
 
-                        return Err(e.into());
+                        return Err(e);
                     },
                 }
             }
@@ -420,7 +420,7 @@ where
     fn get_cmd_regex(&mut self) -> EditResult<Regex, I> {
         let text = self.cmd.get_trim();
 
-        if text.len() > 0 {
+        if !text.is_empty() {
             let re = Regex::new(text.to_string().as_ref())?;
 
             return Ok(re);
@@ -595,13 +595,13 @@ where
             row = row.saturating_sub(1);
         }
 
-        self.context.top = row.into();
+        self.context.top = row;
 
         Ok(())
     }
 
     fn resize(&mut self, width: u16, height: u16) {
-        let oldh = self.dimensions.1 as u16;
+        let oldh = self.dimensions.1;
         let oldt = self.context.top;
 
         // Update terminal dimensions; we'll redraw when we loop.

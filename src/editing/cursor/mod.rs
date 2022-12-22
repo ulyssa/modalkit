@@ -21,7 +21,7 @@ pub use group::{CursorGroup, CursorGroupCombineError, CursorGroupIter, CursorGro
 pub use state::{CursorState, Selection, Selections};
 
 /// Represents a movable point within a document.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct Cursor {
     pub(crate) xgoal: usize,
     pub(crate) x: usize,
@@ -228,12 +228,6 @@ impl Wrappable for Cursor {
         if wrap {
             self.set_x(0);
         }
-    }
-}
-
-impl Default for Cursor {
-    fn default() -> Cursor {
-        Cursor { xgoal: 0, x: 0, y: 0 }
     }
 }
 

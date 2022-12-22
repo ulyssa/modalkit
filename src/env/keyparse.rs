@@ -12,7 +12,7 @@ use super::{CommonEdgeEvent, CommonEdgePath, CommonEdgePathPart, CommonKeyClass}
 use crate::input::bindings::{EdgeEvent, EdgeRepeat};
 
 fn parse_base10_usize(input: &str) -> Result<usize, std::num::ParseIntError> {
-    usize::from_str_radix(input, 10)
+    input.parse::<usize>()
 }
 
 fn parse_special(input: &str) -> IResult<&str, CommonEdgePathPart> {

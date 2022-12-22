@@ -196,7 +196,7 @@ impl<T> HistoryList<T> {
     }
 
     /// Iterate over the values within the history list.
-    pub fn iter<'a>(&'a self) -> HistoryIterator<'a, T> {
+    pub fn iter(&self) -> HistoryIterator<'_, T> {
         HistoryIterator {
             piter: self.past.iter(),
             fiter: self.future.iter(),
@@ -347,16 +347,16 @@ impl HistoryList<EditRope> {
             (ScrollbackState::Pending, MoveDir1D::Previous) => {
                 let rope = current.trim();
 
-                if rope.len() > 0 {
+                if rope.is_empty() {
+                    *scrollback = ScrollbackState::Empty;
+
+                    return self.prev(count - 1).clone().into();
+                } else {
                     *scrollback = ScrollbackState::Typed;
 
                     self.append(rope);
 
                     return self.prev(count).clone().into();
-                } else {
-                    *scrollback = ScrollbackState::Empty;
-
-                    return self.prev(count - 1).clone().into();
                 }
             },
             (ScrollbackState::Pending, MoveDir1D::Next) => {

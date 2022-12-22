@@ -130,10 +130,10 @@ pub fn compute_delta<'a>(base: &Rope, target: &'a Rope) -> Delta<'a> {
 
     // if our preliminary scan finds no differences we're done
     if start_offset == base.len_chars() && target.len_chars() == base.len_chars() {
-        return builder.to_delta(base, target);
+        return builder.into_delta(base, target);
     }
 
-    let line_hashes = make_line_hashes(&base, MIN_SIZE);
+    let line_hashes = make_line_hashes(base, MIN_SIZE);
 
     let line_count = target.len_lines();
     let mut matches = Vec::with_capacity(line_count);
@@ -203,9 +203,7 @@ pub fn compute_delta<'a>(base: &Rope, target: &'a Rope) -> Delta<'a> {
         builder.copy(base.len_chars() - diff_end, target.len_chars() - diff_end, diff_end);
     }
 
-    let res = builder.to_delta(base, target);
-
-    res
+    builder.into_delta(base, target)
 }
 
 /// Given two ropes and the offsets of two equal bytes, finds the largest
@@ -302,7 +300,7 @@ impl DiffBuilder {
         self.ops.push(DiffOp { target_idx: target, base_idx: base, len })
     }
 
-    fn to_delta<'a>(self, base: &Rope, target: &'a Rope) -> Delta<'a> {
+    fn into_delta<'a>(self, base: &Rope, target: &'a Rope) -> Delta<'a> {
         let mut els = Vec::with_capacity(self.ops.len() * 2);
         let mut targ_pos = 0;
         for DiffOp { base_idx, target_idx, len } in self.ops {
@@ -325,7 +323,7 @@ impl DiffBuilder {
 
 /// Creates a map of lines to offsets, ignoring trailing whitespace, and only for those lines
 /// where line.len() >= min_size. Offsets refer to the first non-whitespace byte in the line.
-fn make_line_hashes<'a>(base: &'a Rope, min_size: usize) -> HashMap<Cow<'a, str>, usize> {
+fn make_line_hashes(base: &Rope, min_size: usize) -> HashMap<Cow<'_, str>, usize> {
     let mut offset = 0;
     let mut line_hashes = HashMap::with_capacity(base.len_chars() / 60);
 

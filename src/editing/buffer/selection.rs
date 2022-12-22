@@ -73,7 +73,7 @@ where
     ) -> EditResult<EditInfo, I>;
 }
 
-impl<'a, 'b, 'c, C, I> SelectionActions<CursorGroupIdContext<'a, 'b, C>, I> for EditBuffer<I>
+impl<'a, 'b, C, I> SelectionActions<CursorGroupIdContext<'a, 'b, C>, I> for EditBuffer<I>
 where
     C: EditContext,
     I: ApplicationInfo,
@@ -215,7 +215,7 @@ where
                         if check(self, lstart, lend) {
                             copy(lstart, lend);
                             lstart = lend + 1;
-                            create = create - 1;
+                            create -= 1;
                             continue;
                         }
 
@@ -237,7 +237,7 @@ where
                         if check(self, lstart, lend) {
                             copy(lstart, lend);
                             mstart = lstart.checked_sub(ldiff + 1);
-                            create = create - 1;
+                            create -= 1;
                             continue;
                         }
 
@@ -305,26 +305,26 @@ where
                     TargetShape::CharWise
                 },
                 EditTarget::CharJump(mark) => {
-                    let nc = self._charjump(mark, &ctx, store)?;
+                    let nc = self._charjump(mark, ctx, store)?;
                     state.set_cursor(nc);
 
                     TargetShape::CharWise
                 },
                 EditTarget::LineJump(mark) => {
-                    let nc = self._linejump(mark, &ctx, store)?;
+                    let nc = self._linejump(mark, ctx, store)?;
                     state.set_cursor(nc);
 
                     TargetShape::LineWise
                 },
                 EditTarget::Motion(mv, count) => {
-                    if let Some(nc) = self.text.movement(&cursor, mv, count, &ctx) {
+                    if let Some(nc) = self.text.movement(&cursor, mv, count, ctx) {
                         state.set_cursor(nc);
                     }
 
                     mv.shape()
                 },
                 EditTarget::Range(range, inclusive, count) => {
-                    if let Some(r) = self.text.range(&cursor, range, *inclusive, count, &ctx) {
+                    if let Some(r) = self.text.range(&cursor, range, *inclusive, count, ctx) {
                         if obj {
                             state.set_anchor(r.start);
                             state.set_cursor(r.end);

@@ -118,7 +118,7 @@ impl FromStr for TerminalKey {
     type Err = MacroError;
 
     fn from_str(input: &str) -> Result<Self, Self::Err> {
-        if input.len() == 0 {
+        if input.is_empty() {
             return Err(MacroError::EmptyMacro);
         } else if let Ok((_, key)) = parse_key_str(input) {
             return Ok(key);
@@ -147,10 +147,10 @@ impl ToString for TerminalKey {
         };
 
         let push_named = |res: &mut String, name: &str| {
-            res.push_str("<");
+            res.push('<');
             push_mods(res);
             res.push_str(name);
-            res.push_str(">");
+            res.push('>');
         };
 
         match self.code {
@@ -262,7 +262,7 @@ impl InputKey for TerminalKey {
     }
 
     fn from_macro_str(input: &str) -> Result<Vec<Self>, MacroError> {
-        if input.len() == 0 {
+        if input.is_empty() {
             return Err(MacroError::EmptyMacro);
         } else if let Ok((_, keys)) = parse_macro_str(input) {
             return Ok(keys);

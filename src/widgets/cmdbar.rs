@@ -136,7 +136,7 @@ where
         store: &mut Store<I>,
     ) -> EditResult<Vec<(Action<I>, C)>, I> {
         // We always unfocus currently, regardless of whether _empty=true.
-        let act = Action::CommandBar(CommandBarAction::Unfocus).into();
+        let act = Action::CommandBar(CommandBarAction::Unfocus);
 
         let text = self.reset().trim();
 
@@ -177,7 +177,7 @@ where
     }
 }
 
-impl<'a, C, I> Promptable<C, Store<I>, I> for CommandBarState<I>
+impl<C, I> Promptable<C, Store<I>, I> for CommandBarState<I>
 where
     C: Default + EditContext,
     I: ApplicationInfo,

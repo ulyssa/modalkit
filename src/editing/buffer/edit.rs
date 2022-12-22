@@ -359,7 +359,7 @@ where
                         let mut iter = self.text.chars(nl + 1.into());
                         let mut blank = false;
 
-                        while let Some(c) = iter.next() {
+                        for c in iter.by_ref() {
                             if c == '\n' {
                                 blank = true;
                                 break;

@@ -702,15 +702,11 @@ where
             },
         };
 
-        match (amut, bmut) {
-            (Some(awin), Some(bwin)) => {
-                std::mem::swap(awin, bwin);
-            },
-            (_, _) => {
-                /*
-                 * If an index doesn't exist, do nothing.
-                 */
-            },
+        if let (Some(awin), Some(bwin)) = (amut, bmut) {
+            /*
+             * If both indexes were valid, swap their windows.
+             */
+            std::mem::swap(awin, bwin);
         }
     }
 
@@ -1297,7 +1293,7 @@ where
                 let slot = self.get_slot().ok_or(UIError::NoWindow)?;
 
                 match slot.get_alt() {
-                    Some(ref alt) => Ok(alt.dup(store)),
+                    Some(alt) => Ok(alt.dup(store)),
                     None => Err(UIError::Failure("No alternate window".into())),
                 }
             },
@@ -1310,7 +1306,7 @@ where
             OpenTarget::Cursor(style) => {
                 let slot = self.get_slot().ok_or(UIError::NoWindow)?;
 
-                if let Some(text) = slot.get().get_cursor_word(&style) {
+                if let Some(text) = slot.get().get_cursor_word(style) {
                     W::find(text, store)
                 } else {
                     let msg = "No word under cursor".to_string();
@@ -1461,7 +1457,7 @@ where
         store: &mut Store<I>,
     ) -> UIResult<EditInfo, I> {
         let count = ctx.resolve(count);
-        let w = self._open(&target, ctx, store)?;
+        let w = self._open(target, ctx, store)?;
 
         self.zoom = false;
 
@@ -1518,14 +1514,14 @@ where
 
         match target {
             CloseTarget::Single(focus) => {
-                if let Some(target) = self._target(&focus, ctx) {
+                if let Some(target) = self._target(focus, ctx) {
                     self.close(target, flags);
                 }
 
                 return Ok(None);
             },
             CloseTarget::AllBut(focus) => {
-                if let Some(target) = self._target(&focus, ctx) {
+                if let Some(target) = self._target(focus, ctx) {
                     self.only(target, flags);
                 }
 
@@ -1549,7 +1545,7 @@ where
         store: &mut Store<I>,
     ) -> UIResult<EditInfo, I> {
         let count: u16 = ctx.resolve(count).try_into().map_err(EditError::from)?;
-        let w = self._open(&target, ctx, store)?;
+        let w = self._open(target, ctx, store)?;
 
         self.open(w, Some(count), axis, rel);
 
@@ -1573,7 +1569,7 @@ where
             OpenTarget::Application(id) => W::open(id.clone(), store)?,
             OpenTarget::Current => slot.get().dup(store),
             OpenTarget::Cursor(style) => {
-                if let Some(text) = slot.get().get_cursor_word(&style) {
+                if let Some(text) = slot.get().get_cursor_word(style) {
                     W::find(text, store)?
                 } else {
                     let msg = "No word under cursor".to_string();
@@ -1654,8 +1650,8 @@ where
         let info = match action {
             WindowAction::ClearSizes => self.window_clear_sizes(ctx, store)?,
             WindowAction::Close(target, flags) => self.window_close(target, *flags, ctx, store)?,
-            WindowAction::Exchange(target) => self.window_exchange(&target, ctx, store)?,
-            WindowAction::Focus(target) => self.window_focus(&target, ctx, store)?,
+            WindowAction::Exchange(target) => self.window_exchange(target, ctx, store)?,
+            WindowAction::Focus(target) => self.window_focus(target, ctx, store)?,
             WindowAction::MoveSide(dir) => self.window_move_side(*dir, ctx, store)?,
             WindowAction::Open(target, axis, rel, count) => {
                 self.window_open(target, *axis, *rel, count, ctx, store)?
@@ -1817,7 +1813,7 @@ mod tests {
         type ContentId = Option<usize>;
     }
 
-    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    #[derive(Clone, Debug, Eq, PartialEq)]
     pub struct TestWindow {
         term_area: Rect,
         id: Option<usize>,

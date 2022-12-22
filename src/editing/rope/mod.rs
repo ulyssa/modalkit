@@ -329,7 +329,7 @@ fn next_utf8(text: &[u8], i: usize) -> usize {
     };
     let inc = if b <= 0x7F {
         1
-    } else if b <= 0b110_11111 {
+    } else if b <= 0b1101_1111 {
         2
     } else if b <= 0b1110_1111 {
         3
@@ -697,9 +697,7 @@ fn titlecase(s: String) -> String {
         .collect()
 }
 
-fn get_last_column<'a, 'b, 'c, C: EditContext>(
-    ctx: &CursorMovementsContext<'a, 'b, 'c, Cursor, C>,
-) -> bool {
+fn get_last_column<C: EditContext>(ctx: &CursorMovementsContext<'_, '_, '_, Cursor, C>) -> bool {
     let shaped = ctx.context.get_target_shape().is_some();
 
     if ctx.action.is_motion() {
@@ -730,7 +728,7 @@ impl EditRope {
     /// Calculate the max indexable column in a given line given the current context.
     ///
     /// This function expects to be given a valid line number as input.
-    pub(crate) fn max_column_idx<'a>(&self, y: usize, lastcol: bool) -> usize {
+    pub(crate) fn max_column_idx(&self, y: usize, lastcol: bool) -> usize {
         let columns = self.get_columns(y);
 
         if lastcol {
@@ -743,7 +741,7 @@ impl EditRope {
     /// Calculate the max indexable line for a cursor in this string.
     ///
     /// This function expects every line in the buffer to be terminated with a newline.
-    fn max_line_idx<'a>(&self) -> usize {
+    fn max_line_idx(&self) -> usize {
         // We assume that every editing buffer has a trailing newline
         self.get_lines().saturating_sub(1)
     }
@@ -781,20 +779,17 @@ impl EditRope {
         }
     }
 
-    fn _middle_line_idx<'a, 'b, 'c>(&self, view: &ViewportContext<Cursor>) -> usize {
+    fn _middle_line_idx(&self, view: &ViewportContext<Cursor>) -> usize {
         if view.wrap {
             let (width, height) = view.dimensions;
             let mut lines = Vec::new();
-            let mut l = 0;
 
-            for line in self.lines_at(view.corner.y, view.corner.x) {
+            for (l, line) in self.lines_at(view.corner.y, view.corner.x).enumerate() {
                 let w = 1 + line.len_chars().saturating_sub(1) / width;
 
                 for _ in 0..w {
                     lines.push(l);
                 }
-
-                l += 1;
 
                 if lines.len() >= height {
                     break;
@@ -1145,7 +1140,7 @@ impl EditRope {
         let colmax = self.max_column_idx(cursor.y, true);
         let cstart = cursor.x.saturating_add(off).min(colmax);
 
-        let coff = self.cursor_to_offset(&cursor);
+        let coff = self.cursor_to_offset(cursor);
         let ioff = self.lincol_to_offset(cursor.y, cstart);
 
         let tlen = text.len();
@@ -1209,7 +1204,7 @@ impl EditRope {
         text: EditRope,
         style: InsertStyle,
     ) -> (CursorChoice, Vec<CursorAdjustment>) {
-        if text.len() == 0 {
+        if text.is_empty() {
             return (CursorChoice::Single(cursor.clone()), vec![]);
         }
 
@@ -1231,7 +1226,7 @@ impl EditRope {
         text: EditRope,
         shape: TargetShape,
     ) -> (CursorChoice, Vec<CursorAdjustment>) {
-        if text.len() == 0 {
+        if text.is_empty() {
             return (CursorChoice::Single(cursor.clone()), vec![]);
         }
 
@@ -1337,6 +1332,11 @@ impl EditRope {
         self.rope.len_chars()
     }
 
+    /// Indicates whether or not this rope is empty (contains no characters).
+    pub fn is_empty(&self) -> bool {
+        self.rope.len_chars() == 0
+    }
+
     /// Return the number of lines in this rope.
     pub fn get_lines(&self) -> usize {
         self.rope.len_lines().saturating_sub(1)
@@ -1394,7 +1394,7 @@ impl EditRope {
     }
 
     /// Convert a byte offset to a [Cursor].
-    pub fn offset_to_cursor<'a>(&self, off: CharOff) -> Cursor {
+    pub fn offset_to_cursor(&self, off: CharOff) -> Cursor {
         let off = off.min(self.last_offset());
 
         let line = self.line_of_offset(off);
@@ -1403,7 +1403,7 @@ impl EditRope {
         Cursor::new(line, off.0 - loff.0)
     }
 
-    fn offset_to_rc<'a>(&'a self, off: CharOff) -> RopeCursor<'a> {
+    fn offset_to_rc(&self, off: CharOff) -> RopeCursor<'_> {
         RopeCursor::new(self, off.0)
     }
 
@@ -1652,7 +1652,7 @@ impl EditRope {
         count: usize,
         motion: bool,
     ) -> Option<BoundaryTestIterator> {
-        let off = self.cursor_to_offset(&nc);
+        let off = self.cursor_to_offset(nc);
 
         let boff = off.0.saturating_sub(1).into();
         let aoff = off.0.saturating_add(1).into();
@@ -1775,9 +1775,9 @@ impl EditRope {
         }
     }
 
-    fn find_match<'a>(
+    fn find_match(
         &self,
-        rc: RopeCursor<'a>,
+        rc: RopeCursor<'_>,
         close: char,
         open: char,
         dir: MoveDir1D,
@@ -1785,9 +1785,9 @@ impl EditRope {
         self.find_bracket(rc, close, open, dir, 1)
     }
 
-    fn find_bracket<'a>(
+    fn find_bracket(
         &self,
-        mut rc: RopeCursor<'a>,
+        mut rc: RopeCursor<'_>,
         close: char,
         open: char,
         dir: MoveDir1D,
@@ -2146,7 +2146,7 @@ impl<C: EditContext> CursorMovements<Cursor, C> for EditRope {
         _: &CursorMovementsContext<'a, 'b, 'c, Cursor, C>,
     ) -> Cursor {
         let mut nc = cursor.clone();
-        let cctx = &(&*self, 0usize, false);
+        let cctx = &(self, 0usize, false);
         nc.first_word(cctx);
 
         return nc;
@@ -2436,9 +2436,9 @@ impl<C: EditContext> CursorMovements<Cursor, C> for EditRope {
             (RangeType::Bracketed(left, right), count) => {
                 let count = ctx.context.resolve(count);
 
-                self.find_bracketed(&cursor, *left, *right, inclusive, count)
+                self.find_bracketed(cursor, *left, *right, inclusive, count)
             },
-            (RangeType::Quote(quote), _) => self.find_quoted(&cursor, *quote, inclusive),
+            (RangeType::Quote(quote), _) => self.find_quoted(cursor, *quote, inclusive),
             (RangeType::XmlTag, _) => {
                 // XXX: implement
                 None
@@ -2497,7 +2497,7 @@ impl CursorSearch<Cursor> for EditRope {
         let mut haystack = self.offset_to_rc(off);
         if !inclusive {
             // Move so we ignore any adjacent, matching character.
-            let _ = haystack.offset(dir);
+            haystack.offset(dir);
         }
 
         // Count occurrences of the character until we reach our goal.
@@ -2536,7 +2536,7 @@ impl CursorSearch<Cursor> for EditRope {
     ) -> Option<EditRange<Cursor>> {
         let start = self.cursor_to_offset(cursor);
 
-        if start > self.last_offset() || self.len() == 0 {
+        if start > self.last_offset() || self.is_empty() {
             return None;
         }
 

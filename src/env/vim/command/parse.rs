@@ -299,15 +299,15 @@ fn parse_range(original: &str) -> IResult<&str, RangeSpec> {
 
     match (ltype, sep) {
         (None, None) => {
-            if lmods.len() > 0 {
+            if lmods.is_empty() {
+                let err = ParseError::from_error_kind(original, ErrorKind::Alt);
+                let err = nom::Err::Error(err);
+                Err(err)
+            } else {
                 let ltype = RangeEndingType::Unspecified;
                 let left = RangeEnding(ltype, lmods);
 
                 Ok((input, RangeSpec::Single(left)))
-            } else {
-                let err = ParseError::from_error_kind(original, ErrorKind::Alt);
-                let err = nom::Err::Error(err);
-                Err(err)
             }
         },
         (Some(ltype), None) => {
@@ -377,7 +377,7 @@ fn parse_cmd_descr(input: &str) -> IResult<&str, CommandDescription> {
     Ok((input, cmd))
 }
 
-fn parse<'a>(input: &'a str) -> IResult<&str, CommandDescription> {
+fn parse(input: &str) -> IResult<&str, CommandDescription> {
     let (input, descr) = parse_cmd_descr(input)?;
     let (input, _) = eof(input)?;
 

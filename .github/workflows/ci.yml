@@ -39,3 +39,9 @@ jobs:
       with:
           command: fmt
           args: --all -- --check
+    - name: Check clippy
+      uses: actions-rs/clippy-check@v1
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+        toolchain: stable
+        args:

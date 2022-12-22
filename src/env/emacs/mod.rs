@@ -160,18 +160,12 @@ impl<I: ApplicationInfo> ModeKeys<TerminalKey, Action<I>, EmacsContext<I>> for E
 
 /// This is the context specific to an action, and gets reset every time a full sequence of
 /// keybindings is pressed.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(crate) struct ActionContext {
     // Prefix arguments to key sequences.
     pub(crate) count: Option<usize>,
     pub(crate) counting: Option<usize>,
     pub(crate) register: Option<Register>,
-}
-
-impl Default for ActionContext {
-    fn default() -> Self {
-        Self { count: None, counting: None, register: None }
-    }
 }
 
 /// This is the context preserved across actions, and changes either with the mode, or through
@@ -258,7 +252,7 @@ impl<I: ApplicationInfo> EditContext for EmacsContext<I> {
     }
 
     fn get_target_shape(&self) -> Option<TargetShape> {
-        self.persist.shape.clone()
+        self.persist.shape
     }
 
     fn get_insert_style(&self) -> Option<InsertStyle> {
@@ -343,7 +337,7 @@ impl<I: ApplicationInfo> InputKeyContext<TerminalKey, CommonKeyClass> for EmacsC
 
             // Track literals, codepoints, etc.
             EdgeEvent::Any => {
-                self.ch.any = Some(ke.clone());
+                self.ch.any = Some(*ke);
             },
             EdgeEvent::Class(CommonKeyClass::Octal) => {
                 if let Some(n) = keycode_to_num(ke, 8) {

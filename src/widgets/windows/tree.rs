@@ -83,12 +83,12 @@ where
     fn val_mut(&mut self, at: usize) -> Option<&mut Value<W, X, Y>>;
 
     /// Iterate over each [Value] in this tree.
-    fn iter<'a>(&'a self) -> AxisTreeIter<'a, W, X, Y>;
+    fn iter(&self) -> AxisTreeIter<'_, W, X, Y>;
 
     /// Call a function for each [Value] in this tree.
     ///
     /// This does an in-order traversal of the tree.
-    fn for_each_value<F: FnMut(&mut Value<W, X, Y>) -> ()>(&mut self, f: &mut F);
+    fn for_each_value<F: FnMut(&mut Value<W, X, Y>)>(&mut self, f: &mut F);
 
     /// Rebalance the tree by performing a left rotation.
     ///
@@ -153,7 +153,7 @@ where
                         None => {
                             return None;
                         },
-                        Some((ref v, ref r)) => {
+                        Some((v, r)) => {
                             self.current = r;
 
                             return Some(v);
@@ -423,14 +423,14 @@ where
         idx
     }
 
-    fn iter<'a>(&'a self) -> AxisTreeIter<'a, W, X, Y> {
+    fn iter(&self) -> AxisTreeIter<'_, W, X, Y> {
         AxisTreeIter {
             previous: vec![(&self.value, &self.right)],
             current: &self.left,
         }
     }
 
-    fn for_each_value<F: FnMut(&mut Value<W, X, Y>) -> ()>(&mut self, f: &mut F) {
+    fn for_each_value<F: FnMut(&mut Value<W, X, Y>)>(&mut self, f: &mut F) {
         self.left.for_each_value(f);
         f(&mut self.value);
         self.right.for_each_value(f);
@@ -471,11 +471,11 @@ where
         }
     }
 
-    fn iter<'a>(&'a self) -> AxisTreeIter<'a, W, X, Y> {
+    fn iter(&self) -> AxisTreeIter<'_, W, X, Y> {
         AxisTreeIter { previous: Vec::new(), current: self }
     }
 
-    fn for_each_value<F: FnMut(&mut Value<W, X, Y>) -> ()>(&mut self, f: &mut F) {
+    fn for_each_value<F: FnMut(&mut Value<W, X, Y>)>(&mut self, f: &mut F) {
         match self {
             None => (),
             Some(node) => node.for_each_value(f),
