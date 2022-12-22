@@ -241,7 +241,7 @@ where
                 CommandType::Search(MoveDir1D::Previous, _) => "?",
             };
 
-            let tbox = TextBox::new().prompt(prompt);
+            let tbox = TextBox::new().prompt(prompt).oneline();
 
             tbox.render(area, buf, &mut state.tbox);
         } else if let Some(span) = self.message {

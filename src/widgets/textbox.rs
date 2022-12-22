@@ -22,24 +22,24 @@
 //!
 //! use tui::layout::Rect;
 //!
-//! fn main() {
-//!     let mut store = Store::<EmptyInfo>::default();
-//!     let buffer = store.load_buffer(String::from("*scratch*"));
-//!     let mut tbox = TextBoxState::new(buffer);
+//! let mut store = Store::<EmptyInfo>::default();
+//! let buffer = store.load_buffer(String::from("*scratch*"));
+//! let mut tbox = TextBoxState::new(buffer);
 //!
-//!     tbox.set_term_info(Rect::new(0, 0, 6, 4));
+//! tbox.set_term_info(Rect::new(0, 0, 6, 4));
 //!
-//!     tbox.set_text("a\nb\nc\nd\ne\nf\n");
-//!     assert_eq!(tbox.get_text(), "a\nb\nc\nd\ne\nf\n");
-//!     assert_eq!(tbox.get_lines(), 6);
-//!     assert_eq!(tbox.has_lines(4), 4);
-//!     assert_eq!(tbox.has_lines(6), 6);
-//!     assert_eq!(tbox.has_lines(8), 6);
-//! }
+//! tbox.set_text("a\nb\nc\nd\ne\nf\n");
+//! assert_eq!(tbox.get_text(), "a\nb\nc\nd\ne\nf\n");
+//! assert_eq!(tbox.get_lines(), 6);
+//! assert_eq!(tbox.has_lines(4), 4);
+//! assert_eq!(tbox.has_lines(6), 6);
+//! assert_eq!(tbox.has_lines(8), 6);
 //! ```
 use std::convert::TryInto;
 use std::iter::Iterator;
 use std::marker::PhantomData;
+
+use ropey::RopeSlice;
 
 use tui::{
     buffer::Buffer,
@@ -130,7 +130,6 @@ pub struct TextBoxState<I: ApplicationInfo = EmptyInfo> {
     readonly: bool,
 
     viewctx: ViewportContext<Cursor>,
-    term_area: Rect,
     term_cursor: (u16, u16),
 }
 
@@ -138,6 +137,7 @@ pub struct TextBoxState<I: ApplicationInfo = EmptyInfo> {
 pub struct TextBox<'a, I: ApplicationInfo = EmptyInfo> {
     block: Option<Block<'a>>,
     prompt: &'a str,
+    oneline: bool,
 
     lgutter_width: u16,
     rgutter_width: u16,
@@ -172,6 +172,13 @@ fn shift_corner_wrap(cursor: &Cursor, corner: &mut Cursor, height: usize) {
         corner.set_x(0);
     } else if cursor.y == corner.y && cursor.x < corner.x {
         corner.set_x(0);
+    }
+}
+
+fn shift_corner_oneline(cursor: &Cursor, corner: &mut Cursor) {
+    if cursor < corner {
+        corner.set_y(cursor.y);
+        corner.set_x(cursor.x);
     }
 }
 
@@ -223,7 +230,6 @@ where
             readonly: false,
 
             viewctx,
-            term_area: Rect::default(),
             term_cursor: (0, 0),
         }
     }
@@ -264,7 +270,7 @@ where
     }
 
     /// Create or update a line annotation for the left gutter.
-    pub fn set_left_gutter<'a>(&mut self, line: usize, s: String, style: Option<Style>) {
+    pub fn set_left_gutter(&mut self, line: usize, s: String, style: Option<Style>) {
         let style = style.unwrap_or_default();
         let info = LeftGutterInfo::new(s, style);
 
@@ -272,7 +278,7 @@ where
     }
 
     /// Create or update a line annotation for the right gutter.
-    pub fn set_right_gutter<'a>(&mut self, line: usize, s: String, style: Option<Style>) {
+    pub fn set_right_gutter(&mut self, line: usize, s: String, style: Option<Style>) {
         let style = style.unwrap_or_default();
         let info = RightGutterInfo::new(s, style);
 
@@ -287,7 +293,6 @@ where
     /// Inform the text box what its dimensions and placement on the terminal window is.
     pub fn set_term_info(&mut self, area: Rect) {
         self.viewctx.dimensions = (area.width as usize, area.height as usize);
-        self.term_area = area;
     }
 
     /// Get the leader cursor for this text box's cursor group.
@@ -335,11 +340,11 @@ where
 
 macro_rules! c2cgi {
     ($s: expr, $ctx: expr) => {
-        &mut ($s.group_id, &$s.viewctx, $ctx)
+        &($s.group_id, &$s.viewctx, $ctx)
     };
 }
 
-impl<'a, C, I> Editable<C, Store<I>, I> for TextBoxState<I>
+impl<C, I> Editable<C, Store<I>, I> for TextBoxState<I>
 where
     C: EditContext,
     I: ApplicationInfo,
@@ -358,7 +363,7 @@ where
     }
 }
 
-impl<'a, C, I> Jumpable<C, I> for TextBoxState<I>
+impl<C, I> Jumpable<C, I> for TextBoxState<I>
 where
     C: EditContext,
     I: ApplicationInfo,
@@ -389,7 +394,7 @@ where
     }
 }
 
-impl<'a, C, I> Searchable<C, Store<I>, I> for TextBoxState<I>
+impl<C, I> Searchable<C, Store<I>, I> for TextBoxState<I>
 where
     C: EditContext,
     I: ApplicationInfo,
@@ -405,7 +410,7 @@ where
     }
 }
 
-impl<'a, C, I> ScrollActions<C, Store<I>, I> for TextBoxState<I>
+impl<C, I> ScrollActions<C, Store<I>, I> for TextBoxState<I>
 where
     C: EditContext,
     I: ApplicationInfo,
@@ -541,7 +546,7 @@ where
     }
 }
 
-impl<'a, C, I> Scrollable<C, Store<I>, I> for TextBoxState<I>
+impl<C, I> Scrollable<C, Store<I>, I> for TextBoxState<I>
 where
     C: EditContext,
     I: ApplicationInfo,
@@ -589,7 +594,6 @@ where
             readonly: self.readonly,
 
             viewctx: self.viewctx.clone(),
-            term_area: Rect::default(),
             term_cursor: (0, 0),
         }
     }
@@ -620,6 +624,7 @@ where
         TextBox {
             block: None,
             prompt: "",
+            oneline: false,
 
             lgutter_width: 0,
             rgutter_width: 0,
@@ -631,6 +636,15 @@ where
     /// Wrap this text box in a [Block].
     pub fn block(mut self, block: Block<'a>) -> Self {
         self.block = Some(block);
+        self
+    }
+
+    /// Force the text to render on a single line. LF and CR will be rendered as ^J and ^M
+    /// respectively.
+    ///
+    /// Any gutters will not be shown.
+    pub fn oneline(mut self) -> Self {
+        self.oneline = true;
         self
     }
 
@@ -766,17 +780,17 @@ where
         let unstyled = Style::default();
 
         let text = state.buffer.read().unwrap();
-        let mut line = cby;
-        let mut lines = text.lines_at(line, cbx);
 
         let mut wrapped = Vec::new();
         let mut sawcursor = false;
 
-        while let Some(s) = lines.next() {
+        for (loff, s) in text.lines_at(cby, cbx).enumerate() {
             if wrapped.len() >= height && sawcursor {
                 break;
             }
 
+            let base = if loff == 0 { cbx } else { 0 };
+            let line = cby + loff;
             let mut first = true;
             let mut off = 0;
             let slen = s.len_chars();
@@ -785,24 +799,33 @@ where
                 let start = off;
                 let end = (start + width).min(slen);
                 let swrapped = s.slice(start..end).to_string();
+                off = end;
 
-                let cursor_line = line == cursor.y && (start..=end).contains(&cursor.x);
+                let start = base + start;
+                let end = base + end;
+                let slen = base + slen;
 
-                wrapped.push((line, start, end, swrapped, cursor_line, first));
+                let full = end - start == width;
+                let last = end == slen && cursor.x == slen;
+                let cursor_line = line == cursor.y && ((start..end).contains(&cursor.x) || last);
 
-                if cursor_line {
-                    sawcursor = true;
+                if cursor_line && full && last {
+                    wrapped.push((line, start, end, swrapped, false, first));
+                    wrapped.push((line, start, end, " ".to_string(), true, first));
+                } else {
+                    wrapped.push((line, start, end, swrapped, cursor_line, first));
                 }
 
-                off = end;
+                sawcursor |= cursor_line;
+
                 first = false;
             }
 
             if slen == 0 {
-                wrapped.push((line, 0, 0, s.to_string(), line == cursor.y, true));
+                let cursor_line = line == cursor.y;
+                wrapped.push((line, 0, 0, s.to_string(), cursor_line, true));
+                sawcursor |= cursor_line;
             }
-
-            line += 1;
         }
 
         if wrapped.len() > height {
@@ -822,12 +845,12 @@ where
                 let lgutter = text.get_line_info::<LeftGutterInfo>(line);
                 let rgutter = text.get_line_info::<RightGutterInfo>(line);
 
-                if let Some(ref lgi) = lgutter {
+                if let Some(lgi) = lgutter {
                     let lga = Rect::new(gutters.0.x, y, gutters.0.width, 0);
                     lgi.render(lga, buf);
                 }
 
-                if let Some(ref rgi) = rgutter {
+                if let Some(rgi) = rgutter {
                     let rga = Rect::new(gutters.1.x, y, gutters.1.width, 0);
                     rgi.render(rga, buf);
                 }
@@ -844,6 +867,151 @@ where
             self._highlight_line(line, start, end, (x, y), &hinfo, buf);
 
             y += 1;
+        }
+    }
+
+    fn _render_lines_oneline(
+        &mut self,
+        area: Rect,
+        buf: &mut Buffer,
+        hinfo: HighlightInfo,
+        finfo: FollowersInfo,
+        state: &mut TextBoxState<I>,
+    ) {
+        let right = area.right();
+        let mut x = area.left();
+        let y = area.top();
+
+        let width = area.width as usize;
+
+        // If the cursor has moved off-screen, update the viewport corner.
+        let cursor = state.get_cursor();
+        shift_corner_oneline(&cursor, &mut state.viewctx.corner);
+
+        let cby = state.viewctx.corner.y;
+        let cbx = state.viewctx.corner.x;
+
+        let unstyled = Style::default();
+
+        let text = state.buffer.read().unwrap();
+
+        let mut joined = Vec::new();
+        let mut sawcursor = false;
+        let mut len = 0;
+        let mut off = cbx;
+
+        for (loff, s) in text.lines_at(cby, cbx).enumerate() {
+            if len >= width && sawcursor {
+                break;
+            }
+
+            let base = if loff == 0 { cbx } else { 0 };
+            let line = cby + loff;
+            let slen = s.len_chars();
+
+            while off < slen && (len <= width || !sawcursor) {
+                let start = off;
+                let end = (start + width).min(slen);
+                let swrapped = s.slice(start..end);
+
+                off = end;
+
+                let start = base + start;
+                let end = base + end;
+                let slen = base + slen;
+
+                let full = end - start == width;
+                let last = end == slen && cursor.x == slen;
+                let cursor_line = line == cursor.y && ((start..end).contains(&cursor.x) || last);
+
+                let wlen = swrapped.len_chars();
+
+                if cursor_line && full && last {
+                    joined.push((line, start, end, swrapped, wlen, false));
+                    joined.push((line, end, end, RopeSlice::from(" "), 1, true));
+                    len += wlen + 1;
+                } else {
+                    joined.push((line, start, end, swrapped, wlen, cursor_line));
+                    len += wlen;
+                }
+
+                sawcursor |= cursor_line;
+            }
+
+            if slen == 0 {
+                let cursor_line = line == cursor.y;
+                joined.push((line, 0, 0, s, 0, cursor_line));
+                sawcursor |= cursor_line;
+            }
+
+            joined.push((line, slen, slen, RopeSlice::from("^J"), 2, false));
+            len += 2;
+
+            // Reset for next iteration.
+            off = 0;
+        }
+
+        if !joined.is_empty() {
+            // Remove the last ^J.
+            joined.pop();
+            len -= 2;
+        }
+
+        if len > width {
+            let mut n = 0;
+
+            for (idx, (_, ref mut start, _, ref mut s, slen, ref cursor_line)) in
+                joined.iter_mut().enumerate()
+            {
+                if len <= width {
+                    break;
+                }
+
+                let diff = len - width;
+                n = idx;
+
+                if *cursor_line {
+                    let into = cursor.x - *start;
+                    let rm = diff.min(into);
+                    *s = s.slice(rm..);
+                    *start += rm;
+                    break;
+                } else if *slen > diff {
+                    *s = s.slice(diff..);
+                    *start += diff;
+                    break;
+                } else {
+                    len -= *slen;
+                    continue;
+                }
+            }
+
+            let _ = joined.drain(..n);
+            let (line, start, _, _, _, _) = joined.first().unwrap();
+            state.viewctx.corner.set_y(*line);
+            state.viewctx.corner.set_x(*start);
+        }
+
+        state.term_cursor = (x, y);
+
+        for (line, start, end, s, _, cursor_line) in joined.into_iter() {
+            if x >= right {
+                break;
+            }
+
+            let s = s.to_string();
+            let w = (right - x) as usize;
+            let (xres, _) = buf.set_stringn(x, y, s, w, unstyled);
+
+            if cursor_line {
+                let coff = cursor.x.saturating_sub(start) as u16;
+                state.term_cursor = (x + coff, y);
+            }
+
+            self._highlight_followers(line, start, end, (x, y), &finfo, buf);
+            self._highlight_line(line, start, end, (x, y), &hinfo, buf);
+
+            x = xres;
         }
     }
 
@@ -885,7 +1053,7 @@ where
                 let start = cbx;
                 let end = slen;
 
-                if let Some(ref lgi) = lgutter {
+                if let Some(lgi) = lgutter {
                     let lga = Rect::new(gutters.0.x, y, gutters.0.width, 0);
                     lgi.render(lga, buf);
                 }
@@ -894,7 +1062,7 @@ where
                     let _ = buf.set_stringn(x, y, s.slice(start..end).to_string(), width, unstyled);
                 }
 
-                if let Some(ref rgi) = rgutter {
+                if let Some(rgi) = rgutter {
                     let rga = Rect::new(gutters.1.x, y, gutters.1.width, 0);
                     rgi.render(rga, buf);
                 }
@@ -905,7 +1073,7 @@ where
                 }
 
                 self._highlight_followers(line, start, end, (x, y), &finfo, buf);
-                self._highlight_line(line, cbx, slen, (x, y), &hinfo, buf);
+                self._highlight_line(line, start, end, (x, y), &hinfo, buf);
 
                 y += 1;
                 line += 1;
@@ -929,6 +1097,12 @@ where
         let hinfo = self._selection_intervals(state);
         let finfo = self._follower_intervals(state);
 
+        if self.oneline {
+            state.set_term_info(area);
+            self._render_lines_oneline(area, buf, hinfo, finfo, state);
+            return;
+        }
+
         let (lgw, rgw) = if area.width <= self.lgutter_width + self.rgutter_width {
             (0, 0)
         } else {
@@ -940,13 +1114,22 @@ where
         let rga = Rect::new(area.x + lgw + textw, area.y, rgw, area.height);
         let gutters = (lga, rga);
 
-        state.set_term_info(area);
+        state.set_term_info(texta);
 
         if state.viewctx.wrap {
             self._render_lines_wrap(texta, gutters, buf, hinfo, finfo, state);
         } else {
             self._render_lines_nowrap(texta, gutters, buf, hinfo, finfo, state);
         }
+    }
+}
+
+impl<'a, I> Default for TextBox<'a, I>
+where
+    I: ApplicationInfo,
+{
+    fn default() -> Self {
+        TextBox::new()
     }
 }
 
@@ -980,7 +1163,7 @@ where
         let _ = buf.set_stringn(
             gutter.left(),
             gutter.top(),
-            &self.prompt,
+            self.prompt,
             gutter.width as usize,
             Style::default(),
         );

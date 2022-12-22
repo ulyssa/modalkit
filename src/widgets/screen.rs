@@ -711,7 +711,7 @@ where
         let focused = state.focused;
         let ntabs = state.tabs.len();
 
-        let tabh = if ntabs > 1 { 1 } else { 0 };
+        let tabh = if ntabs > 1 && area.height > 2 { 1 } else { 0 };
 
         let winh = area.height - tabh - 1;
 
