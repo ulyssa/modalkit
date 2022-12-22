@@ -4,42 +4,30 @@ use nom::{
     branch::alt,
     bytes::complete::{escaped_transform, is_not, tag, take_while, take_while1},
     character::complete::{char, digit1, one_of, space0, space1},
-    combinator::{eof, opt, value},
+    combinator::{eof, opt, peek, value},
     error::{context, ErrorKind, ParseError},
-    multi::{many0, many1, separated_list0},
+    multi::{many0, separated_list0},
     IResult,
 };
 
-use crate::input::commands::ParsedCommand;
-
-use crate::editing::base::{
-    Count,
-    Mark,
-    MoveDir1D,
-    RangeEnding,
-    RangeEndingModifier,
-    RangeEndingType,
-    RangeSearchInit,
-    RangeSpec,
-    Specifier,
+use crate::{
+    editing::{
+        application::ApplicationWindowId,
+        base::{
+            Count,
+            Mark,
+            MoveDir1D,
+            OpenTarget,
+            RangeEnding,
+            RangeEndingModifier,
+            RangeEndingType,
+            RangeSearchInit,
+            RangeSpec,
+            Specifier,
+        },
+    },
+    input::commands::{CommandError, ParsedCommand},
 };
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-enum CommandArgumentType {
-    Text(String),
-    FileAlternate,
-    FileCurrent,
-}
-
-impl CommandArgumentType {
-    fn show(self) -> String {
-        match self {
-            CommandArgumentType::Text(t) => t,
-            CommandArgumentType::FileAlternate => "alternate".to_string(),
-            CommandArgumentType::FileCurrent => "alternate".to_string(),
-        }
-    }
-}
 
 /// Argument text following a command name.
 #[derive(Debug, Eq, PartialEq)]
@@ -73,12 +61,33 @@ pub struct CommandDescription {
 
 impl CommandArgument {
     /// Interpret the argument text as a collection of filenames.
-    pub fn filenames(&self) -> Vec<String> {
-        let (_, args) = parse_arguments(self.text.as_str()).expect("invalid arguments");
+    ///
+    /// This is similar to [CommandArgument::strings], but in addition to processing escaped spaces
+    /// and quoted strings, this will:
+    ///
+    /// - turn lone `#` characters into [OpenTarget::Alternate]
+    /// - turn lone `%` characters into [OpenTarget::Current]
+    ///
+    /// These values can be escaped. For example, `\#` will become `OpenTarget::Name("#")`.
+    pub fn filenames<W>(&self) -> Result<Vec<OpenTarget<W>>, CommandError>
+    where
+        W: ApplicationWindowId,
+    {
+        match parse_filenames(self.text.as_str()) {
+            Ok((_, args)) => Ok(args),
+            Err(e) => Err(CommandError::ParseFailed(e.to_string())),
+        }
+    }
 
-        args.into_iter()
-            .map(|arg| arg.into_iter().map(|component| component.show()).collect())
-            .collect()
+    /// Interpret the argument text as a collection of strings.
+    ///
+    /// Values containing spaces can either be quoted, or escaped with a backslash. (For example,
+    /// `My\ File.txt` or `"My File.txt")
+    pub fn strings(&self) -> Result<Vec<String>, CommandError> {
+        match parse_strings(self.text.as_str()) {
+            Ok((_, args)) => Ok(args),
+            Err(e) => Err(CommandError::ParseFailed(e.to_string())),
+        }
     }
 
     pub fn range(&self) -> IResult<&str, RangeSpec> {
@@ -98,15 +107,48 @@ fn is_cmd_char(chr: char) -> bool {
     chr.is_ascii_alphabetic() || "#&*<=>@~".contains(chr)
 }
 
-fn parse_text(input: &str) -> IResult<&str, CommandArgumentType> {
-    if input.len() == 0 {
+fn parse_quote(input: &str) -> IResult<&str, String> {
+    if input.is_empty() {
         let err = ParseError::from_error_kind(input, ErrorKind::Eof);
         let err = nom::Err::Error(err);
         return Err(err);
     }
 
+    let (input, _) = tag("\"")(input)?;
     let (input, text) = escaped_transform(
-        is_not("\t\n\\ #%|\""),
+        is_not("\t\n\\\""),
+        '\\',
+        alt((
+            value("t", tag("\t")),
+            value("r", tag("\r")),
+            value("n", tag("\n")),
+            value("\\", tag("\\")),
+            value("\"", tag("\"")),
+        )),
+    )(input)?;
+    let (input, _) = tag("\"")(input)?;
+
+    Ok((input, text))
+}
+
+fn parse_filename_quote<W>(input: &str) -> IResult<&str, OpenTarget<W>>
+where
+    W: ApplicationWindowId,
+{
+    let (input, text) = parse_quote(input)?;
+
+    Ok((input, OpenTarget::Name(text)))
+}
+
+fn parse_text(input: &str) -> IResult<&str, String> {
+    if input.is_empty() {
+        let err = ParseError::from_error_kind(input, ErrorKind::Eof);
+        let err = nom::Err::Error(err);
+        return Err(err);
+    }
+
+    escaped_transform(
+        is_not("\t\n\\ |\""),
         '\\',
         alt((
             value("\\", tag("\\")),
@@ -116,25 +158,53 @@ fn parse_text(input: &str) -> IResult<&str, CommandArgumentType> {
             value("|", tag("|")),
             value("\"", tag("\"")),
         )),
-    )(input)?;
-
-    Ok((input, CommandArgumentType::Text(text)))
+    )(input)
 }
 
-fn parse_argument_component(input: &str) -> IResult<&str, CommandArgumentType> {
-    alt((
-        parse_text,
-        value(CommandArgumentType::FileAlternate, tag("#")),
-        value(CommandArgumentType::FileCurrent, tag("%")),
-    ))(input)
+fn parse_filename_text<W>(input: &str) -> IResult<&str, OpenTarget<W>>
+where
+    W: ApplicationWindowId,
+{
+    let (input, text) = parse_text(input)?;
+
+    Ok((input, OpenTarget::Name(text)))
 }
 
-fn parse_argument(input: &str) -> IResult<&str, Vec<CommandArgumentType>> {
-    many1(parse_argument_component)(input)
+fn parse_filename_special<W>(input: &str) -> IResult<&str, OpenTarget<W>>
+where
+    W: ApplicationWindowId,
+{
+    let (input, v) =
+        alt((value(OpenTarget::Alternate, tag("#")), value(OpenTarget::Current, tag("%"))))(input)?;
+    let (input, _) = peek(alt((space1, eof)))(input)?;
+
+    Ok((input, v))
 }
 
-fn parse_arguments(input: &str) -> IResult<&str, Vec<Vec<CommandArgumentType>>> {
-    let (input, args) = separated_list0(space1, parse_argument)(input)?;
+fn parse_filename<W>(input: &str) -> IResult<&str, OpenTarget<W>>
+where
+    W: ApplicationWindowId,
+{
+    alt((parse_filename_special, parse_filename_quote, parse_filename_text))(input)
+}
+
+fn parse_filenames<W>(input: &str) -> IResult<&str, Vec<OpenTarget<W>>>
+where
+    W: ApplicationWindowId,
+{
+    let (input, args) = separated_list0(space1, parse_filename)(input)?;
+    let (input, _) = space0(input)?;
+    let (input, _) = eof(input)?;
+
+    Ok((input, args))
+}
+
+fn parse_string(input: &str) -> IResult<&str, String> {
+    alt((parse_quote, parse_text))(input)
+}
+
+fn parse_strings(input: &str) -> IResult<&str, Vec<String>> {
+    let (input, args) = separated_list0(space1, parse_string)(input)?;
     let (input, _) = space0(input)?;
     let (input, _) = eof(input)?;
 
@@ -355,6 +425,12 @@ mod tests {
         };
     }
 
+    macro_rules! names {
+        ( $( $mods: expr ),* ) => {
+            vec![ $( OpenTarget::<()>::Name($mods.into()), )* ]
+        };
+    }
+
     macro_rules! r {
         ($r: expr) => {
             RangeSpec::Single($r.clone())
@@ -389,22 +465,101 @@ mod tests {
     }
 
     #[test]
-    fn test_arg_split() {
+    fn test_arg_split_hash() {
+        let arg = arg!("#");
+        assert_eq!(arg.filenames::<()>().unwrap(), vec![OpenTarget::Alternate]);
+
+        let arg = arg!("\\#");
+        assert_eq!(arg.filenames::<()>().unwrap(), vec![OpenTarget::Name("#".into())]);
+
+        let arg = arg!("# file#");
+        let split = vec![OpenTarget::Alternate, OpenTarget::Name("file#".into())];
+        assert_eq!(arg.filenames::<()>().unwrap(), split);
+
+        let arg = arg!("#file#");
+        assert_eq!(arg.filenames::<()>().unwrap(), names!["#file#"]);
+    }
+
+    #[test]
+    fn test_arg_split_perc() {
+        let arg = arg!("%");
+        assert_eq!(arg.filenames::<()>().unwrap(), vec![OpenTarget::Current]);
+
+        let arg = arg!("\\%");
+        assert_eq!(arg.filenames::<()>().unwrap(), vec![OpenTarget::Name("%".into())]);
+
+        let arg = arg!("% file%");
+        let split = vec![OpenTarget::Current, OpenTarget::Name("file%".into())];
+        assert_eq!(arg.filenames::<()>().unwrap(), split);
+
+        let arg = arg!("%file%");
+        assert_eq!(arg.filenames::<()>().unwrap(), names!["%file%"]);
+    }
+
+    #[test]
+    fn test_arg_split_names_unquoted() {
         let arg = arg!("");
-        assert_eq!(arg.filenames(), Vec::<String>::new());
+        assert_eq!(arg.filenames::<()>().unwrap(), vec![]);
 
         let arg = arg!("file");
-        assert_eq!(arg.filenames(), vec!["file"]);
+        assert_eq!(arg.filenames().unwrap(), names!["file"]);
 
         let arg = arg!(" file1.txt");
-        assert_eq!(arg.filenames(), vec!["file1.txt"]);
+        assert_eq!(arg.filenames().unwrap(), names!["file1.txt"]);
 
         let arg = arg!(" file1.txt ");
-        assert_eq!(arg.filenames(), vec!["file1.txt"]);
+        assert_eq!(arg.filenames().unwrap(), names!["file1.txt"]);
 
         let arg = arg!(" My\\ Documents/foo\\ file.txt file2.txt file3.txt");
-        let split = vec!["My Documents/foo file.txt", "file2.txt", "file3.txt"];
-        assert_eq!(arg.filenames(), split);
+        let split = names!["My Documents/foo file.txt", "file2.txt", "file3.txt"];
+        assert_eq!(arg.filenames().unwrap(), split);
+    }
+
+    #[test]
+    fn test_arg_split_names_quoted() {
+        let arg = arg!("");
+        assert_eq!(arg.filenames::<()>().unwrap(), vec![]);
+
+        let arg = arg!("\"file\"");
+        assert_eq!(arg.filenames().unwrap(), names!["file"]);
+
+        let arg = arg!(" \"file1.txt\"");
+        assert_eq!(arg.filenames().unwrap(), names!["file1.txt"]);
+
+        let arg = arg!(" \"file1.txt\" ");
+        assert_eq!(arg.filenames().unwrap(), names!["file1.txt"]);
+
+        let arg = arg!(" \"My Documents/foo file.txt\" \"file2.txt\" \"file3.txt\"");
+        let split = names!["My Documents/foo file.txt", "file2.txt", "file3.txt"];
+        assert_eq!(arg.filenames().unwrap(), split);
+    }
+
+    #[test]
+    fn test_arg_split_kitchen_sink() {
+        let arg = arg!(" \"My Documents/\\\"foo file\\\".txt\" file\\ foo.txt # % #foo# %bar%");
+        let split = vec![
+            OpenTarget::Name("My Documents/\"foo file\".txt".into()),
+            OpenTarget::Name("file foo.txt".into()),
+            OpenTarget::Alternate,
+            OpenTarget::Current,
+            OpenTarget::Name("#foo#".into()),
+            OpenTarget::Name("%bar%".into()),
+        ];
+        assert_eq!(arg.filenames::<()>().unwrap(), split);
+    }
+
+    #[test]
+    fn test_arg_strings() {
+        let arg = arg!(" \"My Documents/\\\"foo file\\\".txt\" file\\ foo.txt # % #foo# %bar%");
+        let split = vec![
+            "My Documents/\"foo file\".txt",
+            "file foo.txt",
+            "#",
+            "%",
+            "#foo#",
+            "%bar%",
+        ];
+        assert_eq!(arg.strings().unwrap(), split);
     }
 
     #[test]

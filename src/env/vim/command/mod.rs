@@ -372,13 +372,13 @@ fn window_range_target<C: EditContext>(
 fn open_target<I: ApplicationWindowId>(
     desc: &CommandDescription,
 ) -> Result<Option<OpenTarget<I>>, CommandError> {
-    let args = desc.arg.filenames();
+    let args = desc.arg.filenames()?;
 
     if args.len() > 1 {
         return Err(CommandError::InvalidArgument);
     }
 
-    Ok(args.into_iter().next().map(OpenTarget::Name))
+    Ok(args.into_iter().next())
 }
 
 fn window_open_target<I: ApplicationWindowId>(
