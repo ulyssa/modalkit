@@ -1,6 +1,6 @@
 [package]
 name = "modalkit"
-version = "0.0.6"
+version = "0.0.7"
 edition = "2018"
 authors = ["Ulyssa <git@ulyssa.dev>"]
 repository = "https://github.com/ulyssa/modalkit"
@@ -22,12 +22,11 @@ derive_more = "0.99.16"
 thiserror = "^1.0.37"
 crossterm = "0.25"
 libc = "0.2"
-tui = { version = "0.18", optional = true }
+tui = { version = "0.19", optional = true }
 intervaltree = { version = "0.2.6", optional = true }
 bitflags = "1.2"
-lazy_static = "1.4.0"
 nom = "7.0.0"
-regex = "1.5.4"
+regex = "^1.5"
 ropey = "1.5.0"
 
 [dev-dependencies]
