@@ -68,6 +68,16 @@ impl Cursor {
         Cursor { xgoal: column, x: column, y: line }
     }
 
+    /// Get the line that this cursor is on.
+    pub fn get_y(&self) -> usize {
+        self.y
+    }
+
+    /// Get the column that this is on.
+    pub fn get_x(&self) -> usize {
+        self.x
+    }
+
     pub(crate) fn goal(mut self, goal: usize) -> Cursor {
         self.xgoal = goal;
         self
@@ -253,4 +263,40 @@ pub(crate) fn block_cursors(a: &Cursor, b: &Cursor) -> (Cursor, Cursor) {
     let rgoal = a.xgoal.max(b.xgoal);
 
     (Cursor::new(lstart, lcol), Cursor::new(lend, rcol).goal(rgoal))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_cursor_cmp() {
+        let c1 = Cursor::new(7, 6);
+        let c2 = Cursor::new(7, 10);
+        let c3 = Cursor::new(10, 0);
+
+        assert_eq!(c1.cmp(&c1), Ordering::Equal);
+        assert_eq!(c2.cmp(&c2), Ordering::Equal);
+        assert_eq!(c3.cmp(&c3), Ordering::Equal);
+
+        assert_eq!(c1.cmp(&c2), Ordering::Less);
+        assert_eq!(c1.cmp(&c3), Ordering::Less);
+
+        assert_eq!(c2.cmp(&c1), Ordering::Greater);
+        assert_eq!(c2.cmp(&c3), Ordering::Less);
+
+        assert_eq!(c3.cmp(&c1), Ordering::Greater);
+        assert_eq!(c3.cmp(&c2), Ordering::Greater);
+    }
+
+    #[test]
+    fn test_cursor_getters() {
+        let c1 = Cursor::new(5, 6);
+        let c2 = Cursor::new(0, 1000);
+
+        assert_eq!(c1.get_y(), 5);
+        assert_eq!(c1.get_x(), 6);
+        assert_eq!(c2.get_y(), 0);
+        assert_eq!(c2.get_x(), 1000);
+    }
 }
