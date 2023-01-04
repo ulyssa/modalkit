@@ -560,7 +560,7 @@ impl EditorAction {
     pub fn is_readonly<C: EditContext>(&self, ctx: &C) -> bool {
         match self {
             EditorAction::Complete(_, _) => false,
-            EditorAction::History(_) => false,
+            EditorAction::History(act) => act.is_readonly(),
             EditorAction::InsertText(_) => false,
 
             EditorAction::Cursor(_) => true,
@@ -1091,3 +1091,31 @@ pub type EditResult<V, I> = Result<V, EditError<I>>;
 
 /// Common result type for rendering and application functions.
 pub type UIResult<V, I> = Result<V, UIError<I>>;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::env::vim::VimContext;
+
+    #[test]
+    fn test_is_readonly() {
+        let mut ctx = VimContext::<EmptyInfo>::default();
+
+        let act = SelectionAction::Duplicate(MoveDir1D::Next, Count::Contextual);
+        assert_eq!(EditorAction::from(act).is_readonly(&ctx), true);
+
+        let act = HistoryAction::Checkpoint;
+        assert_eq!(EditorAction::from(act).is_readonly(&ctx), true);
+
+        let act = HistoryAction::Undo(Count::Contextual);
+        assert_eq!(EditorAction::from(act).is_readonly(&ctx), false);
+
+        let act = EditorAction::Edit(Specifier::Contextual, EditTarget::CurrentPosition);
+        ctx.action.operation = EditAction::Motion;
+        assert_eq!(act.is_readonly(&ctx), true);
+
+        let act = EditorAction::Edit(Specifier::Contextual, EditTarget::CurrentPosition);
+        ctx.action.operation = EditAction::Delete;
+        assert_eq!(act.is_readonly(&ctx), false);
+    }
+}
