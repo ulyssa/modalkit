@@ -35,10 +35,10 @@ use regex::Regex;
 
 use tui::{
     buffer::Buffer,
-    layout::Rect,
+    layout::{Alignment, Rect},
     style::{Modifier as StyleModifier, Style},
     text::Text,
-    widgets::StatefulWidget,
+    widgets::{Paragraph, StatefulWidget, Widget},
 };
 
 use crate::editing::{
@@ -162,6 +162,16 @@ where
         viewport: &ViewportContext<ListCursor>,
         store: &mut Store<I>,
     ) -> Text;
+
+    /// Return a word that represents this list item.
+    ///
+    /// By default this is just the [ToString] value, but you can provide a different
+    /// implementation to get more useful [OpenTarget::Cursor] behaviour.
+    ///
+    /// [OpenTarget::Cursor]: crate::editing::base::OpenTarget::Cursor
+    fn get_word(&self) -> Option<String> {
+        self.to_string().into()
+    }
 }
 
 impl<I> ListItem<I> for String
@@ -201,6 +211,8 @@ where
     I: ApplicationInfo,
 {
     focused: bool,
+    empty_message: Option<Text<'a>>,
+    empty_alignment: Alignment,
     store: &'a mut Store<I>,
     _p: PhantomData<T>,
 }
@@ -227,6 +239,11 @@ where
     /// Get the content identifier for this list.
     pub fn id(&self) -> I::ContentId {
         self.id.clone()
+    }
+
+    /// Indicates whether or not this list contains any items.
+    pub fn is_empty(&self) -> bool {
+        self.items.is_empty()
     }
 
     fn _clamp(&mut self) {
@@ -1163,11 +1180,11 @@ where
     }
 
     fn get_cursor_word(&self, _: &WordStyle) -> Option<String> {
-        self.items.get(self.cursor.position).map(ToString::to_string)
+        self.items.get(self.cursor.position).and_then(ListItem::get_word)
     }
 
     fn get_selected_word(&self) -> Option<String> {
-        self.items.get(self.cursor.position).map(ToString::to_string)
+        self.items.get(self.cursor.position).and_then(ListItem::get_word)
     }
 }
 
@@ -1178,7 +1195,25 @@ where
 {
     /// Create a new widget.
     pub fn new(store: &'a mut Store<I>) -> Self {
-        List { focused: false, store, _p: PhantomData }
+        List {
+            focused: false,
+            empty_message: None,
+            empty_alignment: Alignment::Left,
+            store,
+            _p: PhantomData,
+        }
+    }
+
+    /// Set a message to display when the list is empty.
+    pub fn empty_message<X: Into<Text<'a>>>(mut self, text: X) -> Self {
+        self.empty_message = Some(text.into());
+        self
+    }
+
+    /// Set the alignment of the displayed empty message.
+    pub fn empty_alignment(mut self, alignment: Alignment) -> Self {
+        self.empty_alignment = alignment;
+        self
     }
 
     /// Indicate whether the widget is currently focused.
@@ -1202,6 +1237,13 @@ where
 
         if height == 0 {
             return;
+        }
+
+        if state.is_empty() {
+            if let Some(msg) = self.empty_message {
+                Paragraph::new(msg).alignment(self.empty_alignment).render(area, buf);
+                return;
+            }
         }
 
         if state.cursor < state.viewctx.corner {
