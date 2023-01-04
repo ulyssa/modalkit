@@ -62,6 +62,10 @@
 //! Split the window vertically. If an argument is given, then it will be opened with
 //! [OpenTarget::Name].
 //!
+//! ### `tab`
+//!
+//! Run a command and, if it opens a window, open it in a new tab instead.
+//!
 //! ### `tabclose`
 //!
 //! *Aliases:* `tabc`
@@ -156,7 +160,7 @@ use super::VimContext;
 
 mod parse;
 
-pub use self::parse::CommandDescription;
+pub use self::parse::{CommandArgument, CommandDescription};
 
 /// Result type for a processed command.
 pub type CommandResult<C, I> = Result<CommandStep<VimCommand<C, I>>, CommandError>;
@@ -215,24 +219,103 @@ where
 }
 
 /// Context object passed to each [CommandFunc].
-#[non_exhaustive]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CommandContext<C: EditContext> {
     /// Contextual information from user input.
     pub context: C,
 
+    tab: Option<FocusChange>,
     axis: Option<Axis>,
     rel: Option<MoveDir1D>,
+
+    axis_default: Axis,
+    rel_default: MoveDir1D,
 }
 
-impl<C> Clone for CommandContext<C>
+impl<C> CommandContext<C>
 where
     C: EditContext,
 {
-    fn clone(&self) -> Self {
-        Self {
-            context: self.context.clone(),
-            axis: self.axis,
-            rel: self.rel,
+    /// Indicate a default [Axis] to use when one hasn't been specified via a prefix command (e.g.
+    /// `:vertical`).
+    pub fn default_axis(&mut self, axis: Axis) -> &mut Self {
+        self.axis_default = axis;
+        self
+    }
+
+    /// Indicate a default [MoveDir1D] value to use when one hasn't been specified via a prefix command (e.g.
+    /// `:aboveleft`).
+    pub fn default_relation(&mut self, relation: MoveDir1D) -> &mut Self {
+        self.rel_default = relation;
+        self
+    }
+
+    /// Get the contextual [Axis] for newly opened windows.
+    pub fn axis(&self) -> Axis {
+        self.axis.unwrap_or(self.axis_default)
+    }
+
+    /// Get the contextual [MoveDir1D] relation for newly opened windows.
+    pub fn relation(&self) -> MoveDir1D {
+        self.rel.unwrap_or(self.rel_default)
+    }
+
+    /// Use the contextual information to create a new [WindowAction::Open] for the given target
+    /// and size.
+    pub fn open<I>(&self, target: OpenTarget<I::WindowId>, count: Count) -> Action<I>
+    where
+        I: ApplicationInfo,
+    {
+        let rel = self.rel.unwrap_or(self.rel_default);
+        let axis = self.axis.unwrap_or(self.axis_default);
+
+        WindowAction::Open(target, axis, rel, count).into()
+    }
+
+    /// Use the contextual information to create a new [WindowAction::Split] for the given target
+    /// and number of splits.
+    pub fn split<I>(&self, target: OpenTarget<I::WindowId>, count: Count) -> Action<I>
+    where
+        I: ApplicationInfo,
+    {
+        let rel = self.rel.unwrap_or(self.rel_default);
+        let axis = self.axis.unwrap_or(self.axis_default);
+
+        WindowAction::Split(target, axis, rel, count).into()
+    }
+
+    /// If no contextual information has been provided, create a new [WindowAction::Switch] for the
+    /// given target. If contextual information has been provided via commands like `:tab`,
+    /// `:vertical`, or `:aboveleft`, then open the target in a new window instead.
+    ///
+    /// This is meant to be a more user-friendly way to handle commands that switch to a new window
+    /// by doing what the user like wanted when they used a prefix command.
+    pub fn switch<I>(&self, target: OpenTarget<I::WindowId>) -> Action<I>
+    where
+        I: ApplicationInfo,
+    {
+        if let Some(fc) = &self.tab {
+            TabAction::Open(target, fc.clone()).into()
+        } else if self.axis.is_some() || self.rel.is_some() {
+            self.split(target, 1.into())
+        } else {
+            WindowAction::Switch(target).into()
+        }
+    }
+
+    /// Open a new window for the given target.
+    ///
+    /// If `size` is specified, the window will be opened with that width or height.
+    pub fn window<I>(&self, target: OpenTarget<I::WindowId>, size: Option<Count>) -> Action<I>
+    where
+        I: ApplicationInfo,
+    {
+        if let Some(fc) = &self.tab {
+            TabAction::Open(target, fc.clone()).into()
+        } else if let Some(size) = size {
+            self.open(target, size)
+        } else {
+            self.split(target, 1.into())
         }
     }
 }
@@ -242,7 +325,16 @@ where
     C: EditContext,
 {
     fn from(context: C) -> Self {
-        CommandContext { axis: None, rel: None, context }
+        CommandContext {
+            context,
+
+            tab: None,
+            axis: None,
+            rel: None,
+
+            axis_default: Axis::Horizontal,
+            rel_default: MoveDir1D::Previous,
+        }
     }
 }
 
@@ -307,6 +399,32 @@ fn sum_mods<C: EditContext>(mods: &[RangeEndingModifier], ctx: &C) -> Option<(Mo
     Some((dir, off))
 }
 
+fn range_to_count<C: EditContext>(
+    range: &RangeSpec,
+    context: &C,
+) -> Result<Option<Count>, CommandError> {
+    let count = match range {
+        RangeSpec::Single(RangeEnding(RangeEndingType::Absolute(count), mods)) |
+        RangeSpec::Double(_, RangeEnding(RangeEndingType::Absolute(count), mods), _) => {
+            let count = context.resolve(count);
+
+            match sum_mods(mods, context) {
+                Some((MoveDir1D::Previous, off)) => Count::Exact(count.saturating_sub(off).max(1)),
+                Some((MoveDir1D::Next, off)) => Count::Exact(count.saturating_add(off).max(1)),
+                None => {
+                    return Err(CommandError::InvalidRange);
+                },
+            }
+        },
+
+        RangeSpec::Single(RangeEnding(_, _)) | RangeSpec::Double(_, RangeEnding(_, _), _) => {
+            usize::MAX.into()
+        },
+    };
+
+    return Ok(Some(count));
+}
+
 fn range_to_fc<C: EditContext>(
     range: &RangeSpec,
     wrapdir: bool,
@@ -351,6 +469,17 @@ fn range_to_fc<C: EditContext>(
     };
 
     return Ok(fc);
+}
+
+/// Interpret the range as an optional window height or width.
+fn window_size<C: EditContext>(
+    desc: &CommandDescription,
+    ctx: &mut CommandContext<C>,
+) -> Result<Option<Count>, CommandError> {
+    desc.range
+        .as_ref()
+        .map(|r| range_to_count(r, &ctx.context))
+        .unwrap_or(Ok(None))
 }
 
 /// Interpret the range provided to a window command.
@@ -455,24 +584,25 @@ fn window_split_horizontal<C: EditContext, I: ApplicationInfo>(
     desc: CommandDescription,
     ctx: &mut CommandContext<C>,
 ) -> CommandResult<C, I> {
-    let rel = ctx.rel.unwrap_or(MoveDir1D::Previous);
-    let axis = ctx.axis.unwrap_or(Axis::Horizontal);
+    let size = window_size(&desc, ctx)?;
     let target = window_open_target(&desc)?;
-    let action = WindowAction::Split(target, axis, rel, Count::Exact(1));
+    let action = ctx.window(target, size);
 
-    Ok(CommandStep::Continue(action.into(), ctx.context.take()))
+    Ok(CommandStep::Continue(action, ctx.context.take()))
 }
 
 fn window_split_vertical<C: EditContext, I: ApplicationInfo>(
     desc: CommandDescription,
     ctx: &mut CommandContext<C>,
 ) -> CommandResult<C, I> {
-    let rel = ctx.rel.unwrap_or(MoveDir1D::Previous);
-    let axis = ctx.axis.unwrap_or(Axis::Vertical);
-    let target = window_open_target(&desc)?;
-    let action = WindowAction::Split(target, axis, rel, Count::Exact(1));
+    // Always override axis.
+    ctx.axis = Some(Axis::Vertical);
 
-    Ok(CommandStep::Continue(action.into(), ctx.context.take()))
+    let size = window_size(&desc, ctx)?;
+    let target = window_open_target(&desc)?;
+    let action = ctx.window(target, size);
+
+    Ok(CommandStep::Continue(action, ctx.context.take()))
 }
 
 fn tab_next<C: EditContext, I: ApplicationInfo>(
@@ -481,7 +611,7 @@ fn tab_next<C: EditContext, I: ApplicationInfo>(
 ) -> CommandResult<C, I> {
     let range = match (desc.range, desc.arg.text.is_empty()) {
         (None, false) => {
-            if let Ok((_, range)) = desc.arg.range() {
+            if let Ok(range) = desc.arg.range() {
                 Some(range)
             } else {
                 return Err(CommandError::InvalidArgument);
@@ -509,7 +639,7 @@ fn tab_prev<C: EditContext, I: ApplicationInfo>(
 ) -> CommandResult<C, I> {
     let range = match (desc.range, desc.arg.text.is_empty()) {
         (None, false) => {
-            if let Ok((_, range)) = desc.arg.range() {
+            if let Ok(range) = desc.arg.range() {
                 Some(range)
             } else {
                 return Err(CommandError::InvalidArgument);
@@ -563,6 +693,19 @@ fn tab_last<C: EditContext, I: ApplicationInfo>(
     let action = TabAction::Focus(change).into();
 
     Ok(CommandStep::Continue(action, ctx.context.take()))
+}
+
+fn tab_cmd<C: EditContext, I: ApplicationInfo>(
+    desc: CommandDescription,
+    ctx: &mut CommandContext<C>,
+) -> CommandResult<C, I> {
+    ctx.tab = desc
+        .range
+        .map(|r| range_to_fc(&r, false, &ctx.context))
+        .unwrap_or(Ok(FocusChange::Current))?
+        .into();
+
+    Ok(CommandStep::Again(desc.arg.text))
 }
 
 fn tab_new<C: EditContext, I: ApplicationInfo>(
@@ -720,6 +863,7 @@ fn default_cmds<C: EditContext, I: ApplicationInfo>() -> Vec<VimCommand<C, I>> {
             names: strs!["vs", "vsp", "vsplit"],
             f: window_split_vertical,
         },
+        VimCommand { names: strs!["tab"], f: tab_cmd },
         VimCommand { names: strs!["tabc", "tabclose"], f: tab_close },
         VimCommand {
             names: strs!["tabe", "tabedit", "tabnew"],
@@ -878,6 +1022,23 @@ mod tests {
         let act = WindowAction::Split(OpenTarget::Current, Horizontal, Previous, 1.into());
         let expect = vec![(act.into(), ctx.clone())];
         let res = cmds.input_cmd("abo split", ctx.clone());
+        assert_eq!(res.unwrap(), expect);
+    }
+
+    #[test]
+    fn test_split_tab() {
+        let (mut cmds, ctx) = mkcmd();
+
+        // Unprefixed split command.
+        let act = WindowAction::Split(OpenTarget::Current, Horizontal, Previous, 1.into());
+        let expect = vec![(act.into(), ctx.clone())];
+        let res = cmds.input_cmd("split", ctx.clone());
+        assert_eq!(res.unwrap(), expect);
+
+        // Prefixed split command should become TabAction::Open.
+        let act = TabAction::Open(OpenTarget::Current, FocusChange::Offset(5.into(), false));
+        let expect = vec![(act.into(), ctx.clone())];
+        let res = cmds.input_cmd("5tab split", ctx.clone());
         assert_eq!(res.unwrap(), expect);
     }
 }

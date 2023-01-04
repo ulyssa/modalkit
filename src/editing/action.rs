@@ -479,8 +479,8 @@ pub enum WindowAction<I: ApplicationInfo> {
     /// Move the currently focused window to the [MoveDir2D] side of the screen.
     MoveSide(MoveDir2D),
 
-    /// Open a new window that is [*n*](Count) columns along [an axis](Axis), moving the focus in
-    /// [MoveDir1D] direction afterwards.
+    /// Open a new window that is [*n*](Count) columns along [an axis](Axis), positioned relative to
+    /// the current window as indicated by [MoveDir1D].
     Open(OpenTarget<I::WindowId>, Axis, MoveDir1D, Count),
 
     /// Visually rotate the windows in [MoveDir2D] direction.

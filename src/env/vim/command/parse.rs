@@ -29,6 +29,10 @@ use crate::{
     input::commands::{CommandError, ParsedCommand},
 };
 
+fn parse_failed(err: nom::Err<nom::error::Error<&str>>) -> CommandError {
+    CommandError::ParseFailed(err.to_string())
+}
+
 /// Argument text following a command name.
 #[derive(Debug, Eq, PartialEq)]
 pub struct CommandArgument {
@@ -90,12 +94,15 @@ impl CommandArgument {
         }
     }
 
-    pub fn range(&self) -> IResult<&str, RangeSpec> {
-        // XXX: Make this not an IResult?
-        let (input, spec) = parse_range(self.text.as_str())?;
-        let (input, _) = eof(input)?;
+    /// Interpret the argument text as a range specification.
+    ///
+    /// This can be used to create commands that take a range specification either before or after
+    /// the command name.
+    pub fn range(&self) -> Result<RangeSpec, CommandError> {
+        let (input, spec) = parse_range(self.text.as_str()).map_err(parse_failed)?;
+        let _ = eof(input).map_err(parse_failed)?;
 
-        Ok((input, spec))
+        Ok(spec)
     }
 }
 
