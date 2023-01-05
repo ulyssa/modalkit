@@ -1267,6 +1267,8 @@ fn default_keys<I: ApplicationInfo>() -> Vec<(MappedModes, &'static str, InputSt
         // Normal, Visual, Select, Insert mode keys
         ( NVIMAP, "<C-\\><C-N>", normal!() ),
         ( NVIMAP, "<C-End>", edit_target_end!(EditTarget::Boundary(RangeType::Buffer, true, MoveTerminus::End, Count::Contextual)) ),
+        ( NVIMAP, "<C-PageDown>", tab_focus!(FocusChange::Direction1D(MoveDir1D::Next, Count::Exact(1), true), FocusChange::Offset(Count::Contextual, false)) ),
+        ( NVIMAP, "<C-PageUp>", tab_focus!(FocusChange::Direction1D(MoveDir1D::Previous, Count::Contextual, true)) ),
 
         // Normal, Visual, Select, Operation Pending mode keys
         ( MAP, "<C-H>", edit_end!(MoveType::Column(MoveDir1D::Previous, true)) ),
@@ -1705,8 +1707,6 @@ fn default_keys<I: ApplicationInfo>() -> Vec<(MappedModes, &'static str, InputSt
         ( IMAP, "<Insert>", insert!(InsertStyle::Replace) ),
         ( IMAP, "<PageDown>", scroll2d!(MoveDir2D::Down, ScrollSize::Page) ),
         ( IMAP, "<PageUp>", scroll2d!(MoveDir2D::Up, ScrollSize::Page) ),
-        ( IMAP, "<C-PageDown>", tab_focus!(FocusChange::Direction1D(MoveDir1D::Next, Count::Exact(1), true), FocusChange::Offset(Count::Contextual, false)) ),
-        ( IMAP, "<C-PageUp>", tab_focus!(FocusChange::Direction1D(MoveDir1D::Previous, Count::Contextual, true)) ),
 
         // Command mode
         ( CMAP, "<C-A>", unmapped!() ),

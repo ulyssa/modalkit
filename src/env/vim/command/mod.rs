@@ -91,6 +91,12 @@
 //!
 //! Close all tabs but one.
 //!
+//! ### `tabmove`
+//!
+//! *Aliases:* `tabm`
+//!
+//! Move a tab to a different position.
+//!
 //! ### `tabprevious`
 //!
 //! *Aliases:* `tabp`, `tabNext`, `tabN`
@@ -108,6 +114,12 @@
 //! *Aliases:* `tabl`
 //!
 //! Switch focus to the last tab.
+//!
+//! ### `horizontal`
+//!
+//! *Aliases:* `hor`
+//!
+//! Modify the following command to open a window horizontally.
 //!
 //! ### `vertical`
 //!
@@ -575,7 +587,7 @@ fn window_quitall<C: EditContext, I: ApplicationInfo>(
     };
 
     let target = CloseTarget::All;
-    let action = WindowAction::Close(target, flags).into();
+    let action = TabAction::Close(target, flags).into();
 
     Ok(CommandStep::Continue(action, ctx.context.take()))
 }
@@ -767,10 +779,16 @@ fn tab_move<C: EditContext, I: ApplicationInfo>(
     desc: CommandDescription,
     ctx: &mut CommandContext<C>,
 ) -> CommandResult<C, I> {
-    let change = desc
-        .range
-        .map(|r| range_to_fc(&r, false, &ctx.context))
-        .unwrap_or(Ok(FocusChange::Position(MovePosition::End)))?;
+    let change = if let Some(r) = desc.range {
+        range_to_fc(&r, false, &ctx.context)?
+    } else if desc.arg.text.is_empty() {
+        FocusChange::Position(MovePosition::End)
+    } else {
+        let r = desc.arg.range()?;
+
+        range_to_fc(&r, false, &ctx.context)?
+    };
+
     let action = TabAction::Move(change).into();
 
     Ok(CommandStep::Continue(action, ctx.context.take()))
@@ -790,6 +808,15 @@ fn run_split_after<C: EditContext, I: ApplicationInfo>(
     ctx: &mut CommandContext<C>,
 ) -> CommandResult<C, I> {
     ctx.rel = Some(MoveDir1D::Next);
+
+    Ok(CommandStep::Again(desc.arg.text))
+}
+
+fn run_horizontal<C: EditContext, I: ApplicationInfo>(
+    desc: CommandDescription,
+    ctx: &mut CommandContext<C>,
+) -> CommandResult<C, I> {
+    ctx.axis = Some(Axis::Horizontal);
 
     Ok(CommandStep::Again(desc.arg.text))
 }
@@ -881,6 +908,10 @@ fn default_cmds<C: EditContext, I: ApplicationInfo>() -> Vec<VimCommand<C, I>> {
             f: tab_first,
         },
         VimCommand { names: strs!["tabl", "tablast"], f: tab_last },
+        VimCommand {
+            names: strs!["hor", "horizontal"],
+            f: run_horizontal,
+        },
         VimCommand { names: strs!["vert", "vertical"], f: run_vertical },
         VimCommand {
             names: strs!["lefta", "leftabove", "abo", "aboveleft"],
@@ -959,7 +990,7 @@ mod tests {
 
         // Check that "qa", "qall", "quita" and "quitall" return the same Actions, different from
         // the "q"/"quit" actions.
-        let act: Action = WindowAction::Close(CloseTarget::All, CloseFlags::QUIT).into();
+        let act: Action = TabAction::Close(CloseTarget::All, CloseFlags::QUIT).into();
         let res = cmds.input_cmd("qa", ctx.clone());
         assert_eq!(res.unwrap(), vec![(act.clone(), ctx.clone())]);
 
@@ -1039,6 +1070,59 @@ mod tests {
         let act = TabAction::Open(OpenTarget::Current, FocusChange::Offset(5.into(), false));
         let expect = vec![(act.into(), ctx.clone())];
         let res = cmds.input_cmd("5tab split", ctx.clone());
+        assert_eq!(res.unwrap(), expect);
+    }
+
+    #[test]
+    fn test_tab_move() {
+        let (mut cmds, ctx) = mkcmd();
+
+        // No arguments.
+        let act = TabAction::Move(FocusChange::Position(MovePosition::End));
+        let expect = vec![(act.into(), ctx.clone())];
+        let res = cmds.input_cmd("tabmove", ctx.clone());
+        assert_eq!(res.unwrap(), expect);
+
+        // Move to the right.
+        let act = TabAction::Move(FocusChange::Direction1D(MoveDir1D::Next, 1.into(), false));
+        let expect = vec![(act.into(), ctx.clone())];
+        let res = cmds.input_cmd("+tabmove", ctx.clone());
+        assert_eq!(res.unwrap(), expect);
+
+        // Move two to the right.
+        let act = TabAction::Move(FocusChange::Direction1D(MoveDir1D::Next, 2.into(), false));
+        let expect = vec![(act.into(), ctx.clone())];
+        let res = cmds.input_cmd("+2tabmove", ctx.clone());
+        assert_eq!(res.unwrap(), expect);
+
+        // Move to the left.
+        let act = TabAction::Move(FocusChange::Direction1D(MoveDir1D::Previous, 1.into(), false));
+        let expect = vec![(act.into(), ctx.clone())];
+        let res = cmds.input_cmd("-tabmove", ctx.clone());
+        assert_eq!(res.unwrap(), expect);
+
+        // Move four to the left.
+        let act = TabAction::Move(FocusChange::Direction1D(MoveDir1D::Previous, 4.into(), false));
+        let expect = vec![(act.into(), ctx.clone())];
+        let res = cmds.input_cmd("-4tabmove", ctx.clone());
+        assert_eq!(res.unwrap(), expect);
+
+        // Move to the beginning.
+        let act = TabAction::Move(FocusChange::Offset(0.into(), false));
+        let expect = vec![(act.into(), ctx.clone())];
+        let res = cmds.input_cmd("0tabmove", ctx.clone());
+        assert_eq!(res.unwrap(), expect);
+
+        // Move to after the third tab.
+        let act = TabAction::Move(FocusChange::Offset(3.into(), false));
+        let expect = vec![(act.into(), ctx.clone())];
+        let res = cmds.input_cmd("3tabmove", ctx.clone());
+        assert_eq!(res.unwrap(), expect);
+
+        // Move to the end.
+        let act = TabAction::Move(FocusChange::Position(MovePosition::End));
+        let expect = vec![(act.into(), ctx.clone())];
+        let res = cmds.input_cmd("$tabmove", ctx.clone());
         assert_eq!(res.unwrap(), expect);
     }
 }

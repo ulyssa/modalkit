@@ -3,7 +3,7 @@ use std::str::FromStr;
 use nom::{
     branch::alt,
     bytes::complete::{escaped_transform, is_not, tag, take_while, take_while1},
-    character::complete::{char, digit1, one_of, space0, space1},
+    character::complete::{char, digit0, digit1, one_of, space0, space1},
     combinator::{eof, opt, peek, value},
     error::{context, ErrorKind, ParseError},
     multi::{many0, separated_list0},
@@ -224,8 +224,12 @@ fn parse_range_offset(input: &str) -> IResult<&str, MoveDir1D> {
 
 fn parse_range_modifier(input: &str) -> IResult<&str, RangeEndingModifier> {
     let (input, sign) = parse_range_offset(input)?;
-    let (input, n) = context("offset must be valid number", digit1)(input)?;
-    let n = n.parse::<usize>().unwrap();
+    let (input, n) = digit0(input)?;
+    let n = if n.is_empty() {
+        1
+    } else {
+        n.parse::<usize>().unwrap()
+    };
 
     Ok((input, RangeEndingModifier::Offset(sign, Count::Exact(n))))
 }
