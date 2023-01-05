@@ -290,6 +290,15 @@ impl Window<EditorInfo> for EditorWindow {
         }
     }
 
+    fn get_win_title(&self, _: &mut Store<EditorInfo>) -> Spans {
+        match self.id() {
+            EditorContentId::Command => Spans::from("[Command Line]"),
+            EditorContentId::Scratch => Spans::from("[scratch]"),
+            EditorContentId::File(index) => Spans::from(format!("Buffer {index}")),
+            EditorContentId::Directory(name) => Spans::from(name),
+        }
+    }
+
     fn open(id: EditorContentId, store: &mut Store<EditorInfo>) -> UIResult<Self, EditorInfo> {
         match id {
             id @ (EditorContentId::Scratch | EditorContentId::File(_)) => {
@@ -327,6 +336,10 @@ impl Window<EditorInfo> for EditorWindow {
                 Err(err)
             },
         }
+    }
+
+    fn unnamed(store: &mut Store<EditorInfo>) -> UIResult<Self, EditorInfo> {
+        Self::open(EditorContentId::Scratch, store)
     }
 }
 
@@ -632,7 +645,7 @@ impl Editor {
         term.draw(|f| {
             let area = f.size();
 
-            let screen = Screen::new(store).showmode(modestr);
+            let screen = Screen::new(store).showmode(modestr).borders(true);
             f.render_stateful_widget(screen, area, sstate);
 
             if let Some((cx, cy)) = sstate.get_term_cursor() {

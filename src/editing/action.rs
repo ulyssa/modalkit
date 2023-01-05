@@ -441,10 +441,7 @@ pub enum TabAction<I: ApplicationInfo> {
     /// Move the currently focused tab to the position targeted by [FocusChange].
     Move(FocusChange),
 
-    /// Open a new tab after the tab targeted by [FocusChange].
-    New(FocusChange),
-
-    /// Open a new tab that displays the given content.
+    /// Open a new tab after the tab targeted by [FocusChange] that displays the requested content.
     Open(OpenTarget<I::WindowId>, FocusChange),
 }
 

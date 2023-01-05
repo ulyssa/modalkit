@@ -15,7 +15,7 @@ use tui::{
     layout::Rect,
     style::{Color, Modifier as StyleModifier, Style},
     text::{Span, Spans},
-    widgets::{StatefulWidget, Tabs, Widget},
+    widgets::{BorderType, StatefulWidget, Tabs, Widget},
 };
 
 use super::{
@@ -98,9 +98,6 @@ where
 
     /// Move the current tab to another position.
     fn tab_move(&mut self, change: &FocusChange, ctx: &C, store: &mut S) -> UIResult<EditInfo, I>;
-
-    /// Open a new tab after the tab targeted by [FocusChange].
-    fn tab_new(&mut self, change: &FocusChange, ctx: &C, store: &mut S) -> UIResult<EditInfo, I>;
 
     /// Open a new tab after the tab targeted by [FocusChange].
     fn tab_open(
@@ -613,21 +610,6 @@ where
         return Ok(None);
     }
 
-    fn tab_new(
-        &mut self,
-        change: &FocusChange,
-        ctx: &C,
-        _: &mut Store<I>,
-    ) -> UIResult<EditInfo, I> {
-        let (idx, side) =
-            self.tabs.target(change, ctx).unwrap_or((self.tabs.pos(), MoveDir1D::Next));
-        let tab = WindowLayoutState::empty();
-
-        self.tabs.insert(idx, side, tab);
-
-        return Ok(None);
-    }
-
     fn tab_open(
         &mut self,
         target: &OpenTarget<I::WindowId>,
@@ -672,7 +654,6 @@ where
             TabAction::Extract(target, side) => self.tab_extract(target, side, ctx, store),
             TabAction::Focus(change) => self.tab_focus(change, ctx, store),
             TabAction::Move(change) => self.tab_move(change, ctx, store),
-            TabAction::New(change) => self.tab_new(change, ctx, store),
             TabAction::Open(target, change) => self.tab_open(target, change, ctx, store),
         }
     }
@@ -837,6 +818,11 @@ where
 {
     store: &'a mut Store<I>,
     showmode: Option<Span<'a>>,
+
+    borders: bool,
+    border_style: Style,
+    border_type: BorderType,
+
     _p: PhantomData<(W, I)>,
 }
 
@@ -847,7 +833,32 @@ where
 {
     /// Create a new widget.
     pub fn new(store: &'a mut Store<I>) -> Self {
-        Screen { store, showmode: None, _p: PhantomData }
+        Screen {
+            store,
+            showmode: None,
+            borders: false,
+            border_style: Style::default(),
+            border_type: BorderType::Plain,
+            _p: PhantomData,
+        }
+    }
+
+    /// What [Style] should be used when drawing borders.
+    pub fn border_style(mut self, style: Style) -> Self {
+        self.border_style = style;
+        self
+    }
+
+    /// What characters should be used when drawing borders.
+    pub fn border_type(mut self, border_type: BorderType) -> Self {
+        self.border_type = border_type;
+        self
+    }
+
+    /// Indicate whether to draw borders around windows.
+    pub fn borders(mut self, borders: bool) -> Self {
+        self.borders = borders;
+        self
     }
 
     /// Set the mode string to display.
@@ -884,8 +895,24 @@ where
         let titles = state
             .tabs
             .iter()
-            .enumerate()
-            .map(|(i, _)| Spans::from(format!("Tab {:}", i + 1)))
+            .map(|tab| {
+                let mut spans = vec![];
+                let n = tab.windows();
+
+                if n > 1 {
+                    spans.push(Span::from(format!("{n} ")));
+                }
+
+                if let Some(w) = tab.get() {
+                    let mut title = w.get_win_title(self.store).0;
+
+                    spans.append(&mut title);
+                } else {
+                    spans.push(Span::from("[No Name]"));
+                }
+
+                Spans(spans)
+            })
             .collect();
 
         Tabs::new(titles)
@@ -898,6 +925,9 @@ where
         if let Ok(tab) = state.current_tab_mut() {
             WindowLayout::new(self.store)
                 .focus(focused == CurrentFocus::Window)
+                .border_style(self.border_style)
+                .border_type(self.border_type)
+                .borders(self.borders)
                 .render(winarea, buf, tab);
         }
 

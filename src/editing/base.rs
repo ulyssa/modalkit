@@ -877,6 +877,9 @@ pub enum OpenTarget<W: ApplicationWindowId> {
 
     /// Use the selected text as a target name.
     Selection,
+
+    /// A default window to open when no target has been specified.
+    Unnamed,
 }
 
 /// This represents what windows are targeted by a window command.

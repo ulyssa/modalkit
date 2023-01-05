@@ -11,7 +11,7 @@ use std::process;
 
 use libc;
 
-use tui::{backend::CrosstermBackend, buffer::Buffer, layout::Rect, Terminal};
+use tui::{backend::CrosstermBackend, buffer::Buffer, layout::Rect, text::Spans, Terminal};
 
 use crossterm::{
     execute,
@@ -128,6 +128,16 @@ pub trait Window<I: ApplicationInfo>: WindowOps<I> + Sized {
     /// Get the identifier for this window.
     fn id(&self) -> I::WindowId;
 
+    /// Get the title to show in the window layout.
+    fn get_win_title(&self, store: &mut Store<I>) -> Spans;
+
+    /// Get the title to show in the tab list when this is the currently focused window.
+    ///
+    /// The default implementation will use the same title as shown in the window.
+    fn get_tab_title(&self, store: &mut Store<I>) -> Spans {
+        self.get_win_title(store)
+    }
+
     /// Open a window that displays the content referenced by `id`.
     fn open(id: I::WindowId, store: &mut Store<I>) -> UIResult<Self, I>;
 
@@ -136,6 +146,9 @@ pub trait Window<I: ApplicationInfo>: WindowOps<I> + Sized {
 
     /// Open a globally indexed window given a position.
     fn posn(index: usize, store: &mut Store<I>) -> UIResult<Self, I>;
+
+    /// Open a default window when no target has been specified.
+    fn unnamed(store: &mut Store<I>) -> UIResult<Self, I>;
 }
 
 /// Extended operations for [Terminal].

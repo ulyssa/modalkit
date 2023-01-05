@@ -724,15 +724,12 @@ fn tab_new<C: EditContext, I: ApplicationInfo>(
     desc: CommandDescription,
     ctx: &mut CommandContext<C>,
 ) -> CommandResult<C, I> {
-    let target = open_target(&desc)?;
+    let target = open_target(&desc)?.unwrap_or(OpenTarget::Unnamed);
     let change = desc
         .range
         .map(|r| range_to_fc(&r, false, &ctx.context))
         .unwrap_or(Ok(FocusChange::Current))?;
-    let action = match target {
-        Some(target) => TabAction::Open(target, change),
-        None => TabAction::New(change),
-    };
+    let action = TabAction::Open(target, change);
 
     Ok(CommandStep::Continue(action.into(), ctx.context.take()))
 }

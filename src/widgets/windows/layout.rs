@@ -10,7 +10,12 @@ use std::convert::TryInto;
 use std::marker::PhantomData;
 use std::ops::Not;
 
-use tui::{buffer::Buffer, layout::Rect, widgets::StatefulWidget};
+use tui::{
+    buffer::Buffer,
+    layout::Rect,
+    style::Style,
+    widgets::{Block, BorderType, Borders, StatefulWidget, Widget},
+};
 
 use crate::widgets::util::{rect_down, rect_right, rect_zero_height, rect_zero_width};
 use crate::widgets::{TermOffset, TerminalCursor, Window, WindowOps};
@@ -245,12 +250,6 @@ where
     /// Set the area that this portion of the layout covers.
     fn set_area(&mut self, area: Rect, info: &ResizeInfo);
 
-    /// Draw the [Windows](Window) that this tree contains.
-    fn draw<I>(&mut self, buf: &mut Buffer, focus: Option<usize>, store: &mut Store<I>)
-    where
-        W: WindowOps<I>,
-        I: ApplicationInfo;
-
     fn _neighbor_walk(
         &self,
         base: usize,
@@ -416,24 +415,6 @@ where
             Value::Tree(tree, ref mut info) => {
                 info.area = area;
                 tree.set_area(area, &info.resized);
-            },
-        }
-    }
-
-    fn draw<I: ApplicationInfo>(
-        &mut self,
-        buf: &mut Buffer,
-        focus: Option<usize>,
-        store: &mut Store<I>,
-    ) where
-        W: WindowOps<I>,
-    {
-        match self {
-            Value::Window(window, ref mut info) => {
-                window.draw(info.area, buf, matches!(focus, Some(0)), store);
-            },
-            Value::Tree(tree, _) => {
-                tree.draw(buf, focus, store);
             },
         }
     }
@@ -753,21 +734,6 @@ where
         }
     }
 
-    fn draw<I>(&mut self, buf: &mut Buffer, focus: Option<usize>, store: &mut Store<I>)
-    where
-        W: WindowOps<I>,
-        I: ApplicationInfo,
-    {
-        let mut base = 0;
-        let mut f = |value: &mut Value<W, X, Y>| {
-            value.draw(buf, focus.and_then(|n| n.checked_sub(base)), store);
-
-            base += value.size();
-        };
-
-        self.for_each_value(&mut f);
-    }
-
     fn _neighbor_walk(
         &self,
         base: usize,
@@ -1083,16 +1049,6 @@ where
         }
     }
 
-    fn draw<I>(&mut self, buf: &mut Buffer, focus: Option<usize>, store: &mut Store<I>)
-    where
-        W: WindowOps<I>,
-        I: ApplicationInfo,
-    {
-        if let Some(node) = self {
-            node.draw(buf, focus, store);
-        }
-    }
-
     fn neighbor(&self, at: usize, dir: MoveDir2D, count: usize) -> Option<usize>
     where
         W: TerminalCursor,
@@ -1338,6 +1294,7 @@ where
                     Err(err)
                 }
             },
+            OpenTarget::Unnamed => W::unnamed(store),
         }
     }
 
@@ -1595,6 +1552,7 @@ where
                     return Err(err);
                 }
             },
+            OpenTarget::Unnamed => W::unnamed(store)?,
         };
 
         slot.open(w);
@@ -1673,6 +1631,11 @@ where
 pub struct WindowLayout<'a, W: Window<I>, I: ApplicationInfo> {
     store: &'a mut Store<I>,
     focused: bool,
+
+    borders: bool,
+    border_style: Style,
+    border_type: BorderType,
+
     _pw: PhantomData<(W, I)>,
 }
 
@@ -1683,13 +1646,82 @@ where
 {
     /// Create a new widget for displaying window layouts.
     pub fn new(store: &'a mut Store<I>) -> Self {
-        WindowLayout { store, focused: false, _pw: PhantomData }
+        WindowLayout {
+            store,
+            focused: false,
+            borders: false,
+            border_style: Style::default(),
+            border_type: BorderType::Plain,
+            _pw: PhantomData,
+        }
+    }
+
+    /// What [Style] should be used when drawing borders.
+    pub fn border_style(mut self, style: Style) -> Self {
+        self.border_style = style;
+        self
+    }
+
+    /// What characters should be used when drawing borders.
+    pub fn border_type(mut self, border_type: BorderType) -> Self {
+        self.border_type = border_type;
+        self
+    }
+
+    /// Indicate whether to draw borders around windows.
+    pub fn borders(mut self, borders: bool) -> Self {
+        self.borders = borders;
+        self
     }
 
     /// Indicate whether the window layout tree is currently focused.
     pub fn focus(mut self, focused: bool) -> Self {
         self.focused = focused;
         self
+    }
+
+    fn _draw<X, Y>(
+        &mut self,
+        node: &mut AxisTreeNode<WindowSlot<W>, X, Y>,
+        focus: Option<usize>,
+        _outer: Rect,
+        buf: &mut Buffer,
+    ) where
+        X: AxisT,
+        Y: AxisT,
+    {
+        let mut base = 0;
+        let mut f = |value: &mut Value<WindowSlot<W>, X, Y>| {
+            match value {
+                Value::Window(w, info) => {
+                    let focused = matches!(focus, Some(0));
+
+                    if self.borders {
+                        let title = w.get().get_win_title(self.store);
+                        let block = Block::default()
+                            .title(title)
+                            .borders(Borders::ALL)
+                            .border_style(self.border_style)
+                            .border_type(self.border_type);
+                        let inner = block.inner(info.area);
+
+                        block.render(info.area, buf);
+                        w.draw(inner, buf, focused, self.store);
+                    } else {
+                        w.draw(info.area, buf, focused, self.store);
+                    }
+                },
+                Value::Tree(t, _) => {
+                    let focus = focus.and_then(|n| n.checked_sub(base));
+
+                    self._draw(t, focus, _outer, buf);
+                },
+            }
+
+            base += value.size();
+        };
+
+        node.for_each_value(&mut f);
     }
 }
 
@@ -1700,7 +1732,7 @@ where
 {
     type State = WindowLayoutState<W, I>;
 
-    fn render(self, area: Rect, buf: &mut Buffer, state: &mut Self::State) {
+    fn render(mut self, area: Rect, buf: &mut Buffer, state: &mut Self::State) {
         if state.zoom {
             if let Some(window) = state.get_mut() {
                 window.draw(area, buf, true, self.store);
@@ -1711,7 +1743,10 @@ where
 
         state.info.area = area;
         state.root.set_area(area, &state.info.resized);
-        state.root.draw(buf, state.focused.into(), self.store);
+
+        if let Some(root) = &mut state.root {
+            self._draw(root.as_mut(), state.focused.into(), area, buf);
+        }
     }
 }
 
@@ -1727,6 +1762,7 @@ mod tests {
     use crate::env::vim::VimContext;
     use crate::widgets::TerminalCursor;
     use rand::Rng;
+    use tui::text::Spans;
 
     macro_rules! fc {
         ($n: expr) => {
@@ -1864,6 +1900,10 @@ mod tests {
             self.id
         }
 
+        fn get_win_title(&self, _: &mut Store<TestApp>) -> Spans {
+            Spans::from("Window Title")
+        }
+
         fn open(id: Option<usize>, _: &mut Store<TestApp>) -> UIResult<Self, TestApp> {
             Ok(TestWindow::from(id))
         }
@@ -1877,6 +1917,10 @@ mod tests {
 
         fn posn(index: usize, _: &mut Store<TestApp>) -> UIResult<Self, TestApp> {
             Ok(TestWindow::from(Some(index)))
+        }
+
+        fn unnamed(_: &mut Store<TestApp>) -> UIResult<Self, TestApp> {
+            Ok(TestWindow::from(None))
         }
     }
 
