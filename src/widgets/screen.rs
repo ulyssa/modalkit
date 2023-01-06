@@ -904,7 +904,7 @@ where
                 }
 
                 if let Some(w) = tab.get() {
-                    let mut title = w.get_win_title(self.store).0;
+                    let mut title = w.get_tab_title(self.store).0;
 
                     spans.append(&mut title);
                 } else {
