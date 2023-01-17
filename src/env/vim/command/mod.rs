@@ -4,143 +4,6 @@
 //!
 //! These components allow parsing Vim commands and turning them into
 //! [actions](crate::editing::action::Action).
-//!
-//! ## Default Commands
-//!
-//! ### `read`
-//!
-//! *Aliases:* `r`
-//!
-//! Read the contents of a file or program output into the buffer.
-//!
-//! ### `print`
-//!
-//! *Aliases:* `p`
-//!
-//! Print lines in the given range.
-//!
-//! ### `substitute`
-//!
-//! *Aliases:* `s`
-//!
-//! Replace regular expression matches with a substitution.
-//!
-//! ### `close`
-//!
-//! *Aliases:* `clo`
-//!
-//! Close a window.
-//!
-//! ### `only`
-//!
-//! *Aliases:* `on`
-//!
-//! Close all windows but one.
-//!
-//! ### `quit`
-//!
-//! *Aliases:* `q`
-//!
-//! Quit a window.
-//!
-//! ### `quitall`
-//!
-//! *Aliases:* `qa`, `qall`, `quita`
-//!
-//! Quit all windows in the current tab.
-//!
-//! ### `split`
-//!
-//! *Aliases:* `sp`
-//!
-//! Split the window. If an argument is given, then it will be opened with [OpenTarget::Name].
-//!
-//! ### `vsplit`
-//!
-//! *Aliases:* `vs`, `vsp`
-//!
-//! Split the window vertically. If an argument is given, then it will be opened with
-//! [OpenTarget::Name].
-//!
-//! ### `tab`
-//!
-//! Run a command and, if it opens a window, open it in a new tab instead.
-//!
-//! ### `tabclose`
-//!
-//! *Aliases:* `tabc`
-//!
-//! Close a tab.
-//!
-//! ### `tabedit`
-//!
-//! *Aliases:* `tabe`, `tabnew`
-//!
-//! Open a new tab. If an argument is given, then a window will be opened with [OpenTarget::Name]
-//! and inserted into the new tab.
-//!
-//! ### `tabnext`
-//!
-//! *Aliases:* `tabn`
-//!
-//! Switch focus to a following tab.
-//!
-//! ### `tabonly`
-//!
-//! *Aliases:* `tabo`
-//!
-//! Close all tabs but one.
-//!
-//! ### `tabmove`
-//!
-//! *Aliases:* `tabm`
-//!
-//! Move a tab to a different position.
-//!
-//! ### `tabprevious`
-//!
-//! *Aliases:* `tabp`, `tabNext`, `tabN`
-//!
-//! Switch focus to a previous tab.
-//!
-//! ### `tabrewind`
-//!
-//! *Aliases:* `tabr`, `tabfirst`, `tabfir`
-//!
-//! Switch focus to the first tab.
-//!
-//! ### `tablast`
-//!
-//! *Aliases:* `tabl`
-//!
-//! Switch focus to the last tab.
-//!
-//! ### `horizontal`
-//!
-//! *Aliases:* `hor`
-//!
-//! Modify the following command to open a window horizontally.
-//!
-//! ### `vertical`
-//!
-//! *Aliases:* `vert`
-//!
-//! Modify the following command to open a window vertically.
-//!
-//! For example, `:vertical split` will behave like `:vsplit`.
-//!
-//! ### `leftabove`
-//!
-//! *Aliases:* `lefta`, `aboveleft`, `abo`
-//!
-//! Modify the following command to open the window before the current one.
-//!
-//! ### `rightbelow`
-//!
-//! *Aliases:* `rightb`, `belowright`, `bel`
-//!
-//! Modify the following command to open the window after the current one.
-//!
 use std::cmp::Ordering;
 use std::fmt;
 
@@ -525,7 +388,12 @@ fn window_open_target<I: ApplicationWindowId>(
     Ok(open_target(desc)?.unwrap_or(OpenTarget::Current))
 }
 
-fn window_close<C: EditContext, I: ApplicationInfo>(
+/// The `:close` command.
+///
+/// *Aliases:* `clo`
+///
+/// Close a window.
+pub fn vim_cmd_close<C: EditContext, I: ApplicationInfo>(
     desc: CommandDescription,
     ctx: &mut CommandContext<C>,
 ) -> CommandResult<C, I> {
@@ -542,7 +410,12 @@ fn window_close<C: EditContext, I: ApplicationInfo>(
     Ok(CommandStep::Continue(action, ctx.context.take()))
 }
 
-fn window_only<C: EditContext, I: ApplicationInfo>(
+/// The `:only` command.
+///
+/// *Aliases:* `on`
+///
+/// Close all windows but one.
+pub fn vim_cmd_only<C: EditContext, I: ApplicationInfo>(
     desc: CommandDescription,
     ctx: &mut CommandContext<C>,
 ) -> CommandResult<C, I> {
@@ -559,7 +432,12 @@ fn window_only<C: EditContext, I: ApplicationInfo>(
     Ok(CommandStep::Continue(action, ctx.context.take()))
 }
 
-fn window_quit<C: EditContext, I: ApplicationInfo>(
+/// The `:quit` command.
+///
+/// *Aliases:* `q`
+///
+/// Quit a window.
+pub fn vim_cmd_quit<C: EditContext, I: ApplicationInfo>(
     desc: CommandDescription,
     ctx: &mut CommandContext<C>,
 ) -> CommandResult<C, I> {
@@ -576,7 +454,12 @@ fn window_quit<C: EditContext, I: ApplicationInfo>(
     Ok(CommandStep::Continue(action, ctx.context.take()))
 }
 
-fn window_quitall<C: EditContext, I: ApplicationInfo>(
+/// The `:quitall` command.
+///
+/// *Aliases:* `qa`, `qall`, `quita`
+///
+/// Quit all windows in the current tab.
+pub fn vim_cmd_quitall<C: EditContext, I: ApplicationInfo>(
     desc: CommandDescription,
     ctx: &mut CommandContext<C>,
 ) -> CommandResult<C, I> {
@@ -592,7 +475,12 @@ fn window_quitall<C: EditContext, I: ApplicationInfo>(
     Ok(CommandStep::Continue(action, ctx.context.take()))
 }
 
-fn window_split_horizontal<C: EditContext, I: ApplicationInfo>(
+/// The `:split` command.
+///
+/// *Aliases:* `sp`
+///
+/// Split the window. If an argument is given, then it will be opened with [OpenTarget::Name].
+pub fn vim_cmd_sp<C: EditContext, I: ApplicationInfo>(
     desc: CommandDescription,
     ctx: &mut CommandContext<C>,
 ) -> CommandResult<C, I> {
@@ -603,7 +491,13 @@ fn window_split_horizontal<C: EditContext, I: ApplicationInfo>(
     Ok(CommandStep::Continue(action, ctx.context.take()))
 }
 
-fn window_split_vertical<C: EditContext, I: ApplicationInfo>(
+/// The `:vsplit` command.
+///
+/// *Aliases:* `vs`, `vsp`
+///
+/// Split the window vertically. If an argument is given, then it will be opened with
+/// [OpenTarget::Name].
+pub fn vim_cmd_vs<C: EditContext, I: ApplicationInfo>(
     desc: CommandDescription,
     ctx: &mut CommandContext<C>,
 ) -> CommandResult<C, I> {
@@ -617,7 +511,12 @@ fn window_split_vertical<C: EditContext, I: ApplicationInfo>(
     Ok(CommandStep::Continue(action, ctx.context.take()))
 }
 
-fn tab_next<C: EditContext, I: ApplicationInfo>(
+/// The `:tabnext` command.
+///
+/// *Aliases:* `tabn`
+///
+/// Switch focus to a following tab.
+pub fn vim_cmd_tabnext<C: EditContext, I: ApplicationInfo>(
     desc: CommandDescription,
     ctx: &mut CommandContext<C>,
 ) -> CommandResult<C, I> {
@@ -645,7 +544,12 @@ fn tab_next<C: EditContext, I: ApplicationInfo>(
     Ok(CommandStep::Continue(action, ctx.context.take()))
 }
 
-fn tab_prev<C: EditContext, I: ApplicationInfo>(
+/// The `:tabprevious` command.
+///
+/// *Aliases:* `tabp`, `tabNext`, `tabN`
+///
+/// Switch focus to a previous tab.
+pub fn vim_cmd_tabprev<C: EditContext, I: ApplicationInfo>(
     desc: CommandDescription,
     ctx: &mut CommandContext<C>,
 ) -> CommandResult<C, I> {
@@ -687,7 +591,12 @@ fn tab_prev<C: EditContext, I: ApplicationInfo>(
     Ok(CommandStep::Continue(action, ctx.context.take()))
 }
 
-fn tab_first<C: EditContext, I: ApplicationInfo>(
+/// The `tabfirst` command.
+///
+/// *Aliases:* `tabfir`, `tabr`, `tabrewind`
+///
+/// Switch focus to the first tab.
+pub fn vim_cmd_tabfirst<C: EditContext, I: ApplicationInfo>(
     _: CommandDescription,
     ctx: &mut CommandContext<C>,
 ) -> CommandResult<C, I> {
@@ -697,7 +606,12 @@ fn tab_first<C: EditContext, I: ApplicationInfo>(
     Ok(CommandStep::Continue(action, ctx.context.take()))
 }
 
-fn tab_last<C: EditContext, I: ApplicationInfo>(
+/// The `:tablast` command.
+///
+/// *Aliases:* `tabl`
+///
+/// Switch focus to the last tab.
+pub fn vim_cmd_tablast<C: EditContext, I: ApplicationInfo>(
     _: CommandDescription,
     ctx: &mut CommandContext<C>,
 ) -> CommandResult<C, I> {
@@ -707,7 +621,10 @@ fn tab_last<C: EditContext, I: ApplicationInfo>(
     Ok(CommandStep::Continue(action, ctx.context.take()))
 }
 
-fn tab_cmd<C: EditContext, I: ApplicationInfo>(
+/// The `:tab` command.
+///
+/// Run a command and, if it opens a window, open it in a new tab instead.
+pub fn vim_cmd_tab<C: EditContext, I: ApplicationInfo>(
     desc: CommandDescription,
     ctx: &mut CommandContext<C>,
 ) -> CommandResult<C, I> {
@@ -720,7 +637,13 @@ fn tab_cmd<C: EditContext, I: ApplicationInfo>(
     Ok(CommandStep::Again(desc.arg.text))
 }
 
-fn tab_new<C: EditContext, I: ApplicationInfo>(
+/// The `:tabedit` command.
+///
+/// *Aliases:* `tabe`, `tabnew`
+///
+/// Open a new tab. If an argument is given, then a window will be opened with [OpenTarget::Name]
+/// and inserted into the new tab.
+pub fn vim_cmd_tabedit<C: EditContext, I: ApplicationInfo>(
     desc: CommandDescription,
     ctx: &mut CommandContext<C>,
 ) -> CommandResult<C, I> {
@@ -734,7 +657,12 @@ fn tab_new<C: EditContext, I: ApplicationInfo>(
     Ok(CommandStep::Continue(action.into(), ctx.context.take()))
 }
 
-fn tab_close<C: EditContext, I: ApplicationInfo>(
+/// The `:tabclose` command.
+///
+/// *Aliases:* `tabc`
+///
+/// Close a tab.
+pub fn vim_cmd_tabclose<C: EditContext, I: ApplicationInfo>(
     desc: CommandDescription,
     ctx: &mut CommandContext<C>,
 ) -> CommandResult<C, I> {
@@ -753,7 +681,12 @@ fn tab_close<C: EditContext, I: ApplicationInfo>(
     Ok(CommandStep::Continue(action.into(), ctx.context.take()))
 }
 
-fn tab_only<C: EditContext, I: ApplicationInfo>(
+/// The `:tabonly` command.
+///
+/// *Aliases:* `tabo`
+///
+/// Close all tabs but one.
+pub fn vim_cmd_tabonly<C: EditContext, I: ApplicationInfo>(
     desc: CommandDescription,
     ctx: &mut CommandContext<C>,
 ) -> CommandResult<C, I> {
@@ -772,7 +705,12 @@ fn tab_only<C: EditContext, I: ApplicationInfo>(
     Ok(CommandStep::Continue(action.into(), ctx.context.take()))
 }
 
-fn tab_move<C: EditContext, I: ApplicationInfo>(
+/// The `:tabmove` command.
+///
+/// *Aliases:* `tabm`
+///
+/// Move a tab to a different position.
+pub fn vim_cmd_tabmove<C: EditContext, I: ApplicationInfo>(
     desc: CommandDescription,
     ctx: &mut CommandContext<C>,
 ) -> CommandResult<C, I> {
@@ -791,7 +729,12 @@ fn tab_move<C: EditContext, I: ApplicationInfo>(
     Ok(CommandStep::Continue(action, ctx.context.take()))
 }
 
-fn run_split_before<C: EditContext, I: ApplicationInfo>(
+/// The `:leftabove` command.
+///
+/// *Aliases:* `lefta`, `aboveleft`, `abo`
+///
+/// Modify the following command to open the window before the current one.
+pub fn vim_cmd_above<C: EditContext, I: ApplicationInfo>(
     desc: CommandDescription,
     ctx: &mut CommandContext<C>,
 ) -> CommandResult<C, I> {
@@ -800,7 +743,12 @@ fn run_split_before<C: EditContext, I: ApplicationInfo>(
     Ok(CommandStep::Again(desc.arg.text))
 }
 
-fn run_split_after<C: EditContext, I: ApplicationInfo>(
+/// The `:rightbelow` command.
+///
+/// *Aliases:* `rightb`, `belowright`, `bel`
+///
+/// Modify the following command to open the window after the current one.
+pub fn vim_cmd_below<C: EditContext, I: ApplicationInfo>(
     desc: CommandDescription,
     ctx: &mut CommandContext<C>,
 ) -> CommandResult<C, I> {
@@ -809,7 +757,12 @@ fn run_split_after<C: EditContext, I: ApplicationInfo>(
     Ok(CommandStep::Again(desc.arg.text))
 }
 
-fn run_horizontal<C: EditContext, I: ApplicationInfo>(
+/// The `:horizontal` command.
+///
+/// *Aliases:* `hor`
+///
+/// Modify the following command to open a window horizontally.
+pub fn vim_cmd_horizontal<C: EditContext, I: ApplicationInfo>(
     desc: CommandDescription,
     ctx: &mut CommandContext<C>,
 ) -> CommandResult<C, I> {
@@ -818,7 +771,14 @@ fn run_horizontal<C: EditContext, I: ApplicationInfo>(
     Ok(CommandStep::Again(desc.arg.text))
 }
 
-fn run_vertical<C: EditContext, I: ApplicationInfo>(
+/// The `:vertical` command.
+///
+/// *Aliases:* `vert`
+///
+/// Modify the following command to open a window vertically.
+///
+/// For example, `:vertical split` will behave like `:vsplit`.
+pub fn vim_cmd_vertical<C: EditContext, I: ApplicationInfo>(
     desc: CommandDescription,
     ctx: &mut CommandContext<C>,
 ) -> CommandResult<C, I> {
@@ -827,35 +787,45 @@ fn run_vertical<C: EditContext, I: ApplicationInfo>(
     Ok(CommandStep::Again(desc.arg.text))
 }
 
-fn filter<C: EditContext, I: ApplicationInfo>(
+fn vim_cmd_filter<C: EditContext, I: ApplicationInfo>(
     _: CommandDescription,
     _: &mut CommandContext<C>,
 ) -> CommandResult<C, I> {
     Err(CommandError::Error("filtering is not yet implemented".into()))
 }
 
-fn read<C: EditContext, I: ApplicationInfo>(
+/// The `:read` command.
+///
+/// *Aliases:* `r`
+///
+/// Read the contents of a file or program output into the buffer.
+pub fn vim_cmd_read<C: EditContext, I: ApplicationInfo>(
     _: CommandDescription,
     _: &mut CommandContext<C>,
 ) -> CommandResult<C, I> {
     Err(CommandError::Error("read is not yet implemented".into()))
 }
 
-fn print<C: EditContext, I: ApplicationInfo>(
+/// The `:print` command.
+///
+/// *Aliases:* `p`
+///
+/// Print lines in the given range.
+pub fn vim_cmd_print<C: EditContext, I: ApplicationInfo>(
     _: CommandDescription,
     _: &mut CommandContext<C>,
 ) -> CommandResult<C, I> {
     Err(CommandError::Error("print is not yet implemented".into()))
 }
 
-fn substitute<C: EditContext, I: ApplicationInfo>(
+fn vim_cmd_substitute<C: EditContext, I: ApplicationInfo>(
     _: CommandDescription,
     _: &mut CommandContext<C>,
 ) -> CommandResult<C, I> {
     Err(CommandError::Error("substitution is not yet implemented".into()))
 }
 
-fn substitute_repeat<C: EditContext, I: ApplicationInfo>(
+fn vim_cmd_substitute_repeat<C: EditContext, I: ApplicationInfo>(
     _: CommandDescription,
     _: &mut CommandContext<C>,
 ) -> CommandResult<C, I> {
@@ -864,59 +834,74 @@ fn substitute_repeat<C: EditContext, I: ApplicationInfo>(
 
 fn default_cmds<C: EditContext, I: ApplicationInfo>() -> Vec<VimCommand<C, I>> {
     vec![
-        VimCommand { names: strs!["!"], f: filter },
+        VimCommand { names: strs!["!"], f: vim_cmd_filter },
         VimCommand {
             names: strs!["&", "&&", "~", "~&"],
-            f: substitute_repeat,
+            f: vim_cmd_substitute_repeat,
         },
-        VimCommand { names: strs!["r", "read"], f: read },
-        VimCommand { names: strs!["p", "print"], f: print },
-        VimCommand { names: strs!["s", "substitute"], f: substitute },
-        VimCommand { names: strs!["clo", "close"], f: window_close },
-        VimCommand { names: strs!["on", "only"], f: window_only },
-        VimCommand { names: strs!["q", "quit"], f: window_quit },
+        VimCommand { names: strs!["r", "read"], f: vim_cmd_read },
+        VimCommand { names: strs!["p", "print"], f: vim_cmd_print },
+        VimCommand {
+            names: strs!["s", "substitute"],
+            f: vim_cmd_substitute,
+        },
+        VimCommand { names: strs!["clo", "close"], f: vim_cmd_close },
+        VimCommand { names: strs!["on", "only"], f: vim_cmd_only },
+        VimCommand { names: strs!["q", "quit"], f: vim_cmd_quit },
         VimCommand {
             names: strs!["qa", "qall", "quita", "quitall"],
-            f: window_quitall,
+            f: vim_cmd_quitall,
         },
+        VimCommand { names: strs!["sp", "split"], f: vim_cmd_sp },
+        VimCommand { names: strs!["vs", "vsp", "vsplit"], f: vim_cmd_vs },
+        VimCommand { names: strs!["tab"], f: vim_cmd_tab },
         VimCommand {
-            names: strs!["sp", "split"],
-            f: window_split_horizontal,
+            names: strs!["tabc", "tabclose"],
+            f: vim_cmd_tabclose,
         },
-        VimCommand {
-            names: strs!["vs", "vsp", "vsplit"],
-            f: window_split_vertical,
-        },
-        VimCommand { names: strs!["tab"], f: tab_cmd },
-        VimCommand { names: strs!["tabc", "tabclose"], f: tab_close },
         VimCommand {
             names: strs!["tabe", "tabedit", "tabnew"],
-            f: tab_new,
+            f: vim_cmd_tabedit,
         },
-        VimCommand { names: strs!["tabm", "tabmove"], f: tab_move },
-        VimCommand { names: strs!["tabn", "tabnext"], f: tab_next },
-        VimCommand { names: strs!["tabo", "tabonly"], f: tab_only },
+        VimCommand {
+            names: strs!["tabm", "tabmove"],
+            f: vim_cmd_tabmove,
+        },
+        VimCommand {
+            names: strs!["tabn", "tabnext"],
+            f: vim_cmd_tabnext,
+        },
+        VimCommand {
+            names: strs!["tabo", "tabonly"],
+            f: vim_cmd_tabonly,
+        },
         VimCommand {
             names: strs!["tabp", "tabprevious", "tabN", "tabNext"],
-            f: tab_prev,
+            f: vim_cmd_tabprev,
         },
         VimCommand {
             names: strs!["tabr", "tabrewind", "tabfir", "tabfirst"],
-            f: tab_first,
+            f: vim_cmd_tabfirst,
         },
-        VimCommand { names: strs!["tabl", "tablast"], f: tab_last },
+        VimCommand {
+            names: strs!["tabl", "tablast"],
+            f: vim_cmd_tablast,
+        },
         VimCommand {
             names: strs!["hor", "horizontal"],
-            f: run_horizontal,
+            f: vim_cmd_horizontal,
         },
-        VimCommand { names: strs!["vert", "vertical"], f: run_vertical },
+        VimCommand {
+            names: strs!["vert", "vertical"],
+            f: vim_cmd_vertical,
+        },
         VimCommand {
             names: strs!["lefta", "leftabove", "abo", "aboveleft"],
-            f: run_split_before,
+            f: vim_cmd_above,
         },
         VimCommand {
             names: strs!["rightb", "rightbelow", "bel", "belowright"],
-            f: run_split_after,
+            f: vim_cmd_below,
         },
     ]
 }
