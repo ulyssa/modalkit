@@ -88,6 +88,7 @@ use crate::editing::{
         MoveType,
         NumberChange,
         OpenTarget,
+        PasteStyle,
         PositionList,
         RangeType,
         Register,
@@ -939,13 +940,13 @@ macro_rules! paste_register {
     ($dir: expr, $reg: expr) => {
         is!(
             InternalAction::SetRegister($reg),
-            EditorAction::InsertText(InsertTextAction::Paste($dir, Count::Contextual))
+            InsertTextAction::Paste(PasteStyle::Side($dir), Count::Contextual)
         )
     };
     ($dir: expr, $reg: expr, $nm: expr) => {
         is!(
             InternalAction::SetRegister($reg),
-            EditorAction::InsertText(InsertTextAction::Paste($dir, Count::Contextual)),
+            InsertTextAction::Paste(PasteStyle::Side($dir), Count::Contextual),
             $nm
         )
     };
@@ -1553,14 +1554,15 @@ fn default_keys<I: ApplicationInfo>() -> Vec<(MappedModes, &'static str, InputSt
         ( NMAP, "K", act!(Action::KeywordLookup) ),
         ( NMAP, "o", open_lines!(MoveDir1D::Next) ),
         ( NMAP, "O", open_lines!(MoveDir1D::Previous) ),
-        ( NMAP, "p", paste!(MoveDir1D::Next) ),
-        ( NMAP, "P", paste!(MoveDir1D::Previous) ),
+        ( NMAP, "p", paste_dir!(MoveDir1D::Next) ),
+        ( NMAP, "P", paste_dir!(MoveDir1D::Previous) ),
         ( NMAP, "Q", unmapped!() ),
         ( NMAP, "r", charreplace!(false) ),
         ( NMAP, "R", insert!(InsertStyle::Replace) ),
         ( NMAP, "s", change!(MoveType::Column(MoveDir1D::Next, false)) ),
         ( NMAP, "S", change_range!(RangeType::Line) ),
         ( NMAP, "u", history!(HistoryAction::Undo(Count::Contextual)) ),
+        ( NMAP, "U", unmapped!() ),
         ( NMAP, "x", edit!(EditAction::Delete, MoveType::Column(MoveDir1D::Next, false)) ),
         ( NMAP, "X", edit!(EditAction::Delete, MoveType::Column(MoveDir1D::Previous, false)) ),
         ( NMAP, "y", edit_motion!(EditAction::Yank) ),
@@ -1627,8 +1629,8 @@ fn default_keys<I: ApplicationInfo>() -> Vec<(MappedModes, &'static str, InputSt
         ( XMAP, "K", act!(Action::KeywordLookup) ),
         ( XMAP, "o", selection!(SelectionAction::CursorSet(SelectionCursorChange::SwapAnchor(false))) ),
         ( XMAP, "O", selection!(SelectionAction::CursorSet(SelectionCursorChange::SwapAnchor(true))) ),
-        ( XMAP, "p", paste!(MoveDir1D::Next, Count::Contextual, VimMode::Normal) ),
-        ( XMAP, "P", paste!(MoveDir1D::Previous, Count::Contextual, VimMode::Normal) ),
+        ( XMAP, "p", paste!(PasteStyle::Replace, Count::Contextual, VimMode::Normal) ),
+        ( XMAP, "P", paste!(PasteStyle::Replace, Count::Contextual, VimMode::Normal) ),
         ( XMAP, "r", charreplace!(false, EditTarget::Selection) ),
         ( XMAP, "R", change_selection_lines!() ),
         ( XMAP, "S", change_selection_lines!() ),
@@ -1659,7 +1661,7 @@ fn default_keys<I: ApplicationInfo>() -> Vec<(MappedModes, &'static str, InputSt
         ( ICMAP, "<C-K>{digraph1}", iact!(InternalAction::SetCursorDigraph) ),
         ( ICMAP, "<C-K>{digraph1}{digraph2}", chartype!() ),
         ( ICMAP, "<C-R>", iact!(InternalAction::SetCursorChar('"')) ),
-        ( ICMAP, "<C-R>{register}", paste!(MoveDir1D::Previous, 1) ),
+        ( ICMAP, "<C-R>{register}", paste!(PasteStyle::Cursor, 1) ),
         ( ICMAP, "<C-R><C-C>", normal!() ),
         ( ICMAP, "<C-R><C-O>{register}", unmapped!() ),
         ( ICMAP, "<C-R><C-R>{register}", unmapped!() ),
@@ -3782,7 +3784,7 @@ mod tests {
         assert_pop1!(vm, mov, ctx);
         assert_eq!(vm.mode(), VimMode::Insert);
 
-        let it = InsertTextAction::Paste(MoveDir1D::Previous, Count::Exact(1));
+        let it = InsertTextAction::Paste(PasteStyle::Cursor, Count::Exact(1));
         ctx.action.cursor = Some('"');
         ctx.action.register = Some(Register::Named('z'));
         ctx.action.register_append = false;

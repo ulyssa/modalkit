@@ -58,6 +58,19 @@ pub enum JoinStyle {
     NewSpace,
 }
 
+/// Specify how to insert register contents into a buffer.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum PasteStyle {
+    /// Paste text before the cursor.
+    Cursor,
+
+    /// Paste text before the selection's start, or after its end.
+    Side(MoveDir1D),
+
+    /// Replace selected text with register contents.
+    Replace,
+}
+
 /// Specify what is targeted by an editing action.
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[non_exhaustive]

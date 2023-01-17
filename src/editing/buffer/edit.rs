@@ -2,6 +2,7 @@ use crate::editing::{
     application::ApplicationInfo,
     base::{
         Case,
+        CursorEnd,
         CursorMovements,
         CursorMovementsContext,
         IndentChange,
@@ -12,7 +13,7 @@ use crate::editing::{
         TargetShape,
     },
     context::EditContext,
-    cursor::{Cursor, CursorChoice},
+    cursor::{Adjustable, Cursor, CursorChoice},
     rope::EditRope,
     store::{RegisterCell, RegisterPutFlags, Store},
 };
@@ -350,11 +351,7 @@ where
                     continue;
                 }
 
-                let y0 = self.text.line_of_offset(nl);
-                let y1 = y0 + 1;
-                let y0c = self.text.get_columns(y0);
-
-                let diff = match spaces {
+                let (choice, adjs) = match spaces {
                     JoinStyle::OneSpace => {
                         let mut iter = self.text.chars(nl + 1.into());
                         let mut blank = false;
@@ -373,46 +370,22 @@ where
                         let jtxt = if blank { "" } else { " " };
 
                         let stop = iter.pos();
-                        let space = stop - nl - jtxt.len().into();
-                        let camt = y0c as isize + jtxt.len() as isize - usize::from(space) as isize;
 
-                        self._adjust_columns(y1, 0, -1, camt, store);
-                        self._adjust_lines(y1, usize::MAX, -1, 0, store);
-                        self.text.replace(nl, stop, false, jtxt);
-
-                        space
+                        self.text.replace(nl, stop, false, jtxt.into())
                     },
-                    JoinStyle::NewSpace => {
-                        let camt = y0c as isize + 1;
-
-                        self._adjust_columns(y1, 0, -1, camt, store);
-                        self._adjust_lines(y1, usize::MAX, -1, 0, store);
-                        self.text.replace(nl, nl, true, " ");
-
-                        1.into()
-                    },
-                    JoinStyle::NoChange => {
-                        let camt = y0c as isize;
-
-                        self._adjust_columns(y1, 0, -1, camt, store);
-                        self._adjust_lines(y1, usize::MAX, -1, 0, store);
-                        self.text.replace(nl, nl, true, "");
-
-                        1.into()
-                    },
+                    JoinStyle::NewSpace => self.text.replace(nl, nl, true, " ".into()),
+                    JoinStyle::NoChange => self.text.replace(nl, nl, true, "".into()),
                 };
 
-                if cursor.is_none() {
-                    cursor = Some(nl);
-                } else {
-                    cursor = cursor.map(|off| off - diff);
-                }
+                cursor
+                    .get_or_insert_with(|| choice.get(CursorEnd::Auto).cloned().unwrap_or_default())
+                    .adjust(&adjs);
+
+                self._adjust_all(adjs, store);
             }
         }
 
-        return cursor
-            .map(|off| self.text.offset_to_cursor(off).into())
-            .unwrap_or_default();
+        return cursor.map(CursorChoice::Single).unwrap_or_default();
     }
 }
 
@@ -1009,7 +982,7 @@ mod tests {
         let mov = RangeType::Line;
         edit!(ebuf, operation, range!(mov, 3), ctx!(curid, vwctx, vctx), store);
         assert_eq!(ebuf.get_text(), "foo        hello world   a b c    d e\n    first\n");
-        assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 29));
+        assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 30));
 
         // Try to join the next four lines, hitting the end of the buffer.
         let mov = RangeType::Line;

@@ -7,6 +7,7 @@
 //! [EditBuffer](crate::editing::buffer::EditBuffer).
 //!
 //! [editing::base]: crate::editing::base
+use std::borrow::Cow;
 use std::cmp::{Ord, Ordering, PartialOrd};
 use std::fmt::Debug;
 use std::ops::Add;
@@ -951,14 +952,147 @@ impl EditRope {
     }
 
     /// Replace a range within the rope with some new text.
-    pub fn replace(&mut self, start: CharOff, end: CharOff, inclusive: bool, s: &str) {
-        if inclusive {
-            self.rope.remove(start.0..=end.0);
-        } else {
-            self.rope.remove(start.0..end.0);
+    pub fn replace(
+        &mut self,
+        start: CharOff,
+        end: CharOff,
+        inclusive: bool,
+        substitution: EditRope,
+    ) -> (CursorChoice, Vec<CursorAdjustment>) {
+        let replaced = self.slice(start, end, inclusive);
+
+        // Modify end offset as needed if this is an inclusive replacement.
+        let excl = usize::from(inclusive);
+
+        // Character offsets for the modified range.
+        let soff = start.0;
+        let eoff = end.0 + excl;
+
+        // Cursor positions for the modified range.
+        let start = self.offset_to_cursor(start);
+        let end = self.offset_to_cursor(end + excl.into());
+
+        // Number of columns on last line in both texts.
+        let mut rchars: isize = 0;
+        let mut schars: isize = 0;
+
+        for c in replaced.chars(0.into()).rev() {
+            if c == '\n' {
+                break;
+            }
+
+            rchars += 1;
         }
 
-        self.rope.insert(start.0, s);
+        for c in substitution.chars(0.into()).rev() {
+            if c == '\n' {
+                break;
+            }
+
+            schars += 1;
+        }
+
+        let slen = substitution.len();
+        let rlines = replaced.get_lines() as isize;
+        let slines = substitution.get_lines() as isize;
+
+        let adjs = match (rlines, slines) {
+            (0, 0) => {
+                // Text replaced on the same line.
+                vec![CursorAdjustment::Column {
+                    line: start.y,
+                    column_start: start.x,
+                    amt_line: 0,
+                    amt_col: schars - rchars,
+                }]
+            },
+            (0, n) => {
+                // Lines inserted.
+                vec![
+                    // First, move all lines after the end line downwards.
+                    CursorAdjustment::Line {
+                        line_start: end.y,
+                        line_end: end.y,
+                        amount: 0,
+                        amount_after: n,
+                    },
+                    // Then, move any marked text on the line end downwards, and adjust columns.
+                    CursorAdjustment::Column {
+                        line: end.y,
+                        column_start: end.x,
+                        amt_line: n,
+                        amt_col: schars - end.x as isize,
+                    },
+                ]
+            },
+            (n, 0) => {
+                // Lines deleted.
+                vec![
+                    // First, move any marked text on this line upwards, and adjust columns.
+                    CursorAdjustment::Column {
+                        line: end.y,
+                        column_start: rchars as usize,
+                        amt_line: -1,
+                        amt_col: start.x as isize + schars - rchars,
+                    },
+                    // Then, move any following lines upwards.
+                    CursorAdjustment::Line {
+                        line_start: end.y,
+                        line_end: end.y,
+                        amount: 0,
+                        amount_after: -n,
+                    },
+                ]
+            },
+            (n, m) if n < m => {
+                // Lines replaced with more lines.
+                let ldiff = m - n;
+
+                vec![
+                    CursorAdjustment::Line {
+                        line_start: start.y,
+                        line_end: end.y,
+                        amount: 0,
+                        amount_after: ldiff,
+                    },
+                    CursorAdjustment::Column {
+                        line: end.y,
+                        column_start: end.x,
+                        amt_line: ldiff,
+                        amt_col: schars - rchars,
+                    },
+                ]
+            },
+            (n, m) => {
+                // Lines replaced with fewer lines.
+                let ldiff = m - n;
+
+                vec![
+                    CursorAdjustment::Column {
+                        line: end.y,
+                        column_start: end.x,
+                        amt_line: ldiff,
+                        amt_col: schars - rchars,
+                    },
+                    CursorAdjustment::Line {
+                        line_start: start.y,
+                        line_end: end.y,
+                        amount: 0,
+                        amount_after: ldiff,
+                    },
+                ]
+            },
+        };
+
+        let s = Cow::from(substitution.rope);
+        self.rope.remove(soff..eoff);
+        self.rope.insert(soff, s.as_ref());
+
+        let end = self.offset_to_cursor(slen.saturating_sub(1).add(soff).into());
+        let start = self.offset_to_cursor(soff.into());
+        let default = start.clone();
+
+        (CursorChoice::Range(start, end, default), adjs)
     }
 
     /// Return the rope repeated *n* times.
@@ -1393,7 +1527,7 @@ impl EditRope {
         CharOff(self.rope.line_to_char(line))
     }
 
-    /// Convert a byte offset to a [Cursor].
+    /// Convert a character offset to a [Cursor].
     pub fn offset_to_cursor(&self, off: CharOff) -> Cursor {
         let off = off.min(self.last_offset());
 
@@ -1411,7 +1545,7 @@ impl EditRope {
         self.offset_of_line(line) + CharOff(col)
     }
 
-    /// Convert a cursor to a byte offset.
+    /// Convert a cursor to a character offset.
     pub fn cursor_to_offset(&self, cursor: &Cursor) -> CharOff {
         self.lincol_to_offset(cursor.y, cursor.x)
     }
@@ -2098,6 +2232,12 @@ impl Add for EditRope {
 impl AddAssign for EditRope {
     fn add_assign(&mut self, rhs: EditRope) {
         self.rope.append(rhs.rope);
+    }
+}
+
+impl<'a> From<Cow<'a, str>> for EditRope {
+    fn from(s: Cow<'a, str>) -> Self {
+        EditRope { rope: Rope::from(s) }
     }
 }
 
@@ -2967,6 +3107,156 @@ mod tests {
         assert_eq!(rope.offset_of_line(0), 0.into());
         assert_eq!(rope.offset_of_line(1), 6.into());
         assert_eq!(rope.offset_of_line(2), 12.into());
+    }
+
+    #[test]
+    fn test_rope_replace_nonl() {
+        // Replace with longer text.
+        let mut rope = EditRope::from("hello world");
+        let (choice, adjs) = rope.replace(3.into(), 8.into(), true, "lish go".into());
+        assert_eq!(rope.to_string(), "hellish gold");
+        assert_eq!(
+            choice,
+            CursorChoice::Range(Cursor::new(0, 3), Cursor::new(0, 9), Cursor::new(0, 3))
+        );
+        assert_eq!(adjs, vec![CursorAdjustment::Column {
+            line: 0,
+            column_start: 3,
+            amt_line: 0,
+            amt_col: 1,
+        }]);
+
+        // Replace with shorter text.
+        let mut rope = EditRope::from("hello world");
+        let (choice, adjs) = rope.replace(3.into(), 8.into(), true, "f".into());
+        assert_eq!(rope.to_string(), "helfld");
+        assert_eq!(
+            choice,
+            CursorChoice::Range(Cursor::new(0, 3), Cursor::new(0, 3), Cursor::new(0, 3))
+        );
+        assert_eq!(adjs, vec![CursorAdjustment::Column {
+            line: 0,
+            column_start: 3,
+            amt_line: 0,
+            amt_col: -5,
+        }]);
+    }
+
+    #[test]
+    fn test_rope_replace_insert_nl() {
+        // Replacement ends with newline.
+        let mut rope = EditRope::from("hello world");
+        let (choice, adjs) = rope.replace(4.into(), 6.into(), false, " site\n".into());
+        assert_eq!(rope.to_string(), "hell site\nworld");
+        assert_eq!(
+            choice,
+            CursorChoice::Range(Cursor::new(0, 4), Cursor::new(0, 9), Cursor::new(0, 4))
+        );
+        assert_eq!(adjs, vec![
+            CursorAdjustment::Line {
+                line_start: 0,
+                line_end: 0,
+                amount: 0,
+                amount_after: 1,
+            },
+            CursorAdjustment::Column { line: 0, column_start: 6, amt_line: 1, amt_col: -6 },
+        ]);
+
+        // Replacement doesn't end with newline.
+        let mut rope = EditRope::from("hello world");
+        let (choice, adjs) = rope.replace(2.into(), 5.into(), true, "avy\ngoodbye ".into());
+        assert_eq!(rope.to_string(), "heavy\ngoodbye world");
+        assert_eq!(
+            choice,
+            CursorChoice::Range(Cursor::new(0, 2), Cursor::new(1, 7), Cursor::new(0, 2))
+        );
+        assert_eq!(adjs, vec![
+            CursorAdjustment::Line {
+                line_start: 0,
+                line_end: 0,
+                amount: 0,
+                amount_after: 1,
+            },
+            CursorAdjustment::Column { line: 0, column_start: 6, amt_line: 1, amt_col: 2 },
+        ]);
+    }
+
+    #[test]
+    fn test_rope_replace_remove_nl() {
+        // Replaced string starts with newline.
+        let mut rope = EditRope::from("a b c\nd e f");
+        let (choice, adjs) = rope.replace(5.into(), 7.into(), true, "-".into());
+        assert_eq!(rope.to_string(), "a b c-e f");
+        assert_eq!(
+            choice,
+            CursorChoice::Range(Cursor::new(0, 5), Cursor::new(0, 5), Cursor::new(0, 5))
+        );
+        assert_eq!(adjs, vec![
+            CursorAdjustment::Column { line: 1, column_start: 2, amt_line: -1, amt_col: 4 },
+            CursorAdjustment::Line {
+                line_start: 1,
+                line_end: 1,
+                amount: 0,
+                amount_after: -1,
+            },
+        ]);
+
+        // Replaced string doesn't start with newline.
+        let mut rope = EditRope::from("a b c\nd e f");
+        let (choice, adjs) = rope.replace(3.into(), 7.into(), true, "-".into());
+        assert_eq!(rope.to_string(), "a b-e f");
+        assert_eq!(
+            choice,
+            CursorChoice::Range(Cursor::new(0, 3), Cursor::new(0, 3), Cursor::new(0, 3))
+        );
+        assert_eq!(adjs, vec![
+            CursorAdjustment::Column { line: 1, column_start: 2, amt_line: -1, amt_col: 2 },
+            CursorAdjustment::Line {
+                line_start: 1,
+                line_end: 1,
+                amount: 0,
+                amount_after: -1,
+            },
+        ]);
+    }
+
+    #[test]
+    fn test_rope_replace_multiline() {
+        // Replace with fewer lines.
+        let mut rope = EditRope::from("a b c\nd e f\ng h i");
+        let (choice, adjs) = rope.replace(5.into(), 11.into(), true, "1\n2".into());
+        assert_eq!(rope.to_string(), "a b c1\n2g h i");
+        assert_eq!(
+            choice,
+            CursorChoice::Range(Cursor::new(0, 5), Cursor::new(1, 0), Cursor::new(0, 5))
+        );
+        assert_eq!(adjs, vec![
+            CursorAdjustment::Column { line: 2, column_start: 0, amt_line: -1, amt_col: 1 },
+            CursorAdjustment::Line {
+                line_start: 0,
+                line_end: 2,
+                amount: 0,
+                amount_after: -1,
+            },
+        ]);
+
+        // Replace with more lines.
+        let mut rope = EditRope::from("a b c\nd e f\ng h i");
+        let (choice, adjs) = rope.replace(5.into(), 11.into(), true, "1\n2\n3\n4".into());
+        assert_eq!(rope.to_string(), "a b c1\n2\n3\n4g h i");
+        assert_eq!(
+            choice,
+            CursorChoice::Range(Cursor::new(0, 5), Cursor::new(3, 0), Cursor::new(0, 5))
+        );
+        assert_eq!(adjs, vec![
+            CursorAdjustment::Line {
+                line_start: 0,
+                line_end: 2,
+                amount: 0,
+                amount_after: 1,
+            },
+            CursorAdjustment::Column { line: 2, column_start: 0, amt_line: 1, amt_col: 1 },
+        ]);
     }
 
     #[test]

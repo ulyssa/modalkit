@@ -32,17 +32,29 @@ macro_rules! insert_text {
 }
 
 macro_rules! paste {
-    ($dir: expr) => {
-        insert_text!(InsertTextAction::Paste($dir, Count::Contextual))
+    ($style: expr) => {
+        insert_text!(InsertTextAction::Paste($style, Count::Contextual))
     };
-    ($dir: expr, $c: literal) => {
-        insert_text!(InsertTextAction::Paste($dir, Count::Exact($c)))
+    ($style: expr, $c: literal) => {
+        insert_text!(InsertTextAction::Paste($style, Count::Exact($c)))
+    };
+    ($style: expr, $c: expr) => {
+        insert_text!(InsertTextAction::Paste($style, $c))
+    };
+    ($style: expr, $c: expr, $nm: expr) => {
+        insert_text!(InsertTextAction::Paste($style, $c), $nm)
+    };
+}
+
+macro_rules! paste_dir {
+    ($dir: expr) => {
+        paste!(PasteStyle::Side($dir))
     };
     ($dir: expr, $c: expr) => {
-        insert_text!(InsertTextAction::Paste($dir, $c))
+        paste!(PasteStyle::Side($dir), $c)
     };
     ($dir: expr, $c: expr, $nm: expr) => {
-        insert_text!(InsertTextAction::Paste($dir, $c), $nm)
+        paste!(PasteStyle::Side($dir), $c, $nm)
     };
 }
 

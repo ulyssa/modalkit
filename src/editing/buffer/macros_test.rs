@@ -23,8 +23,14 @@ macro_rules! edit {
 }
 
 macro_rules! paste {
+    ($ebuf: expr, $style: expr, $c: expr, $ctx: expr, $store: expr) => {
+        $ebuf.paste(&$style, &$c, $ctx, &mut $store).unwrap()
+    };
+}
+
+macro_rules! paste_dir {
     ($ebuf: expr, $dir: expr, $c: expr, $ctx: expr, $store: expr) => {
-        $ebuf.paste($dir, &$c, $ctx, &mut $store).unwrap()
+        paste!($ebuf, PasteStyle::Side($dir), $c, $ctx, $store)
     };
 }
 

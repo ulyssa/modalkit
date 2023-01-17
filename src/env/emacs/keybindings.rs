@@ -45,6 +45,7 @@ use crate::editing::{
         MoveTerminus,
         MoveType,
         OpenTarget,
+        PasteStyle,
         RangeType,
         Register,
         RepeatType,
@@ -486,7 +487,7 @@ macro_rules! start_shift_selection {
 fn default_keys<I: ApplicationInfo>() -> Vec<(MappedModes, &'static str, InputStep<I>)> {
     [
         // Insert, Command and Search mode keybindings.
-        ( MAP, "<C-Y>", paste!(MoveDir1D::Previous) ),
+        ( MAP, "<C-Y>", paste!(PasteStyle::Cursor) ),
         ( MAP, "<M-BS>", kill!(MoveType::WordBegin(WordStyle::Little, MoveDir1D::Previous)) ),
         ( MAP, "<M-Del>", kill!(MoveType::WordBegin(WordStyle::Little, MoveDir1D::Previous)) ),
         ( MAP, "<BS>", erase!(MoveType::Column(MoveDir1D::Previous, true)) ),

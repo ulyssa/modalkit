@@ -1135,7 +1135,7 @@ where
             InsertTextAction::OpenLine(shape, dir, count) => {
                 self.open_line(*shape, *dir, count, ctx, store)
             },
-            InsertTextAction::Paste(dir, count) => self.paste(*dir, count, ctx, store),
+            InsertTextAction::Paste(style, count) => self.paste(style, count, ctx, store),
             InsertTextAction::Transcribe(s, dir, count) => {
                 self.transcribe(s.as_str(), *dir, count, ctx, store)
             },
@@ -1403,6 +1403,7 @@ mod tests {
         JoinStyle,
         MovePosition,
         MoveType,
+        PasteStyle,
         RangeType,
         Specifier,
         WordStyle,
@@ -1533,7 +1534,7 @@ mod tests {
         // Test that pasting a word adjusts the column for 'd.
         set_named_reg!(store, 's', CharWise, "hello ");
         vctx.action.register = Some(Register::Named('s'));
-        paste!(ebuf, MoveDir1D::Previous, Count::Exact(2), ctx!(gid, vwctx, vctx), store);
+        paste_dir!(ebuf, MoveDir1D::Previous, Count::Exact(2), ctx!(gid, vwctx, vctx), store);
         assert_eq!(
             ebuf.get_text(),
             "12345\n67890\nabcq\nhello hello de\nfghij\nklmno\npqrst\nuvwxy\n"
@@ -1553,7 +1554,7 @@ mod tests {
         // Test that pasting a line adjusts columns.
         set_named_reg!(store, 's', LineWise, "foo\nbar\n");
         vctx.action.register = Some(Register::Named('s'));
-        paste!(ebuf, MoveDir1D::Previous, Count::Exact(3), ctx!(gid, vwctx, vctx), store);
+        paste_dir!(ebuf, MoveDir1D::Previous, Count::Exact(3), ctx!(gid, vwctx, vctx), store);
         assert_eq!(
             ebuf.get_text(),
             "12345\n67890\nabcq\nfoo\nbar\nfoo\nbar\nfoo\nbar\n\
@@ -1573,7 +1574,7 @@ mod tests {
 
         set_named_reg!(store, 's', LineWise, "baz\n");
         vctx.action.register = Some(Register::Named('s'));
-        paste!(ebuf, MoveDir1D::Next, Count::Exact(1), ctx!(gid, vwctx, vctx), store);
+        paste_dir!(ebuf, MoveDir1D::Next, Count::Exact(1), ctx!(gid, vwctx, vctx), store);
         assert_eq!(
             ebuf.get_text(),
             "12345\n67890\nabcq\nfoo\nbaz\nbar\nfoo\nbar\nfoo\nbar\n\
@@ -1659,7 +1660,7 @@ mod tests {
         // Do a blockwise paste and check that columns get adjusted.
         set_named_reg!(store, 's', BlockWise, "foo\nbar");
         vctx.action.register = Some(Register::Named('s'));
-        paste!(ebuf, MoveDir1D::Next, Count::Exact(1), ctx!(gid, vwctx, vctx), store);
+        paste_dir!(ebuf, MoveDir1D::Next, Count::Exact(1), ctx!(gid, vwctx, vctx), store);
         assert_eq!(ebuf.get_text(), "12345\n67890\nabcq\nfoo\npfooqrst\nubarvwxy\n");
         assert_eq!(ebuf.get_leader(gid), Cursor::new(4, 1));
         assert_mark!(store, 'a', Cursor::new(0, 4));

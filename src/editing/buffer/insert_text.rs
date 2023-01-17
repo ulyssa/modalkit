@@ -1,7 +1,7 @@
 use crate::editing::{
     action::{EditInfo, EditResult},
     application::ApplicationInfo,
-    base::{Char, Count, CursorEnd, InsertStyle, MoveDir1D, Register, TargetShape},
+    base::{Char, Count, CursorEnd, InsertStyle, MoveDir1D, PasteStyle, Register, TargetShape},
     buffer::{CursorGroupIdContext, EditBuffer},
     context::EditContext,
     cursor::{Adjustable, CursorChoice, CursorState},
@@ -26,7 +26,7 @@ where
     /// Paste text into the buffer.
     fn paste(
         &mut self,
-        dir: MoveDir1D,
+        style: &PasteStyle,
         count: &Count,
         ctx: &C,
         store: &mut Store<I>,
@@ -60,13 +60,13 @@ where
 {
     fn paste(
         &mut self,
-        dir: MoveDir1D,
+        style: &PasteStyle,
         count: &Count,
         ctx: &CursorGroupIdContext<'a, 'b, C>,
         store: &mut Store<I>,
     ) -> EditResult<EditInfo, I> {
         let count = ctx.2.resolve(count);
-        let style = ctx.2.get_insert_style();
+        let insty = ctx.2.get_insert_style();
         let cell = store.registers.get(&ctx.2.get_register().unwrap_or(Register::Unnamed));
         let text = cell.value.repeat(cell.shape, count);
         let end = ctx.2.get_cursor_end();
@@ -77,10 +77,35 @@ where
         self.push_change(&group);
 
         for state in group.iter_mut() {
-            let (choice, adjs) = if let Some(style) = style {
-                self.text.insert(state.cursor(), dir, text.clone(), style)
-            } else {
-                self.text.paste(state.cursor(), dir, text.clone(), cell.shape)
+            let (choice, adjs) = match style {
+                PasteStyle::Cursor => {
+                    let cursor = state.cursor();
+                    let dir = MoveDir1D::Previous;
+
+                    if let Some(style) = insty {
+                        self.text.insert(cursor, dir, text.clone(), style)
+                    } else {
+                        self.text.paste(cursor, dir, text.clone(), cell.shape)
+                    }
+                },
+                PasteStyle::Side(dir) => {
+                    let cursor = match dir {
+                        MoveDir1D::Previous => state.start(),
+                        MoveDir1D::Next => state.end(),
+                    };
+
+                    if let Some(style) = insty {
+                        self.text.insert(cursor, *dir, text.clone(), style)
+                    } else {
+                        self.text.paste(cursor, *dir, text.clone(), cell.shape)
+                    }
+                },
+                PasteStyle::Replace => {
+                    let start = self.text.cursor_to_offset(state.start());
+                    let end = self.text.cursor_to_offset(state.end());
+
+                    self.text.replace(start, end, true, text.clone())
+                },
             };
 
             self._adjust_all(adjs, store);
@@ -439,37 +464,37 @@ mod tests {
 
         // place "a ("hello") into the buffer
         vctx.action.register = Some(Register::Named('a'));
-        paste!(ebuf, MoveDir1D::Previous, Count::Contextual, ctx!(gid, vwctx, vctx), store);
+        paste_dir!(ebuf, MoveDir1D::Previous, Count::Contextual, ctx!(gid, vwctx, vctx), store);
         assert_eq!(ebuf.get_text(), "hello\n");
         assert_eq!(ebuf.get_leader(gid), Cursor::new(0, 4));
 
         // place "b (" world") into the buffer
         vctx.action.register = Some(Register::Named('b'));
-        paste!(ebuf, MoveDir1D::Next, Count::Contextual, ctx!(gid, vwctx, vctx), store);
+        paste_dir!(ebuf, MoveDir1D::Next, Count::Contextual, ctx!(gid, vwctx, vctx), store);
         assert_eq!(ebuf.get_text(), "hello world\n");
         assert_eq!(ebuf.get_leader(gid), Cursor::new(0, 10));
 
         // place "c ("foo bar\n") on the line below
         vctx.action.register = Some(Register::Named('c'));
-        paste!(ebuf, MoveDir1D::Next, Count::Contextual, ctx!(gid, vwctx, vctx), store);
+        paste_dir!(ebuf, MoveDir1D::Next, Count::Contextual, ctx!(gid, vwctx, vctx), store);
         assert_eq!(ebuf.get_text(), "hello world\nfoo bar\n");
         assert_eq!(ebuf.get_leader(gid), Cursor::new(1, 0));
 
         // place "d ("three\nregister\nlines\n") on the line above
         vctx.action.register = Some(Register::Named('d'));
-        paste!(ebuf, MoveDir1D::Previous, Count::Contextual, ctx!(gid, vwctx, vctx), store);
+        paste_dir!(ebuf, MoveDir1D::Previous, Count::Contextual, ctx!(gid, vwctx, vctx), store);
         assert_eq!(ebuf.get_text(), "hello world\nthree\nregister\nlines\nfoo bar\n");
         assert_eq!(ebuf.get_leader(gid), Cursor::new(1, 0));
 
         // place "c ("foo bar\n") on the line below, breaking up the "d text.
         vctx.action.register = Some(Register::Named('c'));
-        paste!(ebuf, MoveDir1D::Next, Count::Contextual, ctx!(gid, vwctx, vctx), store);
+        paste_dir!(ebuf, MoveDir1D::Next, Count::Contextual, ctx!(gid, vwctx, vctx), store);
         assert_eq!(ebuf.get_text(), "hello world\nthree\nfoo bar\nregister\nlines\nfoo bar\n");
         assert_eq!(ebuf.get_leader(gid), Cursor::new(2, 0));
 
         // place "e ("abcde\n12345") twice before the next several lines.
         vctx.action.register = Some(Register::Named('e'));
-        paste!(ebuf, MoveDir1D::Previous, Count::Exact(2), ctx!(gid, vwctx, vctx), store);
+        paste_dir!(ebuf, MoveDir1D::Previous, Count::Exact(2), ctx!(gid, vwctx, vctx), store);
         assert_eq!(
             ebuf.get_text(),
             "hello world\nthree\nabcdeabcdefoo bar\n1234512345register\nlines\nfoo bar\n"
@@ -478,7 +503,7 @@ mod tests {
 
         // place "f ("1\n2\n3\n4\n5\n6\n7") on the next several lines, adding new lines as needed.
         vctx.action.register = Some(Register::Named('f'));
-        paste!(ebuf, MoveDir1D::Next, Count::Contextual, ctx!(gid, vwctx, vctx), store);
+        paste_dir!(ebuf, MoveDir1D::Next, Count::Contextual, ctx!(gid, vwctx, vctx), store);
         assert_eq!(ebuf.get_text(), "hello world\nthree\na1bcdeabcdefoo bar\n12234512345register\nl3ines\nf4oo bar\n5\n6\n7\n");
         assert_eq!(ebuf.get_leader(gid), Cursor::new(2, 1));
 
@@ -488,7 +513,7 @@ mod tests {
         assert_eq!(ebuf.get_leader(gid), Cursor::new(2, 17).goal(usize::MAX));
 
         vctx.action.register = Some(Register::Named('f'));
-        paste!(ebuf, MoveDir1D::Next, Count::Contextual, ctx!(gid, vwctx, vctx), store);
+        paste_dir!(ebuf, MoveDir1D::Next, Count::Contextual, ctx!(gid, vwctx, vctx), store);
         assert_eq!(ebuf.get_text(), "hello world\nthree\na1bcdeabcdefoo bar1\n12234512345registe2r\nl3ines3\nf4oo bar4\n55\n66\n77\n");
         assert_eq!(ebuf.get_leader(gid), Cursor::new(2, 18));
     }
@@ -500,7 +525,7 @@ mod tests {
         set_named_reg!(store, 'a', TargetShape::CharWise, "hello");
 
         vctx.action.register = Some(Register::Named('a'));
-        paste!(ebuf, MoveDir1D::Next, Count::Contextual, ctx!(gid, vwctx, vctx), store);
+        paste_dir!(ebuf, MoveDir1D::Next, Count::Contextual, ctx!(gid, vwctx, vctx), store);
         assert_eq!(ebuf.get_text(), "hello\n");
         assert_eq!(ebuf.get_leader(gid), Cursor::new(0, 4));
     }
@@ -512,7 +537,7 @@ mod tests {
         set_named_reg!(store, 'a', TargetShape::LineWise, "hello\n");
 
         vctx.action.register = Some(Register::Named('a'));
-        paste!(ebuf, MoveDir1D::Next, Count::Contextual, ctx!(gid, vwctx, vctx), store);
+        paste_dir!(ebuf, MoveDir1D::Next, Count::Contextual, ctx!(gid, vwctx, vctx), store);
         assert_eq!(ebuf.get_text(), "\nhello\n");
         assert_eq!(ebuf.get_leader(gid), Cursor::new(1, 0));
     }
@@ -524,7 +549,7 @@ mod tests {
         set_named_reg!(store, 'a', TargetShape::BlockWise, "hello\nworld");
 
         vctx.action.register = Some(Register::Named('a'));
-        paste!(ebuf, MoveDir1D::Next, Count::Contextual, ctx!(gid, vwctx, vctx), store);
+        paste_dir!(ebuf, MoveDir1D::Next, Count::Contextual, ctx!(gid, vwctx, vctx), store);
         assert_eq!(ebuf.get_text(), "hello\nworld\n");
         assert_eq!(ebuf.get_leader(gid), Cursor::new(0, 0));
     }
@@ -543,13 +568,13 @@ mod tests {
 
         // place "a ("foo\n") into the buffer as if it were CharWise.
         vctx.action.register = Some(Register::Named('a'));
-        paste!(ebuf, MoveDir1D::Previous, Count::Contextual, ctx!(gid, vwctx, vctx), store);
+        paste_dir!(ebuf, MoveDir1D::Previous, Count::Contextual, ctx!(gid, vwctx, vctx), store);
         assert_eq!(ebuf.get_text(), "hello foo\nworld\n");
         assert_eq!(ebuf.get_leader(gid), Cursor::new(1, 0));
 
         // place "b ("a\nb\nc") into the buffer as if it were CharWise.
         vctx.action.register = Some(Register::Named('b'));
-        paste!(ebuf, MoveDir1D::Previous, Count::Contextual, ctx!(gid, vwctx, vctx), store);
+        paste_dir!(ebuf, MoveDir1D::Previous, Count::Contextual, ctx!(gid, vwctx, vctx), store);
         assert_eq!(ebuf.get_text(), "hello foo\na\nb\ncworld\n");
         assert_eq!(ebuf.get_leader(gid), Cursor::new(3, 1));
     }
@@ -564,19 +589,19 @@ mod tests {
 
         // Paste "hello" from "a 5 times.
         vctx.action.register = Some(Register::Named('a'));
-        paste!(ebuf, MoveDir1D::Next, Count::Exact(5), ctx!(gid, vwctx, vctx), store);
+        paste_dir!(ebuf, MoveDir1D::Next, Count::Exact(5), ctx!(gid, vwctx, vctx), store);
         assert_eq!(ebuf.get_text(), "hellohellohellohellohello\n");
         assert_eq!(ebuf.get_leader(gid), Cursor::new(0, 24));
 
         // Paste "1 2 3\n" from "b 2 times.
         vctx.action.register = Some(Register::Named('b'));
-        paste!(ebuf, MoveDir1D::Previous, Count::Exact(2), ctx!(gid, vwctx, vctx), store);
+        paste_dir!(ebuf, MoveDir1D::Previous, Count::Exact(2), ctx!(gid, vwctx, vctx), store);
         assert_eq!(ebuf.get_text(), "1 2 3\n1 2 3\nhellohellohellohellohello\n");
         assert_eq!(ebuf.get_leader(gid), Cursor::new(0, 0));
 
         // Paste "a\nb\nc" from "c 4 times.
         vctx.action.register = Some(Register::Named('c'));
-        paste!(ebuf, MoveDir1D::Next, Count::Exact(4), ctx!(gid, vwctx, vctx), store);
+        paste_dir!(ebuf, MoveDir1D::Next, Count::Exact(4), ctx!(gid, vwctx, vctx), store);
         assert_eq!(ebuf.get_text(), "1aaaa 2 3\n1bbbb 2 3\nhccccellohellohellohellohello\n");
         assert_eq!(ebuf.get_leader(gid), Cursor::new(0, 1));
     }
