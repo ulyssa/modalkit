@@ -1,6 +1,6 @@
 [package]
 name = "modalkit"
-version = "0.0.9"
+version = "0.0.10"
 edition = "2018"
 authors = ["Ulyssa <git@ulyssa.dev>"]
 repository = "https://github.com/ulyssa/modalkit"
@@ -10,6 +10,7 @@ description = "A library for building applications that use modal editing"
 license = "Apache-2.0"
 exclude = [".github", "CONTRIBUTING.md"]
 keywords = ["modal", "readline", "tui", "vim"]
+categories = ["command-line-interface", "text-editors"]
 
 [features]
 default = ["readline", "widgets"]
