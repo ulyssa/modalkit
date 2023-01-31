@@ -72,36 +72,30 @@ impl Ord for CharOff {
 pub(super) type CursorContext<'a> = (&'a EditRope, usize, bool);
 
 pub(super) trait PrivateCursorOps {
-    fn set_column<'a>(&mut self, x: usize, ctx: &CursorContext<'a>);
-    fn set_line<'a>(&mut self, y: usize, ctx: &CursorContext<'a>);
-    fn set<'a>(&mut self, y: usize, x: usize, ctx: &CursorContext<'a>);
-    fn clamp<'a>(&mut self, ctx: &CursorContext<'a>);
+    fn set_column(&mut self, x: usize, ctx: &CursorContext<'_>);
+    fn set_line(&mut self, y: usize, ctx: &CursorContext<'_>);
+    fn set(&mut self, y: usize, x: usize, ctx: &CursorContext<'_>);
+    fn clamp(&mut self, ctx: &CursorContext<'_>);
 
-    fn line<'a>(&mut self, dir: MoveDir1D, count: usize, ctx: &CursorContext<'a>);
-    fn column<'a>(&mut self, dir: MoveDir1D, wrap: bool, count: usize, ctx: &CursorContext<'a>);
-    fn textpos<'a>(
-        &mut self,
-        pos: MovePosition,
-        start: usize,
-        width: usize,
-        ctx: &CursorContext<'a>,
-    );
+    fn line(&mut self, dir: MoveDir1D, count: usize, ctx: &CursorContext<'_>);
+    fn column(&mut self, dir: MoveDir1D, wrap: bool, count: usize, ctx: &CursorContext<'_>);
+    fn textpos(&mut self, pos: MovePosition, start: usize, width: usize, ctx: &CursorContext<'_>);
 
-    fn screen_line<'a>(&mut self, dir: MoveDir1D, count: usize, ctx: &CursorContext<'a>);
-    fn screen_linepos<'a>(&mut self, pos: MovePosition, ctx: &CursorContext<'a>);
+    fn screen_line(&mut self, dir: MoveDir1D, count: usize, ctx: &CursorContext<'_>);
+    fn screen_linepos(&mut self, pos: MovePosition, ctx: &CursorContext<'_>);
 
-    fn bufpos<'a>(&mut self, pos: MovePosition, ctx: &CursorContext<'a>);
-    fn skip_space<'a>(&mut self, ctx: &CursorContext<'a>);
-    fn skip_space_rev<'a>(&mut self, ctx: &CursorContext<'a>);
-    fn first_word<'a>(&mut self, ctx: &CursorContext<'a>);
+    fn bufpos(&mut self, pos: MovePosition, ctx: &CursorContext<'_>);
+    fn skip_space(&mut self, ctx: &CursorContext<'_>);
+    fn skip_space_rev(&mut self, ctx: &CursorContext<'_>);
+    fn first_word(&mut self, ctx: &CursorContext<'_>);
 }
 
 impl PrivateCursorOps for Cursor {
-    fn clamp<'a>(&mut self, ctx: &CursorContext<'a>) {
+    fn clamp(&mut self, ctx: &CursorContext<'_>) {
         self.set(self.y, self.x, ctx);
     }
 
-    fn set<'a>(&mut self, y: usize, x: usize, ctx: &CursorContext<'a>) {
+    fn set(&mut self, y: usize, x: usize, ctx: &CursorContext<'_>) {
         let ymax = ctx.0.max_line_idx();
 
         self.y = y.min(ymax);
@@ -112,19 +106,19 @@ impl PrivateCursorOps for Cursor {
         self.xgoal = self.x;
     }
 
-    fn set_column<'a>(&mut self, x: usize, ctx: &CursorContext<'a>) {
+    fn set_column(&mut self, x: usize, ctx: &CursorContext<'_>) {
         self.x = x.min(ctx.0.max_column_idx(self.y, ctx.2));
         self.xgoal = self.x;
     }
 
-    fn set_line<'a>(&mut self, y: usize, ctx: &CursorContext<'a>) {
+    fn set_line(&mut self, y: usize, ctx: &CursorContext<'_>) {
         let nlines = ctx.0.max_line_idx();
 
         self.y = y.min(nlines);
         self.x = self.xgoal.min(ctx.0.max_column_idx(self.y, ctx.2));
     }
 
-    fn bufpos<'a>(&mut self, pos: MovePosition, ctx: &CursorContext<'a>) {
+    fn bufpos(&mut self, pos: MovePosition, ctx: &CursorContext<'_>) {
         match pos {
             MovePosition::Beginning => {
                 self.set_line(0, ctx);
@@ -140,7 +134,7 @@ impl PrivateCursorOps for Cursor {
         }
     }
 
-    fn screen_line<'a>(&mut self, dir: MoveDir1D, mut count: usize, ctx: &CursorContext<'a>) {
+    fn screen_line(&mut self, dir: MoveDir1D, mut count: usize, ctx: &CursorContext<'_>) {
         let width = ctx.1;
 
         match dir {
@@ -178,7 +172,7 @@ impl PrivateCursorOps for Cursor {
         }
     }
 
-    fn screen_linepos<'a>(&mut self, pos: MovePosition, ctx: &CursorContext<'a>) {
+    fn screen_linepos(&mut self, pos: MovePosition, ctx: &CursorContext<'_>) {
         let width = ctx.1;
 
         if width == 0 {
@@ -189,13 +183,7 @@ impl PrivateCursorOps for Cursor {
         self.textpos(pos, start, width, ctx);
     }
 
-    fn textpos<'a>(
-        &mut self,
-        pos: MovePosition,
-        start: usize,
-        width: usize,
-        ctx: &CursorContext<'a>,
-    ) {
+    fn textpos(&mut self, pos: MovePosition, start: usize, width: usize, ctx: &CursorContext<'_>) {
         match pos {
             MovePosition::Beginning => {
                 self.set_column(start, ctx);
@@ -209,7 +197,7 @@ impl PrivateCursorOps for Cursor {
         }
     }
 
-    fn skip_space<'a>(&mut self, ctx: &CursorContext<'a>) {
+    fn skip_space(&mut self, ctx: &CursorContext<'_>) {
         let off = ctx.0.cursor_to_offset(self);
         let cols = ctx.0.get_columns(self.y);
         let mut iter = ctx.0.chars(off);
@@ -231,7 +219,7 @@ impl PrivateCursorOps for Cursor {
         self.set_column(x, ctx);
     }
 
-    fn skip_space_rev<'a>(&mut self, ctx: &CursorContext<'a>) {
+    fn skip_space_rev(&mut self, ctx: &CursorContext<'_>) {
         let off = ctx.0.cursor_to_offset(self);
         let mut rc = ctx.0.offset_to_rc(off);
         let mut x = self.x;
@@ -254,12 +242,12 @@ impl PrivateCursorOps for Cursor {
         self.set_column(x, ctx);
     }
 
-    fn first_word<'a>(&mut self, ctx: &CursorContext<'a>) {
+    fn first_word(&mut self, ctx: &CursorContext<'_>) {
         self.set_column(0, ctx);
         self.skip_space(ctx);
     }
 
-    fn line<'a>(&mut self, dir: MoveDir1D, count: usize, ctx: &CursorContext<'a>) {
+    fn line(&mut self, dir: MoveDir1D, count: usize, ctx: &CursorContext<'_>) {
         match dir {
             MoveDir1D::Previous => {
                 self.set_line(self.y.saturating_sub(count), ctx);
@@ -270,13 +258,7 @@ impl PrivateCursorOps for Cursor {
         }
     }
 
-    fn column<'a>(
-        &mut self,
-        dir: MoveDir1D,
-        wrap: bool,
-        mut count: usize,
-        ctx: &CursorContext<'a>,
-    ) {
+    fn column(&mut self, dir: MoveDir1D, wrap: bool, mut count: usize, ctx: &CursorContext<'_>) {
         match (wrap, dir) {
             (false, MoveDir1D::Previous) => {
                 let line = self.x.saturating_sub(count);
@@ -1860,7 +1842,7 @@ impl EditRope {
         Some(cursor)
     }
 
-    fn find_quote_start<'a>(&self, rc: &mut RopeCursor<'a>, quote: char) -> Option<()> {
+    fn find_quote_start(&self, rc: &mut RopeCursor<'_>, quote: char) -> Option<()> {
         loop {
             rc.prev();
 
@@ -1890,7 +1872,7 @@ impl EditRope {
         }
     }
 
-    fn find_quote_end<'a>(&self, rc: &mut RopeCursor<'a>, quote: char) -> Option<()> {
+    fn find_quote_end(&self, rc: &mut RopeCursor<'_>, quote: char) -> Option<()> {
         loop {
             rc.next();
 
@@ -2280,10 +2262,10 @@ impl ToString for EditRope {
 }
 
 impl<C: EditContext> CursorMovements<Cursor, C> for EditRope {
-    fn first_word<'a, 'b, 'c>(
+    fn first_word(
         &self,
         cursor: &Cursor,
-        _: &CursorMovementsContext<'a, 'b, 'c, Cursor, C>,
+        _: &CursorMovementsContext<'_, '_, '_, Cursor, C>,
     ) -> Cursor {
         let mut nc = cursor.clone();
         let cctx = &(self, 0usize, false);
@@ -2292,12 +2274,12 @@ impl<C: EditContext> CursorMovements<Cursor, C> for EditRope {
         return nc;
     }
 
-    fn movement<'a, 'b, 'c>(
+    fn movement(
         &self,
         cursor: &Cursor,
         movement: &MoveType,
         count: &Count,
-        ctx: &CursorMovementsContext<'a, 'b, 'c, Cursor, C>,
+        ctx: &CursorMovementsContext<'_, '_, '_, Cursor, C>,
     ) -> Option<Cursor> {
         let lastcol = get_last_column(ctx);
         let cctx = &(self, ctx.view.get_width(), lastcol);
@@ -2497,13 +2479,13 @@ impl<C: EditContext> CursorMovements<Cursor, C> for EditRope {
         return Some(nc);
     }
 
-    fn range<'a, 'b, 'c>(
+    fn range(
         &self,
         cursor: &Cursor,
         range: &RangeType,
         inclusive: bool,
         count: &Count,
-        ctx: &CursorMovementsContext<'a, 'b, 'c, Cursor, C>,
+        ctx: &CursorMovementsContext<'_, '_, '_, Cursor, C>,
     ) -> Option<EditRange<Cursor>> {
         match (range, count) {
             (RangeType::Item, _) => self.find_item_range(cursor),
@@ -2590,12 +2572,12 @@ impl<C: EditContext> CursorMovements<Cursor, C> for EditRope {
      * Given an action's movement, calculate the affected range base on the cursor's current
      * position.
      */
-    fn range_of_movement<'a, 'b, 'c>(
+    fn range_of_movement(
         &self,
         cursor: &Cursor,
         movement: &MoveType,
         count: &Count,
-        ctx: &CursorMovementsContext<'a, 'b, 'c, Cursor, C>,
+        ctx: &CursorMovementsContext<'_, '_, '_, Cursor, C>,
     ) -> Option<EditRange<Cursor>> {
         let nc = self.movement(cursor, movement, count, ctx)?;
         let shape = movement.shape();

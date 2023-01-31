@@ -204,8 +204,8 @@ impl<I: ApplicationInfo> Mode<Action<I>, VimContext<I>> for VimMode {
         };
 
         match (recording, msg) {
-            (Some(c), Some(msg)) => format!("{} (recording @{})", msg, c).into(),
-            (Some(c), None) => format!("recording @{}", c).into(),
+            (Some(c), Some(msg)) => format!("{msg} (recording @{c})").into(),
+            (Some(c), None) => format!("recording @{c}").into(),
             (None, Some(msg)) => msg.to_string().into(),
             (None, None) => None,
         }

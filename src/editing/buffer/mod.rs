@@ -290,19 +290,19 @@ where
         }
     }
 
-    fn _charjump<'a, 'b, 'c, C: EditContext>(
+    fn _charjump<C: EditContext>(
         &self,
         mark: &Specifier<Mark>,
-        ctx: &CursorMovementsContext<'a, 'b, 'c, Cursor, C>,
+        ctx: &CursorMovementsContext<'_, '_, '_, Cursor, C>,
         store: &mut Store<I>,
     ) -> EditResult<Cursor, I> {
         store.cursors.get_mark(self.id.clone(), ctx.context.resolve(mark))
     }
 
-    fn _linejump<'a, 'b, 'c, C: EditContext>(
+    fn _linejump<C: EditContext>(
         &self,
         mark: &Specifier<Mark>,
-        ctx: &CursorMovementsContext<'a, 'b, 'c, Cursor, C>,
+        ctx: &CursorMovementsContext<'_, '_, '_, Cursor, C>,
         store: &mut Store<I>,
     ) -> EditResult<Cursor, I> {
         let cursor = store.cursors.get_mark(self.id.clone(), ctx.context.resolve(mark))?;
@@ -377,7 +377,7 @@ where
         let word = regex::escape(word.to_string().as_str());
 
         let needle = if boundary {
-            Regex::new(format!("\\b{}\\b", word).as_str())
+            Regex::new(format!("\\b{word}\\b").as_str())
         } else {
             Regex::new(word.as_str())
         }?;
@@ -422,11 +422,11 @@ where
         return Ok(regex);
     }
 
-    fn _target<'a, 'b, 'c, C: EditContext>(
+    fn _target<C: EditContext>(
         &mut self,
         state: &CursorState,
         target: &EditTarget,
-        ctx: &CursorMovementsContext<'a, 'b, 'c, Cursor, C>,
+        ctx: &CursorMovementsContext<'_, '_, '_, Cursor, C>,
         store: &mut Store<I>,
     ) -> EditResult<Option<CursorRange>, I> {
         let cursor = state.cursor().clone();
@@ -619,10 +619,10 @@ where
         }
     }
 
-    pub(crate) fn motion<'a, 'b, C: EditContext>(
+    pub(crate) fn motion<C: EditContext>(
         &mut self,
         target: &EditTarget,
-        ictx: &CursorGroupIdContext<'a, 'b, C>,
+        ictx: &CursorGroupIdContext<'_, '_, C>,
         store: &mut Store<I>,
     ) -> EditResult<EditInfo, I> {
         let shape = ictx.2.get_target_shape();
@@ -922,10 +922,10 @@ where
 
     /// Clamp the line and column of the cursors in a [CursorState] so that they refer to a valid
     /// point within the buffer.
-    pub fn clamp_state<'a, 'b, C: EditContext>(
+    pub fn clamp_state<C: EditContext>(
         &self,
         state: &mut CursorState,
-        ctx: &CursorGroupIdContext<'a, 'b, C>,
+        ctx: &CursorGroupIdContext<'_, '_, C>,
     ) {
         match state {
             CursorState::Location(ref mut cursor) => {
@@ -939,10 +939,10 @@ where
     }
 
     /// Clamp the line and column of a cursor so that it refers to a valid point within the buffer.
-    pub fn clamp<'a, 'b, C: EditContext>(
+    pub fn clamp<C: EditContext>(
         &self,
         cursor: &mut Cursor,
-        ctx: &CursorGroupIdContext<'a, 'b, C>,
+        ctx: &CursorGroupIdContext<'_, '_, C>,
     ) {
         PrivateCursorOps::clamp(cursor, &self._ctx_cgi2c(ctx));
     }
@@ -955,9 +955,9 @@ where
         CursorMovementsContext { action, view: ctx.1, context: ctx.2 }
     }
 
-    fn _ctx_cgi2c<'a, 'b, 'c, C: EditContext>(
+    fn _ctx_cgi2c<'a, C: EditContext>(
         &'a self,
-        ctx: &CursorGroupIdContext<'b, 'c, C>,
+        ctx: &CursorGroupIdContext<'_, '_, C>,
     ) -> CursorContext<'a> {
         let lastcol = ctx.2.get_last_column();
         let width = ctx.1.get_width();
@@ -965,10 +965,10 @@ where
         (&self.text, width, lastcol)
     }
 
-    fn _ctx_es2c<'a, 'b, 'c, 'd, C: EditContext>(
-        &'d self,
-        ctx: &CursorMovementsContext<'a, 'b, 'c, Cursor, C>,
-    ) -> CursorContext<'d> {
+    fn _ctx_es2c<'a, C: EditContext>(
+        &'a self,
+        ctx: &CursorMovementsContext<'_, '_, '_, Cursor, C>,
+    ) -> CursorContext<'a> {
         let lastcol = ctx.context.get_last_column();
         let width = ctx.view.get_width();
 

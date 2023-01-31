@@ -291,7 +291,7 @@ impl DiffBuilder {
         if let Some(prev) = self.ops.last_mut() {
             let prev_end = prev.target_idx + prev.len;
             let base_end = prev.base_idx + prev.len;
-            assert!(prev_end <= target, "{} <= {} prev {:?}", prev_end, target, prev);
+            assert!(prev_end <= target, "{} <= {} prev {:?}", prev_end, target, &prev);
             if prev_end == target && base_end == base {
                 prev.len += len;
                 return;

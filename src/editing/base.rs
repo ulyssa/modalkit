@@ -1481,39 +1481,39 @@ pub struct CursorMovementsContext<'a, 'b, 'c, Cursor, C: EditContext> {
 /// Trait for objects capable of calculating contextual offsets from a cursor.
 pub trait CursorMovements<Cursor, Context: EditContext> {
     /// Calculate the position of the first word on the line of the provided cursor.
-    fn first_word<'a, 'b, 'c>(
+    fn first_word(
         &self,
         cursor: &Cursor,
-        ctx: &CursorMovementsContext<'a, 'b, 'c, Cursor, Context>,
+        ctx: &CursorMovementsContext<'_, '_, '_, Cursor, Context>,
     ) -> Cursor;
 
     /// Calculate the position of the cursor after performing a movement.
-    fn movement<'a, 'b, 'c>(
+    fn movement(
         &self,
         cursor: &Cursor,
         movement: &MoveType,
         count: &Count,
-        ctx: &CursorMovementsContext<'a, 'b, 'c, Cursor, Context>,
+        ctx: &CursorMovementsContext<'_, '_, '_, Cursor, Context>,
     ) -> Option<Cursor>;
 
     /// Calculate a cursor range from the given cursor to the location after performing the
     /// given movement.
-    fn range_of_movement<'a, 'b, 'c>(
+    fn range_of_movement(
         &self,
         cursor: &Cursor,
         movement: &MoveType,
         count: &Count,
-        ctx: &CursorMovementsContext<'a, 'b, 'c, Cursor, Context>,
+        ctx: &CursorMovementsContext<'_, '_, '_, Cursor, Context>,
     ) -> Option<EditRange<Cursor>>;
 
     /// Calculate a cursor range based on a given cursor position and a [RangeType].
-    fn range<'a, 'b, 'c>(
+    fn range(
         &self,
         cursor: &Cursor,
         range: &RangeType,
         inclusive: bool,
         count: &Count,
-        ctx: &CursorMovementsContext<'a, 'b, 'c, Cursor, Context>,
+        ctx: &CursorMovementsContext<'_, '_, '_, Cursor, Context>,
     ) -> Option<EditRange<Cursor>>;
 }
 

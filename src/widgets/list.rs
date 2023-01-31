@@ -366,20 +366,20 @@ where
     T: ListItem<I>,
     I: ApplicationInfo,
 {
-    fn first_word<'a, 'b, 'c>(
+    fn first_word(
         &self,
         pos: &ListCursor,
-        _: &CursorMovementsContext<'a, 'b, 'c, ListCursor, C>,
+        _: &CursorMovementsContext<'_, '_, '_, ListCursor, C>,
     ) -> ListCursor {
         pos.clone()
     }
 
-    fn movement<'a, 'b, 'c>(
+    fn movement(
         &self,
         pos: &ListCursor,
         movement: &MoveType,
         count: &Count,
-        ctx: &CursorMovementsContext<'a, 'b, 'c, ListCursor, C>,
+        ctx: &CursorMovementsContext<'_, '_, '_, ListCursor, C>,
     ) -> Option<ListCursor> {
         let len = self.items.len();
         let count = ctx.context.resolve(count);
@@ -480,25 +480,25 @@ where
         }
     }
 
-    fn range_of_movement<'a, 'b, 'c>(
+    fn range_of_movement(
         &self,
         pos: &ListCursor,
         movement: &MoveType,
         count: &Count,
-        ctx: &CursorMovementsContext<'a, 'b, 'c, ListCursor, C>,
+        ctx: &CursorMovementsContext<'_, '_, '_, ListCursor, C>,
     ) -> Option<EditRange<ListCursor>> {
         let other = self.movement(pos, movement, count, ctx)?;
 
         Some(EditRange::inclusive(pos.clone(), other, TargetShape::LineWise))
     }
 
-    fn range<'a, 'b, 'c>(
+    fn range(
         &self,
         pos: &ListCursor,
         range: &RangeType,
         _: bool,
         count: &Count,
-        ctx: &CursorMovementsContext<'a, 'b, 'c, ListCursor, C>,
+        ctx: &CursorMovementsContext<'_, '_, '_, ListCursor, C>,
     ) -> Option<EditRange<ListCursor>> {
         let len = self.items.len();
         let max = len.saturating_sub(1);
