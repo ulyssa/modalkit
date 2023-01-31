@@ -1089,8 +1089,8 @@ where
                 (Some(range), EditAction::ChangeCase(case)) => {
                     self.changecase(case, &range, ctx, store)
                 },
-                (Some(range), EditAction::ChangeNumber(change)) => {
-                    self.changenum(change, &range, ctx, store)
+                (Some(range), EditAction::ChangeNumber(change, mul)) => {
+                    self.changenum(change, *mul, &range, ctx, store)
                 },
                 (Some(range), EditAction::Join(spaces)) => self.join(*spaces, &range, ctx, store),
                 (Some(range), EditAction::Indent(change)) => {

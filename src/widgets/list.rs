@@ -773,7 +773,7 @@ where
 
             // Everything else is a modifying action.
             EditAction::ChangeCase(_) => Err(EditError::ReadOnly),
-            EditAction::ChangeNumber(_) => Err(EditError::ReadOnly),
+            EditAction::ChangeNumber(_, _) => Err(EditError::ReadOnly),
             EditAction::Delete => Err(EditError::ReadOnly),
             EditAction::Format => Err(EditError::ReadOnly),
             EditAction::Indent(_) => Err(EditError::ReadOnly),

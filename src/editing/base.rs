@@ -844,21 +844,13 @@ pub enum IndentChange<I = Count> {
 }
 
 /// This represents how to change a number in text.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum NumberChange {
     /// Decrease the first number in the targeted text by [*n*](Count).
-    DecreaseOne,
-
-    /// Decrease the first number of each line in the targeted text by [*n*](Count) on the first
-    /// number seen, [*n*](Count) times two for the second number seen, etc..
-    DecreaseAll,
+    Decrease(Count),
 
     /// Increase the first number in the targeted text by [*n*](Count).
-    IncreaseOne,
-
-    /// Increase the first number of each line in the targeted text by [*n*](Count) on the first
-    /// number seen, [*n*](Count) times two for the second number seen, etc.
-    IncreaseAll,
+    Increase(Count),
 }
 
 /// Targets for [WindowAction::Open] and [WindowAction::Switch].

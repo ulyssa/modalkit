@@ -2217,6 +2217,12 @@ impl AddAssign for EditRope {
     }
 }
 
+impl<'a> From<&'a EditRope> for Cow<'a, str> {
+    fn from(s: &'a EditRope) -> Self {
+        Cow::from(&s.rope)
+    }
+}
+
 impl<'a> From<Cow<'a, str>> for EditRope {
     fn from(s: Cow<'a, str>) -> Self {
         EditRope { rope: Rope::from(s) }

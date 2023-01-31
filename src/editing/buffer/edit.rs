@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use crate::editing::{
     application::ApplicationInfo,
     base::{
@@ -9,8 +11,10 @@ use crate::editing::{
         InsertStyle,
         JoinStyle,
         NumberChange,
+        Radix,
         Register,
         TargetShape,
+        WordStyle,
     },
     context::EditContext,
     cursor::{Adjustable, Cursor, CursorChoice},
@@ -45,6 +49,7 @@ where
     fn changenum(
         &mut self,
         change: &NumberChange,
+        mul: bool,
         range: &CursorRange,
         ctx: &C,
         store: &mut Store<I>,
@@ -304,14 +309,61 @@ where
 
     fn changenum(
         &mut self,
-        _: &NumberChange,
-        _: &CursorRange,
-        _: &CursorMovementsContext<'a, 'b, 'c, Cursor, C>,
-        _: &mut Store<I>,
+        change: &NumberChange,
+        mul: bool,
+        range: &CursorRange,
+        ctx: &CursorMovementsContext<'a, 'b, 'c, Cursor, C>,
+        store: &mut Store<I>,
     ) -> CursorChoice {
-        // XXX: implement (:help nrformats)
+        let mut diff = match change {
+            NumberChange::Decrease(count) => -(ctx.context.resolve(count) as isize),
+            NumberChange::Increase(count) => ctx.context.resolve(count) as isize,
+        };
+        let off = if mul { diff } else { 0 };
 
-        return CursorChoice::Empty;
+        let mut cursor = range.start.clone();
+        let mut res = CursorChoice::Empty;
+
+        while cursor.y <= range.end.y {
+            let style = WordStyle::Number(Radix::Decimal);
+            let number = match self.text.get_cursor_word_mut(&mut cursor, &style) {
+                Some(n) => n,
+                None => return CursorChoice::Empty,
+            };
+
+            if cursor > range.end {
+                break;
+            }
+
+            let nlen = number.len();
+
+            let n = Cow::from(&number);
+            let n = match n.as_ref().parse::<isize>() {
+                Ok(n) => EditRope::from((n + diff).to_string()),
+                Err(_) => return CursorChoice::Empty,
+            };
+
+            let mut nend = cursor.clone();
+            nend.x += nlen;
+            let start = self.text.cursor_to_offset(&cursor);
+            let end = self.text.cursor_to_offset(&nend);
+
+            let (choice, adjs) = self.text.replace(start, end, false, n);
+            self._adjust_all(adjs, store);
+
+            res = if let CursorChoice::Range(s, e, _) = choice {
+                CursorChoice::Range(s, e.clone(), e)
+            } else {
+                choice
+            };
+
+            diff += off;
+
+            cursor.y += 1;
+            cursor.x = 0;
+        }
+
+        return res;
     }
 
     fn join(
@@ -1016,5 +1068,104 @@ mod tests {
         // Join with final line.
         edit!(ebuf, operation, range!(RangeType::Line, 2), ctx!(curid, vwctx, vctx), store);
         assert_eq!(ebuf.get_text(), "foo first\n");
+    }
+
+    #[test]
+    fn test_changenum() {
+        let (mut ebuf, curid, vwctx, mut vctx, mut store) = mkfivestr("a 1 b 2 c\nd 3 e 4 f\n");
+
+        assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 0));
+
+        let opdec = EditAction::ChangeNumber(NumberChange::Decrease(Count::Contextual), false);
+        let opinc = EditAction::ChangeNumber(NumberChange::Increase(Count::Contextual), false);
+
+        vctx.action.count = Some(3);
+        edit!(
+            ebuf,
+            opinc,
+            mv!(MoveType::LinePos(MovePosition::End), 0),
+            ctx!(curid, vwctx, vctx),
+            store
+        );
+        assert_eq!(ebuf.get_text(), "a 4 b 2 c\nd 3 e 4 f\n");
+        assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 2));
+
+        vctx.action.count = Some(9);
+        edit!(
+            ebuf,
+            opdec,
+            mv!(MoveType::LinePos(MovePosition::End), 0),
+            ctx!(curid, vwctx, vctx),
+            store
+        );
+        assert_eq!(ebuf.get_text(), "a -5 b 2 c\nd 3 e 4 f\n");
+        assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 3));
+
+        vctx.action.count = Some(1);
+        edit!(
+            ebuf,
+            opdec,
+            mv!(MoveType::LinePos(MovePosition::End), 0),
+            ctx!(curid, vwctx, vctx),
+            store
+        );
+        assert_eq!(ebuf.get_text(), "a -6 b 2 c\nd 3 e 4 f\n");
+        assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 3));
+
+        vctx.action.count = Some(7);
+        edit!(
+            ebuf,
+            opinc,
+            mv!(MoveType::LinePos(MovePosition::End), 0),
+            ctx!(curid, vwctx, vctx),
+            store
+        );
+        assert_eq!(ebuf.get_text(), "a 1 b 2 c\nd 3 e 4 f\n");
+        assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 2));
+
+        ebuf.set_leader(curid, Cursor::new(1, 4));
+
+        vctx.action.count = Some(2);
+        edit!(
+            ebuf,
+            opinc,
+            mv!(MoveType::LinePos(MovePosition::End), 0),
+            ctx!(curid, vwctx, vctx),
+            store
+        );
+        assert_eq!(ebuf.get_text(), "a 1 b 2 c\nd 3 e 6 f\n");
+        assert_eq!(ebuf.get_leader(curid), Cursor::new(1, 6));
+
+        vctx.action.count = Some(3);
+        edit!(
+            ebuf,
+            opdec,
+            mv!(MoveType::LinePos(MovePosition::End), 0),
+            ctx!(curid, vwctx, vctx),
+            store
+        );
+        assert_eq!(ebuf.get_text(), "a 1 b 2 c\nd 3 e 3 f\n");
+        assert_eq!(ebuf.get_leader(curid), Cursor::new(1, 6));
+    }
+
+    #[test]
+    fn test_changenum_mul() {
+        let (mut ebuf, curid, vwctx, mut vctx, mut store) =
+            mkfivestr("a 1 b 2 c\nd 3 e 4 f\ng 5 h 6 i\nj 7 k 8 l\n");
+
+        assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 0));
+
+        let opdec = EditAction::ChangeNumber(NumberChange::Decrease(Count::Contextual), true);
+        let opinc = EditAction::ChangeNumber(NumberChange::Increase(Count::Contextual), true);
+
+        vctx.action.count = Some(5);
+        edit!(ebuf, opinc, &range!(RangeType::Buffer), ctx!(curid, vwctx, vctx), &mut store);
+        assert_eq!(ebuf.get_text(), "a 6 b 2 c\nd 13 e 4 f\ng 20 h 6 i\nj 27 k 8 l\n");
+        assert_eq!(ebuf.get_leader(curid), Cursor::new(3, 3));
+
+        vctx.action.count = Some(2);
+        edit!(ebuf, opdec, &range!(RangeType::Buffer), ctx!(curid, vwctx, vctx), &mut store);
+        assert_eq!(ebuf.get_text(), "a 4 b 2 c\nd 9 e 4 f\ng 14 h 6 i\nj 19 k 8 l\n");
+        assert_eq!(ebuf.get_leader(curid), Cursor::new(3, 3));
     }
 }

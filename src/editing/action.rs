@@ -69,8 +69,10 @@ pub enum EditAction {
     /// Automatically format the targeted text.
     Format,
 
-    /// Change a number within the targeted text.
-    ChangeNumber(NumberChange),
+    /// Change the first number on each line within the targeted text.
+    ///
+    /// The [bool] argument controls whether to increment by an additional count on each line.
+    ChangeNumber(NumberChange, bool),
 
     /// Join the lines within the targeted text together.
     ///
@@ -92,7 +94,7 @@ impl EditAction {
             EditAction::Yank => true,
 
             EditAction::ChangeCase(_) => false,
-            EditAction::ChangeNumber(_) => false,
+            EditAction::ChangeNumber(_, _) => false,
             EditAction::Delete => false,
             EditAction::Format => false,
             EditAction::Indent(_) => false,

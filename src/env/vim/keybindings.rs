@@ -1582,14 +1582,14 @@ fn default_keys<I: ApplicationInfo>() -> Vec<(MappedModes, &'static str, InputSt
         ( NMAP, "@{register}", act!(MacroAction::Execute(Count::Contextual)) ),
         ( NMAP, "@:", command!(CommandAction::Repeat(Count::Contextual)) ),
         ( NMAP, "@@", act!(MacroAction::Repeat(Count::Contextual)) ),
-        ( NMAP, "<C-A>", edit!(EditAction::ChangeNumber(NumberChange::IncreaseOne), MoveType::LinePos(MovePosition::End)) ),
+        ( NMAP, "<C-A>", edit_target!(EditAction::ChangeNumber(NumberChange::Increase(Count::Contextual), false), EditTarget::Motion(MoveType::LinePos(MovePosition::End), 0.into())) ),
         ( NMAP, "<C-I>", jump!(PositionList::JumpList, MoveDir1D::Next) ),
         ( NMAP, "<C-G>", unmapped!() ),
         ( NMAP, "<C-L>", act!(Action::RedrawScreen) ),
         ( NMAP, "<C-O>", jump!(PositionList::JumpList, MoveDir1D::Previous) ),
         ( NMAP, "<C-R>", history!(HistoryAction::Redo(Count::Contextual)) ),
         ( NMAP, "<C-T>", unmapped!() ),
-        ( NMAP, "<C-X>", edit!(EditAction::ChangeNumber(NumberChange::DecreaseOne), MoveType::LinePos(MovePosition::End)) ),
+        ( NMAP, "<C-X>", edit_target!(EditAction::ChangeNumber(NumberChange::Decrease(Count::Contextual), false), EditTarget::Motion(MoveType::LinePos(MovePosition::End), 0.into())) ),
         ( NMAP, "<C-Z>", act!(Action::Suspend) ),
         ( NMAP, "<C-^>", window_switch!(OpenTarget::Alternate, OpenTarget::List(Count::Contextual)) ),
         ( NMAP, "<Del>", edit_nocount!(EditAction::Delete, MoveType::Column(MoveDir1D::Next, false)) ),
@@ -1597,11 +1597,11 @@ fn default_keys<I: ApplicationInfo>() -> Vec<(MappedModes, &'static str, InputSt
         ( NMAP, "<Insert>", insert!(InsertStyle::Insert) ),
 
         // Visual, Select mode keys
-        ( VMAP, "<C-A>", edit_selection!(EditAction::ChangeNumber(NumberChange::IncreaseOne)) ),
+        ( VMAP, "<C-A>", edit_selection!(EditAction::ChangeNumber(NumberChange::Increase(Count::Contextual), false)) ),
         ( VMAP, "<C-D>", scroll2d!(MoveDir2D::Down, ScrollSize::HalfPage) ),
         ( VMAP, "<C-C>", normal!() ),
         ( VMAP, "<C-L>", act!(Action::RedrawScreen) ),
-        ( VMAP, "<C-X>", edit_selection!(EditAction::ChangeNumber(NumberChange::DecreaseOne)) ),
+        ( VMAP, "<C-X>", edit_selection!(EditAction::ChangeNumber(NumberChange::Decrease(Count::Contextual), false)) ),
         ( VMAP, "<C-Z>", act!(Action::Suspend) ),
         ( VMAP, "<Del>", edit_selection_nocount!(EditAction::Delete) ),
         ( VMAP, "<Esc>", normal!() ),
@@ -1622,8 +1622,8 @@ fn default_keys<I: ApplicationInfo>() -> Vec<(MappedModes, &'static str, InputSt
         ( XMAP, "gU", edit_selection!(EditAction::ChangeCase(Case::Upper)) ),
         ( XMAP, "gw", edit_selection!(EditAction::Format) ),
         ( XMAP, "g~", edit_selection!(EditAction::ChangeCase(Case::Toggle)) ),
-        ( XMAP, "g<C-A>", edit_selection!(EditAction::ChangeNumber(NumberChange::IncreaseAll)) ),
-        ( XMAP, "g<C-X>", edit_selection!(EditAction::ChangeNumber(NumberChange::DecreaseAll)) ),
+        ( XMAP, "g<C-A>", edit_selection!(EditAction::ChangeNumber(NumberChange::Increase(Count::Contextual), true)) ),
+        ( XMAP, "g<C-X>", edit_selection!(EditAction::ChangeNumber(NumberChange::Decrease(Count::Contextual), true)) ),
         ( XMAP, "I", insert_visual!(SelectionCursorChange::Beginning) ),
         ( XMAP, "J", edit_selection!(EditAction::Join(JoinStyle::OneSpace)) ),
         ( XMAP, "K", act!(Action::KeywordLookup) ),
@@ -2917,14 +2917,14 @@ mod tests {
         ctx.action.replace = None;
         ctx.ch.any = None;
 
-        let op = EditAction::ChangeNumber(NumberChange::IncreaseOne);
-        let mov = mvop!(op, MoveType::LinePos(MovePosition::End));
+        let op = EditAction::ChangeNumber(NumberChange::Increase(Count::Contextual), false);
+        let mov = mvop!(op, MoveType::LinePos(MovePosition::End), 0);
         vm.input_key(ctl!('a'));
         assert_pop1!(vm, mov, ctx);
         assert_normal!(vm, ctx);
 
-        let op = EditAction::ChangeNumber(NumberChange::DecreaseOne);
-        let mov = mvop!(op, MoveType::LinePos(MovePosition::End));
+        let op = EditAction::ChangeNumber(NumberChange::Decrease(Count::Contextual), false);
+        let mov = mvop!(op, MoveType::LinePos(MovePosition::End), 0);
         vm.input_key(ctl!('x'));
         assert_pop1!(vm, mov, ctx);
         assert_normal!(vm, ctx);
