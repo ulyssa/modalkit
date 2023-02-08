@@ -1,12 +1,61 @@
+use std::cell::{RefCell, RefMut};
 use std::collections::HashMap;
 
+use arboard::{Clipboard, Get, ImageData, Set};
 use bitflags::bitflags;
+
+#[cfg(target_os = "linux")]
+use arboard::{GetExtLinux, LinuxClipboardKind, SetExtLinux};
 
 use crate::{
     editing::base::TargetShape::{BlockWise, CharWise, LineWise},
     editing::base::{Register, TargetShape},
     editing::rope::EditRope,
 };
+
+#[cfg(target_os = "linux")]
+mod clipboard {
+    use super::*;
+
+    pub fn set_primary(clipboard: &mut Clipboard) -> Set<'_> {
+        clipboard.set().clipboard(LinuxClipboardKind::Primary)
+    }
+
+    pub fn set_clipboard(clipboard: &mut Clipboard) -> Set<'_> {
+        clipboard.set().clipboard(LinuxClipboardKind::Clipboard)
+    }
+
+    pub fn get_primary(clipboard: &mut Clipboard) -> Get<'_> {
+        clipboard.get().clipboard(LinuxClipboardKind::Primary)
+    }
+
+    pub fn get_clipboard(clipboard: &mut Clipboard) -> Get<'_> {
+        clipboard.get().clipboard(LinuxClipboardKind::Clipboard)
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+mod clipboard {
+    use super::*;
+
+    pub fn set_primary(clipboard: &mut Clipboard) -> Set<'_> {
+        clipboard.set()
+    }
+
+    pub fn set_clipboard(clipboard: &mut Clipboard) -> Set<'_> {
+        clipboard.set()
+    }
+
+    pub fn get_primary(clipboard: &mut Clipboard) -> Get<'_> {
+        clipboard.get()
+    }
+
+    pub fn get_clipboard(clipboard: &mut Clipboard) -> Get<'_> {
+        clipboard.get()
+    }
+}
+
+use self::clipboard::*;
 
 bitflags! {
     /// Flags that control the behaviour of [RegisterStore::put].
@@ -26,6 +75,19 @@ bitflags! {
         /// register.
         const NOTEXT = 0b00000100;
     }
+}
+
+/// Error while getting or setting a register value.
+#[derive(thiserror::Error, Debug)]
+#[non_exhaustive]
+pub enum RegisterError {
+    /// The operating system clipboard contains an image instead of text.
+    #[error("Clipboard contains image instead of text")]
+    ClipboardImage(ImageData<'static>),
+
+    /// Failure to determine a macro register to use.
+    #[error("No macro previously executed")]
+    NoLastMacro,
 }
 
 /// The current values mapped to by a [Register].
@@ -65,6 +127,8 @@ pub struct RegisterStore {
     unnamed: RegisterCell,
     unnamed_macro: RegisterCell,
     named: HashMap<char, RegisterCell>,
+
+    clipboard: Option<RefCell<Clipboard>>,
 }
 
 impl RegisterCell {
@@ -167,7 +231,13 @@ impl RegisterStore {
             unnamed: RegisterCell::default(),
             unnamed_macro: RegisterCell::default(),
             named: HashMap::new(),
+
+            clipboard: Clipboard::new().ok().map(RefCell::new),
         }
+    }
+
+    fn clipboard(&self) -> Option<RefMut<'_, Clipboard>> {
+        self.clipboard.as_ref().map(RefCell::borrow_mut)
     }
 
     fn _push_deleted(&mut self, cell: RegisterCell) {
@@ -182,8 +252,8 @@ impl RegisterStore {
     /// Get the current value of a [Register].
     ///
     /// If none is specified, this returns the value of [Register::Unnamed].
-    pub fn get(&self, reg: &Register) -> RegisterCell {
-        match reg {
+    pub fn get(&self, reg: &Register) -> Result<RegisterCell, RegisterError> {
+        let reg = match reg {
             Register::Unnamed => self.unnamed.clone(),
             Register::UnnamedMacro => self.unnamed_macro.clone(),
             Register::UnnamedCursorGroup => RegisterCell::default(),
@@ -200,12 +270,34 @@ impl RegisterStore {
              * Operating system clipboards.
              */
             Register::SelectionPrimary => {
-                // XXX: implement
-                RegisterCell::default()
+                if let Some(ref mut clipboard) = self.clipboard() {
+                    if let Ok(image) = get_primary(clipboard).image() {
+                        return Err(RegisterError::ClipboardImage(image.to_owned_img()));
+                    }
+
+                    if let Ok(text) = get_primary(clipboard).text() {
+                        RegisterCell::from(EditRope::from(text))
+                    } else {
+                        RegisterCell::default()
+                    }
+                } else {
+                    RegisterCell::default()
+                }
             },
             Register::SelectionClipboard => {
-                // XXX: implement
-                RegisterCell::default()
+                if let Some(ref mut clipboard) = self.clipboard() {
+                    if let Ok(image) = get_clipboard(clipboard).image() {
+                        return Err(RegisterError::ClipboardImage(image));
+                    }
+
+                    if let Ok(text) = get_clipboard(clipboard).text() {
+                        RegisterCell::from(EditRope::from(text))
+                    } else {
+                        RegisterCell::default()
+                    }
+                } else {
+                    RegisterCell::default()
+                }
             },
 
             /*
@@ -219,7 +311,9 @@ impl RegisterStore {
              * Blackhole register.
              */
             Register::Blackhole => RegisterCell::default(),
-        }
+        };
+
+        Ok(reg)
     }
 
     /// Update the current value of a [Register] with `cell`. If none is specified, this updates
@@ -230,9 +324,14 @@ impl RegisterStore {
     ///
     /// The `del` flag indicates whether this register update is being done as part of a text
     /// deletion in a document.
-    pub fn put(&mut self, reg: &Register, mut cell: RegisterCell, flags: RegisterPutFlags) {
+    pub fn put(
+        &mut self,
+        reg: &Register,
+        mut cell: RegisterCell,
+        flags: RegisterPutFlags,
+    ) -> Result<(), RegisterError> {
         if flags.contains(RegisterPutFlags::APPEND) {
-            cell = self.get(reg).merge(&cell)
+            cell = self.get(reg)?.merge(&cell)
         }
 
         /*
@@ -241,8 +340,8 @@ impl RegisterStore {
          * the unnamed ("") register with the exact same value.
          */
         let unnamed = match reg {
-            Register::Blackhole => return,
-            Register::UnnamedCursorGroup => return,
+            Register::Blackhole => return Ok(()),
+            Register::UnnamedCursorGroup => return Ok(()),
 
             Register::Unnamed => {
                 if flags.contains(RegisterPutFlags::DELETE) {
@@ -286,11 +385,19 @@ impl RegisterStore {
              * Operating system clipboards.
              */
             Register::SelectionPrimary => {
-                // XXX: implement
+                if let Some(ref mut clipboard) = self.clipboard() {
+                    let op = set_primary(clipboard);
+                    let _ = op.text(&cell.value);
+                }
+
                 cell
             },
             Register::SelectionClipboard => {
-                // XXX: implement
+                if let Some(ref mut clipboard) = self.clipboard() {
+                    let op = set_clipboard(clipboard);
+                    let _ = op.text(&cell.value);
+                }
+
                 cell
             },
 
@@ -306,23 +413,25 @@ impl RegisterStore {
         if !flags.contains(RegisterPutFlags::NOTEXT) {
             self.unnamed = unnamed;
         }
+
+        Ok(())
     }
 
     /// Return the contents of a register for macro execution.
-    pub fn get_macro(&mut self, reg: Register) -> EditRope {
-        let res = self.get(&reg).value;
+    pub fn get_macro(&mut self, reg: Register) -> Result<EditRope, RegisterError> {
+        let res = self.get(&reg)?.value;
 
         self.last_macro = Some(reg);
 
-        return res;
+        return Ok(res);
     }
 
     /// Return the same contents as the last call to [RegisterStore::get_macro].
-    pub fn get_last_macro(&self) -> Option<EditRope> {
+    pub fn get_last_macro(&self) -> Result<EditRope, RegisterError> {
         if let Some(ref reg) = self.last_macro {
-            return Some(self.get(reg).value);
+            return Ok(self.get(reg)?.value);
         } else {
-            return None;
+            return Err(RegisterError::NoLastMacro);
         }
     }
 

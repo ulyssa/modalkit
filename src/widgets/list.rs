@@ -659,7 +659,7 @@ where
                         let needle = match ctx.get_search_regex() {
                             Some(re) => re,
                             None => {
-                                let lsearch = store.registers.get(&Register::LastSearch);
+                                let lsearch = store.registers.get(&Register::LastSearch)?;
                                 let lsearch = lsearch.value.to_string();
 
                                 Regex::new(lsearch.as_ref())?
@@ -728,7 +728,7 @@ where
                         let needle = match ctx.get_search_regex() {
                             Some(re) => re,
                             None => {
-                                let lsearch = store.registers.get(&Register::LastSearch);
+                                let lsearch = store.registers.get(&Register::LastSearch)?;
                                 let lsearch = lsearch.value.to_string();
 
                                 Regex::new(lsearch.as_ref())?
@@ -765,7 +765,7 @@ where
                         flags |= RegisterPutFlags::APPEND;
                     }
 
-                    store.registers.put(&register, cell, flags);
+                    store.registers.put(&register, cell, flags)?;
                 }
 
                 return Ok(None);
@@ -1549,7 +1549,7 @@ mod tests {
 
         list.edit(&op, &end, &ctx, &mut store).unwrap();
 
-        let cell = store.registers.get(&Register::Named('c'));
+        let cell = store.registers.get(&Register::Named('c')).unwrap();
         let rope = cell.value;
 
         assert_eq!(

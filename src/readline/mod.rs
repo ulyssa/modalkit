@@ -445,7 +445,7 @@ where
         let re = if let Some(CommandType::Search(_, _)) = self.ct {
             self.get_cmd_regex()?
         } else {
-            let text = self.store.registers.get(&Register::LastSearch).value;
+            let text = self.store.registers.get(&Register::LastSearch)?.value;
 
             Regex::new(text.to_string().as_ref())?
         };

@@ -984,10 +984,6 @@ pub enum EditError<I: ApplicationInfo> {
     #[error("No word underneath cursor")]
     NoCursorWord,
 
-    /// Failure to determine a macro register to use.
-    #[error("No macro previously executed")]
-    NoMacro,
-
     /// Failure to determine a search expression to use.
     #[error("No current search specified")]
     NoSearch,
@@ -1035,6 +1031,10 @@ pub enum EditError<I: ApplicationInfo> {
     /// Macro-related failure.
     #[error("Macro error: {0}")]
     MacroFailure(#[from] MacroError),
+
+    /// Error while getting or putting a value into the register store.
+    #[error("Register Error: {0}")]
+    Register(#[from] super::store::RegisterError),
 
     /// Generic failure.
     #[error("Error: {0}")]

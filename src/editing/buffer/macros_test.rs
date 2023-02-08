@@ -48,7 +48,10 @@ macro_rules! cell {
 
 macro_rules! set_reg {
     ($store: expr, $reg: expr, $shape: expr, $txt: expr) => {
-        $store.registers.put(&$reg, cell!($shape, $txt), RegisterPutFlags::NONE);
+        $store
+            .registers
+            .put(&$reg, cell!($shape, $txt), RegisterPutFlags::NONE)
+            .unwrap();
     };
 }
 

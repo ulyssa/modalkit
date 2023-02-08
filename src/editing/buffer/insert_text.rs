@@ -67,7 +67,7 @@ where
     ) -> EditResult<EditInfo, I> {
         let count = ctx.2.resolve(count);
         let insty = ctx.2.get_insert_style();
-        let cell = store.registers.get(&ctx.2.get_register().unwrap_or(Register::Unnamed));
+        let cell = store.registers.get(&ctx.2.get_register().unwrap_or(Register::Unnamed))?;
         let text = cell.value.repeat(cell.shape, count);
         let end = ctx.2.get_cursor_end();
 

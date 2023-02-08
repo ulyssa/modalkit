@@ -1,6 +1,7 @@
 use std::borrow::Cow;
 
 use crate::editing::{
+    action::EditResult,
     application::ApplicationInfo,
     base::{
         Case,
@@ -28,8 +29,20 @@ pub trait EditActions<C, I>
 where
     I: ApplicationInfo,
 {
-    fn delete(&mut self, range: &CursorRange, ctx: &C, store: &mut Store<I>) -> CursorChoice;
-    fn yank(&mut self, range: &CursorRange, ctx: &C, store: &mut Store<I>) -> CursorChoice;
+    fn delete(
+        &mut self,
+        range: &CursorRange,
+        ctx: &C,
+        store: &mut Store<I>,
+    ) -> EditResult<CursorChoice, I>;
+
+    fn yank(
+        &mut self,
+        range: &CursorRange,
+        ctx: &C,
+        store: &mut Store<I>,
+    ) -> EditResult<CursorChoice, I>;
+
     fn replace(
         &mut self,
         c: char,
@@ -37,15 +50,23 @@ where
         range: &CursorRange,
         ctx: &C,
         store: &mut Store<I>,
-    ) -> CursorChoice;
+    ) -> EditResult<CursorChoice, I>;
+
     fn changecase(
         &mut self,
         case: &Case,
         range: &CursorRange,
         ctx: &C,
         store: &mut Store<I>,
-    ) -> CursorChoice;
-    fn format(&mut self, range: &CursorRange, ctx: &C, store: &mut Store<I>) -> CursorChoice;
+    ) -> EditResult<CursorChoice, I>;
+
+    fn format(
+        &mut self,
+        range: &CursorRange,
+        ctx: &C,
+        store: &mut Store<I>,
+    ) -> EditResult<CursorChoice, I>;
+
     fn changenum(
         &mut self,
         change: &NumberChange,
@@ -53,21 +74,23 @@ where
         range: &CursorRange,
         ctx: &C,
         store: &mut Store<I>,
-    ) -> CursorChoice;
+    ) -> EditResult<CursorChoice, I>;
+
     fn join(
         &mut self,
         spaces: JoinStyle,
         range: &CursorRange,
         ctx: &C,
         store: &mut Store<I>,
-    ) -> CursorChoice;
+    ) -> EditResult<CursorChoice, I>;
+
     fn indent(
         &mut self,
         change: &IndentChange,
         range: &CursorRange,
         ctx: &C,
         store: &mut Store<I>,
-    ) -> CursorChoice;
+    ) -> EditResult<CursorChoice, I>;
 }
 
 impl<'a, 'b, 'c, C, I> EditActions<CursorMovementsContext<'a, 'b, 'c, Cursor, C>, I>
@@ -81,7 +104,7 @@ where
         range: &CursorRange,
         ctx: &CursorMovementsContext<'a, 'b, 'c, Cursor, C>,
         store: &mut Store<I>,
-    ) -> CursorChoice {
+    ) -> EditResult<CursorChoice, I> {
         let style = ctx.context.get_insert_style().unwrap_or(InsertStyle::Insert);
         let (shape, ranges) = self._effective(range, ctx.context.get_target_shape());
         let mut deleted = EditRope::from("");
@@ -136,11 +159,11 @@ where
             flags |= RegisterPutFlags::APPEND
         }
 
-        store.registers.put(&register, cell, flags);
+        store.registers.put(&register, cell, flags)?;
 
         let cursor = self.text.offset_to_cursor(coff);
 
-        return CursorChoice::Single(cursor);
+        return Ok(CursorChoice::Single(cursor));
     }
 
     fn yank(
@@ -148,7 +171,7 @@ where
         range: &CursorRange,
         ctx: &CursorMovementsContext<'a, 'b, 'c, Cursor, C>,
         store: &mut Store<I>,
-    ) -> CursorChoice {
+    ) -> EditResult<CursorChoice, I> {
         let (shape, ranges) = self._effective(range, ctx.context.get_target_shape());
         let mut yanked = EditRope::from("");
         let mut first = true;
@@ -178,9 +201,9 @@ where
             flags |= RegisterPutFlags::APPEND;
         }
 
-        store.registers.put(&register, cell, flags);
+        store.registers.put(&register, cell, flags)?;
 
-        cursors
+        let choice = cursors
             .map(|(start, end)| {
                 let start = self.text.offset_to_cursor(start);
                 let end = self.text.offset_to_cursor(end);
@@ -196,7 +219,9 @@ where
                     },
                 }
             })
-            .unwrap_or_default()
+            .unwrap_or_default();
+
+        Ok(choice)
     }
 
     fn replace(
@@ -206,7 +231,7 @@ where
         range: &CursorRange,
         ctx: &CursorMovementsContext<'a, 'b, 'c, Cursor, C>,
         _: &mut Store<I>,
-    ) -> CursorChoice {
+    ) -> EditResult<CursorChoice, I> {
         let (_, ranges) = self._effective(range, ctx.context.get_target_shape());
         let mut cursor = None;
 
@@ -233,9 +258,11 @@ where
             };
         }
 
-        return cursor
+        let choice = cursor
             .map(|off| self.text.offset_to_cursor(off).into())
             .unwrap_or_default();
+
+        Ok(choice)
     }
 
     fn changecase(
@@ -244,7 +271,7 @@ where
         range: &CursorRange,
         ctx: &CursorMovementsContext<'a, 'b, 'c, Cursor, C>,
         _: &mut Store<I>,
-    ) -> CursorChoice {
+    ) -> EditResult<CursorChoice, I> {
         let (shape, ranges) = self._effective(range, ctx.context.get_target_shape());
         let mut cursors = None;
 
@@ -258,7 +285,7 @@ where
             }
         }
 
-        cursors
+        let choice = cursors
             .map(|(start, end)| {
                 let start = self.text.offset_to_cursor(start);
                 let end = self.text.offset_to_cursor(end);
@@ -278,7 +305,9 @@ where
                     },
                 }
             })
-            .unwrap_or_default()
+            .unwrap_or_default();
+
+        Ok(choice)
     }
 
     fn indent(
@@ -287,10 +316,10 @@ where
         _: &CursorRange,
         _: &CursorMovementsContext<'a, 'b, 'c, Cursor, C>,
         _: &mut Store<I>,
-    ) -> CursorChoice {
+    ) -> EditResult<CursorChoice, I> {
         // XXX: implement (:help <, :help >, :help v_b_<, :help v_b_>)
 
-        return CursorChoice::Empty;
+        return Ok(CursorChoice::Empty);
     }
 
     fn format(
@@ -298,13 +327,13 @@ where
         _: &CursorRange,
         _: &CursorMovementsContext<'a, 'b, 'c, Cursor, C>,
         _: &mut Store<I>,
-    ) -> CursorChoice {
+    ) -> EditResult<CursorChoice, I> {
         /*
          * Automatically formatting lines requires a whole lot of logic that just doesn't exist
          * in this codebase yet. At some point, if some kind of filetype detection is added, then
          * this function can be made to do something useful.
          */
-        return CursorChoice::Empty;
+        return Ok(CursorChoice::Empty);
     }
 
     fn changenum(
@@ -314,7 +343,7 @@ where
         range: &CursorRange,
         ctx: &CursorMovementsContext<'a, 'b, 'c, Cursor, C>,
         store: &mut Store<I>,
-    ) -> CursorChoice {
+    ) -> EditResult<CursorChoice, I> {
         let mut diff = match change {
             NumberChange::Decrease(count) => -(ctx.context.resolve(count) as isize),
             NumberChange::Increase(count) => ctx.context.resolve(count) as isize,
@@ -328,7 +357,7 @@ where
             let style = WordStyle::Number(Radix::Decimal);
             let number = match self.text.get_cursor_word_mut(&mut cursor, &style) {
                 Some(n) => n,
-                None => return CursorChoice::Empty,
+                None => return Ok(CursorChoice::Empty),
             };
 
             if cursor > range.end {
@@ -340,7 +369,7 @@ where
             let n = Cow::from(&number);
             let n = match n.as_ref().parse::<isize>() {
                 Ok(n) => EditRope::from((n + diff).to_string()),
-                Err(_) => return CursorChoice::Empty,
+                Err(_) => return Ok(CursorChoice::Empty),
             };
 
             let mut nend = cursor.clone();
@@ -363,7 +392,7 @@ where
             cursor.x = 0;
         }
 
-        return res;
+        return Ok(res);
     }
 
     fn join(
@@ -372,7 +401,7 @@ where
         range: &CursorRange,
         _: &CursorMovementsContext<'a, 'b, 'c, Cursor, C>,
         store: &mut Store<I>,
-    ) -> CursorChoice {
+    ) -> EditResult<CursorChoice, I> {
         // Joining is always forced into a LineWise movement.
         let (_, ranges) = self._effective(range, Some(TargetShape::LineWise));
         let mut cursor = None;
@@ -437,7 +466,7 @@ where
             }
         }
 
-        return cursor.map(CursorChoice::Single).unwrap_or_default();
+        return Ok(cursor.map(CursorChoice::Single).unwrap_or_default());
     }
 }
 
@@ -450,7 +479,7 @@ mod tests {
 
     macro_rules! get_reg {
         ($store: expr, $reg: expr) => {
-            $store.registers.get(&$reg)
+            $store.registers.get(&$reg).unwrap()
         };
     }
 

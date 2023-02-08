@@ -416,7 +416,7 @@ where
             return Ok(regex);
         }
 
-        let lsearch = store.registers.get(&Register::LastSearch).value;
+        let lsearch = store.registers.get(&Register::LastSearch)?.value;
         let regex = Regex::new(lsearch.to_string().as_ref())?;
 
         return Ok(regex);
@@ -1068,14 +1068,14 @@ where
 
         for state in group.iter_mut() {
             let choice = match (self._target(state, target, ctx, store)?, action) {
-                (Some(range), EditAction::Delete) => self.delete(&range, ctx, store),
-                (Some(range), EditAction::Yank) => self.yank(&range, ctx, store),
+                (Some(range), EditAction::Delete) => self.delete(&range, ctx, store)?,
+                (Some(range), EditAction::Yank) => self.yank(&range, ctx, store)?,
                 (Some(range), EditAction::Replace(v)) => {
                     match ctx.context.get_replace_char() {
                         Some(c) => {
                             let c = self._char(c, state.cursor(), &store.digraphs)?;
 
-                            self.replace(c, *v, &range, ctx, store)
+                            self.replace(c, *v, &range, ctx, store)?
                         },
                         None => {
                             let msg = "No replacement character".to_string();
@@ -1085,16 +1085,18 @@ where
                         },
                     }
                 },
-                (Some(range), EditAction::Format) => self.format(&range, ctx, store),
+                (Some(range), EditAction::Format) => self.format(&range, ctx, store)?,
                 (Some(range), EditAction::ChangeCase(case)) => {
-                    self.changecase(case, &range, ctx, store)
+                    self.changecase(case, &range, ctx, store)?
                 },
                 (Some(range), EditAction::ChangeNumber(change, mul)) => {
-                    self.changenum(change, *mul, &range, ctx, store)
+                    self.changenum(change, *mul, &range, ctx, store)?
                 },
-                (Some(range), EditAction::Join(spaces)) => self.join(*spaces, &range, ctx, store),
+                (Some(range), EditAction::Join(spaces)) => {
+                    self.join(*spaces, &range, ctx, store)?
+                },
                 (Some(range), EditAction::Indent(change)) => {
-                    self.indent(change, &range, ctx, store)
+                    self.indent(change, &range, ctx, store)?
                 },
                 (Some(_), EditAction::Motion) => panic!("Unexpected EditAction::Motion!"),
                 (None, _) => CursorChoice::Empty,

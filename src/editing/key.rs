@@ -29,7 +29,7 @@ use std::collections::VecDeque;
 use crate::input::{bindings::BindingMachine, key::InputKey, InputContext};
 
 use super::{
-    action::{EditError, EditInfo, EditResult, MacroAction},
+    action::{EditInfo, EditResult, MacroAction},
     application::ApplicationInfo,
     base::Register,
     context::EditContext,
@@ -82,12 +82,12 @@ where
         let (mstr, count) = match act {
             MacroAction::Execute(count) => {
                 let reg = ctx.get_register().unwrap_or(Register::UnnamedMacro);
-                let rope = store.registers.get_macro(reg);
+                let rope = store.registers.get_macro(reg)?;
 
                 (rope.to_string(), ctx.resolve(count))
             },
             MacroAction::Repeat(count) => {
-                let rope = store.registers.get_last_macro().ok_or(EditError::NoMacro)?;
+                let rope = store.registers.get_last_macro()?;
 
                 (rope.to_string(), ctx.resolve(count))
             },
@@ -103,7 +103,7 @@ where
                         flags |= RegisterPutFlags::APPEND;
                     }
 
-                    store.registers.put(reg, rope.into(), flags);
+                    store.registers.put(reg, rope.into(), flags)?;
 
                     // Stop recording.
                     self.recording = None;
@@ -190,9 +190,10 @@ mod tests {
     use crossterm::event::{KeyCode, KeyEvent};
 
     use crate::{
+        editing::action::EditError,
         editing::application::EmptyInfo,
         editing::base::Count,
-        editing::store::Store,
+        editing::store::{RegisterError, Store},
         env::vim::VimContext,
         env::CommonKeyClass,
         input::{
@@ -353,39 +354,47 @@ mod tests {
         let (mut bindings, mut store) = setup_bindings();
         let mut s = String::new();
         let mut flag = false;
+        let mut err = None;
 
         macro_rules! get_register {
             ($reg: expr) => {
-                store.registers.get(&$reg).value
+                store.registers.get(&$reg).unwrap().value
             };
         }
 
-        let mut input =
-            |key: TerminalKey, store: &mut TestStore, s: &mut String, flag: &mut bool| {
-                bindings.input_key(key);
+        let mut input = |key: TerminalKey,
+                         store: &mut TestStore,
+                         s: &mut String,
+                         flag: &mut bool,
+                         err: &mut Option<EditError<EmptyInfo>>| {
+            bindings.input_key(key);
 
-                while let Some((act, ctx)) = bindings.pop() {
-                    match act {
-                        TestAction::NoOp => continue,
-                        TestAction::Macro(act) => {
-                            let _ = bindings.macro_command(&act, &ctx, store).unwrap();
-                        },
-                        TestAction::SetFlag => {
-                            *flag = true;
-                        },
-                        TestAction::Type(c) => s.push(c),
-                    }
+            while let Some((act, ctx)) = bindings.pop() {
+                match act {
+                    TestAction::NoOp => continue,
+                    TestAction::Macro(act) => {
+                        *err = bindings.macro_command(&act, &ctx, store).err();
+                    },
+                    TestAction::SetFlag => {
+                        *flag = true;
+                    },
+                    TestAction::Type(c) => s.push(c),
                 }
-            };
+            }
+        };
 
         macro_rules! input {
             ($key: expr) => {
-                input($key, &mut store, &mut s, &mut flag)
+                input($key, &mut store, &mut s, &mut flag, &mut err)
             };
         }
 
         // Register::UnnamedMacro is currently empty.
         assert_eq!(get_register!(Register::UnnamedMacro).to_string(), "");
+
+        // No last macro to repeat.
+        input!(key!('@'));
+        assert!(matches!(err, Some(EditError::Register(RegisterError::NoLastMacro))), "{:?}", err);
 
         // Press an unmapped key before recording.
         input!(key!('l'));

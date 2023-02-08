@@ -34,7 +34,7 @@ mod register;
 pub use self::buffer::{BufferStore, SharedBuffer};
 pub use self::cursor::{AdjustStore, CursorStore, GlobalAdjustable};
 pub use self::digraph::DigraphStore;
-pub use self::register::{RegisterCell, RegisterPutFlags, RegisterStore};
+pub use self::register::{RegisterCell, RegisterError, RegisterPutFlags, RegisterStore};
 
 const COMMAND_HISTORY_LEN: usize = 50;
 const SEARCH_HISTORY_LEN: usize = 50;
