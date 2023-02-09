@@ -222,6 +222,12 @@ impl<I: ApplicationInfo> InputStep<I> {
         InputStep { internal: vec![], external: vec![], nextm: None }
     }
 
+    /// Set the [EmacsMode] to switch to after this step.
+    pub fn goto(mut self, mode: EmacsMode) -> Self {
+        self.nextm = Some(mode);
+        self
+    }
+
     /// Set the [actions](Action) that this step produces.
     pub fn actions(mut self, acts: Vec<Action<I>>) -> Self {
         self.external = acts.into_iter().map(ExternalAction::Something).collect();

@@ -391,6 +391,32 @@ impl<I: ApplicationInfo> InputStep<I> {
         }
     }
 
+    /// Create an operator that is followed by a movement.
+    ///
+    /// `mode` specifies which mode to enter after the movement is provided. This defaults to
+    /// [VimMode::Normal].
+    pub fn operator(mut self, op: EditAction, mode: Option<VimMode>) -> Self {
+        let insert = matches!(mode, Some(VimMode::Insert));
+
+        self.fallthrough_mode = Some(VimMode::OperationPending);
+        self.internal = vec![
+            InternalAction::SetOperation(op),
+            InternalAction::SetPostMode(mode.unwrap_or_default()),
+        ];
+
+        if insert {
+            self.internal.push(InternalAction::SetInsertStyle(InsertStyle::Insert));
+        }
+
+        self
+    }
+
+    /// Set the [VimMode] to switch to after this step.
+    pub fn goto(mut self, mode: VimMode) -> Self {
+        self.nextm = Some(mode);
+        self
+    }
+
     /// Set the [actions](Action) that this step produces.
     pub fn actions(mut self, acts: Vec<Action<I>>) -> Self {
         self.external = acts.into_iter().map(ExternalAction::Something).collect();
@@ -3801,6 +3827,25 @@ mod tests {
         assert_eq!(vm.pop(), None);
         vm.input_key(ctl!('c'));
         assert_insert_exit!(vm, ctx);
+    }
+
+    #[test]
+    fn test_custom_operators() {
+        let mut vm: VimMachine<TerminalKey> = VimMachine::default();
+        let mut ctx = VimContext::default();
+
+        let step = InputStep::new().operator(EditAction::Delete, Some(VimMode::Insert));
+        add_mapping(&mut vm, &NMAP, "R", &step);
+
+        let mov = mv!(MoveType::WordBegin(WordStyle::Little, MoveDir1D::Next));
+        ctx.action.operation = EditAction::Delete;
+        ctx.action.count = Some(5);
+        ctx.persist.insert = Some(InsertStyle::Insert);
+        vm.input_key(key!('5'));
+        vm.input_key(key!('R'));
+        vm.input_key(key!('w'));
+        assert_pop1!(vm, mov, ctx);
+        assert_eq!(vm.mode(), VimMode::Insert);
     }
 
     #[test]
