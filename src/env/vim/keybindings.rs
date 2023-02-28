@@ -1542,7 +1542,7 @@ fn default_keys<I: ApplicationInfo>() -> Vec<(MappedModes, &'static str, InputSt
         ( NMAP, "cc", change_range!(RangeType::Line) ),
         ( NMAP, "cw", edit_end!(MoveType::WordEnd(WordStyle::Little, MoveDir1D::Next)) ),
         ( NMAP, "cW", edit_end!(MoveType::WordEnd(WordStyle::Big, MoveDir1D::Next)) ),
-        ( NMAP, "C", change!(MoveType::LinePos(MovePosition::End)) ),
+        ( NMAP, "C", change!(MoveType::LinePos(MovePosition::End), Count::MinusOne) ),
         ( NMAP, "d", edit_motion!(EditAction::Delete) ),
         ( NMAP, "dd", edit_lines!(EditAction::Delete) ),
         ( NMAP, "D", edit!(EditAction::Delete, MoveType::LinePos(MovePosition::End)) ),
@@ -3052,7 +3052,7 @@ mod tests {
 
         // Change from cursor to end of the line with "C".
         let op = EditAction::Delete;
-        let mov = mvop!(op, MoveType::LinePos(MovePosition::End));
+        let mov = mvop!(op, MoveType::LinePos(MovePosition::End), Count::MinusOne);
         ctx.persist.insert = Some(InsertStyle::Insert);
         vm.input_key(key!('C'));
         assert_pop2!(vm, mov, ctx);
