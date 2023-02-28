@@ -575,6 +575,10 @@ where
     I: ApplicationInfo,
 {
     fn get_term_cursor(&self) -> Option<(u16, u16)> {
+        if self.viewctx.get_height() == 0 {
+            return None;
+        }
+
         self.term_cursor.into()
     }
 }
