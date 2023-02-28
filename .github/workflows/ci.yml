@@ -9,6 +9,25 @@ on:
 name: CI
 
 jobs:
+  clippy_check:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+      with:
+        submodules: true
+    - name: Install Rust
+      uses: actions-rs/toolchain@v1
+      with:
+          toolchain: stable
+          components: clippy
+          override: true
+    - name: Check Clippy
+      uses: actions-rs/clippy-check@v1
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+        toolchain: stable
+        args:
   test:
     strategy:
       matrix:
@@ -30,18 +49,12 @@ jobs:
       with:
         path: ~/.cargo/registry
         key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
-    - name: Run tests
-      uses: actions-rs/cargo@v1
-      with:
-          command: test
     - name: Check formatting
       uses: actions-rs/cargo@v1
       with:
           command: fmt
           args: --all -- --check
-    - name: Check clippy
-      uses: actions-rs/clippy-check@v1
+    - name: Run tests
+      uses: actions-rs/cargo@v1
       with:
-        token: ${{ secrets.GITHUB_TOKEN }}
-        toolchain: stable
-        args:
+          command: test
