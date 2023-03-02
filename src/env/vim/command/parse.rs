@@ -33,6 +33,15 @@ fn parse_failed(err: nom::Err<nom::error::Error<&str>>) -> CommandError {
     CommandError::ParseFailed(err.to_string())
 }
 
+#[derive(Debug, Eq, PartialEq)]
+pub enum OptionType {
+    /// A flag with an optional value, such as `++key=value`.
+    Flag(String, Option<String>),
+
+    /// A positional argument.
+    Positional(String),
+}
+
 /// Argument text following a command name.
 #[derive(Debug, Eq, PartialEq)]
 pub struct CommandArgument {
@@ -92,6 +101,30 @@ impl CommandArgument {
             Ok((_, args)) => Ok(args),
             Err(e) => Err(CommandError::ParseFailed(e.to_string())),
         }
+    }
+
+    /// Interpret the argument text as a series of positional arguments and flags starting with
+    /// `++`.
+    pub fn options(&self) -> Result<Vec<OptionType>, CommandError> {
+        let res = self
+            .strings()?
+            .into_iter()
+            .map(|mut option| {
+                if !option.starts_with("++") {
+                    return OptionType::Positional(option);
+                }
+
+                let mut option = option.split_off(2);
+                let value = option.find('=').map(|idx| {
+                    let mut flag = option.split_off(idx);
+                    flag.split_off(1)
+                });
+
+                OptionType::Flag(option, value)
+            })
+            .collect();
+
+        Ok(res)
     }
 
     /// Interpret the argument text as a range specification.
@@ -557,6 +590,20 @@ mod tests {
             OpenTarget::Name("%bar%".into()),
         ];
         assert_eq!(arg.filenames::<()>().unwrap(), split);
+    }
+
+    #[test]
+    fn test_arg_options() {
+        let arg = arg!("++flag ++foo=bar pos1 ++baz=quux pos2 ++novalue=");
+        let split = vec![
+            OptionType::Flag("flag".into(), None),
+            OptionType::Flag("foo".into(), Some("bar".into())),
+            OptionType::Positional("pos1".into()),
+            OptionType::Flag("baz".into(), Some("quux".into())),
+            OptionType::Positional("pos2".into()),
+            OptionType::Flag("novalue".into(), Some("".into())),
+        ];
+        assert_eq!(arg.options().unwrap(), split);
     }
 
     #[test]
