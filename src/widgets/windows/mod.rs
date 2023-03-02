@@ -20,13 +20,14 @@ use crate::editing::{
     base::{
         Axis,
         CloseFlags,
-        CloseTarget,
         Count,
         FocusChange,
         MoveDir1D,
         MoveDir2D,
         OpenTarget,
         SizeChange,
+        WindowTarget,
+        WriteFlags,
     },
     context::EditContext,
     store::Store,
@@ -232,7 +233,7 @@ where
     /// Close one or more [Windows](Window).
     fn window_close(
         &mut self,
-        target: &CloseTarget,
+        target: &WindowTarget,
         flags: CloseFlags,
         ctx: &C,
         store: &mut Store<I>,
@@ -308,6 +309,16 @@ where
     fn window_switch(
         &mut self,
         target: &OpenTarget<I::WindowId>,
+        ctx: &C,
+        store: &mut Store<I>,
+    ) -> UIResult<EditInfo, I>;
+
+    /// Write one or more [Windows](Window).
+    fn window_write(
+        &mut self,
+        target: &WindowTarget,
+        path: Option<&str>,
+        flags: WriteFlags,
         ctx: &C,
         store: &mut Store<I>,
     ) -> UIResult<EditInfo, I>;

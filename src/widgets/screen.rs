@@ -52,7 +52,6 @@ use crate::editing::{
     application::{ApplicationInfo, EmptyInfo},
     base::{
         CloseFlags,
-        CloseTarget,
         CommandType,
         Count,
         FocusChange,
@@ -63,6 +62,8 @@ use crate::editing::{
         OpenTarget,
         PositionList,
         ScrollStyle,
+        TabTarget,
+        WindowTarget,
     },
     context::EditContext,
     store::Store,
@@ -77,7 +78,7 @@ where
     /// Close one or more tabs, and all of their [Windows](Window).
     fn tab_close(
         &mut self,
-        target: &CloseTarget,
+        target: &TabTarget,
         flags: CloseFlags,
         ctx: &C,
         store: &mut S,
@@ -169,7 +170,7 @@ impl<T> FocusList<T> {
     /// Try closing targeted items using `f` until one fails or all targets are closed.
     ///
     /// If the target cannot be closed, focus will be moved to it.
-    pub fn try_close<E, F, C>(&mut self, target: &CloseTarget, mut f: F, ctx: &C) -> Result<(), E>
+    pub fn try_close<E, F, C>(&mut self, target: &TabTarget, mut f: F, ctx: &C) -> Result<(), E>
     where
         F: FnMut(&mut T) -> Result<(), E>,
         C: EditContext,
@@ -177,7 +178,7 @@ impl<T> FocusList<T> {
         let mut result = Ok(());
 
         match target {
-            CloseTarget::All => {
+            TabTarget::All => {
                 let old = std::mem::take(&mut self.items);
 
                 // The first item we fail to close will be at the front.
@@ -196,7 +197,7 @@ impl<T> FocusList<T> {
                     self.items.push(item);
                 }
             },
-            CloseTarget::AllBut(fc) => {
+            TabTarget::AllBut(fc) => {
                 if let Some((idx, _)) = self.target(fc, ctx) {
                     let old = std::mem::take(&mut self.items);
 
@@ -225,7 +226,7 @@ impl<T> FocusList<T> {
                     }
                 }
             },
-            CloseTarget::Single(fc) => {
+            TabTarget::Single(fc) => {
                 if let Some((idx, _)) = self.target(fc, ctx) {
                     if let e @ Err(_) = f(&mut self.items[idx]) {
                         result = e;
@@ -541,13 +542,13 @@ where
 {
     fn tab_close(
         &mut self,
-        target: &CloseTarget,
+        target: &TabTarget,
         flags: CloseFlags,
         ctx: &C,
         store: &mut Store<I>,
     ) -> UIResult<EditInfo, I> {
         let mut filter = |tab: &mut WindowLayoutState<W, I>| -> UIResult<(), I> {
-            let _ = tab.window_close(&CloseTarget::All, flags, ctx, store);
+            let _ = tab.window_close(&WindowTarget::All, flags, ctx, store);
 
             if tab.windows() == 0 {
                 return Ok(());
@@ -1243,21 +1244,21 @@ mod tests {
         list.idx_last = 5;
 
         // Close the first several items before failing.
-        let res = list.try_close(&CloseTarget::All, close1, &ctx);
+        let res = list.try_close(&TabTarget::All, close1, &ctx);
         assert_eq!(list.as_ref(), &['c', 'd', 'e', 'f', 'g']);
         assert_eq!(res, Err('c'));
         assert_eq!(list.idx_curr, 0);
         assert_eq!(list.idx_last, 0);
 
         // Trying again makes no progress.
-        let res = list.try_close(&CloseTarget::All, close1, &ctx);
+        let res = list.try_close(&TabTarget::All, close1, &ctx);
         assert_eq!(list.as_ref(), &['c', 'd', 'e', 'f', 'g']);
         assert_eq!(res, Err('c'));
         assert_eq!(list.idx_curr, 0);
         assert_eq!(list.idx_last, 0);
 
         // Using close2() we make it all the way through.
-        let res = list.try_close(&CloseTarget::All, close2, &ctx);
+        let res = list.try_close(&TabTarget::All, close2, &ctx);
         assert_eq!(list.is_empty(), true);
         assert_eq!(res, Ok(()));
         assert_eq!(list.idx_curr, 0);
@@ -1273,7 +1274,7 @@ mod tests {
         list.idx_last = 4;
 
         // Try to close everything but 'e', but stop at 'c'.
-        let target = CloseTarget::AllBut(FocusChange::Current);
+        let target = TabTarget::AllBut(FocusChange::Current);
         let res = list.try_close(&target, close1, &ctx);
         assert_eq!(list.as_ref(), &['c', 'd', 'e', 'f', 'g']);
         assert_eq!(res, Err('c'));
@@ -1281,7 +1282,7 @@ mod tests {
         assert_eq!(list.idx_last, 0);
 
         // Trying again makes no progress.
-        let target = CloseTarget::AllBut(FocusChange::Offset(3.into(), true));
+        let target = TabTarget::AllBut(FocusChange::Offset(3.into(), true));
         let res = list.try_close(&target, close1, &ctx);
         assert_eq!(list.as_ref(), &['c', 'd', 'e', 'f', 'g']);
         assert_eq!(res, Err('c'));
@@ -1289,7 +1290,7 @@ mod tests {
         assert_eq!(list.idx_last, 0);
 
         // Using close2() we make it all the way through.
-        let target = CloseTarget::AllBut(FocusChange::Offset(3.into(), true));
+        let target = TabTarget::AllBut(FocusChange::Offset(3.into(), true));
         let res = list.try_close(&target, close2, &ctx);
         assert_eq!(list.as_ref(), &['e']);
         assert_eq!(res, Ok(()));
@@ -1306,7 +1307,7 @@ mod tests {
         list.idx_last = 0;
 
         // Cannot close 'c' using close1(); focus moves to 'c'.
-        let target = CloseTarget::Single(FocusChange::Offset(3.into(), true));
+        let target = TabTarget::Single(FocusChange::Offset(3.into(), true));
         let res = list.try_close(&target, close1, &ctx);
         assert_eq!(list.as_ref(), &['a', 'b', 'c', 'd', 'e', 'f', 'g']);
         assert_eq!(res, Err('c'));
@@ -1314,7 +1315,7 @@ mod tests {
         assert_eq!(list.idx_last, 5);
 
         // But we can close 'd' just fine.
-        let target = CloseTarget::Single(FocusChange::Offset(4.into(), true));
+        let target = TabTarget::Single(FocusChange::Offset(4.into(), true));
         let res = list.try_close(&target, close1, &ctx);
         assert_eq!(list.as_ref(), &['a', 'b', 'c', 'e', 'f', 'g']);
         assert_eq!(res, Ok(()));
@@ -1322,7 +1323,7 @@ mod tests {
         assert_eq!(list.idx_last, 4);
 
         // We can close 'c' using close2().
-        let target = CloseTarget::Single(FocusChange::Offset(3.into(), true));
+        let target = TabTarget::Single(FocusChange::Offset(3.into(), true));
         let res = list.try_close(&target, close2, &ctx);
         assert_eq!(list.as_ref(), &['a', 'b', 'e', 'f', 'g']);
         assert_eq!(res, Ok(()));

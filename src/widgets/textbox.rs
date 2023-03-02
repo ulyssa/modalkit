@@ -79,6 +79,7 @@ use crate::editing::{
         ViewportContext,
         WordStyle,
         Wrappable,
+        WriteFlags,
     },
     buffer::{CursorGroupId, FollowersInfo, HighlightInfo},
     context::EditContext,
@@ -237,6 +238,11 @@ where
     /// Get a reference to the shared buffer used by this text box.
     pub fn buffer(&self) -> SharedBuffer<I> {
         self.buffer.clone()
+    }
+
+    /// Indicates whether the buffer contents are readonly.
+    pub fn is_readonly(&self) -> bool {
+        self.readonly
     }
 
     /// Set whether the buffer contents are modifiable through the [Editable] trait.
@@ -603,6 +609,14 @@ where
 
     fn close(&mut self, _: CloseFlags, _: &mut Store<I>) -> bool {
         true
+    }
+
+    fn write(&mut self, _: Option<&str>, _: WriteFlags, _: &mut Store<I>) -> UIResult<EditInfo, I> {
+        if self.readonly {
+            return Err(EditError::ReadOnly.into());
+        } else {
+            return Ok(None);
+        }
     }
 
     fn draw(&mut self, area: Rect, buf: &mut Buffer, _: bool, _: &mut Store<I>) {

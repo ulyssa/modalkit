@@ -16,7 +16,6 @@ use crate::editing::{
     base::{
         Axis,
         CloseFlags,
-        CloseTarget,
         Count,
         Flip,
         FocusChange,
@@ -27,6 +26,9 @@ use crate::editing::{
         RangeEndingModifier,
         RangeEndingType,
         RangeSpec,
+        TabTarget,
+        WindowTarget,
+        WriteFlags,
     },
     context::EditContext,
 };
@@ -404,7 +406,7 @@ pub fn vim_cmd_close<C: EditContext, I: ApplicationInfo>(
     };
 
     let focus = window_range_target(&desc, ctx)?;
-    let target = CloseTarget::Single(focus);
+    let target = WindowTarget::Single(focus);
     let action = WindowAction::Close(target, flags).into();
 
     Ok(CommandStep::Continue(action, ctx.context.take()))
@@ -426,7 +428,7 @@ pub fn vim_cmd_only<C: EditContext, I: ApplicationInfo>(
     };
 
     let focus = window_range_target(&desc, ctx)?;
-    let target = CloseTarget::AllBut(focus);
+    let target = WindowTarget::AllBut(focus);
     let action = WindowAction::Close(target, flags).into();
 
     Ok(CommandStep::Continue(action, ctx.context.take()))
@@ -448,7 +450,7 @@ pub fn vim_cmd_quit<C: EditContext, I: ApplicationInfo>(
     };
 
     let focus = window_range_target(&desc, ctx)?;
-    let target = CloseTarget::Single(focus);
+    let target = WindowTarget::Single(focus);
     let action = WindowAction::Close(target, flags).into();
 
     Ok(CommandStep::Continue(action, ctx.context.take()))
@@ -469,7 +471,7 @@ pub fn vim_cmd_quitall<C: EditContext, I: ApplicationInfo>(
         CloseFlags::QUIT
     };
 
-    let target = CloseTarget::All;
+    let target = TabTarget::All;
     let action = TabAction::Close(target, flags).into();
 
     Ok(CommandStep::Continue(action, ctx.context.take()))
@@ -670,7 +672,7 @@ pub fn vim_cmd_tabclose<C: EditContext, I: ApplicationInfo>(
         .range
         .map(|r| range_to_fc(&r, false, &ctx.context))
         .unwrap_or(Ok(FocusChange::Current))?;
-    let target = CloseTarget::Single(change);
+    let target = TabTarget::Single(change);
     let flags = if desc.bang {
         CloseFlags::FQ
     } else {
@@ -694,7 +696,7 @@ pub fn vim_cmd_tabonly<C: EditContext, I: ApplicationInfo>(
         .range
         .map(|r| range_to_fc(&r, false, &ctx.context))
         .unwrap_or(Ok(FocusChange::Current))?;
-    let target = CloseTarget::AllBut(change);
+    let target = TabTarget::AllBut(change);
     let flags = if desc.bang {
         CloseFlags::FQ
     } else {
@@ -785,6 +787,51 @@ pub fn vim_cmd_vertical<C: EditContext, I: ApplicationInfo>(
     ctx.axis = Some(Axis::Vertical);
 
     Ok(CommandStep::Again(desc.arg.text))
+}
+
+/// The `:write` command.
+///
+/// *Aliases:* `w`
+///
+/// Write the window contents.
+pub fn vim_cmd_write<C: EditContext, I: ApplicationInfo>(
+    desc: CommandDescription,
+    ctx: &mut CommandContext<C>,
+) -> CommandResult<C, I> {
+    let mut args = desc.arg.strings()?;
+
+    if args.len() > 1 {
+        return Err(CommandError::InvalidArgument);
+    }
+
+    let filename = args.pop();
+    let target = WindowTarget::Single(FocusChange::Current);
+    let flags = if desc.bang {
+        WriteFlags::FORCE
+    } else {
+        WriteFlags::NONE
+    };
+    let action = WindowAction::Write(target, filename, flags);
+
+    Ok(CommandStep::Continue(action.into(), ctx.context.take()))
+}
+
+/// The `:wall` command.
+///
+/// Write the contents of all windows in the current tab.
+pub fn vim_cmd_write_all<C: EditContext, I: ApplicationInfo>(
+    desc: CommandDescription,
+    ctx: &mut CommandContext<C>,
+) -> CommandResult<C, I> {
+    let target = WindowTarget::All;
+    let flags = if desc.bang {
+        WriteFlags::FORCE
+    } else {
+        WriteFlags::NONE
+    };
+    let action = WindowAction::Write(target, None, flags);
+
+    Ok(CommandStep::Continue(action.into(), ctx.context.take()))
 }
 
 fn vim_cmd_filter<C: EditContext, I: ApplicationInfo>(
@@ -887,6 +934,8 @@ fn default_cmds<C: EditContext, I: ApplicationInfo>() -> Vec<VimCommand<C, I>> {
             names: strs!["tabl", "tablast"],
             f: vim_cmd_tablast,
         },
+        VimCommand { names: strs!["w", "write"], f: vim_cmd_write },
+        VimCommand { names: strs!["wa", "wall"], f: vim_cmd_write_all },
         VimCommand {
             names: strs!["hor", "horizontal"],
             f: vim_cmd_horizontal,
@@ -963,7 +1012,8 @@ mod tests {
 
         // Check that "q" and "quit" return the same Action.
         let act: Action =
-            WindowAction::Close(CloseTarget::Single(FocusChange::Current), CloseFlags::QUIT).into();
+            WindowAction::Close(WindowTarget::Single(FocusChange::Current), CloseFlags::QUIT)
+                .into();
         let res = cmds.input_cmd("q", ctx.clone());
         assert_eq!(res.unwrap(), vec![(act.clone(), ctx.clone())]);
 
@@ -972,7 +1022,7 @@ mod tests {
 
         // Check that "qa", "qall", "quita" and "quitall" return the same Actions, different from
         // the "q"/"quit" actions.
-        let act: Action = TabAction::Close(CloseTarget::All, CloseFlags::QUIT).into();
+        let act: Action = TabAction::Close(TabTarget::All, CloseFlags::QUIT).into();
         let res = cmds.input_cmd("qa", ctx.clone());
         assert_eq!(res.unwrap(), vec![(act.clone(), ctx.clone())]);
 

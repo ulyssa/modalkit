@@ -10,6 +10,7 @@
 use std::borrow::Cow;
 use std::cmp::{Ord, Ordering, PartialOrd};
 use std::fmt::Debug;
+use std::io::Write;
 use std::ops::Add;
 use std::ops::AddAssign;
 
@@ -706,6 +707,11 @@ impl EditRope {
         let rope = Rope::from(slice);
 
         EditRope { rope }
+    }
+
+    /// Write the contents of the [EditRope] to a writer.
+    pub fn write_to<T: Write>(&self, writer: T) -> Result<(), std::io::Error> {
+        self.rope.write_to(writer)
     }
 
     /// Calculate the max indexable column in a given line given the current context.

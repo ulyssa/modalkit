@@ -22,7 +22,7 @@ use crate::widgets::{TermOffset, TerminalCursor, Window, WindowOps};
 
 use super::size::{ResizeInfo, ResizeInfoTrail, MIN_WIN_LEN};
 use super::slot::WindowSlot;
-use super::tree::{SubtreeOps, TreeOps};
+use super::tree::{AxisTreeIterMut, SubtreeOps, TreeOps};
 use super::{
     winnr_cmp,
     AxisT,
@@ -54,7 +54,6 @@ use crate::editing::{
         Axis,
         Axis::{Horizontal, Vertical},
         CloseFlags,
-        CloseTarget,
         Count,
         FocusChange,
         MoveDir1D,
@@ -64,6 +63,8 @@ use crate::editing::{
         OpenTarget,
         PositionList,
         SizeChange,
+        WindowTarget,
+        WriteFlags,
     },
     context::EditContext,
     store::Store,
@@ -172,6 +173,58 @@ where
 
             node.for_each_value(&mut f);
         },
+    }
+}
+
+enum WrappedIterMut<'a, W> {
+    Horizontal(AxisTreeIterMut<'a, W, HorizontalT, VerticalT>),
+    Vertical(AxisTreeIterMut<'a, W, VerticalT, HorizontalT>),
+}
+
+struct SlotIter<'a, W> {
+    stack: Vec<WrappedIterMut<'a, WindowSlot<W>>>,
+}
+
+impl<'a, W> Iterator for SlotIter<'a, W> {
+    type Item = &'a mut WindowSlot<W>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            let last = self.stack.last_mut()?;
+
+            match last {
+                WrappedIterMut::Horizontal(node) => {
+                    match node.next() {
+                        None => {
+                            let _ = self.stack.pop();
+                        },
+                        Some(Value::Window(w, _)) => {
+                            return Some(w);
+                        },
+                        Some(Value::Tree(t, _)) => {
+                            let iter = WrappedIterMut::Vertical(t.iter_mut());
+                            self.stack.push(iter);
+                            continue;
+                        },
+                    }
+                },
+                WrappedIterMut::Vertical(node) => {
+                    match node.next() {
+                        None => {
+                            let _ = self.stack.pop();
+                        },
+                        Some(Value::Window(w, _)) => {
+                            return Some(w);
+                        },
+                        Some(Value::Tree(t, _)) => {
+                            let iter = WrappedIterMut::Horizontal(t.iter_mut());
+                            self.stack.push(iter);
+                            continue;
+                        },
+                    }
+                },
+            }
+        }
     }
 }
 
@@ -1113,6 +1166,14 @@ where
         }
     }
 
+    /// Iterate over the [WindowSlot] values in the window layout.
+    fn slots(&mut self) -> SlotIter<'_, W> {
+        let iter = SubtreeOps::iter_mut(&mut self.root);
+        let stack = vec![WrappedIterMut::Horizontal(iter)];
+
+        SlotIter { stack }
+    }
+
     /// Fetch a reference to the currently focused [Window].
     pub fn get(&self) -> Option<&W> {
         self.get_slot().map(WindowSlot::get)
@@ -1453,7 +1514,7 @@ where
 
     fn window_close(
         &mut self,
-        target: &CloseTarget,
+        target: &WindowTarget,
         flags: CloseFlags,
         ctx: &C,
         _: &mut Store<I>,
@@ -1470,21 +1531,21 @@ where
         self.zoom = false;
 
         match target {
-            CloseTarget::Single(focus) => {
+            WindowTarget::Single(focus) => {
                 if let Some(target) = self._target(focus, ctx) {
                     self.close(target, flags);
                 }
 
                 return Ok(None);
             },
-            CloseTarget::AllBut(focus) => {
+            WindowTarget::AllBut(focus) => {
                 if let Some(target) = self._target(focus, ctx) {
                     self.only(target, flags);
                 }
 
                 return Ok(None);
             },
-            CloseTarget::All => {
+            WindowTarget::All => {
                 self.root = None;
 
                 return Ok(None);
@@ -1560,6 +1621,47 @@ where
         Ok(None)
     }
 
+    fn window_write(
+        &mut self,
+        target: &WindowTarget,
+        path: Option<&str>,
+        flags: WriteFlags,
+        ctx: &C,
+        store: &mut Store<I>,
+    ) -> UIResult<EditInfo, I> {
+        match target {
+            WindowTarget::Single(focus) => {
+                if let Some(target) = self._target(focus, ctx) {
+                    if let Some(w) = self.root.get_mut(target) {
+                        return w.write(path, flags, store);
+                    }
+                }
+
+                return Ok(None);
+            },
+            WindowTarget::AllBut(focus) => {
+                let target = self._target(focus, ctx);
+
+                for (i, slot) in self.slots().enumerate() {
+                    if matches!(target, Some(idx) if idx == i) {
+                        continue;
+                    }
+
+                    let _ = slot.write(path, flags, store)?;
+                }
+
+                return Ok(None);
+            },
+            WindowTarget::All => {
+                for slot in self.slots() {
+                    let _ = slot.write(path, flags, store)?;
+                }
+
+                return Ok(None);
+            },
+        }
+    }
+
     fn window_zoom_toggle(&mut self, _: &C, _: &mut Store<I>) -> EditResult<EditInfo, I> {
         self.zoom = self.zoom.not();
 
@@ -1620,6 +1722,11 @@ where
                 self.window_split(target, *axis, *rel, count, ctx, store)?
             },
             WindowAction::Switch(target) => self.window_switch(target, ctx, store)?,
+            WindowAction::Write(target, path, flags) => {
+                let path = path.as_ref().map(String::as_str);
+
+                self.window_write(target, path, *flags, ctx, store)?
+            },
             WindowAction::ZoomToggle => self.window_zoom_toggle(ctx, store)?,
         };
 
@@ -1851,19 +1958,20 @@ mod tests {
 
     #[derive(Clone, Debug, Eq, PartialEq)]
     pub struct TestWindow {
+        dirty: bool,
         term_area: Rect,
         id: Option<usize>,
     }
 
     impl TestWindow {
         fn new() -> Self {
-            TestWindow { term_area: Rect::default(), id: None }
+            TestWindow { dirty: true, term_area: Rect::default(), id: None }
         }
     }
 
     impl From<Option<usize>> for TestWindow {
         fn from(id: Option<usize>) -> Self {
-            TestWindow { term_area: Rect::default(), id }
+            TestWindow { dirty: true, term_area: Rect::default(), id }
         }
     }
 
@@ -1878,8 +1986,32 @@ mod tests {
             self.clone()
         }
 
-        fn close(&mut self, _: CloseFlags, _: &mut Store<TestApp>) -> bool {
-            true
+        fn close(&mut self, flags: CloseFlags, store: &mut Store<TestApp>) -> bool {
+            if !flags.contains(CloseFlags::WRITE) {
+                return true;
+            }
+
+            let flags = if flags.contains(CloseFlags::FORCE) {
+                WriteFlags::FORCE
+            } else {
+                WriteFlags::NONE
+            };
+
+            self.write(None, flags, store).is_ok()
+        }
+
+        fn write(
+            &mut self,
+            _: Option<&str>,
+            flags: WriteFlags,
+            _: &mut Store<TestApp>,
+        ) -> UIResult<EditInfo, TestApp> {
+            if flags.contains(WriteFlags::FORCE) {
+                self.dirty = false;
+                Ok(None)
+            } else {
+                Err(UIError::Failure("Cannot write".into()))
+            }
         }
 
         fn draw(&mut self, area: Rect, _: &mut Buffer, _: bool, _: &mut Store<TestApp>) {
@@ -2011,7 +2143,7 @@ mod tests {
         assert_eq!(tree.root.size(), 100);
 
         for n in 0..100 {
-            window_close!(tree, CloseTarget::Single(fc!(100 - n)), flags, &ctx, store);
+            window_close!(tree, WindowTarget::Single(fc!(100 - n)), flags, &ctx, store);
             assert_eq!(tree.root.size(), 99 - n);
         }
 
@@ -2021,7 +2153,7 @@ mod tests {
         assert_eq!(tree.root.size(), 100);
 
         for n in 0..100 {
-            window_close!(tree, CloseTarget::Single(fc!(1)), flags, &ctx, store);
+            window_close!(tree, WindowTarget::Single(fc!(1)), flags, &ctx, store);
             assert_eq!(tree.root.size(), 99 - n);
         }
 
@@ -2042,7 +2174,7 @@ mod tests {
         for n in 0..1000 {
             let size = tree.root.size();
             let target = rng.gen_range(1..=size);
-            window_close!(tree, CloseTarget::Single(fc!(target)), flags, &ctx, store);
+            window_close!(tree, WindowTarget::Single(fc!(target)), flags, &ctx, store);
             assert_eq!(tree.root.size(), 999 - n);
         }
     }
@@ -2133,19 +2265,19 @@ mod tests {
         let (mut tree, mut store, ctx) = three_by_three();
         let flags = CloseFlags::NONE;
 
-        let target = CloseTarget::Single(fc!(8));
+        let target = WindowTarget::Single(fc!(8));
         assert!(window_close!(tree, target, flags, &ctx, store).is_none());
         assert_eq!(tree.root.size(), 8);
 
-        let target = CloseTarget::Single(fc!(6));
+        let target = WindowTarget::Single(fc!(6));
         assert!(window_close!(tree, target, flags, &ctx, store).is_none());
         assert_eq!(tree.root.size(), 7);
 
-        let target = CloseTarget::Single(fc!(3));
+        let target = WindowTarget::Single(fc!(3));
         assert!(window_close!(tree, target, flags, &ctx, store).is_none());
         assert_eq!(tree.root.size(), 6);
 
-        let target = CloseTarget::Single(fc!(2));
+        let target = WindowTarget::Single(fc!(2));
         assert!(window_close!(tree, target, flags, &ctx, store).is_none());
         assert_eq!(tree.root.size(), 5);
 
@@ -2166,29 +2298,29 @@ mod tests {
         assert_eq!(tree.root.get(3).unwrap().get().id, Some(6));
         assert_eq!(tree.root.get(4).unwrap().get().id, Some(8));
 
-        let target = CloseTarget::Single(fc!(2));
+        let target = WindowTarget::Single(fc!(2));
         assert!(window_close!(tree, target, flags, &ctx, store).is_none());
         assert_eq!(tree.root.size(), 4);
 
-        let target = CloseTarget::Single(fc!(3));
+        let target = WindowTarget::Single(fc!(3));
         assert!(window_close!(tree, target, flags, &ctx, store).is_none());
         assert_eq!(tree.root.size(), 3);
 
-        let target = CloseTarget::Single(fc!(3));
+        let target = WindowTarget::Single(fc!(3));
         assert!(window_close!(tree, target, flags, &ctx, store).is_none());
         assert_eq!(tree.root.size(), 2);
 
-        let target = CloseTarget::Single(fc!(1));
+        let target = WindowTarget::Single(fc!(1));
         assert!(window_close!(tree, target, flags, &ctx, store).is_none());
         assert_eq!(tree.root.size(), 1);
 
         // Can't close last window because flags are NONE.
-        let target = CloseTarget::Single(fc!(1));
+        let target = WindowTarget::Single(fc!(1));
         assert!(window_close!(tree, target, flags, &ctx, store).is_none());
         assert_eq!(tree.root.size(), 1);
 
         // Passing QUIT does the job.
-        let target = CloseTarget::Single(fc!(1));
+        let target = WindowTarget::Single(fc!(1));
         let flags = CloseFlags::QUIT;
         assert!(window_close!(tree, target, flags, &ctx, store).is_none());
         assert_eq!(tree.root.size(), 0);
@@ -2198,7 +2330,7 @@ mod tests {
     fn test_window_close_allbut() {
         for idx in 1usize..=9usize {
             let (mut tree, mut store, ctx) = three_by_three();
-            let target = CloseTarget::AllBut(fc!(idx));
+            let target = WindowTarget::AllBut(fc!(idx));
             assert!(window_close!(tree, target, CloseFlags::NONE, &ctx, store).is_none());
             assert_eq!(tree.root.size(), 1);
             assert_eq!(tree.get().unwrap().id, Some(idx.saturating_sub(1)));
@@ -2208,9 +2340,27 @@ mod tests {
     #[test]
     fn test_window_close_all() {
         let (mut tree, mut store, ctx) = three_by_three();
-        let target = CloseTarget::All;
+        let target = WindowTarget::All;
         assert!(window_close!(tree, target, CloseFlags::NONE, &ctx, store).is_none());
         assert_eq!(tree.root.size(), 0);
+    }
+
+    #[test]
+    fn test_window_write() {
+        let (mut tree, mut store, ctx) = mktree();
+        let target = WindowTarget::All;
+
+        // Window starts out with a dirty state.
+        assert_eq!(tree.get().unwrap().dirty, true);
+
+        // Write without FORCE fails.
+        let res = tree.window_write(&target, None, WriteFlags::NONE, &ctx, &mut store);
+        assert!(res.is_err());
+
+        // Write with FORCE succeeds.
+        tree.window_write(&target, None, WriteFlags::FORCE, &ctx, &mut store)
+            .unwrap();
+        assert_eq!(tree.get().unwrap().dirty, false);
     }
 
     #[test]

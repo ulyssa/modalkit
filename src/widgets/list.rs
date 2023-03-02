@@ -89,6 +89,7 @@ use crate::editing::{
         TargetShape,
         ViewportContext,
         WordStyle,
+        WriteFlags,
     },
     context::EditContext,
     cursor::{Cursor, CursorGroup, CursorState},
@@ -1173,6 +1174,10 @@ where
 
     fn close(&mut self, _: CloseFlags, _: &mut Store<I>) -> bool {
         true
+    }
+
+    fn write(&mut self, _: Option<&str>, _: WriteFlags, _: &mut Store<I>) -> UIResult<EditInfo, I> {
+        Err(UIError::Failure("Cannot write list".into()))
     }
 
     fn draw(&mut self, area: Rect, buf: &mut Buffer, focused: bool, store: &mut Store<I>) {

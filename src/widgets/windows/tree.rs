@@ -1,5 +1,6 @@
 use std::cmp::Ordering;
 use std::marker::PhantomData;
+use std::ops::DerefMut;
 
 use super::layout::LayoutOps;
 use super::size::{SizeDescription, MIN_WIN_LEN};
@@ -82,8 +83,11 @@ where
     /// Fetch a mutable reference to the n<sup>th</sup> `Value` in the tree.
     fn val_mut(&mut self, at: usize) -> Option<&mut Value<W, X, Y>>;
 
-    /// Iterate over each [Value] in this tree.
+    /// Iterate over immutable references to each [Value] in this tree.
     fn iter(&self) -> AxisTreeIter<'_, W, X, Y>;
+
+    /// Iterate over mutable references to each [Value] in this tree.
+    fn iter_mut(&mut self) -> AxisTreeIterMut<'_, W, X, Y>;
 
     /// Call a function for each [Value] in this tree.
     ///
@@ -127,6 +131,101 @@ where
 
     /// Insert a [Window] at one of the sides of the window layout.
     fn insert_side(&mut self, open: W, side: MoveDir2D) -> usize;
+}
+
+struct AxisTreeIterTrail<'a, W, X: AxisT, Y: AxisT> {
+    value: &'a mut Value<W, X, Y>,
+    right: &'a mut AxisTree<W, X, Y>,
+    parent: AxisTreeIterTrailParent<'a, W, X, Y>,
+}
+
+impl<'a, W, X, Y> AxisTreeIterTrail<'a, W, X, Y>
+where
+    X: AxisT,
+    Y: AxisT,
+{
+    fn new(
+        tree: &'a mut AxisTreeNode<W, X, Y>,
+        parent: AxisTreeIterTrailParent<'a, W, X, Y>,
+    ) -> Self {
+        let mut trail = AxisTreeIterTrail {
+            value: &mut tree.value,
+            right: &mut tree.right,
+            parent,
+        };
+        let mut left = &mut tree.left;
+
+        while let Some(node) = left {
+            let parent = Some(Box::new(trail));
+            trail = AxisTreeIterTrail {
+                value: &mut node.value,
+                right: &mut node.right,
+                parent,
+            };
+            left = &mut node.left;
+        }
+
+        trail
+    }
+
+    fn next(self) -> (&'a mut Value<W, X, Y>, AxisTreeIterTrailParent<'a, W, X, Y>) {
+        if let Some(node) = self.right {
+            let trail = AxisTreeIterTrail::new(node, self.parent);
+            let trail = Some(Box::new(trail));
+
+            (self.value, trail)
+        } else {
+            (self.value, self.parent)
+        }
+    }
+}
+
+type AxisTreeIterTrailParent<'a, W, X, Y> = Option<Box<AxisTreeIterTrail<'a, W, X, Y>>>;
+
+pub(super) struct AxisTreeIterMut<'a, W, X: AxisT, Y: AxisT> {
+    current: AxisTreeIterTrailParent<'a, W, X, Y>,
+}
+
+impl<'a, W, X, Y> From<&'a mut AxisTreeNode<W, X, Y>> for AxisTreeIterMut<'a, W, X, Y>
+where
+    X: AxisT,
+    Y: AxisT,
+{
+    fn from(node: &'a mut AxisTreeNode<W, X, Y>) -> Self {
+        let current = AxisTreeIterTrail::new(node, None);
+        let current = Some(Box::new(current));
+
+        AxisTreeIterMut { current }
+    }
+}
+
+impl<'a, W, X, Y> From<&'a mut AxisTree<W, X, Y>> for AxisTreeIterMut<'a, W, X, Y>
+where
+    X: AxisT,
+    Y: AxisT,
+{
+    fn from(node: &'a mut AxisTree<W, X, Y>) -> Self {
+        match node {
+            Some(root) => AxisTreeIterMut::from(root.deref_mut()),
+            None => AxisTreeIterMut { current: None },
+        }
+    }
+}
+
+impl<'a, W, X, Y> Iterator for AxisTreeIterMut<'a, W, X, Y>
+where
+    X: AxisT,
+    Y: AxisT,
+{
+    type Item = &'a mut Value<W, X, Y>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let current = self.current.take()?;
+        let (value, current) = current.next();
+        self.current = current;
+
+        return Some(value);
+    }
 }
 
 pub(super) struct AxisTreeIter<'a, W, X, Y>
@@ -430,6 +529,10 @@ where
         }
     }
 
+    fn iter_mut(&mut self) -> AxisTreeIterMut<'_, W, X, Y> {
+        AxisTreeIterMut::from(self)
+    }
+
     fn for_each_value<F: FnMut(&mut Value<W, X, Y>)>(&mut self, f: &mut F) {
         self.left.for_each_value(f);
         f(&mut self.value);
@@ -473,6 +576,10 @@ where
 
     fn iter(&self) -> AxisTreeIter<'_, W, X, Y> {
         AxisTreeIter { previous: Vec::new(), current: self }
+    }
+
+    fn iter_mut(&mut self) -> AxisTreeIterMut<'_, W, X, Y> {
+        AxisTreeIterMut::from(self)
     }
 
     fn for_each_value<F: FnMut(&mut Value<W, X, Y>)>(&mut self, f: &mut F) {

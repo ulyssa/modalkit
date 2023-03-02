@@ -887,14 +887,29 @@ pub enum OpenTarget<W: ApplicationWindowId> {
     Unnamed,
 }
 
+/// This represents what tabs are targeted by a tab command.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum TabTarget {
+    /// Close the tab targeted by FocusChange.
+    Single(FocusChange),
+
+    /// Close all tab *except* for the one targeted by FocusChange.
+    AllBut(FocusChange),
+
+    /// Close all tabs.
+    All,
+}
+
 /// This represents what windows are targeted by a window command.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub enum CloseTarget {
-    /// Close the element targeted by FocusChange.
+pub enum WindowTarget {
+    /// Close the window targeted by [FocusChange].
     Single(FocusChange),
-    /// Close all elements *except* for the one targeted by FocusChange.
+
+    /// Close all windows *except* for the one targeted by [FocusChange].
     AllBut(FocusChange),
-    /// Close all elements.
+
+    /// Close all windows.
     All,
 }
 
@@ -1064,16 +1079,41 @@ impl<T> From<T> for Specifier<T> {
 }
 
 bitflags! {
-    /// These flags are used to specify the behaviour surrounding closing a window.
+    /// These flags are used to specify the behaviour while writing a window.
+    pub struct WriteFlags: u32 {
+        /// No flags set.
+        const NONE = 0b00000000;
+
+        /// Ignore any issues during closing.
+        const FORCE = 0b00000001;
+    }
+}
+
+bitflags! {
+    /// These flags are used to specify the behaviour while writing a window.
+    pub struct OpenFlags: u32 {
+        /// No flags set.
+        const NONE = 0b00000000;
+
+        /// Try to ignore any issues during opening.
+        const FORCE = 0b00000001;
+
+        /// Attemp to create the target content if it doesn't already exist.
+        const CREATE = 0b00000010;
+    }
+}
+
+bitflags! {
+    /// These flags are used to specify the behaviour while closing a window.
     pub struct CloseFlags: u32 {
         /// No flags set.
         const NONE = 0b00000000;
 
-        /// Write while closing.
-        const WRITE = 0b00000001;
-
         /// Ignore any issues during closing.
-        const FORCE = 0b00000010;
+        const FORCE = 0b00000001;
+
+        /// Write while closing.
+        const WRITE = 0b00000010;
 
         /// Quit if this is the last window.
         const QUIT  = 0b00000100;

@@ -1,6 +1,6 @@
 use std::collections::hash_map::{Entry, HashMap};
 use std::collections::VecDeque;
-use std::fs::{DirEntry, FileType};
+use std::fs::{DirEntry, File, FileType};
 use std::io::{stdout, Stdout};
 use std::path::Path;
 use std::sync::{Arc, RwLock};
@@ -62,6 +62,7 @@ use modalkit::{
             ScrollStyle,
             ViewportContext,
             WordStyle,
+            WriteFlags,
         },
         buffer::EditBuffer,
         context::{EditContext, Resolve},
@@ -210,6 +211,59 @@ impl WindowOps<EditorInfo> for EditorWindow {
         }
     }
 
+    fn write(
+        &mut self,
+        path: Option<&str>,
+        flags: WriteFlags,
+        store: &mut Store<EditorInfo>,
+    ) -> UIResult<EditInfo, EditorInfo> {
+        match self {
+            EditorWindow::Text(tbox) => {
+                let buffer = tbox.buffer();
+                let buffer = buffer.read().unwrap();
+
+                let id = match buffer.id() {
+                    EditorContentId::File(id) => id,
+                    _ => {
+                        let msg = "Only file buffers can be written";
+                        let err = UIError::Failure(msg.into());
+
+                        return Err(err);
+                    },
+                };
+
+                if tbox.is_readonly() && !flags.contains(WriteFlags::FORCE) {
+                    return Err(EditError::ReadOnly.into());
+                }
+
+                let path = if let Some(p) = path {
+                    p
+                } else {
+                    let val = store.application.filenames.iter().find(|(_, index)| id == **index);
+
+                    if let Some((path, _)) = val {
+                        path.as_str()
+                    } else {
+                        let msg = "Could not determine filename to write to";
+                        let err = UIError::Failure(msg.into());
+
+                        return Err(err);
+                    }
+                };
+
+                buffer.get().write_to(File::create(path)?)?;
+
+                Ok(None)
+            },
+            EditorWindow::Listing(_) => {
+                let msg = "Cannot write directory listing";
+                let err = UIError::Failure(msg.into());
+
+                Err(err)
+            },
+        }
+    }
+
     fn draw(&mut self, area: Rect, buf: &mut Buffer, focused: bool, store: &mut Store<EditorInfo>) {
         match self {
             EditorWindow::Text(tbox) => tbox.draw(area, buf, focused, store),
@@ -273,6 +327,7 @@ fn load_file(name: String, store: &mut Store<EditorInfo>) -> UIResult<EditorWind
 
     if index == store.application.fileindex {
         store.application.fileindex += 1;
+        store.application.filenames.insert(name, index);
     }
 
     return Ok(window);

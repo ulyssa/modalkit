@@ -1,9 +1,9 @@
 use tui::{buffer::Buffer, layout::Rect};
 
 use crate::{
-    editing::action::{Jumpable, UIResult},
+    editing::action::{EditInfo, Jumpable, UIResult},
     editing::application::ApplicationInfo,
-    editing::base::{CloseFlags, MoveDir1D, PositionList, WordStyle},
+    editing::base::{CloseFlags, MoveDir1D, PositionList, WordStyle, WriteFlags},
     editing::store::Store,
     widgets::{TermOffset, TerminalCursor, WindowOps},
 };
@@ -187,6 +187,15 @@ where
         }
 
         return true;
+    }
+
+    fn write(
+        &mut self,
+        path: Option<&str>,
+        flags: WriteFlags,
+        store: &mut Store<I>,
+    ) -> UIResult<EditInfo, I> {
+        self.current.write(path, flags, store)
     }
 
     fn draw(&mut self, area: Rect, buf: &mut Buffer, focused: bool, store: &mut Store<I>) {

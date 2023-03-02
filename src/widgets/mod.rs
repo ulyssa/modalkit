@@ -21,7 +21,17 @@ use crossterm::{
 use crate::editing::{
     action::{Action, EditInfo, EditResult, UIResult},
     application::ApplicationInfo,
-    base::{Axis, CloseFlags, Count, MoveDir1D, MoveDir2D, MovePosition, ScrollSize, WordStyle},
+    base::{
+        Axis,
+        CloseFlags,
+        Count,
+        MoveDir1D,
+        MoveDir2D,
+        MovePosition,
+        ScrollSize,
+        WordStyle,
+        WriteFlags,
+    },
     store::Store,
 };
 
@@ -121,6 +131,14 @@ pub trait WindowOps<I: ApplicationInfo>: TerminalCursor {
 
     /// Returns the currently selected text in this window.
     fn get_selected_word(&self) -> Option<String>;
+
+    /// Write the contents of the window.
+    fn write(
+        &mut self,
+        path: Option<&str>,
+        flags: WriteFlags,
+        store: &mut Store<I>,
+    ) -> UIResult<EditInfo, I>;
 }
 
 /// A widget that the user can open and close on the screen.

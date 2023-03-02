@@ -424,8 +424,8 @@ pub enum MacroAction {
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[non_exhaustive]
 pub enum TabAction<I: ApplicationInfo> {
-    /// Close the [CloseTarget] tabs with [CloseFlags] options.
-    Close(CloseTarget, CloseFlags),
+    /// Close the [TabTarget] tabs with [CloseFlags] options.
+    Close(TabTarget, CloseFlags),
 
     /// Extract the currently focused window from the currently focused tab, and place it in a new
     /// tab.
@@ -466,8 +466,8 @@ where
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[non_exhaustive]
 pub enum WindowAction<I: ApplicationInfo> {
-    /// Close the [CloseTarget] windows with [CloseFlags] options.
-    Close(CloseTarget, CloseFlags),
+    /// Close the [WindowTarget] windows with [CloseFlags] options.
+    Close(WindowTarget, CloseFlags),
 
     /// Exchange the currently focused window with the window targeted by [FocusChange].
     Exchange(FocusChange),
@@ -501,6 +501,9 @@ pub enum WindowAction<I: ApplicationInfo> {
 
     /// Resize the currently focused window according to [SizeChange].
     Resize(Axis, SizeChange),
+
+    /// Write the contents of the windows targeted by [WindowTarget].
+    Write(WindowTarget, Option<String>, WriteFlags),
 
     /// Zoom in on the currently focused window so that it takes up the whole screen. If there is
     /// already a zoomed-in window, then return to showing all windows.

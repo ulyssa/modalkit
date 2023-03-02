@@ -71,7 +71,6 @@ use crate::editing::{
         Case,
         Char,
         CloseFlags,
-        CloseTarget,
         CommandType,
         Count,
         CursorEnd,
@@ -103,6 +102,7 @@ use crate::editing::{
         Specifier,
         TargetShape,
         TargetShapeFilter,
+        WindowTarget,
         WordStyle,
     },
 };
@@ -1394,7 +1394,7 @@ fn default_keys<I: ApplicationInfo>() -> Vec<(MappedModes, &'static str, InputSt
         ( NVMAP, "<C-U>", scroll2d!(MoveDir2D::Up, ScrollSize::HalfPage) ),
         ( NVMAP, "<C-V>", visual!(TargetShape::BlockWise) ),
         ( NVMAP, "<C-W>b", window_focus!(FocusChange::Position(MovePosition::End)) ),
-        ( NVMAP, "<C-W>c", window_close!(CloseTarget::Single, FocusChange::Current, FocusChange::Offset(Count::Contextual, true)) ),
+        ( NVMAP, "<C-W>c", window_close!(WindowTarget::Single, FocusChange::Current, FocusChange::Offset(Count::Contextual, true)) ),
         ( NVMAP, "<C-W>d", unmapped!() ),
         ( NVMAP, "<C-W>g<Tab>", tab_focus!(FocusChange::PreviouslyFocused) ),
         ( NVMAP, "<C-W>h", window_focus!(FocusChange::Direction2D(MoveDir2D::Left, Count::Contextual)) ),
@@ -1407,9 +1407,9 @@ fn default_keys<I: ApplicationInfo>() -> Vec<(MappedModes, &'static str, InputSt
         ( NVMAP, "<C-W>l", window_focus!(FocusChange::Direction2D(MoveDir2D::Right, Count::Contextual)) ),
         ( NVMAP, "<C-W>L", window!(WindowAction::MoveSide(MoveDir2D::Right)) ),
         ( NVMAP, "<C-W>n", window_file!(OpenTarget::Unnamed) ),
-        ( NVMAP, "<C-W>o", window_quit!(CloseTarget::AllBut, FocusChange::Current, FocusChange::Offset(Count::Contextual, true)) ),
+        ( NVMAP, "<C-W>o", window_quit!(WindowTarget::AllBut, FocusChange::Current, FocusChange::Offset(Count::Contextual, true)) ),
         ( NVMAP, "<C-W>p", window_focus!(FocusChange::PreviouslyFocused) ),
-        ( NVMAP, "<C-W>q", window_quit!(CloseTarget::Single, FocusChange::Current, FocusChange::Offset(Count::Contextual, true)) ),
+        ( NVMAP, "<C-W>q", window_quit!(WindowTarget::Single, FocusChange::Current, FocusChange::Offset(Count::Contextual, true)) ),
         ( NVMAP, "<C-W>r", window!(WindowAction::Rotate(MoveDir1D::Next)) ),
         ( NVMAP, "<C-W>R", window!(WindowAction::Rotate(MoveDir1D::Previous)) ),
         ( NVMAP, "<C-W>s", window_split!(Axis::Horizontal) ),
@@ -1437,8 +1437,8 @@ fn default_keys<I: ApplicationInfo>() -> Vec<(MappedModes, &'static str, InputSt
         ( NVMAP, "<C-W><C-K>", window_focus!(FocusChange::Direction2D(MoveDir2D::Up, Count::Contextual)) ),
         ( NVMAP, "<C-W><C-L>", window_focus!(FocusChange::Direction2D(MoveDir2D::Right, Count::Contextual)) ),
         ( NVMAP, "<C-W><C-N>", window_file!(OpenTarget::Unnamed) ),
-        ( NVMAP, "<C-W><C-O>", window_quit!(CloseTarget::AllBut, FocusChange::Current, FocusChange::Offset(Count::Contextual, true)) ),
-        ( NVMAP, "<C-W><C-Q>", window_quit!(CloseTarget::Single, FocusChange::Current, FocusChange::Offset(Count::Contextual, true)) ),
+        ( NVMAP, "<C-W><C-O>", window_quit!(WindowTarget::AllBut, FocusChange::Current, FocusChange::Offset(Count::Contextual, true)) ),
+        ( NVMAP, "<C-W><C-Q>", window_quit!(WindowTarget::Single, FocusChange::Current, FocusChange::Offset(Count::Contextual, true)) ),
         ( NVMAP, "<C-W><C-R>", window!(WindowAction::Rotate(MoveDir1D::Next)) ),
         ( NVMAP, "<C-W><C-S>", window_split!(Axis::Horizontal) ),
         ( NVMAP, "<C-W><C-T>", window_focus!(FocusChange::Position(MovePosition::Beginning)) ),
@@ -1594,8 +1594,8 @@ fn default_keys<I: ApplicationInfo>() -> Vec<(MappedModes, &'static str, InputSt
         ( NMAP, "y", edit_motion!(EditAction::Yank) ),
         ( NMAP, "yy", edit_lines!(EditAction::Yank) ),
         ( NMAP, "Y", edit_lines!(EditAction::Yank) ),
-        ( NMAP, "ZZ", window_close_one!(CloseTarget::Single, FocusChange::Current, CloseFlags::WQ) ),
-        ( NMAP, "ZQ", window_close_one!(CloseTarget::Single, FocusChange::Current, CloseFlags::FQ) ),
+        ( NMAP, "ZZ", window_close_one!(WindowTarget::Single, FocusChange::Current, CloseFlags::WQ) ),
+        ( NMAP, "ZQ", window_close_one!(WindowTarget::Single, FocusChange::Current, CloseFlags::FQ) ),
         ( NMAP, "=", edit_motion!(EditAction::Indent(IndentChange::Auto)) ),
         ( NMAP, "==", edit_lines!(EditAction::Indent(IndentChange::Auto)) ),
         ( NMAP, "<", edit_motion!(EditAction::Indent(IndentChange::Decrease(Count::Exact(1)))) ),
@@ -3951,7 +3951,7 @@ mod tests {
         let mut ctx = VimContext::default();
 
         // Without a count, ^Wo closes all windows besides the currently focused one.
-        let target = CloseTarget::AllBut(FocusChange::Current);
+        let target = WindowTarget::AllBut(FocusChange::Current);
         let act: Action = WindowAction::Close(target, CloseFlags::QUIT).into();
 
         ctx.action.count = None;
@@ -3967,7 +3967,7 @@ mod tests {
         assert_normal!(vm, ctx);
 
         // With a count ^Wo closes all but the specified window.
-        let target = CloseTarget::AllBut(FocusChange::Offset(Count::Contextual, true));
+        let target = WindowTarget::AllBut(FocusChange::Offset(Count::Contextual, true));
         let act: Action = WindowAction::Close(target, CloseFlags::QUIT).into();
 
         ctx.action.count = Some(5);
