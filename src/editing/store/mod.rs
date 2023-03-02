@@ -27,11 +27,13 @@ use crate::editing::history::HistoryList;
 use crate::editing::rope::EditRope;
 
 mod buffer;
+mod complete;
 mod cursor;
 mod digraph;
 mod register;
 
 pub use self::buffer::{BufferStore, SharedBuffer};
+pub use self::complete::CompletionStore;
 pub use self::cursor::{AdjustStore, CursorStore, GlobalAdjustable};
 pub use self::digraph::DigraphStore;
 pub use self::register::{RegisterCell, RegisterError, RegisterPutFlags, RegisterStore};
@@ -43,6 +45,9 @@ const SEARCH_HISTORY_LEN: usize = 50;
 pub struct Store<I: ApplicationInfo> {
     /// Tracks what [buffers](crate::editing::buffer::EditBuffer) have been created.
     pub buffers: BufferStore<I>,
+
+    /// Tracks information used for text completions.
+    pub completions: CompletionStore,
 
     /// Tracks mapped digraphs.
     pub digraphs: DigraphStore,
@@ -74,6 +79,7 @@ where
     pub fn new(application: I::Store) -> Self {
         Store {
             buffers: BufferStore::new(),
+            completions: CompletionStore::default(),
             digraphs: DigraphStore::default(),
             registers: RegisterStore::default(),
             cursors: CursorStore::default(),

@@ -4,11 +4,15 @@
 //!
 //! These components allow parsing Vim commands and turning them into
 //! [actions](crate::editing::action::Action).
+use std::borrow::Cow;
 use std::cmp::Ordering;
 use std::fmt;
+use std::str::FromStr;
 
-use crate::input::commands::{Command, CommandError, CommandMachine, CommandStep, InputCmdContext};
-use crate::input::InputContext;
+use crate::input::{
+    commands::{Command, CommandError, CommandMachine, CommandStep, InputCmdContext},
+    InputContext,
+};
 
 use crate::editing::{
     action::{Action, TabAction, WindowAction},
@@ -28,9 +32,13 @@ use crate::editing::{
         RangeSpec,
         TabTarget,
         WindowTarget,
+        WordStyle,
         WriteFlags,
     },
+    completion::complete_path,
     context::EditContext,
+    cursor::Cursor,
+    rope::EditRope,
 };
 
 use super::VimContext;
@@ -47,8 +55,11 @@ pub type CommandFunc<C, I> = fn(CommandDescription, &mut CommandContext<C>) -> C
 
 /// Description of a mapped Vim command.
 pub struct VimCommand<C: EditContext, I: ApplicationInfo = EmptyInfo> {
-    /// Aliases for this command.
-    pub names: Vec<String>,
+    /// Primary name of this command.
+    pub name: String,
+
+    /// Additional names for this command.
+    pub aliases: Vec<String>,
 
     /// Function that handles command.
     pub f: CommandFunc<C, I>,
@@ -60,7 +71,11 @@ where
     I: ApplicationInfo,
 {
     fn clone(&self) -> Self {
-        Self { names: self.names.clone(), f: self.f }
+        Self {
+            name: self.name.clone(),
+            aliases: self.aliases.clone(),
+            f: self.f,
+        }
     }
 }
 
@@ -71,7 +86,8 @@ where
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("VimCommand")
-            .field("names", &self.names)
+            .field("name", &self.name)
+            .field("aliases", &self.aliases)
             .finish_non_exhaustive()
     }
 }
@@ -86,8 +102,12 @@ where
     type Context = C;
     type CommandContext = CommandContext<C>;
 
-    fn names(&self) -> Vec<String> {
-        self.names.clone()
+    fn name(&self) -> String {
+        self.name.clone()
+    }
+
+    fn aliases(&self) -> Vec<String> {
+        self.aliases.clone()
     }
 
     fn exec(&self, cmd: Self::Parsed, ctx: &mut Self::CommandContext) -> CommandResult<C, I> {
@@ -881,75 +901,134 @@ fn vim_cmd_substitute_repeat<C: EditContext, I: ApplicationInfo>(
 
 fn default_cmds<C: EditContext, I: ApplicationInfo>() -> Vec<VimCommand<C, I>> {
     vec![
-        VimCommand { names: strs!["!"], f: vim_cmd_filter },
         VimCommand {
-            names: strs!["&", "&&", "~", "~&"],
+            name: "!".into(),
+            aliases: strs![],
+            f: vim_cmd_filter,
+        },
+        VimCommand {
+            name: "&".into(),
+            aliases: strs!["&&", "~", "~&"],
             f: vim_cmd_substitute_repeat,
         },
-        VimCommand { names: strs!["r", "read"], f: vim_cmd_read },
-        VimCommand { names: strs!["p", "print"], f: vim_cmd_print },
         VimCommand {
-            names: strs!["s", "substitute"],
+            name: "read".into(),
+            aliases: strs!["r"],
+            f: vim_cmd_read,
+        },
+        VimCommand {
+            name: "print".into(),
+            aliases: strs!["p"],
+            f: vim_cmd_print,
+        },
+        VimCommand {
+            name: "substitute".into(),
+            aliases: strs!["s"],
             f: vim_cmd_substitute,
         },
-        VimCommand { names: strs!["clo", "close"], f: vim_cmd_close },
-        VimCommand { names: strs!["on", "only"], f: vim_cmd_only },
-        VimCommand { names: strs!["q", "quit"], f: vim_cmd_quit },
         VimCommand {
-            names: strs!["qa", "qall", "quita", "quitall"],
+            name: "close".into(),
+            aliases: strs!["clo", "close"],
+            f: vim_cmd_close,
+        },
+        VimCommand {
+            name: "only".into(),
+            aliases: strs!["on", "only"],
+            f: vim_cmd_only,
+        },
+        VimCommand {
+            name: "quit".into(),
+            aliases: strs!["q"],
+            f: vim_cmd_quit,
+        },
+        VimCommand {
+            name: "quitall".into(),
+            aliases: strs!["qa", "qall", "quita"],
             f: vim_cmd_quitall,
         },
-        VimCommand { names: strs!["sp", "split"], f: vim_cmd_sp },
-        VimCommand { names: strs!["vs", "vsp", "vsplit"], f: vim_cmd_vs },
-        VimCommand { names: strs!["tab"], f: vim_cmd_tab },
         VimCommand {
-            names: strs!["tabc", "tabclose"],
+            name: "split".into(),
+            aliases: strs!["sp"],
+            f: vim_cmd_sp,
+        },
+        VimCommand {
+            name: "vsplit".into(),
+            aliases: strs!["vs", "vsp"],
+            f: vim_cmd_vs,
+        },
+        VimCommand {
+            name: "tab".into(),
+            aliases: strs![],
+            f: vim_cmd_tab,
+        },
+        VimCommand {
+            name: "tabclose".into(),
+            aliases: strs!["tabc"],
             f: vim_cmd_tabclose,
         },
         VimCommand {
-            names: strs!["tabe", "tabedit", "tabnew"],
+            name: "tabedit".into(),
+            aliases: strs!["tabe", "tabnew"],
             f: vim_cmd_tabedit,
         },
         VimCommand {
-            names: strs!["tabm", "tabmove"],
+            name: "tabmove".into(),
+            aliases: strs!["tabm"],
             f: vim_cmd_tabmove,
         },
         VimCommand {
-            names: strs!["tabn", "tabnext"],
+            name: "tabnext".into(),
+            aliases: strs!["tabn"],
             f: vim_cmd_tabnext,
         },
         VimCommand {
-            names: strs!["tabo", "tabonly"],
+            name: "tabonly".into(),
+            aliases: strs!["tabo"],
             f: vim_cmd_tabonly,
         },
         VimCommand {
-            names: strs!["tabp", "tabprevious", "tabN", "tabNext"],
+            name: "tabprevious".into(),
+            aliases: strs!["tabp", "tabN", "tabNext"],
             f: vim_cmd_tabprev,
         },
         VimCommand {
-            names: strs!["tabr", "tabrewind", "tabfir", "tabfirst"],
+            name: "tabfirst".into(),
+            aliases: strs!["tabr", "tabrewind", "tabfir"],
             f: vim_cmd_tabfirst,
         },
         VimCommand {
-            names: strs!["tabl", "tablast"],
+            name: "tablast".into(),
+            aliases: strs!["tabl"],
             f: vim_cmd_tablast,
         },
-        VimCommand { names: strs!["w", "write"], f: vim_cmd_write },
-        VimCommand { names: strs!["wa", "wall"], f: vim_cmd_write_all },
         VimCommand {
-            names: strs!["hor", "horizontal"],
+            name: "write".into(),
+            aliases: strs!["w"],
+            f: vim_cmd_write,
+        },
+        VimCommand {
+            name: "wall".into(),
+            aliases: strs!["wa"],
+            f: vim_cmd_write_all,
+        },
+        VimCommand {
+            name: "horizontal".into(),
+            aliases: strs!["hor"],
             f: vim_cmd_horizontal,
         },
         VimCommand {
-            names: strs!["vert", "vertical"],
+            name: "vertical".into(),
+            aliases: strs!["vert"],
             f: vim_cmd_vertical,
         },
         VimCommand {
-            names: strs!["lefta", "leftabove", "abo", "aboveleft"],
+            name: "aboveleft".into(),
+            aliases: strs!["lefta", "leftabove", "abo"],
             f: vim_cmd_above,
         },
         VimCommand {
-            names: strs!["rightb", "rightbelow", "bel", "belowright"],
+            name: "belowright".into(),
+            aliases: strs!["rightb", "rightbelow", "bel"],
             f: vim_cmd_below,
         },
     ]
@@ -958,7 +1037,11 @@ fn default_cmds<C: EditContext, I: ApplicationInfo>() -> Vec<VimCommand<C, I>> {
 /// Manages parsing and mapping Vim commands.
 pub type VimCommandMachine<C = VimContext, I = EmptyInfo> = CommandMachine<VimCommand<C, I>>;
 
-impl<C: EditContext, I: ApplicationInfo> Default for VimCommandMachine<C, I> {
+impl<C, I> Default for VimCommandMachine<C, I>
+where
+    C: EditContext,
+    I: ApplicationInfo,
+{
     fn default() -> Self {
         let mut m = Self::new();
 
@@ -967,6 +1050,37 @@ impl<C: EditContext, I: ApplicationInfo> Default for VimCommandMachine<C, I> {
         }
 
         return m;
+    }
+}
+
+/// Complete text in the command-bar.
+pub fn complete_cmdbar<C, I>(
+    input: &EditRope,
+    cursor: &mut Cursor,
+    cmds: &VimCommandMachine<C, I>,
+) -> Vec<String>
+where
+    C: EditContext,
+    I: ApplicationInfo,
+{
+    let eo = input.cursor_to_offset(cursor);
+    let slice = input.slice(0.into(), eo, false);
+    let cow = Cow::from(&slice);
+
+    match CommandDescription::from_str(cow.as_ref()) {
+        Ok(cmd) => {
+            if cmd.arg.untrimmed.is_empty() {
+                // Complete command name and set cursor position.
+                let _ = input.get_prefix_word_mut(cursor, &WordStyle::Little);
+                cmds.complete_name(cmd.command.as_str())
+            } else {
+                // Complete command argument.
+                complete_path(input, cursor)
+            }
+        },
+
+        // Can't parse command text, so return zero completions.
+        Err(_) => vec![],
     }
 }
 

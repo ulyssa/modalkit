@@ -1,4 +1,9 @@
+use std::borrow::Borrow;
 use std::cmp::Ordering;
+use std::path::MAIN_SEPARATOR;
+
+use radix_trie::{SubTrie, Trie, TrieCommon, TrieKey};
+use unicode_segmentation::UnicodeSegmentation;
 
 use crate::{editing::base::MoveDir1D, input::key::TerminalKey};
 
@@ -64,7 +69,7 @@ macro_rules! assert_pop2 {
 
 macro_rules! strs {
     ( $( $ss: expr ),* ) => {
-        vec![ $( $ss.into(), )* ]
+        vec![ $( String::from($ss), )* ]
     };
 }
 
@@ -85,6 +90,45 @@ impl IdGenerator {
 
         return id;
     }
+}
+
+/// Internal upper limit on number of completions to return.
+pub(crate) const MAX_COMPLETIONS: usize = 500;
+
+#[inline]
+pub(crate) fn subtrie_keys<K, V>(subtrie: SubTrie<K, V>) -> Vec<K>
+where
+    K: Clone + TrieKey,
+{
+    subtrie.keys().take(MAX_COMPLETIONS).cloned().collect()
+}
+
+#[inline]
+pub(crate) fn completion_keys<K, V>(trie: &Trie<K, V>, prefix: &str) -> Vec<K>
+where
+    K: Borrow<str> + Clone + TrieKey,
+{
+    trie.get_raw_descendant(prefix).map(subtrie_keys).unwrap_or_default()
+}
+
+pub(crate) fn common_prefix<'a>(a: &'a str, b: &str) -> &'a str {
+    if a == b {
+        return a;
+    }
+
+    let mut idx = 0;
+    let itera = UnicodeSegmentation::grapheme_indices(a, false);
+    let iterb = UnicodeSegmentation::graphemes(b, false);
+
+    for ((i, ga), gb) in itera.zip(iterb) {
+        idx = i;
+
+        if ga != gb {
+            break;
+        }
+    }
+
+    return &a[..idx];
 }
 
 pub fn idx_offset(
@@ -248,8 +292,12 @@ pub fn is_keyword(c: char) -> bool {
     return c >= '!' && c <= '/' || c >= '[' && c <= '^' || c >= '{' && c <= '~' || c == '`';
 }
 
+pub fn is_filepath_char(c: char) -> bool {
+    return c == MAIN_SEPARATOR || is_filename_char(c);
+}
+
 pub fn is_filename_char(c: char) -> bool {
-    return is_word_char(c) || "@/.-_+,#$%~=".contains(c) || c > '\u{007F}';
+    return is_word_char(c) || "@.-_+,#$%~=:".contains(c) || c > '\u{007F}';
 }
 
 #[cfg(test)]

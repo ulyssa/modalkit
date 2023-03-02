@@ -67,6 +67,9 @@ use crate::editing::{
     base::{
         Axis,
         CloseFlags,
+        CompletionDisplay,
+        CompletionSelection,
+        CompletionType,
         Count,
         CursorMovements,
         CursorMovementsContext,
@@ -91,6 +94,7 @@ use crate::editing::{
         WordStyle,
         WriteFlags,
     },
+    completion::CompletionList,
     context::EditContext,
     cursor::{Cursor, CursorGroup, CursorState},
     history::HistoryList,
@@ -791,6 +795,20 @@ where
         Ok(None)
     }
 
+    fn complete(
+        &mut self,
+        _: &CompletionType,
+        _: &CompletionSelection,
+        _: &CompletionDisplay,
+        _: &C,
+        _: &mut Store<I>,
+    ) -> EditResult<EditInfo, I> {
+        let msg = "Cannot complete any text inside a list";
+        let err = EditError::Failure(msg.into());
+
+        Err(err)
+    }
+
     fn insert_text(
         &mut self,
         _: &InsertTextAction,
@@ -884,12 +902,7 @@ where
             EditorAction::Mark(name) => self.mark(ctx.resolve(name), ctx, store),
             EditorAction::Selection(act) => self.selection_command(act, ctx, store),
 
-            EditorAction::Complete(_, _) => {
-                let msg = "";
-                let err = EditError::Unimplemented(msg.into());
-
-                Err(err)
-            },
+            EditorAction::Complete(sel, ct, disp) => self.complete(sel, ct, disp, ctx, store),
         }
     }
 }
@@ -1182,6 +1195,10 @@ where
 
     fn draw(&mut self, area: Rect, buf: &mut Buffer, focused: bool, store: &mut Store<I>) {
         List::new(store).focus(focused).render(area, buf, self);
+    }
+
+    fn get_completions(&self) -> Option<CompletionList> {
+        None
     }
 
     fn get_cursor_word(&self, _: &WordStyle) -> Option<String> {

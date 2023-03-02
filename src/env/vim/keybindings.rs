@@ -72,6 +72,9 @@ use crate::editing::{
         Char,
         CloseFlags,
         CommandType,
+        CompletionDisplay,
+        CompletionSelection,
+        CompletionType,
         Count,
         CursorEnd,
         EditTarget,
@@ -212,7 +215,7 @@ enum InternalAction {
     SetTarget(EditTarget),
     SetSearchCharParams(MoveDir1D, bool),
     SetSearchChar,
-    SetSearchRegexParams(MoveDir1D),
+    SetSearchRegexParams(MoveDir1D, bool),
     SetRegister(Register),
     SetReplaceChar(Option<Char>),
     SaveCounting,
@@ -240,8 +243,9 @@ impl InternalAction {
 
                 ctx.persist.charsearch = ctx.ch.get_typed();
             },
-            InternalAction::SetSearchRegexParams(dir) => {
+            InternalAction::SetSearchRegexParams(dir, incremental) => {
                 ctx.persist.regexsearch_dir = *dir;
+                ctx.persist.regexsearch_inc = *incremental;
             },
             InternalAction::SetRegister(reg) => {
                 ctx.action.register = Some(reg.clone());
@@ -866,7 +870,7 @@ macro_rules! edit_search_end {
 macro_rules! edit_word_search_end {
     ($style: expr, $boundary: expr, $dir: expr) => {
         is!(
-            InternalAction::SetSearchRegexParams($dir),
+            InternalAction::SetSearchRegexParams($dir, false),
             EditorAction::Edit(
                 Specifier::Contextual,
                 EditTarget::Search(
@@ -1275,8 +1279,8 @@ macro_rules! cmdbar_focus {
 macro_rules! search {
     ($dir: expr) => {
         is!(
-            InternalAction::SetSearchRegexParams($dir),
-            Action::CommandBar(CommandBarAction::Focus(CommandType::Search($dir, false))),
+            InternalAction::SetSearchRegexParams($dir, false),
+            Action::CommandBar(CommandBarAction::Focus(CommandType::Search)),
             VimMode::Command
         )
     };
@@ -1717,9 +1721,9 @@ fn default_keys<I: ApplicationInfo>() -> Vec<(MappedModes, &'static str, InputSt
         ( IMAP, "<C-G><C-K>", unmapped!() ),
         ( IMAP, "<C-G><Down>", unmapped!() ),
         ( IMAP, "<C-G><Up>", unmapped!() ),
-        ( IMAP, "<C-N>", editor!(EditorAction::Complete(MoveDir1D::Next, true)) ),
+        ( IMAP, "<C-N>", complete!(CompletionType::Auto, CompletionSelection::List(MoveDir1D::Next), CompletionDisplay::List) ),
         ( IMAP, "<C-O>", fallthrough!(VimMode::Normal) ),
-        ( IMAP, "<C-P>", editor!(EditorAction::Complete(MoveDir1D::Previous, true)) ),
+        ( IMAP, "<C-P>", complete!(CompletionType::Auto, CompletionSelection::List(MoveDir1D::Previous), CompletionDisplay::List) ),
         ( IMAP, "<C-R><C-P>{register}", unmapped!() ),
         ( IMAP, "<C-T>", edit_lines!(EditAction::Indent(IndentChange::Increase(Count::Exact(1)))) ),
         ( IMAP, "<C-X><C-E>", scroll2d!(MoveDir2D::Down, ScrollSize::Cell) ),
@@ -1748,7 +1752,7 @@ fn default_keys<I: ApplicationInfo>() -> Vec<(MappedModes, &'static str, InputSt
         ( CMAP, "<C-A>", unmapped!() ),
         ( CMAP, "<C-B>", edit!(EditAction::Motion, MoveType::LinePos(MovePosition::Beginning), 0) ),
         ( CMAP, "<C-C>", command_unfocus!() ),
-        ( CMAP, "<C-D>", unmapped!() ),
+        ( CMAP, "<C-D>", complete!(CompletionType::Auto, CompletionSelection::None, CompletionDisplay::Bar) ),
         ( CMAP, "<C-E>", edit!(EditAction::Motion, MoveType::LinePos(MovePosition::End), 0) ),
         ( CMAP, "<C-G>", unmapped!() ),
         ( CMAP, "<C-L>", unmapped!() ),
@@ -1759,8 +1763,8 @@ fn default_keys<I: ApplicationInfo>() -> Vec<(MappedModes, &'static str, InputSt
         ( CMAP, "<End>", edit_buffer!(EditAction::Motion, MoveTerminus::End, VimMode::Command) ),
         ( CMAP, "<Esc>", command_unfocus!() ),
         ( CMAP, "<NL>", prompt!(PromptAction::Submit, VimMode::Normal) ),
-        ( CMAP, "<Tab>", editor!(EditorAction::Complete(MoveDir1D::Next, false)) ),
-        ( CMAP, "<S-Tab>", editor!(EditorAction::Complete(MoveDir1D::Previous, false)) ),
+        ( CMAP, "<Tab>", complete!(CompletionType::Auto, CompletionSelection::List(MoveDir1D::Next), CompletionDisplay::None) ),
+        ( CMAP, "<S-Tab>", complete!(CompletionType::Auto, CompletionSelection::List(MoveDir1D::Previous), CompletionDisplay::None) ),
         ( CMAP, "<S-Left>", edit!(EditAction::Motion, MoveType::WordBegin(WordStyle::Big, MoveDir1D::Previous)) ),
         ( CMAP, "<C-Left>", edit!(EditAction::Motion, MoveType::WordBegin(WordStyle::Big, MoveDir1D::Previous)) ),
         ( CMAP, "<S-Right>", edit!(EditAction::Motion, MoveType::WordBegin(WordStyle::Big, MoveDir1D::Next)) ),
@@ -1997,7 +2001,7 @@ impl<I: ApplicationInfo> Default for VimBindings<I> {
             enter: default_enter(),
             search: default_search(),
             ctrlcd: default_ctrlcd(),
-            cursor_open: cursor_open(WordStyle::Filename),
+            cursor_open: cursor_open(WordStyle::FilePath),
         }
     }
 }
@@ -2215,11 +2219,7 @@ mod tests {
     const CHECKPOINT: Action = Action::Editor(EditorAction::History(HistoryAction::Checkpoint));
     const CMDBAR: Action = Action::CommandBar(CommandBarAction::Focus(CommandType::Command));
     const CMDBAR_ABORT: Action = Action::Prompt(PromptAction::Abort(false));
-    const CMDBAR_SEARCH_NEXT: Action =
-        Action::CommandBar(CommandBarAction::Focus(CommandType::Search(MoveDir1D::Next, false)));
-    const CMDBAR_SEARCH_PREV: Action = Action::CommandBar(CommandBarAction::Focus(
-        CommandType::Search(MoveDir1D::Previous, false),
-    ));
+    const CMDBAR_SEARCH: Action = Action::CommandBar(CommandBarAction::Focus(CommandType::Search));
     const CURSOR_CLOSE: Action =
         Action::Editor(EditorAction::Cursor(CursorAction::Close(CursorCloseTarget::Followers)));
     const CURSOR_SPLIT: Action =
@@ -2399,8 +2399,9 @@ mod tests {
         assert_normal!(vm, ctx);
 
         // Move to Command mode (forward search) using "/".
+        ctx.persist.regexsearch_dir = MoveDir1D::Next;
         vm.input_key(key!('/'));
-        assert_pop2!(vm, CMDBAR_SEARCH_NEXT, ctx);
+        assert_pop2!(vm, CMDBAR_SEARCH, ctx);
         assert_eq!(vm.mode(), VimMode::Command);
 
         // Unmapped key types that character.
@@ -2421,7 +2422,7 @@ mod tests {
         // Move to Command mode (reverse search) using "?".
         ctx.persist.regexsearch_dir = MoveDir1D::Previous;
         vm.input_key(key!('?'));
-        assert_pop2!(vm, CMDBAR_SEARCH_PREV, ctx);
+        assert_pop2!(vm, CMDBAR_SEARCH, ctx);
         assert_eq!(vm.mode(), VimMode::Command);
 
         // Unmapped key types that character.

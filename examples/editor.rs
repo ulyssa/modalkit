@@ -53,6 +53,7 @@ use modalkit::{
         },
         base::{
             CloseFlags,
+            CommandType,
             Count,
             MoveDir1D,
             MoveDirMod,
@@ -65,13 +66,16 @@ use modalkit::{
             WriteFlags,
         },
         buffer::EditBuffer,
+        completion::CompletionList,
         context::{EditContext, Resolve},
+        cursor::Cursor,
         key::KeyManager,
+        rope::EditRope,
         store::Store,
     },
     env::{
         mixed::{MixedBindings, MixedChoice, MixedContext},
-        vim::command::VimCommandMachine,
+        vim::command::{complete_cmdbar, VimCommandMachine},
     },
     input::{bindings::BindingMachine, key::TerminalKey},
     widgets::{
@@ -157,15 +161,11 @@ impl ListItem<EditorInfo> for DirectoryItem {
     }
 }
 
+#[derive(Default)]
 struct EditorStore {
+    cmds: VimCommandMachine<Context, EditorInfo>,
     filenames: HashMap<String, usize>,
     fileindex: usize,
-}
-
-impl Default for EditorStore {
-    fn default() -> Self {
-        EditorStore { filenames: HashMap::default(), fileindex: 0 }
-    }
 }
 
 impl ApplicationStore for EditorStore {}
@@ -271,6 +271,13 @@ impl WindowOps<EditorInfo> for EditorWindow {
         }
     }
 
+    fn get_completions(&self) -> Option<CompletionList> {
+        match self {
+            EditorWindow::Text(tbox) => tbox.get_completions(),
+            EditorWindow::Listing(ls) => ls.get_completions(),
+        }
+    }
+
     fn get_cursor_word(&self, style: &WordStyle) -> Option<String> {
         match self {
             EditorWindow::Text(tbox) => tbox.get_cursor_word(style),
@@ -347,8 +354,9 @@ impl Window<EditorInfo> for EditorWindow {
 
     fn get_win_title(&self, _: &mut Store<EditorInfo>) -> Spans {
         match self.id() {
-            EditorContentId::Command => Spans::from("[Command Line]"),
-            EditorContentId::Scratch => Spans::from("[scratch]"),
+            EditorContentId::Command(CommandType::Command) => Spans::from("[Command Line]"),
+            EditorContentId::Command(CommandType::Search) => Spans::from("[Search Bar]"),
+            EditorContentId::Scratch => Spans::from("[Scratch]"),
             EditorContentId::File(index) => Spans::from(format!("Buffer {index}")),
             EditorContentId::Directory(name) => Spans::from(name),
         }
@@ -362,7 +370,7 @@ impl Window<EditorInfo> for EditorWindow {
                 Ok(TextBoxState::new(buffer).into())
             },
             EditorContentId::Directory(name) => load_file(name, store),
-            EditorContentId::Command => {
+            EditorContentId::Command(_) => {
                 let msg = "Cannot open command bar in a window";
 
                 Err(UIError::Failure(msg.into()))
@@ -475,7 +483,7 @@ impl<C: EditContext> Searchable<C, Store<EditorInfo>, EditorInfo> for EditorWind
 
 #[derive(Clone, Debug, Hash, Eq, PartialEq)]
 enum EditorContentId {
-    Command,
+    Command(CommandType),
     Directory(String),
     File(usize),
     Scratch,
@@ -493,13 +501,33 @@ impl ApplicationInfo for EditorInfo {
     type Store = EditorStore;
     type WindowId = EditorContentId;
     type ContentId = EditorContentId;
+
+    fn complete(
+        text: &EditRope,
+        cursor: &mut Cursor,
+        content: &EditorContentId,
+        store: &mut Store<Self>,
+    ) -> Vec<String> {
+        match content {
+            EditorContentId::Command(CommandType::Command) => {
+                complete_cmdbar(text, cursor, &store.application.cmds)
+            },
+            EditorContentId::Command(CommandType::Search) => vec![],
+            EditorContentId::Directory(_) => vec![],
+            EditorContentId::File(_) => vec![],
+            EditorContentId::Scratch => vec![],
+        }
+    }
+
+    fn content_of_command(ct: CommandType) -> EditorContentId {
+        EditorContentId::Command(ct)
+    }
 }
 
 struct Editor {
     terminal: Terminal<CrosstermBackend<Stdout>>,
     bindings: KeyManager<TerminalKey, Action<EditorInfo>, RepeatType, Context>,
     actstack: VecDeque<(Action<EditorInfo>, Context)>,
-    cmds: VimCommandMachine<Context, EditorInfo>,
     screen: ScreenState<EditorWindow, EditorInfo>,
     store: Store<EditorInfo>,
 }
@@ -518,16 +546,15 @@ impl Editor {
         let mut store = Store::default();
         let bindings = MixedBindings::<TerminalKey, EditorInfo>::from(env);
         let bindings = KeyManager::new(bindings);
-        let cmds = VimCommandMachine::default();
 
         let buf = store.load_buffer(EditorContentId::Scratch);
         let win = EditorWindow::Text(TextBoxState::new(buf));
-        let cmd = CommandBarState::new(EditorContentId::Command, &mut store);
+        let cmd = CommandBarState::new(&mut store);
         let screen = ScreenState::new(win, cmd);
 
         let actstack = VecDeque::new();
 
-        Ok(Editor { terminal, bindings, actstack, cmds, screen, store })
+        Ok(Editor { terminal, bindings, actstack, screen, store })
     }
 
     pub fn run(&mut self) -> Result<(), std::io::Error> {
@@ -658,7 +685,7 @@ impl Editor {
                 None
             },
             Action::Command(act) => {
-                let acts = self.cmds.command(&act, &ctx)?;
+                let acts = self.store.application.cmds.command(&act, &ctx)?;
                 self.action_prepend(acts);
 
                 None

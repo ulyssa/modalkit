@@ -96,26 +96,12 @@ enum InternalResult {
     Nothing,
 }
 
-fn command_to_str(ct: &CommandType) -> Option<String> {
-    match ct {
-        CommandType::Search(MoveDir1D::Next, _) => {
-            return "/".to_string().into();
-        },
-        CommandType::Search(MoveDir1D::Previous, _) => {
-            return "?".to_string().into();
-        },
-        CommandType::Command => {
-            return ":".to_string().into();
-        },
-    }
-}
-
 macro_rules! focused_mut {
     ($s: expr) => {
-        if $s.ct.is_some() {
-            &mut $s.cmd
-        } else {
-            &mut $s.line
+        match &$s.ct {
+            Some(CommandType::Command) => &mut $s.cmd,
+            Some(CommandType::Search) => &mut $s.search,
+            None => &mut $s.line,
         }
     };
 }
@@ -126,8 +112,8 @@ pub enum ReadLineId {
     /// The line editor.
     Line,
 
-    /// The command bar.
-    Command,
+    /// A command bar.
+    Command(CommandType),
 }
 
 impl ApplicationWindowId for ReadLineId {}
@@ -143,6 +129,10 @@ impl ApplicationInfo for ReadLineInfo {
     type Store = ();
     type WindowId = ReadLineId;
     type ContentId = ReadLineId;
+
+    fn content_of_command(ct: CommandType) -> ReadLineId {
+        ReadLineId::Command(ct)
+    }
 }
 
 /// Error type for [ReadLine] editor.
@@ -190,9 +180,11 @@ where
     context: EditorContext,
     dimensions: (u16, u16),
     ct: Option<CommandType>,
+    sd: MoveDir1D,
 
     line: Editor<I>,
     cmd: Editor<I>,
+    search: Editor<I>,
 }
 
 impl<C, I> ReadLine<C, I>
@@ -213,9 +205,11 @@ where
         let store = Store::<I>::default();
 
         let mut line = Editor::new(ReadLineId::Line);
-        let mut cmd = Editor::new(ReadLineId::Command);
+        let mut cmd = Editor::new(ReadLineId::Command(CommandType::Command));
+        let mut search = Editor::new(ReadLineId::Command(CommandType::Search));
         line.resize(dimensions.0, dimensions.1);
         cmd.resize(dimensions.0, dimensions.1);
+        search.resize(dimensions.0, dimensions.1);
 
         let bindings = KeyManager::new(bindings);
         let history = HistoryList::new("".into(), HISTORY_LENGTH);
@@ -229,9 +223,11 @@ where
             context,
             dimensions,
             ct: None,
+            sd: MoveDir1D::Next,
 
             line,
             cmd,
+            search,
         };
 
         return Ok(rl);
@@ -332,11 +328,12 @@ where
     fn command_bar(
         &mut self,
         act: &CommandBarAction,
-        _: C,
+        ctx: C,
     ) -> Result<InternalResult, ReadLineError<I>> {
         match act {
             CommandBarAction::Focus(ct) => {
-                self.ct = Some(ct.clone());
+                self.ct = Some(*ct);
+                self.sd = ctx.get_search_regex_dir();
 
                 Ok(InternalResult::Nothing)
             },
@@ -372,7 +369,7 @@ where
     fn abort(&mut self, empty: bool) {
         match self.ct {
             None => {},
-            Some(CommandType::Search(_, _)) => {
+            Some(CommandType::Search) => {
                 if empty && !self.cmd.is_blank() {
                     return;
                 }
@@ -402,7 +399,7 @@ where
                     self.line.set_text(text);
                 }
             },
-            Some(CommandType::Search(_, _)) => {
+            Some(CommandType::Search) => {
                 let text = self.cmd.recall(&mut self.store.searches, dir, count);
 
                 if let Some(text) = text {
@@ -442,7 +439,7 @@ where
     }
 
     fn get_regex(&mut self) -> EditResult<Regex, I> {
-        let re = if let Some(CommandType::Search(_, _)) = self.ct {
+        let re = if let Some(CommandType::Search) = self.ct {
             self.get_cmd_regex()?
         } else {
             let text = self.store.registers.get(&Register::LastSearch)?.value;
@@ -474,12 +471,16 @@ where
         Ok(None)
     }
 
-    fn incsearch(&mut self) -> Result<(), EditError<I>> {
-        if let Some(CommandType::Search(dir, true)) = self.ct {
+    fn incsearch(&mut self, ctx: &C) -> Result<(), EditError<I>> {
+        if let Some(CommandType::Search) = self.ct {
+            if !ctx.is_search_incremental() {
+                return Ok(());
+            }
+
             let needle = self.cmd.get_trim().to_string();
             let needle = Regex::new(needle.as_ref())?;
 
-            if let Some(text) = self.line.find(&mut self.history, &needle, dir, true) {
+            if let Some(text) = self.line.find(&mut self.history, &needle, self.sd, true) {
                 self.line.set_text(text);
             }
         }
@@ -487,7 +488,7 @@ where
         Ok(())
     }
 
-    fn edit(&mut self, act: EditorAction, ctx: C) -> EditResult<EditInfo, I> {
+    fn edit(&mut self, act: EditorAction, ctx: &C) -> EditResult<EditInfo, I> {
         match act {
             EditorAction::Edit(ea, EditTarget::Motion(MoveType::Line(dir), count)) => {
                 let ea = ctx.resolve(&ea);
@@ -507,13 +508,13 @@ where
                 let mov = EditTarget::Motion(MoveType::Line(dir), count);
                 let act = EditorAction::Edit(ea.into(), mov);
 
-                focused_mut!(self).editor_command(&act, &ctx, &mut self.store)
+                focused_mut!(self).editor_command(&act, ctx, &mut self.store)
             },
             act => {
-                let res = focused_mut!(self).editor_command(&act, &ctx, &mut self.store)?;
+                let res = focused_mut!(self).editor_command(&act, ctx, &mut self.store)?;
 
                 // Perform an incremental search if we need to.
-                self.incsearch()?;
+                self.incsearch(ctx)?;
 
                 return Ok(res);
             },
@@ -529,7 +530,7 @@ where
 
                 return Ok(InternalResult::Submitted(text));
             },
-            Some(CommandType::Search(dir, _)) => {
+            Some(CommandType::Search) => {
                 let text = self.reset_cmd();
                 let needle = match Regex::new(text.to_string().as_ref()) {
                     Err(e) => return Err(EditError::from(e).into()),
@@ -538,7 +539,7 @@ where
 
                 self.store.set_last_search(text);
 
-                if let Some(text) = self.line.find(&mut self.history, &needle, dir, false) {
+                if let Some(text) = self.line.find(&mut self.history, &needle, self.sd, false) {
                     self.line.set_text(text);
                 }
 
@@ -553,6 +554,15 @@ where
         }
     }
 
+    fn cmd_prompt(&self) -> Option<String> {
+        match (&self.ct, &self.sd) {
+            (Some(CommandType::Search), MoveDir1D::Next) => Some("/".into()),
+            (Some(CommandType::Search), MoveDir1D::Previous) => Some("?".into()),
+            (Some(CommandType::Command), _) => Some(":".into()),
+            (None, _) => None,
+        }
+    }
+
     fn redraw(&mut self, prompt: &Option<String>) -> crossterm::Result<()> {
         self.context.stdout.queue(CursorHide)?;
 
@@ -564,7 +574,7 @@ where
         let lines = self.line.redraw(prompt, 0, &mut self.context)?;
 
         if self.ct.is_some() {
-            let p = self.ct.as_ref().and_then(command_to_str);
+            let p = self.cmd_prompt();
             let _ = self.cmd.redraw(&p, lines, &mut self.context);
         }
 
@@ -639,10 +649,10 @@ where
             Action::Suspend => return self.suspend(),
 
             Action::Editor(act) => {
-                let res = self.edit(act, ctx)?;
+                let res = self.edit(act, &ctx)?;
 
                 // Perform an incremental search if we need to.
-                self.incsearch()?;
+                self.incsearch(&ctx)?;
 
                 res
             },

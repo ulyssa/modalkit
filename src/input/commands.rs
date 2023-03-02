@@ -4,11 +4,13 @@
 //!
 //! This module contains components to help consumers map commands into actions.
 //!
-use std::collections::HashMap;
 use std::fmt::Debug;
 use std::str::FromStr;
 
+use radix_trie::Trie;
+
 use super::InputContext;
+use crate::util::completion_keys;
 
 /// Context passed to commands when they're executed.
 pub trait InputCmdContext: InputContext {}
@@ -72,8 +74,11 @@ pub trait Command: Clone {
     /// Context to be passed to [Command::exec].
     type CommandContext: InputCmdContext + From<Self::Context>;
 
-    /// Names to map this command under.
-    fn names(&self) -> Vec<String>;
+    /// The primary name to map this command under.
+    fn name(&self) -> String;
+
+    /// Additional names to map this command under.
+    fn aliases(&self) -> Vec<String>;
 
     /// Execute this command.
     fn exec(&self, cmd: Self::Parsed, ctx: &mut Self::CommandContext) -> CommandResult<Self>;
@@ -88,23 +93,48 @@ pub trait DefaultCommands<C: Command>: Default {
 /// Track mapped commands and handle their execution.
 #[derive(Debug)]
 pub struct CommandMachine<C: Command> {
-    commands: HashMap<String, C>,
+    names: Trie<String, C>,
+    aliases: Trie<String, C>,
     last_cmd: String,
 }
 
 impl<C: Command> CommandMachine<C> {
     /// Create a new instance.
     pub fn new() -> Self {
-        let commands = HashMap::new();
+        let names = Trie::new();
+        let aliases = Trie::new();
         let last_cmd = "".to_string();
 
-        CommandMachine { commands, last_cmd }
+        CommandMachine { names, aliases, last_cmd }
     }
 
     /// Map a command under its names.
     pub fn add_command(&mut self, cmd: C) {
-        for name in cmd.names().into_iter() {
-            self.commands.insert(name, cmd.clone());
+        for alias in cmd.aliases().into_iter() {
+            self.aliases.insert(alias, cmd.clone());
+        }
+
+        self.names.insert(cmd.name(), cmd);
+    }
+
+    /// Generate a list of completion candidates for command names.
+    pub fn complete_name(&self, prefix: &str) -> Vec<String> {
+        completion_keys(&self.names, prefix)
+    }
+
+    /// Generate a list of completion candidates for command aliases.
+    pub fn complete_aliases(&self, prefix: &str) -> Vec<String> {
+        completion_keys(&self.aliases, prefix)
+    }
+
+    /// Get the previously executed command.
+    pub fn get(&self, name: &str) -> Result<&C, CommandError> {
+        if let Some(m) = self.names.get(name) {
+            Ok(m)
+        } else if let Some(m) = self.aliases.get(name) {
+            Ok(m)
+        } else {
+            Err(CommandError::InvalidCommand(name.into()))
         }
     }
 
@@ -126,35 +156,28 @@ impl<C: Command> CommandMachine<C> {
         self.last_cmd = input.clone();
 
         loop {
-            let cmd = match C::Parsed::from_str(&input) {
-                Ok(cmd) => cmd,
-                Err(e) => return Err(CommandError::ParseFailed(e)),
-            };
+            let cmd = C::Parsed::from_str(&input).map_err(CommandError::ParseFailed)?;
             let name = cmd.name();
 
             if name.is_empty() {
                 return Ok(results);
             }
 
-            if let Some(mapping) = self.commands.get(&name) {
-                match mapping.exec(cmd, &mut ctx)? {
-                    CommandStep::Continue(act, c) => {
-                        // XXX: need to support processing the next command.
-                        results.push((act, c));
+            match self.get(&name)?.exec(cmd, &mut ctx)? {
+                CommandStep::Continue(act, c) => {
+                    // XXX: need to support processing the next command.
+                    results.push((act, c));
 
-                        return Ok(results);
-                    },
-                    CommandStep::Stop(act, c) => {
-                        results.push((act, c));
+                    return Ok(results);
+                },
+                CommandStep::Stop(act, c) => {
+                    results.push((act, c));
 
-                        return Ok(results);
-                    },
-                    CommandStep::Again(next) => {
-                        input = next;
-                    },
-                }
-            } else {
-                return Err(CommandError::InvalidCommand(name));
+                    return Ok(results);
+                },
+                CommandStep::Again(next) => {
+                    input = next;
+                },
             }
         }
     }

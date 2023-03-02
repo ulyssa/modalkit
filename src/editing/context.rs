@@ -53,6 +53,9 @@ pub trait EditContext:
 
     /// Returns a [character](Char) to use when performing an [EditAction::Replace] operation.
     fn get_replace_char(&self) -> Option<Char>;
+
+    /// Whether to perform incremental searches while typing in the search bar.
+    fn is_search_incremental(&self) -> bool;
 }
 
 /// Trait for values that can be converted by the [EditContext].

@@ -32,6 +32,7 @@ use crate::editing::{
         WordStyle,
         WriteFlags,
     },
+    completion::CompletionList,
     store::Store,
 };
 
@@ -125,6 +126,9 @@ pub trait WindowOps<I: ApplicationInfo>: TerminalCursor {
 
     /// Draw this window into the buffer for the prescribed area.
     fn draw(&mut self, area: Rect, buf: &mut Buffer, focused: bool, store: &mut Store<I>);
+
+    /// Get completion candidates to show the user.
+    fn get_completions(&self) -> Option<CompletionList>;
 
     /// Returns the word following the current cursor position in this window.
     fn get_cursor_word(&self, style: &WordStyle) -> Option<String>;

@@ -12,6 +12,7 @@
 //! - Cursor groups
 //!
 //! See [Editable], [EditAction], and [EditTarget] for more on what can be done.
+use std::borrow::Cow;
 use std::collections::hash_map::{Entry, HashMap};
 use std::collections::vec_deque::VecDeque;
 use std::marker::PhantomData;
@@ -41,6 +42,9 @@ use crate::editing::{
     application::ApplicationInfo,
     base::{
         Char,
+        CompletionDisplay,
+        CompletionSelection,
+        CompletionType,
         Count,
         CursorMovements,
         CursorMovementsContext,
@@ -60,6 +64,7 @@ use crate::editing::{
         ViewportContext,
         WordStyle,
     },
+    completion::{CompletionList, LineCompleter},
     context::EditContext,
     cursor::{
         block_cursors,
@@ -82,11 +87,13 @@ use crate::editing::{
 #[macro_use]
 mod macros_test;
 
+mod complete;
 mod cursor;
 mod edit;
 mod insert_text;
 mod selection;
 
+use self::complete::*;
 use self::cursor::*;
 use self::edit::*;
 use self::insert_text::*;
@@ -124,6 +131,9 @@ pub struct EditBuffer<I: ApplicationInfo> {
 
     /// Tracks the jumplist for cursor groups within given buffers.
     jumped: AdjustStore<CursorGroupId, HistoryList<CursorGroup>>,
+
+    completions: HashMap<CursorGroupId, CompletionList>,
+    lines: LineCompleter,
 
     history: HistoryList<EditRope>,
     lineinfo: LineInfoStore<usize>,
@@ -177,6 +187,8 @@ where
             jumped,
             history,
             lineinfo,
+            completions: HashMap::new(),
+            lines: LineCompleter::default(),
             push_next_change: true,
             _p: PhantomData,
         }
@@ -566,6 +578,10 @@ where
         self.changed.adjust(adjs);
         self.jumped.adjust(adjs);
 
+        for completion in self.completions.values_mut() {
+            completion.adjust(adjs);
+        }
+
         store.cursors.adjust_id(&self.id, adjs);
     }
 
@@ -633,6 +649,7 @@ where
 
         let gid = ictx.0;
         let mut group = self.get_group(gid);
+        self.completions.remove(&gid);
 
         if target.is_jumping() {
             // Save current positions before we jump.
@@ -720,6 +737,9 @@ where
         // XXX: Need to zero out global marks on rope change.
         self._zero_local();
 
+        // Any existing completions are now invalid.
+        self.completions.clear();
+
         return rope;
     }
 
@@ -752,6 +772,11 @@ where
     /// This also resets buffer-associated state, like marks and history.
     pub fn reset_text(&mut self) -> String {
         self.reset().to_string()
+    }
+
+    /// Get completion candidates for the give cursor group to show the user.
+    pub fn get_completions(&self, gid: CursorGroupId) -> Option<CompletionList> {
+        self.completions.get(&gid).cloned()
     }
 
     /// Returns the text currently that the cursor group's leader is currently positioned over.
@@ -1033,11 +1058,29 @@ where
     fn checkpoint(
         &mut self,
         _: &CursorGroupIdContext<'a, 'b, C>,
-        _: &mut Store<I>,
+        store: &mut Store<I>,
     ) -> EditResult<EditInfo, I> {
         if &self.text != self.history.current() {
+            // First, increment lines that are in the latest rope.
+            for line in self.text.lines(0).map(Cow::from) {
+                self.lines.line_incr(line.as_ref());
+                store.completions.lines.line_incr(line.as_ref());
+            }
+
+            // Then decrement lines from the previous checkpoint.
+            for line in self.history.current().lines(0).map(Cow::from) {
+                self.lines.line_decr(line.as_ref());
+                store.completions.lines.line_decr(line.as_ref());
+            }
+
             self.history.push(self.text.clone());
             self.push_next_change = true;
+        } else if self.lines.is_empty() {
+            // Generate completions on first checkpoint.
+            for line in self.text.lines(0).map(Cow::from) {
+                self.lines.line_incr(line.as_ref());
+                store.completions.lines.line_incr(line.as_ref());
+            }
         }
 
         Ok(None)
@@ -1056,6 +1099,8 @@ where
         ictx: &CursorGroupIdContext<'a, 'b, C>,
         store: &mut Store<I>,
     ) -> EditResult<EditInfo, I> {
+        self.completions.remove(&ictx.0);
+
         if let EditAction::Motion = action {
             return self.motion(target, ictx, store);
         }
@@ -1063,7 +1108,6 @@ where
         let ctx = &self._ctx_cgi2es(action, ictx);
         let gid = ictx.0;
         let end = ctx.context.get_cursor_end();
-
         let mut group = self.get_group(gid);
 
         for state in group.iter_mut() {
@@ -1121,10 +1165,30 @@ where
         store: &mut Store<I>,
     ) -> EditResult<EditInfo, I> {
         let leader = self.get_leader(ctx.0);
-
         store.cursors.set_mark(self.id.clone(), name, leader);
+        self.completions.remove(&ctx.0);
 
         Ok(None)
+    }
+
+    fn complete(
+        &mut self,
+        comptype: &CompletionType,
+        selection: &CompletionSelection,
+        display: &CompletionDisplay,
+        ctx: &CursorGroupIdContext<'a, 'b, C>,
+        store: &mut Store<I>,
+    ) -> EditResult<EditInfo, I> {
+        match comptype {
+            CompletionType::Auto => self.complete_auto(selection, display, ctx, store),
+            CompletionType::File => self.complete_file(selection, display, ctx, store),
+            CompletionType::Line(scope) => {
+                self.complete_line(scope, selection, display, ctx, store)
+            },
+            CompletionType::Word(scope) => {
+                self.complete_word(scope, selection, display, ctx, store)
+            },
+        }
     }
 
     fn insert_text(
@@ -1133,6 +1197,8 @@ where
         ctx: &CursorGroupIdContext<'a, 'b, C>,
         store: &mut Store<I>,
     ) -> EditResult<EditInfo, I> {
+        self.completions.remove(&ctx.0);
+
         match act {
             InsertTextAction::OpenLine(shape, dir, count) => {
                 self.open_line(*shape, *dir, count, ctx, store)
@@ -1157,6 +1223,8 @@ where
         ctx: &CursorGroupIdContext<'a, 'b, C>,
         store: &mut Store<I>,
     ) -> EditResult<EditInfo, I> {
+        self.completions.remove(&ctx.0);
+
         match act {
             SelectionAction::CursorSet(change) => self.selection_cursor_set(change, ctx, store),
             SelectionAction::Duplicate(dir, count) => {
@@ -1178,6 +1246,8 @@ where
         ctx: &CursorGroupIdContext<'a, 'b, C>,
         store: &mut Store<I>,
     ) -> EditResult<EditInfo, I> {
+        self.completions.remove(&ctx.0);
+
         match act {
             CursorAction::Close(target) => self.cursor_close(target, ctx, store),
             CursorAction::Split(count) => self.cursor_split(count, ctx, store),
@@ -1193,6 +1263,8 @@ where
         ctx: &CursorGroupIdContext<'a, 'b, C>,
         store: &mut Store<I>,
     ) -> EditResult<EditInfo, I> {
+        self.completions.remove(&ctx.0);
+
         match act {
             HistoryAction::Checkpoint => self.checkpoint(ctx, store),
             HistoryAction::Undo(count) => self.undo(count, ctx, store),
@@ -1225,12 +1297,7 @@ where
             EditorAction::Mark(name) => self.mark(ctx.2.resolve(name), ctx, store),
             EditorAction::Selection(act) => self.selection_command(act, ctx, store),
 
-            EditorAction::Complete(_, _) => {
-                let msg = "Completion is not yet implemented";
-                let err = EditError::Unimplemented(msg.into());
-
-                Err(err)
-            },
+            EditorAction::Complete(ct, sel, disp) => self.complete(ct, sel, disp, ctx, store),
         }
     }
 }

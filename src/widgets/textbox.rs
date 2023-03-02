@@ -82,6 +82,7 @@ use crate::editing::{
         WriteFlags,
     },
     buffer::{CursorGroupId, FollowersInfo, HighlightInfo},
+    completion::CompletionList,
     context::EditContext,
     cursor::Cursor,
     rope::EditRope,
@@ -621,6 +622,10 @@ where
 
     fn draw(&mut self, area: Rect, buf: &mut Buffer, _: bool, _: &mut Store<I>) {
         TextBox::new().render(area, buf, self);
+    }
+
+    fn get_completions(&self) -> Option<CompletionList> {
+        self.buffer.read().unwrap().get_completions(self.group_id)
     }
 
     fn get_cursor_word(&self, style: &WordStyle) -> Option<String> {

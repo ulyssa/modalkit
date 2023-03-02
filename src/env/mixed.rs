@@ -228,6 +228,10 @@ impl<I: ApplicationInfo> EditContext for MixedContext<I> {
     fn get_register_append(&self) -> bool {
         delegate_context!(self, EditContext::get_register_append)
     }
+
+    fn is_search_incremental(&self) -> bool {
+        delegate_context!(self, EditContext::is_search_incremental)
+    }
 }
 
 /// Type for wrapping different keybindings in contexts where keybindings can be determined

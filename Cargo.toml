@@ -28,8 +28,11 @@ tui = { version = "0.19", optional = true }
 intervaltree = { version = "0.2.6", optional = true }
 bitflags = "1.2"
 nom = "7.0.0"
+radix_trie = "0.2.1"
 regex = "^1.5"
 ropey = "1.5.0"
+unicode-segmentation = "^1.7"
 
 [dev-dependencies]
 rand = "0.8.4"
+temp-dir = "0.1.11"

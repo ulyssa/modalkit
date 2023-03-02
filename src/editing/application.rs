@@ -22,7 +22,7 @@
 //!             ApplicationInfo,
 //!             ApplicationStore,
 //!         },
-//!         base::Count,
+//!         base::{CommandType, Count},
 //!         context::EditContext,
 //!     },
 //! };
@@ -107,6 +107,9 @@
 //!
 //! #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 //! enum CodeReviewContentId {
+//!     // Different buffer used by the command bar.
+//!     Command(CommandType),
+//!
 //!     // Buffer for a comment left on a line.
 //!     Review(ReviewId, usize),
 //! }
@@ -137,12 +140,25 @@
 //!     type Store = CodeReviewStore;
 //!     type WindowId = CodeReviewWindowId;
 //!     type ContentId = CodeReviewContentId;
+//!
+//!     fn content_of_command(ct: CommandType) -> CodeReviewContentId {
+//!         CodeReviewContentId::Command(ct)
+//!     }
 //! }
 //! ```
 use std::fmt::{Debug, Display};
 use std::hash::Hash;
 
-use crate::{editing::context::EditContext, input::bindings::SequenceStatus};
+use crate::{
+    editing::{
+        base::CommandType,
+        context::EditContext,
+        cursor::Cursor,
+        rope::EditRope,
+        store::Store,
+    },
+    input::bindings::SequenceStatus,
+};
 
 /// Trait for objects that describe application-specific actions.
 ///
@@ -215,6 +231,7 @@ impl ApplicationContentId for usize {}
 impl ApplicationContentId for String {}
 
 /// Trait for objects that describe application-specific behaviour and types.
+#[allow(unused)]
 pub trait ApplicationInfo: Clone + Debug + Eq + PartialEq {
     /// An application-specific error type.
     type Error: ApplicationError;
@@ -230,6 +247,23 @@ pub trait ApplicationInfo: Clone + Debug + Eq + PartialEq {
 
     /// The type for application-specific content within a window.
     type ContentId: ApplicationContentId;
+
+    /// Given a [Cursor] position in an [EditRope], and its content identifier, generate a list of
+    /// completion candidates.
+    ///
+    /// By default, this returns an empty list, which causes completion inside buffers to fall back
+    /// to word completion.
+    fn complete(
+        text: &EditRope,
+        cursor: &mut Cursor,
+        content: &Self::ContentId,
+        store: &mut Store<Self>,
+    ) -> Vec<String> {
+        vec![]
+    }
+
+    /// Get the [ApplicationContentId] used to show a given command type.
+    fn content_of_command(cmdtype: CommandType) -> Self::ContentId;
 }
 
 /// A default implementor of [ApplicationInfo] for consumers that don't require any customization.
@@ -242,4 +276,20 @@ impl ApplicationInfo for EmptyInfo {
     type Store = ();
     type WindowId = String;
     type ContentId = String;
+
+    fn complete(
+        _: &EditRope,
+        _: &mut Cursor,
+        _: &Self::ContentId,
+        _: &mut Store<Self>,
+    ) -> Vec<String> {
+        vec![]
+    }
+
+    fn content_of_command(cmdtype: CommandType) -> String {
+        match cmdtype {
+            CommandType::Search => "*search*".into(),
+            CommandType::Command => "*command*".into(),
+        }
+    }
 }

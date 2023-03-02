@@ -16,6 +16,7 @@ use crate::{
     input::bindings::SequenceClass,
     util::{
         is_filename_char,
+        is_filepath_char,
         is_horizontal_space,
         is_keyword,
         is_newline,
@@ -69,6 +70,61 @@ pub enum PasteStyle {
 
     /// Replace selected text with register contents.
     Replace,
+}
+
+/// The source to search for completion candidates.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum CompletionScope {
+    /// Only use completion candidates from the current buffer.
+    Buffer,
+
+    /// Use completion candidates available from all buffers.
+    Global,
+}
+
+/// What type of phrase we are completing.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum CompletionSelection {
+    /// Navigate through the list of completion candidates.
+    List(MoveDir1D),
+
+    /// Generate completion candidates, but don't select any from the list.
+    None,
+
+    /// Complete only the longest common prefix from the completion candidates.
+    Prefix,
+
+    /// If there is only a single completion candidate, select it.
+    Single,
+}
+
+/// What type of phrase we are completing.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum CompletionType {
+    /// Determine what to complete by the buffer context.
+    Auto,
+
+    /// Complete a filename.
+    File,
+
+    /// Complete the rest of the line.
+    Line(CompletionScope),
+
+    /// Complete the current word.
+    Word(CompletionScope),
+}
+
+/// How to display completion candidates.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum CompletionDisplay {
+    /// Don't display candidates.
+    None,
+
+    /// Display candidates in a bar above the command bar.
+    Bar,
+
+    /// Display candidates in a pop-up list.
+    List,
 }
 
 /// Specify what is targeted by an editing action.
@@ -249,8 +305,11 @@ pub enum WordStyle {
     /// A sequence of characters that match a test function.
     CharSet(fn(char) -> bool),
 
-    /// A filename.
-    Filename,
+    /// A name of a directory or file.
+    FileName,
+
+    /// A path to a directory or file.
+    FilePath,
 
     /// Either a sequence of alphanumeric characters and underscores, or a sequence of other
     /// non-blank characters.
@@ -268,6 +327,23 @@ pub enum WordStyle {
     ///
     /// [bool] controls whether this crosses line boundaries.
     Whitespace(bool),
+}
+
+impl WordStyle {
+    pub(crate) fn contains(&self, c: char) -> bool {
+        match self {
+            WordStyle::AlphaNum => is_word_char(c),
+            WordStyle::NonAlphaNum => !is_word_char(c),
+            WordStyle::Big => !is_space_char(c),
+            WordStyle::CharSet(f) => f(c),
+            WordStyle::FileName => is_filename_char(c),
+            WordStyle::FilePath => is_filepath_char(c),
+            WordStyle::Little => is_word_char(c) || is_keyword(c),
+            WordStyle::Number(radix) => radix.contains(c),
+            WordStyle::Whitespace(true) => is_space_char(c),
+            WordStyle::Whitespace(false) => is_horizontal_space(c),
+        }
+    }
 }
 
 impl BoundaryTest for WordStyle {
@@ -326,11 +402,18 @@ impl BoundaryTest for WordStyle {
                     f(ctx.current)
                 }
             },
-            WordStyle::Filename => {
+            WordStyle::FileName => {
                 if let Some(before) = ctx.before {
                     is_filename_char(ctx.current) && !is_filename_char(before)
                 } else {
                     is_filename_char(ctx.current)
+                }
+            },
+            WordStyle::FilePath => {
+                if let Some(before) = ctx.before {
+                    is_filepath_char(ctx.current) && !is_filepath_char(before)
+                } else {
+                    is_filepath_char(ctx.current)
                 }
             },
             WordStyle::Little => {
@@ -431,11 +514,18 @@ impl BoundaryTest for WordStyle {
                     f(ctx.current)
                 }
             },
-            WordStyle::Filename => {
+            WordStyle::FileName => {
                 if let Some(after) = ctx.after {
                     is_filename_char(ctx.current) && !is_filename_char(after)
                 } else {
                     is_filename_char(ctx.current)
+                }
+            },
+            WordStyle::FilePath => {
+                if let Some(after) = ctx.after {
+                    is_filepath_char(ctx.current) && !is_filepath_char(after)
+                } else {
+                    is_filepath_char(ctx.current)
                 }
             },
             WordStyle::Little => {
@@ -1156,16 +1246,13 @@ pub enum SelectionResizeStyle {
 }
 
 /// When focusing on the command bar, this is the type of command that should be submitted.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum CommandType {
     /// Prompt the user for a command.
     Command,
 
     /// Prompt the user for a search query.
-    ///
-    /// [MoveDir1D] controls which direction to search, and [bool] whether to perform an
-    /// incremental search as the user types their query.
-    Search(MoveDir1D, bool),
+    Search,
 }
 
 /// This specifies which list of cursors to use when jumping, the change list or the jump list.

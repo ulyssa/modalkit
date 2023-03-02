@@ -343,6 +343,7 @@ pub(crate) struct ActionContext {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct PersistentContext {
     pub(crate) regexsearch_dir: MoveDir1D,
+    pub(crate) regexsearch_inc: bool,
     pub(crate) charsearch_params: (MoveDir1D, bool),
     pub(crate) charsearch: Option<Char>,
     pub(crate) shape: Option<TargetShape>,
@@ -513,6 +514,10 @@ impl<I: ApplicationInfo> EditContext for VimContext<I> {
     fn get_register_append(&self) -> bool {
         self.action.register_append
     }
+
+    fn is_search_incremental(&self) -> bool {
+        self.persist.regexsearch_inc
+    }
 }
 
 impl Default for ActionContext {
@@ -544,6 +549,7 @@ impl Default for PersistentContext {
     fn default() -> Self {
         PersistentContext {
             regexsearch_dir: MoveDir1D::Next,
+            regexsearch_inc: false,
             charsearch_params: (MoveDir1D::Next, false),
             charsearch: None,
             insert: None,

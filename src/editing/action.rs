@@ -138,6 +138,16 @@ where
     /// Create or update a cursor mark based on the leader's cursor position.
     fn mark(&mut self, name: Mark, ctx: &C, store: &mut S) -> EditResult<EditInfo, I>;
 
+    /// Complete the text before the cursor group leader.
+    fn complete(
+        &mut self,
+        comptype: &CompletionType,
+        selection: &CompletionSelection,
+        display: &CompletionDisplay,
+        ctx: &C,
+        store: &mut S,
+    ) -> EditResult<EditInfo, I>;
+
     /// Insert text relative to the current cursor position.
     fn insert_text(
         &mut self,
@@ -535,8 +545,8 @@ where
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[non_exhaustive]
 pub enum EditorAction {
-    /// Complete the rest of the word typed thus far.
-    Complete(MoveDir1D, bool),
+    /// Complete the text before the cursor group leader.
+    Complete(CompletionType, CompletionSelection, CompletionDisplay),
 
     /// Modify the current cursor group.
     Cursor(CursorAction),
@@ -561,7 +571,7 @@ impl EditorAction {
     /// Indicates if this is a read-only action.
     pub fn is_readonly<C: EditContext>(&self, ctx: &C) -> bool {
         match self {
-            EditorAction::Complete(_, _) => false,
+            EditorAction::Complete(_, _, _) => false,
             EditorAction::History(act) => act.is_readonly(),
             EditorAction::InsertText(_) => false,
 
@@ -587,7 +597,7 @@ impl EditorAction {
             EditorAction::InsertText(_) => SequenceStatus::Track,
             EditorAction::Cursor(_) => SequenceStatus::Track,
             EditorAction::Selection(_) => SequenceStatus::Track,
-            EditorAction::Complete(_, _) => SequenceStatus::Track,
+            EditorAction::Complete(_, _, _) => SequenceStatus::Track,
             EditorAction::Edit(act, _) => {
                 match ctx.resolve(act) {
                     EditAction::Motion => motion,
@@ -605,7 +615,7 @@ impl EditorAction {
             EditorAction::History(HistoryAction::Undo(_)) => SequenceStatus::Atom,
             EditorAction::History(HistoryAction::Redo(_)) => SequenceStatus::Atom,
 
-            EditorAction::Complete(_, _) => SequenceStatus::Atom,
+            EditorAction::Complete(_, _, _) => SequenceStatus::Atom,
             EditorAction::Cursor(_) => SequenceStatus::Atom,
             EditorAction::Edit(_, _) => SequenceStatus::Atom,
             EditorAction::InsertText(_) => SequenceStatus::Atom,
@@ -621,7 +631,7 @@ impl EditorAction {
             EditorAction::Mark(_) => SequenceStatus::Ignore,
             EditorAction::InsertText(_) => SequenceStatus::Ignore,
             EditorAction::Cursor(_) => SequenceStatus::Ignore,
-            EditorAction::Complete(_, _) => SequenceStatus::Ignore,
+            EditorAction::Complete(_, _, _) => SequenceStatus::Ignore,
 
             EditorAction::Selection(SelectionAction::Resize(_, _)) => SequenceStatus::Track,
             EditorAction::Selection(_) => SequenceStatus::Ignore,
@@ -645,7 +655,7 @@ impl EditorAction {
         match self {
             EditorAction::Cursor(act) => act.is_switchable(ctx),
             EditorAction::Edit(act, _) => ctx.resolve(act).is_switchable(ctx),
-            EditorAction::Complete(_, _) => false,
+            EditorAction::Complete(_, _, _) => false,
             EditorAction::History(_) => false,
             EditorAction::InsertText(_) => false,
             EditorAction::Mark(_) => false,

@@ -15,6 +15,7 @@ pub mod action;
 pub mod application;
 pub mod base;
 pub mod buffer;
+pub mod completion;
 pub mod context;
 pub mod cursor;
 pub mod history;

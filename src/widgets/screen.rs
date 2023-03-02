@@ -24,6 +24,7 @@ use super::{
     windows::{WindowActions, WindowLayout, WindowLayoutState},
     TerminalCursor,
     Window,
+    WindowOps,
 };
 
 use crate::editing::{
@@ -53,6 +54,7 @@ use crate::editing::{
     base::{
         CloseFlags,
         CommandType,
+        CompletionDisplay,
         Count,
         FocusChange,
         MoveDir1D,
@@ -65,11 +67,169 @@ use crate::editing::{
         TabTarget,
         WindowTarget,
     },
+    completion::CompletionList,
     context::EditContext,
     store::Store,
 };
 
 use crate::util::{idx_move, idx_offset};
+
+const MAX_COMPL_BARH: usize = 10;
+const GAP_COMPL_COL: usize = 2;
+
+/// Pop-up hover menu displaying completions.
+#[derive(Default)]
+struct CompletionMenu {
+    cursor: (u16, u16),
+}
+
+impl CompletionMenu {
+    fn new(cursor: (u16, u16)) -> Self {
+        CompletionMenu { cursor }
+    }
+}
+
+impl StatefulWidget for CompletionMenu {
+    type State = CompletionList;
+
+    fn render(self, area: Rect, buffer: &mut Buffer, state: &mut CompletionList) {
+        if area.height <= 1 {
+            // Not enough space to render a menu above or below the cursor.
+            return;
+        }
+
+        let len = state.candidates.len();
+
+        let top = area.top();
+        let bot = area.bottom();
+        let (cx, cy) = self.cursor;
+
+        let above = cy.saturating_sub(top) as usize;
+        let below = bot.saturating_sub(cy).saturating_sub(1) as usize;
+
+        let right = area.right();
+        let space = right.saturating_sub(cx).saturating_sub(1) as usize;
+        let maxw = state.candidates.iter().map(|s| s.len()).max().unwrap_or(0).min(space);
+        let style = Style::reset().add_modifier(StyleModifier::REVERSED);
+        let style_sel = style.bg(Color::Yellow).fg(Color::Black);
+
+        let x = if state.start.y == state.cursor.y {
+            let diff = state.cursor.x.saturating_sub(state.start.x);
+            cx.saturating_sub(diff as u16)
+        } else {
+            cx
+        };
+
+        let mut draw = |y: u16, idx: usize, s: &str| {
+            let sel = matches!(state.selected, Some(i) if i == idx);
+            let style = if sel { style_sel } else { style };
+            let slen = s.len();
+
+            let (x, _) = buffer.set_stringn(x, y, s, space, style);
+            let start = (maxw - slen) as u16;
+
+            for off in 0..start {
+                buffer.set_stringn(x + off, y, " ", 1, style);
+            }
+        };
+
+        let candidates = state.candidates.iter().enumerate();
+
+        if len <= below || below >= above {
+            // We bias towards a drop-down menu.
+            let height = len.min(below);
+            let page = if let Some(selected) = state.selected {
+                selected / height
+            } else {
+                0
+            };
+
+            for (y, (idx, s)) in candidates.skip(page * height).take(height).enumerate() {
+                let y = cy + y as u16 + 1;
+                draw(y, idx, s);
+            }
+        } else {
+            // Draw a menu above the line.
+            let height = len.min(above);
+            let page = if let Some(selected) = state.selected {
+                selected / height
+            } else {
+                0
+            };
+
+            let n = (len - page * height).min(height);
+
+            for (y, (idx, s)) in candidates.skip(page * height).take(height).enumerate() {
+                let y = cy.saturating_sub((n - y) as u16);
+                draw(y, idx, s);
+            }
+        }
+    }
+}
+
+/// Row and columns information for the completion bar.
+#[derive(Default)]
+struct CompletionBar {
+    colw: u16,
+    cols: u16,
+    rows: u16,
+}
+
+impl CompletionBar {
+    fn new(list: &CompletionList, width: u16) -> Self {
+        match list.display {
+            CompletionDisplay::None => CompletionBar::default(),
+            CompletionDisplay::List => CompletionBar::default(),
+            CompletionDisplay::Bar => {
+                let len = list.candidates.len();
+                let width = width as usize;
+
+                if len == 0 {
+                    return CompletionBar::default();
+                }
+
+                let cmax = list.candidates.iter().map(|s| s.len()).max().unwrap_or(0);
+                let cmax = cmax.clamp(1, width);
+                let colw = (cmax + GAP_COMPL_COL).min(width);
+                let cols = (width / colw).max(1);
+                let rows = (len / cols).clamp(1, MAX_COMPL_BARH);
+
+                CompletionBar {
+                    colw: colw as u16,
+                    cols: cols as u16,
+                    rows: rows as u16,
+                }
+            },
+        }
+    }
+}
+
+impl StatefulWidget for CompletionBar {
+    type State = CompletionList;
+
+    fn render(self, area: Rect, buffer: &mut Buffer, state: &mut CompletionList) {
+        if area.height == 0 {
+            return;
+        }
+
+        let mut iter = state.candidates.iter();
+        let maxw = (self.colw as usize).saturating_sub(GAP_COMPL_COL);
+        let style = Style::default();
+
+        for x in 0..self.cols {
+            for y in 0..self.rows {
+                let item = match iter.next() {
+                    Some(item) => item.as_str(),
+                    None => return,
+                };
+
+                let x = area.x + x * self.colw;
+                let y = area.y + y;
+                buffer.set_stringn(x, y, item, maxw, style);
+            }
+        }
+    }
+}
 
 trait TabActions<C, S, I>
 where
@@ -481,9 +641,10 @@ where
         self.last_message = false;
     }
 
-    fn focus_command(&mut self, ct: CommandType) -> EditResult<EditInfo, I> {
+    fn focus_command(&mut self, ct: CommandType, dir: MoveDir1D) -> EditResult<EditInfo, I> {
         self.focused = CurrentFocus::Command;
-        self.cmdbar.set_type(ct);
+        self.cmdbar.reset();
+        self.cmdbar.set_type(ct, dir);
         self.clear_message();
 
         Ok(None)
@@ -500,10 +661,10 @@ where
     pub fn command_bar<C: EditContext>(
         &mut self,
         act: &CommandBarAction,
-        _: &C,
+        ctx: &C,
     ) -> EditResult<EditInfo, I> {
         match act {
-            CommandBarAction::Focus(ct) => self.focus_command(ct.clone()),
+            CommandBarAction::Focus(ct) => self.focus_command(*ct, ctx.get_search_regex_dir()),
             CommandBarAction::Unfocus => self.focus_window(),
         }
     }
@@ -882,16 +1043,31 @@ where
         }
 
         let focused = state.focused;
-        let ntabs = state.tabs.len();
 
+        let mut compls = match focused {
+            CurrentFocus::Command => state.cmdbar.get_completions(),
+            CurrentFocus::Window => state.current_window().and_then(WindowOps::get_completions),
+        };
+
+        // Determine whether we need to show the tab bar.
+        let ntabs = state.tabs.len();
         let tabh = if ntabs > 1 && area.height > 2 { 1 } else { 0 };
 
-        let winh = area.height - tabh - 1;
+        // Determine whether we need to show the completion bar, and how big it should be.
+        let cbar = compls
+            .as_ref()
+            .map(|l| CompletionBar::new(l, area.width))
+            .unwrap_or_default();
+        let barh = cbar.rows;
+
+        // The rest of the space goes to showing the open windows and the command bar.
+        let winh = area.height.saturating_sub(tabh).saturating_sub(barh).saturating_sub(1);
 
         let init = rect_zero_height(area);
         let tabarea = rect_down(init, tabh);
         let winarea = rect_down(tabarea, winh);
-        let cmdarea = rect_down(winarea, 1);
+        let bararea = rect_down(winarea, barh);
+        let cmdarea = rect_down(bararea, 1);
 
         let titles = state
             .tabs
@@ -945,6 +1121,21 @@ where
             .focus(focused == CurrentFocus::Command)
             .status(status)
             .render(cmdarea, buf, &mut state.cmdbar);
+
+        // Render completion list last so it's drawn on top of the windows.
+        if let Some(ref mut completions) = compls {
+            match completions.display {
+                CompletionDisplay::None => {},
+                CompletionDisplay::Bar => {
+                    cbar.render(bararea, buf, completions);
+                },
+                CompletionDisplay::List => {
+                    if let Some(cursor) = state.get_term_cursor() {
+                        CompletionMenu::new(cursor).render(winarea, buf, completions);
+                    }
+                },
+            }
+        }
     }
 }
 

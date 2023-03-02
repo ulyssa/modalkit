@@ -32,6 +32,9 @@ use crate::editing::{
         Char,
         CloseFlags,
         CommandType,
+        CompletionDisplay,
+        CompletionSelection,
+        CompletionType,
         Count,
         EditTarget,
         FocusChange,
@@ -114,6 +117,7 @@ enum InternalAction {
     SaveCounting(Option<usize>),
     SetInsertStyle(InsertStyle),
     SetRegister(Register),
+    SetSearchRegexParams(MoveDir1D, bool),
     SetTargetShape(TargetShape, bool),
 }
 
@@ -154,6 +158,10 @@ impl InternalAction {
             },
             InternalAction::SetRegister(reg) => {
                 ctx.action.register = Some(reg.clone());
+            },
+            InternalAction::SetSearchRegexParams(dir, incremental) => {
+                ctx.persist.regexsearch_dir = *dir;
+                ctx.persist.regexsearch_inc = *incremental;
             },
             InternalAction::SetTargetShape(shape, shifted) => {
                 ctx.persist.shape = Some(*shape);
@@ -403,6 +411,16 @@ macro_rules! cmdbar_focus {
     };
 }
 
+macro_rules! cmdbar_search {
+    ($dir: expr) => {
+        is!(
+            InternalAction::SetSearchRegexParams($dir, true),
+            Action::CommandBar(CommandBarAction::Focus(CommandType::Search)),
+            EmacsMode::Search
+        )
+    };
+}
+
 macro_rules! window {
     ($act: expr) => {
         act!(Action::Window($act))
@@ -446,7 +464,10 @@ macro_rules! window_quit {
 
 macro_rules! search {
     ($dir: expr) => {
-        act!(Action::Search(MoveDirMod::Exact($dir), Count::Exact(1)))
+        is!(
+            InternalAction::SetSearchRegexParams($dir, true),
+            Action::Search(MoveDirMod::Exact($dir), Count::Exact(1))
+        )
     };
 }
 
@@ -545,8 +566,8 @@ fn default_keys<I: ApplicationInfo>() -> Vec<(MappedModes, &'static str, InputSt
         ( IMAP, "<C-P>", motion!(MoveType::Line(MoveDir1D::Previous)) ),
         ( IMAP, "<C-Q>{oct<=3}", chartype!() ),
         ( IMAP, "<C-Q>{any}", chartype!() ),
-        ( IMAP, "<C-R>", cmdbar_focus!(CommandType::Search(MoveDir1D::Previous, true), EmacsMode::Search) ),
-        ( IMAP, "<C-S>", cmdbar_focus!(CommandType::Search(MoveDir1D::Next, true), EmacsMode::Search) ),
+        ( IMAP, "<C-R>", cmdbar_search!(MoveDir1D::Previous) ),
+        ( IMAP, "<C-S>", cmdbar_search!(MoveDir1D::Next) ),
         ( IMAP, "<C-T>", unmapped!() ),
         ( IMAP, "<C-U><C-X>s", unmapped!() ),
         ( IMAP, "<C-V>", scroll2d!(MoveDir2D::Down, ScrollSize::Page) ),
@@ -611,6 +632,8 @@ fn default_keys<I: ApplicationInfo>() -> Vec<(MappedModes, &'static str, InputSt
         ( CMAP, "<C-G>", prompt!(PromptAction::Abort(false), EmacsMode::Insert) ),
         ( CMAP, "<Up>", prompt!(PromptAction::Recall(MoveDir1D::Previous, Count::Contextual)) ),
         ( CMAP, "<Down>", prompt!(PromptAction::Recall(MoveDir1D::Next, Count::Contextual)) ),
+        ( CMAP, "<Space>", editor!(EditorAction::Complete(CompletionType::Auto, CompletionSelection::Prefix, CompletionDisplay::Bar)) ),
+        ( CMAP, "<Tab>", editor!(EditorAction::Complete(CompletionType::Auto, CompletionSelection::Single, CompletionDisplay::Bar)) ),
 
         // Search mode keybindings.
         ( SMAP, "<C-G>", prompt!(PromptAction::Abort(false), EmacsMode::Insert) ),
@@ -780,10 +803,7 @@ mod tests {
     }
 
     const CMDBAR_ABORT: Action = Action::Prompt(PromptAction::Abort(false));
-    const CMDBAR_SEARCH_NEXT: Action =
-        Action::CommandBar(CommandBarAction::Focus(CommandType::Search(MoveDir1D::Next, true)));
-    const CMDBAR_SEARCH_PREV: Action =
-        Action::CommandBar(CommandBarAction::Focus(CommandType::Search(MoveDir1D::Previous, true)));
+    const CMDBAR_SEARCH: Action = Action::CommandBar(CommandBarAction::Focus(CommandType::Search));
 
     #[test]
     fn test_selection_shift() {
@@ -838,14 +858,15 @@ mod tests {
     #[test]
     fn test_search() {
         let mut vm: EmacsMachine<TerminalKey> = EmacsMachine::default();
-        let ctx = EmacsContext::default();
+        let mut ctx = EmacsContext::default();
 
         // Start out in Insert mode.
         assert_eq!(vm.mode(), EmacsMode::Insert);
 
         // ^R moves to Search mode.
+        ctx.persist.regexsearch_dir = MoveDir1D::Previous;
         vm.input_key(ctl!('r'));
-        assert_pop2!(vm, CMDBAR_SEARCH_PREV, ctx);
+        assert_pop2!(vm, CMDBAR_SEARCH, ctx);
         assert_eq!(vm.mode(), EmacsMode::Search);
 
         // Unmapped, typable character types a character.
@@ -862,6 +883,7 @@ mod tests {
         assert_eq!(vm.mode(), EmacsMode::Search);
 
         // ^S in Search mode results in Action::Search.
+        ctx.persist.regexsearch_dir = MoveDir1D::Next;
         let act = Action::Search(MoveDirMod::Exact(MoveDir1D::Next), 1.into());
         vm.input_key(ctl!('s'));
         assert_pop2!(vm, act, ctx);
@@ -874,7 +896,7 @@ mod tests {
 
         // ^S moves to Search mode.
         vm.input_key(ctl!('s'));
-        assert_pop2!(vm, CMDBAR_SEARCH_NEXT, ctx);
+        assert_pop2!(vm, CMDBAR_SEARCH, ctx);
         assert_eq!(vm.mode(), EmacsMode::Search);
 
         // ^G leaves Search mode.

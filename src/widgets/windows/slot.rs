@@ -4,6 +4,7 @@ use crate::{
     editing::action::{EditInfo, Jumpable, UIResult},
     editing::application::ApplicationInfo,
     editing::base::{CloseFlags, MoveDir1D, PositionList, WordStyle, WriteFlags},
+    editing::completion::CompletionList,
     editing::store::Store,
     widgets::{TermOffset, TerminalCursor, WindowOps},
 };
@@ -200,6 +201,10 @@ where
 
     fn draw(&mut self, area: Rect, buf: &mut Buffer, focused: bool, store: &mut Store<I>) {
         self.current.draw(area, buf, focused, store);
+    }
+
+    fn get_completions(&self) -> Option<CompletionList> {
+        self.current.get_completions()
     }
 
     fn get_cursor_word(&self, style: &WordStyle) -> Option<String> {

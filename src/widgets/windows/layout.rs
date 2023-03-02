@@ -1863,7 +1863,8 @@ mod tests {
     use crate::editing::{
         action::EditError,
         application::{ApplicationContentId, ApplicationWindowId},
-        base::WordStyle,
+        base::{CommandType, WordStyle},
+        completion::CompletionList,
         store::Store,
     };
     use crate::env::vim::VimContext;
@@ -1954,6 +1955,10 @@ mod tests {
         type Store = ();
         type WindowId = Option<usize>;
         type ContentId = Option<usize>;
+
+        fn content_of_command(_: CommandType) -> Option<usize> {
+            None
+        }
     }
 
     #[derive(Clone, Debug, Eq, PartialEq)]
@@ -2016,6 +2021,10 @@ mod tests {
 
         fn draw(&mut self, area: Rect, _: &mut Buffer, _: bool, _: &mut Store<TestApp>) {
             self.term_area = area;
+        }
+
+        fn get_completions(&self) -> Option<CompletionList> {
+            None
         }
 
         fn get_cursor_word(&self, _: &WordStyle) -> Option<String> {

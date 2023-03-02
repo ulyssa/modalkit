@@ -172,6 +172,8 @@ pub(crate) struct ActionContext {
 /// future keybinding sequences.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct PersistentContext {
+    regexsearch_dir: MoveDir1D,
+    regexsearch_inc: bool,
     repeating: bool,
     insert: InsertStyle,
     shape: Option<TargetShape>,
@@ -181,6 +183,8 @@ pub(crate) struct PersistentContext {
 impl Default for PersistentContext {
     fn default() -> Self {
         Self {
+            regexsearch_dir: MoveDir1D::Next,
+            regexsearch_inc: true,
             repeating: false,
             insert: InsertStyle::Insert,
             shape: None,
@@ -244,7 +248,7 @@ impl<I: ApplicationInfo> EditContext for EmacsContext<I> {
     }
 
     fn get_search_regex_dir(&self) -> MoveDir1D {
-        MoveDir1D::Next
+        self.persist.regexsearch_dir
     }
 
     fn get_search_char(&self) -> Option<(MoveDir1D, bool, Char)> {
@@ -269,6 +273,10 @@ impl<I: ApplicationInfo> EditContext for EmacsContext<I> {
 
     fn get_register_append(&self) -> bool {
         false
+    }
+
+    fn is_search_incremental(&self) -> bool {
+        self.persist.regexsearch_inc
     }
 }
 

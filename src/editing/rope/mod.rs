@@ -699,7 +699,7 @@ pub struct EditRope {
 
 impl EditRope {
     /// Create an empty, zero-length rope.
-    fn empty() -> EditRope {
+    pub fn empty() -> EditRope {
         EditRope::from("")
     }
 
@@ -987,11 +987,13 @@ impl EditRope {
         let adjs = match (rlines, slines) {
             (0, 0) => {
                 // Text replaced on the same line.
+                let amt_col = schars - rchars;
+
                 vec![CursorAdjustment::Column {
                     line: start.y,
-                    column_start: start.x,
+                    column_start: end.x,
                     amt_line: 0,
-                    amt_col: schars - rchars,
+                    amt_col,
                 }]
             },
             (0, n) => {
@@ -1384,6 +1386,11 @@ impl EditRope {
         }
 
         self.rope.insert_char(len, '\n');
+    }
+
+    /// Get the text for a line.
+    pub fn get_line(&self, line: usize) -> Option<EditRope> {
+        self.rope.get_line(line).map(EditRope::from_slice)
     }
 
     /// Returns the character (if it exists) at a given cursor position.
@@ -2176,6 +2183,39 @@ impl EditRope {
     /// Returns an iterator over the characters within this rope following `position`.
     pub fn chars_until(&self, pos: CharOff, end: CharOff) -> CharacterIterator {
         CharacterIterator::new(self, pos.0, end.0)
+    }
+
+    /// Get the text before the cursor, and update the cursor to point to its start.
+    pub fn get_prefix_word_mut(&self, cursor: &mut Cursor, style: &WordStyle) -> Option<Self> {
+        let mut bti = self.boundary(cursor, MoveDir1D::Previous, 1, true)?;
+        let mut res = None;
+
+        while bti.ctx.count > 0 {
+            if bti.next_char() {
+                return None;
+            }
+
+            if !style.contains(bti.ctx.current) {
+                return None;
+            }
+
+            if style.is_boundary(MoveTerminus::Beginning, &bti.ctx) {
+                res = bti.pos().into();
+                bti.ctx.count -= 1;
+            }
+        }
+
+        let so = res?;
+        let eo = self.cursor_to_offset(cursor);
+        *cursor = self.offset_to_cursor(so);
+
+        self.slice(so, eo, false).into()
+    }
+
+    /// Get the text before the cursor.
+    pub fn get_prefix_word(&self, cursor: &Cursor, style: &WordStyle) -> Option<Self> {
+        let mut cursor = cursor.clone();
+        self.get_prefix_word_mut(&mut cursor, style)
     }
 
     /// Returns the [word](WordStyle) underneath the [Cursor], and updates it to point at the
@@ -3113,9 +3153,11 @@ mod tests {
             choice,
             CursorChoice::Range(Cursor::new(0, 3), Cursor::new(0, 9), Cursor::new(0, 3))
         );
+
+        // Cursors located after the replaced text get pushed back.
         assert_eq!(adjs, vec![CursorAdjustment::Column {
             line: 0,
-            column_start: 3,
+            column_start: 9,
             amt_line: 0,
             amt_col: 1,
         }]);
@@ -3130,7 +3172,7 @@ mod tests {
         );
         assert_eq!(adjs, vec![CursorAdjustment::Column {
             line: 0,
-            column_start: 3,
+            column_start: 9,
             amt_line: 0,
             amt_col: -5,
         }]);
@@ -3613,6 +3655,35 @@ mod tests {
         // C's on both sides.
         let res = EditRope::from("CCa bCC").trim_end_matches(f);
         assert_eq!(res.to_string(), "CCa b");
+    }
+
+    #[test]
+    fn test_get_prefix_word_mut() {
+        let rope = EditRope::from("foo bar baz\n");
+
+        // No prefix before first character.
+        let mut cursor = Cursor::new(0, 0);
+        let res = rope.get_prefix_word_mut(&mut cursor, &WordStyle::Little);
+        assert_eq!(res, None);
+        assert_eq!(cursor, Cursor::new(0, 0));
+
+        // Character under cursor doesn't count towards prefix.
+        let mut cursor = Cursor::new(0, 8);
+        let res = rope.get_prefix_word_mut(&mut cursor, &WordStyle::Little);
+        assert_eq!(res, None);
+        assert_eq!(cursor, Cursor::new(0, 8));
+
+        // Characters before the space get used.
+        let mut cursor = Cursor::new(0, 7);
+        let res = rope.get_prefix_word_mut(&mut cursor, &WordStyle::Little).unwrap();
+        assert_eq!(res.to_string(), "bar");
+        assert_eq!(cursor, Cursor::new(0, 4));
+
+        // Characters before the "r" get used.
+        let mut cursor = Cursor::new(0, 6);
+        let res = rope.get_prefix_word_mut(&mut cursor, &WordStyle::Little).unwrap();
+        assert_eq!(res.to_string(), "ba");
+        assert_eq!(cursor, Cursor::new(0, 4));
     }
 
     #[test]

@@ -22,6 +22,12 @@ macro_rules! editor {
     };
 }
 
+macro_rules! complete {
+    ($ct: expr, $cs: expr, $cd: expr) => {
+        editor!(EditorAction::Complete($ct, $cs, $cd))
+    };
+}
+
 macro_rules! insert_text {
     ($it: expr) => {
         editor!(EditorAction::InsertText($it))

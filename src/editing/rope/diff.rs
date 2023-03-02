@@ -143,12 +143,7 @@ pub fn compute_delta<'a>(base: &Rope, target: &'a Rope) -> Delta<'a> {
 
     let mut needs_subseq = false;
     for line in target.slice(start_offset..target_end).lines().map(trimnl) {
-        let line = if let Some(s) = line.as_str() {
-            Cow::Borrowed(s)
-        } else {
-            Cow::Owned(line.to_string())
-        };
-
+        let line = Cow::from(line);
         let non_ws = non_ws_offset(&line);
 
         if line.len() - non_ws >= MIN_SIZE {
@@ -328,12 +323,7 @@ fn make_line_hashes(base: &Rope, min_size: usize) -> HashMap<Cow<'_, str>, usize
     let mut line_hashes = HashMap::with_capacity(base.len_chars() / 60);
 
     for line in base.lines().map(trimnl) {
-        let line = if let Some(s) = line.as_str() {
-            Cow::Borrowed(s)
-        } else {
-            Cow::Owned(line.to_string())
-        };
-
+        let line = Cow::from(line);
         let non_ws = non_ws_offset(&line);
 
         if line.len() - non_ws >= min_size {

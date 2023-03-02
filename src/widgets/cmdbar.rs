@@ -26,6 +26,7 @@ use crate::editing::{
     },
     application::ApplicationInfo,
     base::{CommandType, Count, EditTarget, MoveDir1D, MoveDirMod, SearchType},
+    completion::CompletionList,
     context::EditContext,
     history::ScrollbackState,
     rope::EditRope,
@@ -35,13 +36,16 @@ use crate::editing::{
 use super::{
     textbox::{TextBox, TextBoxState},
     PromptActions,
+    WindowOps,
 };
 
 /// Persistent state for rendering [CommandBar].
 pub struct CommandBarState<I: ApplicationInfo> {
     scrollback: ScrollbackState,
+    searchdir: MoveDir1D,
     cmdtype: CommandType,
-    tbox: TextBoxState<I>,
+    tbox_cmd: TextBoxState<I>,
+    tbox_search: TextBoxState<I>,
 }
 
 impl<I> CommandBarState<I>
@@ -49,26 +53,35 @@ where
     I: ApplicationInfo,
 {
     /// Create state for a [CommandBar] widget.
-    pub fn new(id: I::ContentId, store: &mut Store<I>) -> Self {
-        let buffer = store.load_buffer(id);
+    pub fn new(store: &mut Store<I>) -> Self {
+        let buffer_cmd = store.load_buffer(I::content_of_command(CommandType::Command));
+        let buffer_search = store.load_buffer(I::content_of_command(CommandType::Search));
 
         CommandBarState {
             scrollback: ScrollbackState::Pending,
+            searchdir: MoveDir1D::Next,
             cmdtype: CommandType::Command,
-            tbox: TextBoxState::new(buffer),
+            tbox_cmd: TextBoxState::new(buffer_cmd),
+            tbox_search: TextBoxState::new(buffer_search),
         }
     }
 
+    /// Get completion candidates from the command bar to show the user.
+    pub fn get_completions(&self) -> Option<CompletionList> {
+        self.deref().get_completions()
+    }
+
     /// Set the type of command that the bar is being used for.
-    pub fn set_type(&mut self, ct: CommandType) {
+    pub fn set_type(&mut self, ct: CommandType, dir: MoveDir1D) {
         self.cmdtype = ct;
+        self.searchdir = dir;
     }
 
     /// Reset the contents of the bar, and return the contents as an [EditRope].
     pub fn reset(&mut self) -> EditRope {
         self.scrollback = ScrollbackState::Pending;
 
-        self.tbox.reset()
+        self.deref_mut().reset()
     }
 
     /// Reset the contents of the bar, and return the contents as a [String].
@@ -84,7 +97,10 @@ where
     type Target = TextBoxState<I>;
 
     fn deref(&self) -> &Self::Target {
-        &self.tbox
+        match self.cmdtype {
+            CommandType::Command => &self.tbox_cmd,
+            CommandType::Search => &self.tbox_search,
+        }
     }
 }
 
@@ -93,7 +109,10 @@ where
     I: ApplicationInfo,
 {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.tbox
+        match self.cmdtype {
+            CommandType::Command => &mut self.tbox_cmd,
+            CommandType::Search => &mut self.tbox_search,
+        }
     }
 }
 
@@ -114,7 +133,7 @@ where
 
                 CommandAction::Execute(text).into()
             },
-            CommandType::Search(_, _) => {
+            CommandType::Search => {
                 let text = self.reset().trim();
 
                 store.set_last_search(text);
@@ -141,7 +160,7 @@ where
         let text = self.reset().trim();
 
         match self.cmdtype {
-            CommandType::Search(_, _) => {
+            CommandType::Search => {
                 store.set_aborted_search(text);
             },
             CommandType::Command => {
@@ -160,12 +179,10 @@ where
         store: &mut Store<I>,
     ) -> EditResult<Vec<(Action<I>, C)>, I> {
         let count = ctx.resolve(count);
-        let rope = self.tbox.get();
+        let rope = self.deref().get();
 
         let text = match self.cmdtype {
-            CommandType::Search(_, _) => {
-                store.searches.recall(&rope, &mut self.scrollback, *dir, count)
-            },
+            CommandType::Search => store.searches.recall(&rope, &mut self.scrollback, *dir, count),
             CommandType::Command => store.commands.recall(&rope, &mut self.scrollback, *dir, count),
         };
 
@@ -235,15 +252,19 @@ where
 
     fn render(self, area: Rect, buf: &mut Buffer, state: &mut Self::State) {
         if self.focused {
-            let prompt = match state.cmdtype {
-                CommandType::Command => ":",
-                CommandType::Search(MoveDir1D::Next, _) => "/",
-                CommandType::Search(MoveDir1D::Previous, _) => "?",
+            let prompt = match (state.cmdtype, state.searchdir) {
+                (CommandType::Command, _) => ":",
+                (CommandType::Search, MoveDir1D::Next) => "/",
+                (CommandType::Search, MoveDir1D::Previous) => "?",
             };
 
             let tbox = TextBox::new().prompt(prompt).oneline();
+            let tbox_state = match state.cmdtype {
+                CommandType::Command => &mut state.tbox_cmd,
+                CommandType::Search => &mut state.tbox_search,
+            };
 
-            tbox.render(area, buf, &mut state.tbox);
+            tbox.render(area, buf, tbox_state);
         } else if let Some(span) = self.message {
             buf.set_span(area.left(), area.top(), &span, area.width);
         }
