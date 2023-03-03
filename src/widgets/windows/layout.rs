@@ -1799,6 +1799,8 @@ where
     {
         let mut base = 0;
         let mut f = |value: &mut Value<WindowSlot<W>, X, Y>| {
+            let focus = focus.and_then(|n| n.checked_sub(base));
+
             match value {
                 Value::Window(w, info) => {
                     let focused = matches!(focus, Some(0));
@@ -1819,8 +1821,6 @@ where
                     }
                 },
                 Value::Tree(t, _) => {
-                    let focus = focus.and_then(|n| n.checked_sub(base));
-
                     self._draw(t, focus, _outer, buf);
                 },
             }
