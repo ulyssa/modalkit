@@ -45,7 +45,7 @@ use super::VimContext;
 
 mod parse;
 
-pub use self::parse::{CommandArgument, CommandDescription};
+pub use self::parse::{CommandArgument, CommandDescription, OptionType};
 
 /// Result type for a processed command.
 pub type CommandResult<C, I> = Result<CommandStep<VimCommand<C, I>>, CommandError>;

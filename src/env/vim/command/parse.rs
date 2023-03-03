@@ -33,6 +33,7 @@ fn parse_failed(err: nom::Err<nom::error::Error<&str>>) -> CommandError {
     CommandError::ParseFailed(err.to_string())
 }
 
+/// Options provided to a command and parsed by [CommandArgument::options].
 #[derive(Debug, Eq, PartialEq)]
 pub enum OptionType {
     /// A flag with an optional value, such as `++key=value`.
