@@ -2140,7 +2140,7 @@ impl EditRope {
         return res;
     }
 
-    fn seek<O: BoundaryTest>(
+    pub(crate) fn seek<O: BoundaryTest>(
         &self,
         nc: &Cursor,
         obj: &O,

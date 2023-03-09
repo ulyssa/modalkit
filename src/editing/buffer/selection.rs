@@ -1,5 +1,3 @@
-use std::cmp::Ordering;
-
 use crate::editing::cursor::{block_cursors, Cursor};
 use crate::editing::rope::PrivateCursorOps;
 use crate::util::sort2;
@@ -13,6 +11,7 @@ use crate::editing::{
         EditTarget,
         MoveDir1D,
         MoveTerminus,
+        SelectionBoundary,
         SelectionCursorChange,
         SelectionResizeStyle,
         SelectionSplitStyle,
@@ -46,6 +45,15 @@ where
         store: &mut Store<I>,
     ) -> EditResult<EditInfo, I>;
 
+    /// Expand selection to the specified boundaries if they're not already there.
+    fn selection_expand(
+        &mut self,
+        boundary: &SelectionBoundary,
+        filter: TargetShapeFilter,
+        ctx: &C,
+        store: &mut Store<I>,
+    ) -> EditResult<EditInfo, I>;
+
     /// Change the boundaries of the selection to be exactly those of the range.
     fn selection_resize(
         &mut self,
@@ -67,6 +75,7 @@ where
     /// Remove whitespace from the ends of matching selections.
     fn selection_trim(
         &mut self,
+        boundary: &SelectionBoundary,
         filter: TargetShapeFilter,
         ctx: &C,
         store: &mut Store<I>,
@@ -176,7 +185,6 @@ where
         let gid = ictx.0;
         let count = ictx.2.resolve(count);
         let lines = self.text.get_lines();
-        let lastcol = ictx.2.get_last_column();
 
         let mut group = self.get_group(gid);
         let mut created = vec![];
@@ -186,8 +194,8 @@ where
             let shape = state.shape();
 
             let check = |ebuf: &EditBuffer<I>, lstart, lend| {
-                let smax = ebuf.text.max_column_idx(lstart, lastcol);
-                let emax = ebuf.text.max_column_idx(lend, lastcol);
+                let smax = ebuf.text.max_column_idx(lstart, true);
+                let emax = ebuf.text.max_column_idx(lend, true);
 
                 start.x <= smax && end.x <= emax
             };
@@ -248,6 +256,51 @@ where
         }
 
         group.members.append(&mut created);
+        group.merge();
+        self.set_group(gid, group);
+
+        Ok(None)
+    }
+
+    fn selection_expand(
+        &mut self,
+        boundary: &SelectionBoundary,
+        filter: TargetShapeFilter,
+        ictx: &CursorGroupIdContext<'a, 'b, C>,
+        _: &mut Store<I>,
+    ) -> EditResult<EditInfo, I> {
+        use MoveDir1D::{Next, Previous};
+        use MoveTerminus::{Beginning, End};
+
+        let ctx = &self._ctx_cgi2es(&EditAction::Motion, ictx);
+        let gid = ictx.0;
+        let shape = ctx.context.get_target_shape();
+        let mut group = self.get_group(gid);
+
+        // Save current positions before we expand.
+        self.push_jump(gid, &group);
+
+        for state in group.iter_mut() {
+            if !filter.matches(&state.shape()) {
+                continue;
+            }
+
+            if let Some(shape) = shape {
+                state.set_shape(shape);
+            }
+
+            let sels = state.start();
+            let sele = state.end();
+
+            let sels = self.text.seek(sels, boundary, Beginning, Previous, 1, true, true);
+            let sele = self.text.seek(sele, boundary, End, Next, 1, true, true);
+
+            if let (Some(start), Some(end)) = (sels, sele) {
+                state.set_anchor(start);
+                state.set_cursor(end);
+            }
+        }
+
         group.merge();
         self.set_group(gid, group);
 
@@ -474,12 +527,15 @@ where
 
     fn selection_trim(
         &mut self,
+        boundary: &SelectionBoundary,
         filter: TargetShapeFilter,
         ctx: &CursorGroupIdContext<'a, 'b, C>,
         _: &mut Store<I>,
     ) -> EditResult<EditInfo, I> {
+        use MoveDir1D::{Next, Previous};
+        use MoveTerminus::{Beginning, End};
+
         let gid = ctx.0;
-        let lastcol = ctx.2.get_last_column();
         let mut group = self.get_group(gid);
 
         let trim = |state: &CursorState| -> Option<CursorState> {
@@ -487,209 +543,24 @@ where
                 return Some(state.clone());
             }
 
-            let (mut cursor, mut anchor, shape) = state.to_triple();
+            let (cursor, anchor, shape) = state.to_triple();
+            let shape = ctx.2.get_target_shape().unwrap_or(shape);
 
-            match shape {
-                TargetShape::CharWise => {
-                    let (mut sels, mut sele, before) = if cursor < anchor {
-                        (cursor, anchor, true)
-                    } else {
-                        (anchor, cursor, false)
-                    };
+            let (sels, sele, before) = if cursor < anchor {
+                (cursor, anchor, true)
+            } else {
+                (anchor, cursor, false)
+            };
 
-                    let mut offs = self.text.cursor_to_offset(&sels);
-                    let mut offe = self.text.cursor_to_offset(&sele);
+            let sels = self.text.seek(&sels, boundary, Beginning, Next, 1, true, true)?;
+            let sele = self.text.seek(&sele, boundary, End, Previous, 1, true, true)?;
 
-                    let mut iter = self.text.chars(offs);
-
-                    while let Some(c) = iter.next() {
-                        let pos = iter.pos();
-
-                        if pos > offe {
-                            offs = pos;
-                            break;
-                        }
-
-                        if c.is_ascii_whitespace() {
-                            continue;
-                        }
-
-                        offs = pos;
-                        break;
-                    }
-
-                    if offs > offe {
-                        return None;
-                    }
-
-                    let mut iter = self.text.chars_until(offs, offe);
-
-                    while let Some(c) = iter.next_back() {
-                        if c.is_ascii_whitespace() {
-                            continue;
-                        }
-
-                        offe = iter.pos_back();
-                        break;
-                    }
-
-                    sels = self.text.offset_to_cursor(offs);
-                    sele = self.text.offset_to_cursor(offe);
-
-                    if before {
-                        Some(CursorState::Selection(sels, sele, shape))
-                    } else {
-                        Some(CursorState::Selection(sele, sels, shape))
-                    }
-                },
-                TargetShape::LineWise => {
-                    let (mut lstart, mut lend) = sort2(cursor.y, anchor.y);
-
-                    while lstart <= lend && self.text.is_blank_line(lstart) {
-                        lstart += 1;
-                    }
-
-                    if lstart > lend {
-                        return None;
-                    }
-
-                    while lstart <= lend && self.text.is_blank_line(lend) {
-                        lend -= 1;
-                    }
-
-                    let cctx = &(&self.text, 0, lastcol);
-
-                    if cursor < anchor {
-                        cursor.set_line(lstart, cctx);
-                        anchor.set_line(lend, cctx);
-                    } else {
-                        anchor.set_line(lstart, cctx);
-                        cursor.set_line(lend, cctx);
-                    };
-
-                    Some(CursorState::Selection(cursor, anchor, shape))
-                },
-                TargetShape::BlockWise => {
-                    // Determine the left and right borders of the block.
-                    let (mut lc, mut rc) = block_cursors(&anchor, &cursor);
-
-                    let lctx = &(&self.text, 0, true);
-                    let rctx = &(&self.text, 0, false);
-
-                    let (mut lstart, mut lend) = sort2(lc.y, rc.y);
-
-                    // Remove top rows containing whitespace.
-                    while lstart <= lend {
-                        lc.set_line(lstart, lctx);
-                        rc.set_line(lstart, rctx);
-
-                        let loff = self.text.cursor_to_offset(&lc);
-                        let roff = self.text.cursor_to_offset(&rc);
-
-                        if self.text.is_blank_range(loff, roff) {
-                            lstart += 1;
-                        } else {
-                            break;
-                        }
-                    }
-
-                    if lstart > lend {
-                        return None;
-                    }
-
-                    // Remove bottom rows containing whitespace.
-                    while lstart <= lend {
-                        lc.set_line(lend, lctx);
-                        rc.set_line(lend, rctx);
-
-                        let loff = self.text.cursor_to_offset(&lc);
-                        let roff = self.text.cursor_to_offset(&rc);
-
-                        if self.text.is_blank_range(loff, roff) {
-                            lend -= 1;
-                        } else {
-                            break;
-                        }
-                    }
-
-                    // Clamp x and xgoal of the right cursor based on new line range.
-                    rc.x = 0;
-
-                    for line in lstart..=lend {
-                        let max = self.text.max_column_idx(line, false);
-                        let col = rc.xgoal.min(max);
-
-                        rc.x = rc.x.max(col);
-                    }
-
-                    rc.xgoal = rc.x;
-
-                    // Remove blank left columns.
-                    while lc.x < rc.x {
-                        let mut blank = true;
-
-                        for line in lstart..=lend {
-                            let cursor = Cursor::new(line, lc.x);
-
-                            if let Some(c) = self.text.get_char_at_cursor(&cursor) {
-                                if !c.is_ascii_whitespace() {
-                                    blank = false;
-                                    break;
-                                }
-                            }
-                        }
-
-                        if blank {
-                            lc.x += 1;
-                        } else {
-                            break;
-                        }
-                    }
-
-                    lc.xgoal = lc.x;
-
-                    // Remove blank right columns.
-                    while lc.x < rc.x {
-                        let mut blank = true;
-
-                        for line in lstart..=lend {
-                            let cursor = Cursor::new(line, rc.x);
-
-                            if let Some(c) = self.text.get_char_at_cursor(&cursor) {
-                                if !c.is_ascii_whitespace() {
-                                    blank = false;
-                                    break;
-                                }
-                            }
-                        }
-
-                        if blank {
-                            rc.x -= 1;
-                        } else {
-                            break;
-                        }
-                    }
-
-                    rc.xgoal = rc.x;
-
-                    // Place the right cursor on the line with the most columns, so that we
-                    // preserve the largest block possible.
-                    let scols = self.get_columns(lstart);
-                    let ecols = self.get_columns(lend);
-
-                    match scols.cmp(&ecols) {
-                        Ordering::Less | Ordering::Equal => {
-                            lc.set_line(lstart, lctx);
-                            rc.set_line(lend, rctx);
-                        },
-                        Ordering::Greater => {
-                            lc.set_line(lend, lctx);
-                            rc.set_line(lstart, rctx);
-                        },
-                    }
-
-                    Some(CursorState::Selection(rc, lc, shape))
-                },
+            if sels > sele {
+                None
+            } else if before {
+                Some(CursorState::Selection(sels, sele, shape))
+            } else {
+                Some(CursorState::Selection(sele, sels, shape))
             }
         };
 
@@ -747,9 +618,15 @@ mod tests {
         };
     }
 
+    macro_rules! selection_expand {
+        ($ebuf: expr, $boundary: expr, $filter: expr, $ctx: expr, $store: expr) => {
+            $ebuf.selection_expand(&$boundary, $filter, $ctx, &mut $store).unwrap()
+        };
+    }
+
     macro_rules! selection_trim {
-        ($ebuf: expr, $filter: expr, $ctx: expr, $store: expr) => {
-            $ebuf.selection_trim($filter, $ctx, &mut $store).unwrap()
+        ($ebuf: expr, $boundary: expr, $filter: expr, $ctx: expr, $store: expr) => {
+            $ebuf.selection_trim(&$boundary, $filter, $ctx, &mut $store).unwrap()
         };
     }
 
@@ -1107,15 +984,15 @@ mod tests {
     #[test]
     fn test_selection_duplicate_and_rotate() {
         let (mut ebuf, curid, vwctx, mut vctx, mut store) = mkfivestr(
-            "copy lines\nabc\ncopy lines\n\nstart line\n\nabc\ncopy lines\nabc\ncopy lines\n",
+            "copy lines\na1\ncopy lines\n\nstart line\n\nb2\ncopy lines\nc3\ncopy lines\n",
         );
 
-        // Start out at (4, 2), on the "a" in "start line".
+        // Start out at (4, 2), on the " " in "copy lines".
         ebuf.set_leader(curid, Cursor::new(4, 2));
 
         vctx.persist.shape = Some(TargetShape::CharWise);
 
-        // Create a selection from "a" to "i".
+        // Create a selection from " " to "n".
         let mov = MoveType::Column(MoveDir1D::Next, false);
         edit!(ebuf, EditAction::Motion, mv!(mov, 5), ctx!(curid, vwctx, vctx), store);
 
@@ -1325,7 +1202,203 @@ mod tests {
     }
 
     #[test]
-    fn test_selection_trim_charwise() {
+    fn test_selection_expand_line_charwise() {
+        let (mut ebuf, curid, vwctx, mut vctx, mut store) = mkfivestr("a   \t   b   \n   c   \n");
+
+        // Start out at (0, 1), on the space after the "a".
+        ebuf.set_leader(curid, Cursor::new(0, 1));
+
+        vctx.persist.shape = Some(TargetShape::CharWise);
+
+        // Create a selection from the space after "a" to "c".
+        let mov = MoveType::BufferByteOffset;
+        edit!(ebuf, EditAction::Motion, mv!(mov, 17), ctx!(curid, vwctx, vctx), store);
+        let lsel = (Cursor::new(0, 1), Cursor::new(1, 3), TargetShape::CharWise);
+        assert_eq!(ebuf.get_leader_selection(curid), Some(lsel.clone()));
+        assert_eq!(ebuf.get_leader(curid), Cursor::new(1, 3));
+
+        // Expand with TargetShapeFilter::LINE does nothing.
+        selection_expand!(
+            ebuf,
+            SelectionBoundary::Line,
+            TargetShapeFilter::LINE,
+            ctx!(curid, vwctx, vctx),
+            store
+        );
+        assert_eq!(ebuf.get_leader_selection(curid), Some(lsel.clone()));
+        assert_eq!(ebuf.get_leader(curid), Cursor::new(1, 3));
+
+        // Now expand to include both lines.
+        let lsel = (Cursor::new(0, 0), Cursor::new(1, 7), TargetShape::CharWise);
+        selection_expand!(
+            ebuf,
+            SelectionBoundary::Line,
+            TargetShapeFilter::CHAR,
+            ctx!(curid, vwctx, vctx),
+            store
+        );
+        assert_eq!(ebuf.get_leader_selection(curid), Some(lsel.clone()));
+        assert_eq!(ebuf.get_leader(curid), Cursor::new(1, 7));
+
+        // Shrink selection to go from start to "b".
+        let mov = MoveType::BufferByteOffset;
+        edit!(ebuf, EditAction::Motion, mv!(mov, 9), ctx!(curid, vwctx, vctx), store);
+        let lsel = (Cursor::new(0, 0), Cursor::new(0, 8), TargetShape::CharWise);
+        assert_eq!(ebuf.get_leader_selection(curid), Some(lsel.clone()));
+        assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 8));
+
+        // Now expand to include just the first line.
+        let lsel = (Cursor::new(0, 0), Cursor::new(0, 12), TargetShape::CharWise);
+        selection_expand!(
+            ebuf,
+            SelectionBoundary::Line,
+            TargetShapeFilter::CHAR,
+            ctx!(curid, vwctx, vctx),
+            store
+        );
+        assert_eq!(ebuf.get_leader_selection(curid), Some(lsel.clone()));
+        assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 12));
+
+        // Repeating changes nothing.
+        selection_expand!(
+            ebuf,
+            SelectionBoundary::Line,
+            TargetShapeFilter::CHAR,
+            ctx!(curid, vwctx, vctx),
+            store
+        );
+        assert_eq!(ebuf.get_leader_selection(curid), Some(lsel.clone()));
+        assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 12));
+    }
+
+    #[test]
+    fn test_selection_expand_line_linewise() {
+        let (mut ebuf, curid, vwctx, mut vctx, mut store) = mkfivestr("a   \t   b   \n   c   \n");
+
+        // Start out at (0, 1), on the space after the "a".
+        ebuf.set_leader(curid, Cursor::new(0, 1));
+
+        vctx.persist.shape = Some(TargetShape::LineWise);
+
+        // Create a selection from the space after "a" to "c".
+        let mov = MoveType::BufferByteOffset;
+        edit!(ebuf, EditAction::Motion, mv!(mov, 17), ctx!(curid, vwctx, vctx), store);
+        let lsel = (Cursor::new(0, 1), Cursor::new(1, 3), TargetShape::LineWise);
+        assert_eq!(ebuf.get_leader_selection(curid), Some(lsel.clone()));
+        assert_eq!(ebuf.get_leader(curid), Cursor::new(1, 3));
+
+        // Expand with TargetShapeFilter::CHAR does nothing.
+        selection_expand!(
+            ebuf,
+            SelectionBoundary::Line,
+            TargetShapeFilter::CHAR,
+            ctx!(curid, vwctx, vctx),
+            store
+        );
+        assert_eq!(ebuf.get_leader_selection(curid), Some(lsel.clone()));
+        assert_eq!(ebuf.get_leader(curid), Cursor::new(1, 3));
+
+        // Since this was a linewise selection, expansion should touch same content, but move
+        // anchor and cursor.
+        let lsel = (Cursor::new(0, 0), Cursor::new(1, 7), TargetShape::LineWise);
+        selection_expand!(
+            ebuf,
+            SelectionBoundary::Line,
+            TargetShapeFilter::LINE,
+            ctx!(curid, vwctx, vctx),
+            store
+        );
+        assert_eq!(ebuf.get_leader_selection(curid), Some(lsel.clone()));
+        assert_eq!(ebuf.get_leader(curid), Cursor::new(1, 7));
+
+        // Shrink selection to first line, with cursor at "b".
+        let mov = MoveType::BufferByteOffset;
+        edit!(ebuf, EditAction::Motion, mv!(mov, 9), ctx!(curid, vwctx, vctx), store);
+        let lsel = (Cursor::new(0, 0), Cursor::new(0, 8), TargetShape::LineWise);
+        assert_eq!(ebuf.get_leader_selection(curid), Some(lsel.clone()));
+        assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 8));
+
+        // Expansion still only selects first line, but cursor is moved.
+        let lsel = (Cursor::new(0, 0), Cursor::new(0, 12), TargetShape::LineWise);
+        selection_expand!(
+            ebuf,
+            SelectionBoundary::Line,
+            TargetShapeFilter::LINE,
+            ctx!(curid, vwctx, vctx),
+            store
+        );
+        assert_eq!(ebuf.get_leader_selection(curid), Some(lsel.clone()));
+        assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 12));
+
+        // Repeating changes nothing.
+        selection_expand!(
+            ebuf,
+            SelectionBoundary::Line,
+            TargetShapeFilter::LINE,
+            ctx!(curid, vwctx, vctx),
+            store
+        );
+        assert_eq!(ebuf.get_leader_selection(curid), Some(lsel.clone()));
+        assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 12));
+    }
+
+    #[test]
+    fn test_selection_trim_line_charwise() {
+        let (mut ebuf, curid, vwctx, mut vctx, mut store) = mkfivestr("a   \t   b   \n   c   \n");
+
+        // Start out at (0, 1), on the space after the "a".
+        ebuf.set_leader(curid, Cursor::new(0, 0));
+
+        vctx.persist.shape = Some(TargetShape::CharWise);
+
+        // Create a selection from the first character to "c".
+        let mov = MoveType::BufferByteOffset;
+        edit!(ebuf, EditAction::Motion, mv!(mov, 17), ctx!(curid, vwctx, vctx), store);
+
+        let lsel = (Cursor::new(0, 0), Cursor::new(1, 3), TargetShape::CharWise);
+        assert_eq!(ebuf.get_leader_selection(curid), Some(lsel.clone()));
+        assert_eq!(ebuf.get_leader(curid), Cursor::new(1, 3));
+
+        // Trim with TargetShapeFilter::LINE does nothing.
+        selection_trim!(
+            ebuf,
+            SelectionBoundary::Line,
+            TargetShapeFilter::LINE,
+            ctx!(curid, vwctx, vctx),
+            store
+        );
+        assert_eq!(ebuf.get_leader_selection(curid), Some(lsel.clone()));
+        assert_eq!(ebuf.get_leader(curid), Cursor::new(1, 3));
+
+        // Now trim down to the first line.
+        selection_trim!(
+            ebuf,
+            SelectionBoundary::Line,
+            TargetShapeFilter::CHAR,
+            ctx!(curid, vwctx, vctx),
+            store
+        );
+
+        let lsel = (Cursor::new(0, 0), Cursor::new(0, 12), TargetShape::CharWise);
+        assert_eq!(ebuf.get_leader_selection(curid), Some(lsel.clone()));
+        assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 12));
+
+        // Repeating changes nothing.
+        selection_trim!(
+            ebuf,
+            SelectionBoundary::Line,
+            TargetShapeFilter::CHAR,
+            ctx!(curid, vwctx, vctx),
+            store
+        );
+
+        let lsel = (Cursor::new(0, 0), Cursor::new(0, 12), TargetShape::CharWise);
+        assert_eq!(ebuf.get_leader_selection(curid), Some(lsel.clone()));
+        assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 12));
+    }
+
+    #[test]
+    fn test_selection_trim_nws_charwise() {
         let (mut ebuf, curid, vwctx, mut vctx, mut store) = mkfivestr("a   \t   b   \n   c   \n");
 
         // Start out at (0, 1), on the space after the "a".
@@ -1342,12 +1415,24 @@ mod tests {
         assert_eq!(ebuf.get_leader(curid), Cursor::new(1, 6));
 
         // Trim with TargetShapeFilter::LINE does nothing.
-        selection_trim!(ebuf, TargetShapeFilter::LINE, ctx!(curid, vwctx, vctx), store);
+        selection_trim!(
+            ebuf,
+            SelectionBoundary::NonWhitespace,
+            TargetShapeFilter::LINE,
+            ctx!(curid, vwctx, vctx),
+            store
+        );
         assert_eq!(ebuf.get_leader_selection(curid), Some(lsel.clone()));
         assert_eq!(ebuf.get_leader(curid), Cursor::new(1, 6));
 
         // Now trim down to the "b" and the "c" with TargetShapeFilter::CHAR.
-        selection_trim!(ebuf, TargetShapeFilter::CHAR, ctx!(curid, vwctx, vctx), store);
+        selection_trim!(
+            ebuf,
+            SelectionBoundary::NonWhitespace,
+            TargetShapeFilter::CHAR,
+            ctx!(curid, vwctx, vctx),
+            store
+        );
 
         let lsel = (Cursor::new(0, 8), Cursor::new(1, 3), TargetShape::CharWise);
         assert_eq!(ebuf.get_leader_selection(curid), Some(lsel.clone()));
@@ -1362,7 +1447,13 @@ mod tests {
         assert_eq!(ebuf.get_leader(curid), Cursor::new(1, 2));
 
         // Trim down to just the "b".
-        selection_trim!(ebuf, TargetShapeFilter::CHAR, ctx!(curid, vwctx, vctx), store);
+        selection_trim!(
+            ebuf,
+            SelectionBoundary::NonWhitespace,
+            TargetShapeFilter::CHAR,
+            ctx!(curid, vwctx, vctx),
+            store
+        );
 
         let lsel = (Cursor::new(0, 8), Cursor::new(0, 8), TargetShape::CharWise);
         assert_eq!(ebuf.get_leader_selection(curid), Some(lsel.clone()));
@@ -1370,7 +1461,7 @@ mod tests {
     }
 
     #[test]
-    fn test_selection_trim_linewise() {
+    fn test_selection_trim_nws_linewise() {
         let (mut ebuf, curid, vwctx, mut vctx, mut store) =
             mkfivestr("a\n   \n\t\nb   \n   c   \n\n\n");
 
@@ -1388,89 +1479,84 @@ mod tests {
         assert_eq!(ebuf.get_leader(curid), Cursor::new(6, 0));
 
         // Trim with TargetShapeFilter::CHAR does nothing.
-        selection_trim!(ebuf, TargetShapeFilter::CHAR, ctx!(curid, vwctx, vctx), store);
+        selection_trim!(
+            ebuf,
+            SelectionBoundary::NonWhitespace,
+            TargetShapeFilter::CHAR,
+            ctx!(curid, vwctx, vctx),
+            store
+        );
         assert_eq!(ebuf.get_leader_selection(curid), Some(lsel.clone()));
         assert_eq!(ebuf.get_leader(curid), Cursor::new(6, 0));
 
         // Now trim down to the "b" and "c" lines with TargetShapeFilter::LINE.
-        selection_trim!(ebuf, TargetShapeFilter::LINE, ctx!(curid, vwctx, vctx), store);
+        selection_trim!(
+            ebuf,
+            SelectionBoundary::NonWhitespace,
+            TargetShapeFilter::LINE,
+            ctx!(curid, vwctx, vctx),
+            store
+        );
 
-        let lsel = (Cursor::new(3, 0), Cursor::new(4, 0), TargetShape::LineWise);
+        let lsel = (Cursor::new(3, 0), Cursor::new(4, 3), TargetShape::LineWise);
         assert_eq!(ebuf.get_leader_selection(curid), Some(lsel.clone()));
-        assert_eq!(ebuf.get_leader(curid), Cursor::new(4, 0));
+        assert_eq!(ebuf.get_leader(curid), Cursor::new(4, 3));
     }
 
     #[test]
-    fn test_selection_trim_blockwise() {
+    fn test_selection_trim_line_drop_empty() {
         let (mut ebuf, curid, vwctx, mut vctx, mut store) =
-            mkfivestr("     \n     \n   a \n b   \n     \n");
+            mkfivestr("  a  \n      \n  b  \n      \n  c  \n");
 
-        // Start out at (0, 0).
+        // Start out at (0, 1), on the space after the "a".
         ebuf.set_leader(curid, Cursor::new(0, 0));
 
-        vctx.persist.shape = Some(TargetShape::BlockWise);
+        vctx.persist.shape = Some(TargetShape::CharWise);
 
-        // Create a selection from the space after "a" to the final column.
-        let mov = MoveType::BufferByteOffset;
-        edit!(ebuf, EditAction::Motion, mv!(mov, 29), ctx!(curid, vwctx, vctx), store);
+        // Select the whole first line.
+        let mov = MoveType::Column(MoveDir1D::Next, true);
+        edit!(ebuf, EditAction::Motion, mv!(mov, 5), ctx!(curid, vwctx, vctx), store);
 
-        let lsel = (Cursor::new(0, 0), Cursor::new(4, 4), TargetShape::BlockWise);
+        let lsel = (Cursor::new(0, 0), Cursor::new(0, 5), TargetShape::CharWise);
         assert_eq!(ebuf.get_leader_selection(curid), Some(lsel.clone()));
-        assert_eq!(ebuf.get_leader(curid), Cursor::new(4, 4));
+        assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 5));
 
-        // Trim with TargetShapeFilter::LINE does nothing.
-        selection_trim!(ebuf, TargetShapeFilter::LINE, ctx!(curid, vwctx, vctx), store);
+        // Duplicate selection across the following lines.
+        selection_duplicate!(ebuf, MoveDir1D::Next, 4.into(), ctx!(curid, vwctx, vctx), store);
+
+        let fsels = vec![
+            (Cursor::new(1, 0), Cursor::new(1, 5), TargetShape::CharWise),
+            (Cursor::new(2, 0), Cursor::new(2, 5), TargetShape::CharWise),
+            (Cursor::new(3, 0), Cursor::new(3, 5), TargetShape::CharWise),
+            (Cursor::new(4, 0), Cursor::new(4, 5), TargetShape::CharWise),
+        ];
+
         assert_eq!(ebuf.get_leader_selection(curid), Some(lsel.clone()));
-        assert_eq!(ebuf.get_leader(curid), Cursor::new(4, 4));
+        assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 5));
+        assert_eq!(ebuf.get_follower_selections(curid), Some(fsels.clone()));
 
-        // Now trim down with TargetShapeFilter::BLOCK so that we have a block containing both "a"
-        // and "b".
-        selection_trim!(ebuf, TargetShapeFilter::BLOCK, ctx!(curid, vwctx, vctx), store);
+        // Now trim, dropping two selections, and shrinking 3.
+        selection_trim!(
+            ebuf,
+            SelectionBoundary::Line,
+            TargetShapeFilter::CHAR,
+            ctx!(curid, vwctx, vctx),
+            store
+        );
 
-        let lsel = (Cursor::new(2, 1), Cursor::new(3, 3), TargetShape::BlockWise);
+        let lsel = (Cursor::new(0, 0), Cursor::new(0, 5), TargetShape::CharWise);
+        let fsels = vec![
+            (Cursor::new(2, 0), Cursor::new(2, 5), TargetShape::CharWise),
+            (Cursor::new(4, 0), Cursor::new(4, 5), TargetShape::CharWise),
+        ];
+
         assert_eq!(ebuf.get_leader_selection(curid), Some(lsel.clone()));
-        assert_eq!(ebuf.get_leader(curid), Cursor::new(3, 3));
+        assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 5));
+        assert_eq!(ebuf.get_follower_selections(curid), Some(fsels.clone()));
     }
 
     #[test]
-    fn test_selection_trim_blockwise_xgoal() {
-        let (mut ebuf, curid, vwctx, mut vctx, mut store) =
-            mkfivestr("     \n  a  \n        b   \n  c\n\n");
-
-        // Start out at (0, 0).
-        ebuf.set_leader(curid, Cursor::new(0, 0));
-
-        vctx.persist.shape = Some(TargetShape::BlockWise);
-
-        // Create a selection going down the first column.
-        let mov = MoveType::Line(MoveDir1D::Next);
-        edit!(ebuf, EditAction::Motion, mv!(mov, 4), ctx!(curid, vwctx, vctx), store);
-
-        let lsel = (Cursor::new(0, 0), Cursor::new(4, 0), TargetShape::BlockWise);
-        assert_eq!(ebuf.get_leader_selection(curid), Some(lsel.clone()));
-        assert_eq!(ebuf.get_leader(curid), Cursor::new(4, 0));
-
-        // Now move the xgoal.
-        let mov = MoveType::LinePos(MovePosition::End);
-        edit!(ebuf, EditAction::Motion, mv!(mov, 0), ctx!(curid, vwctx, vctx), store);
-
-        let lsel = (Cursor::new(0, 0), Cursor::new(4, 0).goal(usize::MAX), TargetShape::BlockWise);
-        assert_eq!(ebuf.get_leader_selection(curid), Some(lsel.clone()));
-        assert_eq!(ebuf.get_leader(curid), Cursor::new(4, 0).goal(usize::MAX));
-
-        // Trimming should:
-        // - Not drop "b" itself.
-        // - Remove space after "b"
-        // - Place cursor on the longest line, for convenient manual resizing.
-        selection_trim!(ebuf, TargetShapeFilter::BLOCK, ctx!(curid, vwctx, vctx), store);
-
-        let lsel = (Cursor::new(1, 4).goal(8), Cursor::new(3, 2), TargetShape::BlockWise);
-        assert_eq!(ebuf.get_leader_selection(curid), Some(lsel.clone()));
-        assert_eq!(ebuf.get_leader(curid), Cursor::new(1, 4).goal(8));
-    }
-
-    #[test]
-    fn test_selection_trim_drop_empty() {
+    fn test_selection_trim_nws_drop_empty() {
         let (mut ebuf, curid, vwctx, mut vctx, mut store) =
             mkfivestr("  a  \n     \n  b  \n     \n  c  \n");
 
@@ -1502,7 +1588,13 @@ mod tests {
         assert_eq!(ebuf.get_follower_selections(curid), Some(fsels.clone()));
 
         // Now trim, dropping two selections, and shrinking 3.
-        selection_trim!(ebuf, TargetShapeFilter::CHAR, ctx!(curid, vwctx, vctx), store);
+        selection_trim!(
+            ebuf,
+            SelectionBoundary::NonWhitespace,
+            TargetShapeFilter::CHAR,
+            ctx!(curid, vwctx, vctx),
+            store
+        );
 
         let lsel = (Cursor::new(0, 2), Cursor::new(0, 2), TargetShape::CharWise);
         let fsels = vec![

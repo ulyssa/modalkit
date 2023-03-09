@@ -1230,13 +1230,18 @@ where
             SelectionAction::Duplicate(dir, count) => {
                 self.selection_duplicate(*dir, count, ctx, store)
             },
+            SelectionAction::Expand(boundary, filter) => {
+                self.selection_expand(boundary, *filter, ctx, store)
+            },
             SelectionAction::Resize(style, target) => {
                 self.selection_resize(style, target, ctx, store)
             },
             SelectionAction::Split(style, filter) => {
                 self.selection_split(style, *filter, ctx, store)
             },
-            SelectionAction::Trim(filter) => self.selection_trim(*filter, ctx, store),
+            SelectionAction::Trim(boundary, filter) => {
+                self.selection_trim(boundary, *filter, ctx, store)
+            },
         }
     }
 

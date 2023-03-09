@@ -208,6 +208,13 @@ pub enum SelectionAction {
     /// Change the placement of the cursor and anchor of a visual selection.
     CursorSet(SelectionCursorChange),
 
+    /// Expand a selection by repositioning its cursor and anchor such that they are placed on the
+    /// specified boundary.
+    ///
+    /// Be aware that since this repositions the start and end of the selection, this may not do
+    /// what you want with [TargetShape::BlockWise] selections.
+    Expand(SelectionBoundary, TargetShapeFilter),
+
     /// Change the bounds of the current selection as described by the
     /// [style](SelectionResizeStyle) and [target](EditTarget).
     ///
@@ -220,14 +227,12 @@ pub enum SelectionAction {
     /// All of the new selections are of the same shape as the one they were split from.
     Split(SelectionSplitStyle, TargetShapeFilter),
 
-    /// Remove whitespace from around [matching selections](TargetShapeFilter).
+    /// Shrink a selection by repositioning its cursor and anchor such that they are placed on the
+    /// specified boundary.
     ///
-    /// Specifically, the anchor and cursor are moved so that:
-    ///
-    /// - For [TargetShape::CharWise], they are positioned over a non-whitespace character.
-    /// - For [TargetShape::LineWise], they are not positioned on blank lines.
-    /// - For [TargetShape::BlockWise], columns and rows only containing whitespace are removed.
-    Trim(TargetShapeFilter),
+    /// Be aware that since this repositions the start and end of the selection, this may not do
+    /// what you want with [TargetShape::BlockWise] selections.
+    Trim(SelectionBoundary, TargetShapeFilter),
 }
 
 /// Text insertion actions

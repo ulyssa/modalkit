@@ -1216,6 +1216,44 @@ bitflags! {
     }
 }
 
+/// Different ways to expand or trim selections.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[non_exhaustive]
+pub enum SelectionBoundary {
+    /// A selection that starts at the beginning of a line and ends on a newline.
+    Line,
+
+    /// A selection that starts on a non-whitespace character and ends on a non-whitespace
+    /// character.
+    NonWhitespace,
+}
+
+impl BoundaryTest for SelectionBoundary {
+    fn is_boundary_begin(&self, ctx: &BoundaryTestContext) -> bool {
+        match self {
+            SelectionBoundary::Line => {
+                if let Some(before) = ctx.before {
+                    return before == '\n';
+                } else {
+                    return true;
+                }
+            },
+            SelectionBoundary::NonWhitespace => {
+                return !is_space_char(ctx.current);
+            },
+        }
+    }
+
+    fn is_boundary_end(&self, ctx: &BoundaryTestContext) -> bool {
+        match self {
+            SelectionBoundary::Line => ctx.current == '\n' || ctx.after.is_none(),
+            SelectionBoundary::NonWhitespace => {
+                return !is_space_char(ctx.current);
+            },
+        }
+    }
+}
+
 /// Different ways to split existing selections into new ones.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[non_exhaustive]
