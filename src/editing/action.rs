@@ -215,6 +215,9 @@ pub enum SelectionAction {
     /// what you want with [TargetShape::BlockWise] selections.
     Expand(SelectionBoundary, TargetShapeFilter),
 
+    /// Join adjacent selections together.
+    Join,
+
     /// Change the bounds of the current selection as described by the
     /// [style](SelectionResizeStyle) and [target](EditTarget).
     ///

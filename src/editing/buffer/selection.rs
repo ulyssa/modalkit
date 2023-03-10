@@ -54,6 +54,9 @@ where
         store: &mut Store<I>,
     ) -> EditResult<EditInfo, I>;
 
+    /// Join adjacent selections.
+    fn selection_join(&mut self, ctx: &C, store: &mut Store<I>) -> EditResult<EditInfo, I>;
+
     /// Change the boundaries of the selection to be exactly those of the range.
     fn selection_resize(
         &mut self,
@@ -302,6 +305,59 @@ where
         }
 
         group.merge();
+        self.set_group(gid, group);
+
+        Ok(None)
+    }
+
+    fn selection_join(
+        &mut self,
+        ictx: &CursorGroupIdContext<'a, 'b, C>,
+        _: &mut Store<I>,
+    ) -> EditResult<EditInfo, I> {
+        let gid = ictx.0;
+        let mut group = self.get_group(gid);
+
+        group.merge();
+
+        if group.members.is_empty() {
+            // There's nothing to join.
+            return Ok(None);
+        }
+
+        // Save current positions before we join them together.
+        self.push_jump(gid, &group);
+
+        let unjoined = std::mem::take(&mut group.members);
+        let mut iter = unjoined.into_iter();
+        let mut joined = Vec::new();
+        let mut a = iter.next().unwrap();
+
+        for b in iter {
+            let ao: usize = self.text.cursor_to_offset(a.end()).into();
+            let bo: usize = self.text.cursor_to_offset(b.start()).into();
+
+            if bo.saturating_sub(ao) == 1 {
+                a = a.union(&b);
+            } else {
+                joined.push(a);
+                a = b;
+            }
+        }
+
+        joined.push(a);
+
+        for member in joined.into_iter() {
+            let lo: usize = self.text.cursor_to_offset(group.leader.end()).into();
+            let mo: usize = self.text.cursor_to_offset(member.start()).into();
+
+            if mo.saturating_sub(lo) == 1 {
+                group.leader = group.leader.union(&member);
+            } else {
+                group.members.push(member);
+            }
+        }
+
         self.set_group(gid, group);
 
         Ok(None)
@@ -648,10 +704,56 @@ mod tests {
         };
     }
 
+    macro_rules! selection_join {
+        ($ebuf: expr, $ctx: expr, $store: expr) => {
+            $ebuf.selection_join($ctx, &mut $store).unwrap()
+        };
+    }
+
     macro_rules! selection_split {
         ($ebuf: expr, $style: expr, $filter: expr, $ctx: expr, $store: expr) => {
             $ebuf.selection_split(&$style, $filter, $ctx, &mut $store).unwrap()
         };
+    }
+
+    #[test]
+    fn test_selection_join() {
+        let (mut ebuf, curid, vwctx, mut vctx, mut store) =
+            mkfivestr("hello\nhello\nhello\nhello\nhello\n");
+
+        // Start out at (0, 0).
+        ebuf.set_leader(curid, Cursor::new(0, 0));
+
+        vctx.persist.shape = Some(TargetShape::CharWise);
+
+        // Extend to the newline.
+        let mov = MoveType::BufferByteOffset;
+        edit!(ebuf, EditAction::Motion, mv!(mov, 6), ctx!(curid, vwctx, vctx), store);
+
+        let lsel = (Cursor::new(0, 0), Cursor::new(0, 5), TargetShape::CharWise);
+        assert_eq!(ebuf.get_leader_selection(curid), Some(lsel.clone()));
+        assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 5));
+
+        // Duplicate selection across the following lines.
+        selection_duplicate!(ebuf, MoveDir1D::Next, 4.into(), ctx!(curid, vwctx, vctx), store);
+
+        let fsels = vec![
+            (Cursor::new(1, 0), Cursor::new(1, 5), TargetShape::CharWise),
+            (Cursor::new(2, 0), Cursor::new(2, 5), TargetShape::CharWise),
+            (Cursor::new(3, 0), Cursor::new(3, 5), TargetShape::CharWise),
+            (Cursor::new(4, 0), Cursor::new(4, 5), TargetShape::CharWise),
+        ];
+
+        assert_eq!(ebuf.get_leader_selection(curid), Some(lsel.clone()));
+        assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 5));
+        assert_eq!(ebuf.get_follower_selections(curid), Some(fsels.clone()));
+
+        selection_join!(ebuf, ctx!(curid, vwctx, vctx), store);
+
+        let lsel = (Cursor::new(0, 0), Cursor::new(4, 5), TargetShape::CharWise);
+        assert_eq!(ebuf.get_leader_selection(curid), Some(lsel.clone()));
+        assert_eq!(ebuf.get_leader(curid), Cursor::new(4, 5));
+        assert_eq!(ebuf.get_follower_selections(curid), None);
     }
 
     #[test]
