@@ -350,7 +350,7 @@ where
 
 impl<C, I> Commandable<C, I> for CommandMachine<C>
 where
-    C: Command,
+    C: Command<Action = Action<I>>,
     C::Context: EditContext,
     I: ApplicationInfo,
 {
@@ -358,12 +358,14 @@ where
         &mut self,
         action: &CommandAction,
         ctx: &C::Context,
-    ) -> UIResult<Vec<(C::Action, C::Context)>, I> {
+    ) -> UIResult<Vec<(Action<I>, C::Context)>, I> {
         match action {
             CommandAction::Repeat(count) => {
                 let count = ctx.resolve(count);
-                let mut acts = Vec::new();
                 let cmd = self.get_last_command();
+                let msg = format!(":{cmd}");
+                let msg = Action::ShowInfoMessage(msg.into());
+                let mut acts = vec![(msg, ctx.clone())];
 
                 for _ in 0..count {
                     let mut res = self.input_cmd(cmd.as_str(), ctx.clone())?;
@@ -727,6 +729,9 @@ pub enum Action<I: ApplicationInfo = EmptyInfo> {
     /// Redraw the screen.
     RedrawScreen,
 
+    /// Show an [InfoMessage].
+    ShowInfoMessage(InfoMessage),
+
     /// Suspend the process.
     Suspend,
 
@@ -780,6 +785,7 @@ impl<I: ApplicationInfo> Action<I> {
             Action::RedrawScreen => SequenceStatus::Ignore,
             Action::Scroll(_) => SequenceStatus::Ignore,
             Action::Search(_, _) => SequenceStatus::Ignore,
+            Action::ShowInfoMessage(_) => SequenceStatus::Ignore,
             Action::Suspend => SequenceStatus::Ignore,
         }
     }
@@ -806,6 +812,7 @@ impl<I: ApplicationInfo> Action<I> {
             Action::RedrawScreen => SequenceStatus::Atom,
             Action::Scroll(_) => SequenceStatus::Atom,
             Action::Search(_, _) => SequenceStatus::Atom,
+            Action::ShowInfoMessage(_) => SequenceStatus::Atom,
             Action::Suspend => SequenceStatus::Atom,
         }
     }
@@ -830,6 +837,7 @@ impl<I: ApplicationInfo> Action<I> {
             Action::RedrawScreen => SequenceStatus::Ignore,
             Action::Scroll(_) => SequenceStatus::Ignore,
             Action::Search(_, _) => SequenceStatus::Ignore,
+            Action::ShowInfoMessage(_) => SequenceStatus::Ignore,
             Action::Suspend => SequenceStatus::Ignore,
         }
     }
@@ -851,6 +859,7 @@ impl<I: ApplicationInfo> Action<I> {
             Action::Repeat(_) => false,
             Action::Scroll(_) => false,
             Action::Search(_, _) => false,
+            Action::ShowInfoMessage(_) => false,
             Action::Suspend => false,
             Action::Tab(_) => false,
             Action::Window(_) => false,
@@ -972,6 +981,7 @@ where
 }
 
 /// Additional information returned after an editing operation.
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct InfoMessage {
     msg: String,
 }

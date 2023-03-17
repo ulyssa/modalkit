@@ -653,6 +653,9 @@ impl Editor {
             Action::Application(()) => None,
             Action::NoOp => None,
 
+            // Show an informational message.
+            Action::ShowInfoMessage(msg) => Some(msg),
+
             // Simple delegations.
             Action::CommandBar(act) => self.screen.command_bar(&act, &ctx)?,
             Action::Editor(act) => self.screen.editor_command(&act, &ctx, &mut self.store)?,

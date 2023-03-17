@@ -674,6 +674,9 @@ where
                 None
             },
 
+            // EditInfo currently goes unused.
+            Action::ShowInfoMessage(msg) => Some(msg),
+
             // Unimplemented.
             Action::Command(_) => {
                 // XXX: implement
