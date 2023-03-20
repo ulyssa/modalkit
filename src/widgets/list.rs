@@ -1279,8 +1279,8 @@ where
         let mut sawit = false;
 
         for (idx, item) in state.items.iter().enumerate().skip(corner.position) {
-            let sel = self.focused && idx == state.cursor.position;
-            let txt = item.show(sel, &state.viewctx, self.store);
+            let sel = idx == state.cursor.position;
+            let txt = item.show(self.focused && sel, &state.viewctx, self.store);
 
             if sel && txt.lines.len() >= height {
                 lines = txt
@@ -1296,6 +1296,10 @@ where
             for (row, line) in txt.lines.into_iter().enumerate() {
                 if idx == corner.position && row < corner.text_row {
                     continue;
+                }
+
+                if sawit && lines.len() >= height {
+                    break;
                 }
 
                 lines.push((idx, row, line));
@@ -1448,6 +1452,43 @@ mod tests {
         list.viewctx.dimensions.1 = 5;
 
         (list, VimContext::default(), Store::default())
+    }
+
+    #[test]
+    fn test_render_cursor() {
+        let (mut list, _, mut store) = mklist();
+        let area = Rect::new(0, 0, 30, 5);
+        let mut buffer = Buffer::empty(area);
+
+        // Start out w/ cursor at item 1 and corner at item 0.
+        list.cursor = ListCursor::new(1, 0);
+        list.viewctx.corner = ListCursor::new(0, 0);
+
+        // Rendering list when cursor is in view doesn't move corner.
+        list.draw(area, &mut buffer, true, &mut store);
+        assert_eq!(list.cursor, ListCursor::new(1, 0));
+        assert_eq!(list.viewctx.corner, ListCursor::new(0, 0));
+
+        // Removing focus doesn't matter.
+        list.draw(area, &mut buffer, false, &mut store);
+        assert_eq!(list.cursor, ListCursor::new(1, 0));
+        assert_eq!(list.viewctx.corner, ListCursor::new(0, 0));
+
+        // Move cursor out of view.
+        list.cursor = ListCursor::new(4, 0);
+
+        // Rendering list when cursor is out of view moves corner.
+        list.draw(area, &mut buffer, true, &mut store);
+        assert_eq!(list.cursor, ListCursor::new(4, 0));
+        assert_eq!(list.viewctx.corner, ListCursor::new(2, 1));
+
+        // Reset corner.
+        list.viewctx.corner = ListCursor::new(0, 0);
+
+        // Corner still moves when unfocused.
+        list.draw(area, &mut buffer, true, &mut store);
+        assert_eq!(list.cursor, ListCursor::new(4, 0));
+        assert_eq!(list.viewctx.corner, ListCursor::new(2, 1));
     }
 
     #[test]
