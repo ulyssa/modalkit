@@ -1549,7 +1549,7 @@ fn default_keys<I: ApplicationInfo>() -> Vec<(MappedModes, &'static str, InputSt
         ( NMAP, "C", change!(MoveType::LinePos(MovePosition::End), Count::MinusOne) ),
         ( NMAP, "d", edit_motion!(EditAction::Delete) ),
         ( NMAP, "dd", edit_lines!(EditAction::Delete) ),
-        ( NMAP, "D", edit!(EditAction::Delete, MoveType::LinePos(MovePosition::End)) ),
+        ( NMAP, "D", edit!(EditAction::Delete, MoveType::LinePos(MovePosition::End), Count::MinusOne) ),
         ( NMAP, "ga", unmapped!() ),
         ( NMAP, "gi", unmapped!() ),
         ( NMAP, "gI", insert!(InsertStyle::Insert, MoveType::LinePos(MovePosition::Beginning), 0) ),
@@ -2973,7 +2973,7 @@ mod tests {
 
         ctx.action.operation = EditAction::Motion;
 
-        let movend = mvop!(op, MoveType::LinePos(MovePosition::End));
+        let movend = mvop!(op, MoveType::LinePos(MovePosition::End), Count::MinusOne);
         vm.input_key(key!('D'));
         assert_pop1!(vm, movend, ctx);
         assert_normal!(vm, ctx);
