@@ -24,7 +24,7 @@ derive_more = "0.99.16"
 thiserror = "^1.0.37"
 crossterm = "0.25"
 libc = "0.2"
-tui = { version = "0.19", optional = true }
+tui = { version = "0.20", optional = true, package = "ratatui" }
 intervaltree = { version = "0.2.6", optional = true }
 bitflags = "1.2"
 nom = "7.0.0"
