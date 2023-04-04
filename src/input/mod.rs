@@ -6,6 +6,7 @@
 //!
 pub mod bindings;
 pub mod commands;
+pub mod dialog;
 pub mod key;
 
 /// Represents contextual information that is updated upon user input.

@@ -39,6 +39,9 @@ pub trait InputKey: Clone + FromStr + Hash + Eq + PartialEq + ToString {
 
     /// Parse a string representing a series of keypresses.
     fn from_macro_str(mstr: &str) -> Result<Vec<Self>, MacroError>;
+
+    /// Return this key's representation as a single, printable codepoint, if it exists.
+    fn get_char(&self) -> Option<char>;
 }
 
 /// A key pressed in a terminal.
@@ -51,17 +54,6 @@ pub struct TerminalKey {
 impl TerminalKey {
     pub(crate) fn new(code: KeyCode, modifiers: KeyModifiers) -> Self {
         Self { code, modifiers }
-    }
-
-    /// Return this key's representation as a single, printable codepoint, if it exists.
-    pub fn get_char(&self) -> Option<char> {
-        if let KeyCode::Char(c) = self.code {
-            if (self.modifiers - KeyModifiers::SHIFT).is_empty() {
-                return Some(c);
-            }
-        }
-
-        None
     }
 
     pub(crate) fn get_char_mods(&self) -> Option<(char, KeyModifiers)> {
@@ -269,6 +261,16 @@ impl InputKey for TerminalKey {
         } else {
             return Err(MacroError::InvalidMacro(input.to_string()));
         }
+    }
+
+    fn get_char(&self) -> Option<char> {
+        if let KeyCode::Char(c) = self.code {
+            if (self.modifiers - KeyModifiers::SHIFT).is_empty() {
+                return Some(c);
+            }
+        }
+
+        None
     }
 }
 

@@ -17,9 +17,8 @@ use modalkit::tui::{
     backend::CrosstermBackend,
     buffer::Buffer,
     layout::Rect,
-    style::{Color, Modifier as StyleModifier, Style},
+    style::{Modifier as StyleModifier, Style},
     text::{Span, Spans, Text},
-    widgets::Paragraph,
     Terminal,
 };
 
@@ -33,6 +32,7 @@ use modalkit::{
             EditResult,
             Editable,
             EditorAction,
+            InfoMessage,
             Jumpable,
             PromptAction,
             Promptable,
@@ -77,10 +77,11 @@ use modalkit::{
         mixed::{MixedBindings, MixedChoice, MixedContext},
         vim::command::{complete_cmdbar, VimCommandMachine},
     },
-    input::{bindings::BindingMachine, key::TerminalKey},
+    input::{bindings::BindingMachine, dialog::Pager, key::TerminalKey},
     widgets::{
         cmdbar::CommandBarState,
         list::{ListCursor, ListItem, ListState},
+        render_cursor,
         screen::{Screen, ScreenState},
         textbox::TextBoxState,
         TermOffset,
@@ -573,7 +574,14 @@ impl Editor {
                         // Continue processing.
                         continue;
                     },
-                    Ok(Some(info)) => {
+                    Ok(Some(InfoMessage::Pager(text))) => {
+                        let pager = Box::new(Pager::new(text, vec![]));
+                        self.bindings.run_dialog(pager);
+
+                        // Continue processing; we'll redraw later.
+                        continue;
+                    },
+                    Ok(Some(InfoMessage::Message(info))) => {
                         self.screen.push_info(info);
 
                         // Continue processing; we'll redraw later.
@@ -717,8 +725,7 @@ impl Editor {
     }
 
     fn redraw(&mut self, full: bool) -> Result<(), std::io::Error> {
-        let modestr = self.bindings.showmode();
-        let cursor = self.bindings.get_cursor_indicator();
+        let bindings = &mut self.bindings;
         let sstate = &mut self.screen;
         let store = &mut self.store;
         let term = &mut self.terminal;
@@ -730,19 +737,14 @@ impl Editor {
         term.draw(|f| {
             let area = f.size();
 
-            let screen = Screen::new(store).showmode(modestr).borders(true);
+            let modestr = bindings.show_mode();
+            let cursor = bindings.get_cursor_indicator();
+            let dialogstr = bindings.show_dialog(area.width as usize, area.height as usize);
+
+            let screen = Screen::new(store).show_dialog(dialogstr).show_mode(modestr).borders(true);
             f.render_stateful_widget(screen, area, sstate);
 
-            if let Some((cx, cy)) = sstate.get_term_cursor() {
-                if let Some(c) = cursor {
-                    let style = Style::default().fg(Color::Green);
-                    let span = Span::styled(c.to_string(), style);
-                    let para = Paragraph::new(span);
-                    let inner = Rect::new(cx, cy, 1, 1);
-                    f.render_widget(para, inner)
-                }
-                f.set_cursor(cx, cy);
-            }
+            render_cursor(f, sstate, cursor);
         })?;
 
         Ok(())

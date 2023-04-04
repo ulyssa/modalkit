@@ -24,9 +24,10 @@
 //! let bindings = VimMachine::<TerminalKey, EmptyInfo>::default();
 //! let bindings = KeyManager::new(bindings);
 //! ```
+use std::borrow::Cow;
 use std::collections::VecDeque;
 
-use crate::input::{bindings::BindingMachine, key::InputKey, InputContext};
+use crate::input::{bindings::BindingMachine, dialog::Dialog, key::InputKey, InputContext};
 
 use super::{
     action::{EditInfo, EditResult, MacroAction},
@@ -170,8 +171,12 @@ where
         self.bindings.context()
     }
 
-    fn showmode(&self) -> Option<String> {
-        self.bindings.showmode()
+    fn show_dialog(&mut self, max_rows: usize, max_cols: usize) -> Vec<Cow<'_, str>> {
+        self.bindings.show_dialog(max_rows, max_cols)
+    }
+
+    fn show_mode(&self) -> Option<String> {
+        self.bindings.show_mode()
     }
 
     fn get_cursor_indicator(&self) -> Option<char> {
@@ -180,6 +185,10 @@ where
 
     fn repeat(&mut self, seq: S, other: Option<C>) {
         self.bindings.repeat(seq, other)
+    }
+
+    fn run_dialog(&mut self, dialog: Box<dyn Dialog<A>>) {
+        self.bindings.run_dialog(dialog)
     }
 }
 
@@ -199,6 +208,7 @@ mod tests {
         input::{
             bindings::EdgeEvent::{Class, Key},
             bindings::{EmptySequence, ModalMachine, Mode, ModeKeys, Step},
+            dialog::PromptYesNo,
             key::TerminalKey,
         },
     };
@@ -277,10 +287,10 @@ mod tests {
         }
     }
 
-    #[derive(Clone)]
+    #[derive(Clone, Debug)]
     enum TestAction {
         Macro(MacroAction),
-        SetFlag,
+        SetFlag(bool),
         Type(char),
         NoOp,
     }
@@ -291,7 +301,7 @@ mod tests {
         }
     }
 
-    fn setup_bindings() -> (TestKeyManager, TestStore) {
+    fn setup_bindings(skip_confirm: bool) -> (TestKeyManager, TestStore) {
         use crate::input::bindings::EdgeRepeat::{Min, Once};
 
         let mut bindings = TestMachine::empty();
@@ -320,7 +330,7 @@ mod tests {
         bindings.add_mapping(
             TestMode::Normal,
             &vec![(Once, Key("f".parse().unwrap()))],
-            &TestAction::SetFlag.into(),
+            &TestAction::SetFlag(skip_confirm).into(),
         );
         bindings.add_mapping(
             TestMode::Normal,
@@ -349,9 +359,40 @@ mod tests {
         (TestKeyManager::new(bindings), store)
     }
 
+    fn input(
+        key: TerminalKey,
+        bindings: &mut TestKeyManager,
+        store: &mut TestStore,
+        s: &mut String,
+        flag: &mut bool,
+        err: &mut Option<EditError<EmptyInfo>>,
+    ) {
+        bindings.input_key(key);
+
+        while let Some((act, ctx)) = bindings.pop() {
+            match act {
+                TestAction::NoOp => continue,
+                TestAction::Macro(act) => {
+                    *err = bindings.macro_command(&act, &ctx, store).err();
+                },
+                TestAction::SetFlag(skip_confirm) => {
+                    if skip_confirm {
+                        *flag = true;
+                    } else {
+                        let act = vec![TestAction::SetFlag(true)];
+                        let msg = "Are you sure you want to set the flag";
+                        let confirm = PromptYesNo::new(msg, act);
+                        bindings.run_dialog(Box::new(confirm));
+                    }
+                },
+                TestAction::Type(c) => s.push(c),
+            }
+        }
+    }
+
     #[test]
     fn test_record_and_execute() {
-        let (mut bindings, mut store) = setup_bindings();
+        let (mut bindings, mut store) = setup_bindings(true);
         let mut s = String::new();
         let mut flag = false;
         let mut err = None;
@@ -362,30 +403,9 @@ mod tests {
             };
         }
 
-        let mut input = |key: TerminalKey,
-                         store: &mut TestStore,
-                         s: &mut String,
-                         flag: &mut bool,
-                         err: &mut Option<EditError<EmptyInfo>>| {
-            bindings.input_key(key);
-
-            while let Some((act, ctx)) = bindings.pop() {
-                match act {
-                    TestAction::NoOp => continue,
-                    TestAction::Macro(act) => {
-                        *err = bindings.macro_command(&act, &ctx, store).err();
-                    },
-                    TestAction::SetFlag => {
-                        *flag = true;
-                    },
-                    TestAction::Type(c) => s.push(c),
-                }
-            }
-        };
-
         macro_rules! input {
             ($key: expr) => {
-                input($key, &mut store, &mut s, &mut flag, &mut err)
+                input($key, &mut bindings, &mut store, &mut s, &mut flag, &mut err)
             };
         }
 
@@ -492,6 +512,66 @@ mod tests {
         input!(key!('2'));
         input!(key!('@'));
         assert_eq!(s, "abcabcabcabcdefabcdefabcdefabcdefabcabcabc");
+        assert_eq!(flag, true);
+    }
+
+    #[test]
+    fn test_macro_dialog() {
+        let (mut bindings, mut store) = setup_bindings(false);
+        let mut s = String::new();
+        let mut flag = false;
+        let mut err = None;
+
+        macro_rules! get_register {
+            ($reg: expr) => {
+                store.registers.get(&$reg).unwrap().value
+            };
+        }
+
+        macro_rules! input {
+            ($key: expr) => {
+                input($key, &mut bindings, &mut store, &mut s, &mut flag, &mut err)
+            };
+        }
+
+        assert_eq!(bindings.show_dialog(10, 100).len(), 0);
+        assert_eq!(flag, false);
+
+        // Start recording to "a.
+        input!(key!('"'));
+        input!(key!('a'));
+        input!(key!('q'));
+        input!(key!('q'));
+        input!(key!('q'));
+
+        // Typing `f` starts a new dialog.
+        input!(key!('f'));
+        assert_eq!(bindings.show_dialog(10, 100).len(), 1);
+        assert_eq!(flag, false);
+
+        // Answer `y` to the prompt to clear dialog and set flag.
+        input!(key!('y'));
+        assert_eq!(bindings.show_dialog(10, 100).len(), 0);
+        assert_eq!(flag, true);
+
+        // End recording.
+        input!(key!('q'));
+        input!(key!('q'));
+        input!(key!('q'));
+
+        // Register::Named('a') now contains macro text.
+        assert_eq!(get_register!(Register::Named('a')).to_string(), "fy");
+
+        // Now reset the flag.
+        flag = false;
+
+        // Replay macro.
+        input!(key!('"'));
+        input!(key!('a'));
+        input!(key!('Q'));
+
+        // Flag is now true, and we end with the dialog cleared.
+        assert_eq!(bindings.show_dialog(10, 100).len(), 0);
         assert_eq!(flag, true);
     }
 }

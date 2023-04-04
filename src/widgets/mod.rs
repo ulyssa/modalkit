@@ -11,7 +11,16 @@ use std::process;
 
 use libc;
 
-use tui::{backend::CrosstermBackend, buffer::Buffer, layout::Rect, text::Spans, Terminal};
+use tui::{
+    backend::CrosstermBackend,
+    buffer::Buffer,
+    layout::Rect,
+    style::{Color, Style},
+    text::{Span, Spans},
+    widgets::Paragraph,
+    Frame,
+    Terminal,
+};
 
 use crossterm::{
     execute,
@@ -173,6 +182,24 @@ pub trait Window<I: ApplicationInfo>: WindowOps<I> + Sized {
     fn unnamed(store: &mut Store<I>) -> UIResult<Self, I>;
 }
 
+/// Position and draw a terminal cursor.
+pub fn render_cursor<T: TerminalCursor>(
+    f: &mut Frame<CrosstermBackend<Stdout>>,
+    widget: &T,
+    cursor: Option<char>,
+) {
+    if let Some((cx, cy)) = widget.get_term_cursor() {
+        if let Some(c) = cursor {
+            let style = Style::default().fg(Color::Green);
+            let span = Span::styled(c.to_string(), style);
+            let para = Paragraph::new(span);
+            let inner = Rect::new(cx, cy, 1, 1);
+            f.render_widget(para, inner)
+        }
+        f.set_cursor(cx, cy);
+    }
+}
+
 /// Extended operations for [Terminal].
 pub trait TerminalExtOps {
     /// Result type for terminal operations.
@@ -183,7 +210,7 @@ pub trait TerminalExtOps {
 }
 
 impl TerminalExtOps for Terminal<CrosstermBackend<Stdout>> {
-    type Result = crossterm::Result<EditInfo>;
+    type Result = Result<EditInfo, std::io::Error>;
 
     fn program_suspend(&mut self) -> Self::Result {
         let mut stdout = stdout();

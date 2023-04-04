@@ -167,7 +167,7 @@ use crate::{
 /// [modalkit::env](crate::env).
 ///
 /// [Action::Application]: super::action::Action::Application
-pub trait ApplicationAction: Clone + Debug + Eq + PartialEq {
+pub trait ApplicationAction: Clone + Debug + Eq + PartialEq + Send {
     /// Allows controlling how application-specific actions are included in
     /// [RepeatType::EditSequence](crate::editing::base::RepeatType::EditSequence).
     fn is_edit_sequence<C: EditContext>(&self, ctx: &C) -> SequenceStatus;
@@ -217,14 +217,14 @@ pub trait ApplicationStore {}
 impl ApplicationStore for () {}
 
 /// Trait for window identifiers in an application.
-pub trait ApplicationWindowId: Clone + Debug + Eq + Hash + PartialEq {}
+pub trait ApplicationWindowId: Clone + Debug + Eq + Hash + PartialEq + Send {}
 
 impl ApplicationWindowId for () {}
 impl ApplicationWindowId for usize {}
 impl ApplicationWindowId for String {}
 
 /// Trait for identifiers of specific content within a window in an application.
-pub trait ApplicationContentId: Clone + Debug + Eq + Hash + PartialEq {}
+pub trait ApplicationContentId: Clone + Debug + Eq + Hash + PartialEq + Send {}
 
 impl ApplicationContentId for () {}
 impl ApplicationContentId for usize {}

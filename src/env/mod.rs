@@ -10,7 +10,7 @@ use crate::{
     editing::base::Char,
     input::{
         bindings::{EdgeEvent, EdgePath, EdgePathPart, InputKeyClass},
-        key::TerminalKey,
+        key::{InputKey, TerminalKey},
     },
 };
 

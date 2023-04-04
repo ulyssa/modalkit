@@ -4,6 +4,8 @@
 //!
 //! This module contains wrappers that allow creating environments where users can specify what
 //! flavor of keybindings they want to use during or after program startup.
+use std::borrow::Cow;
+
 use regex::Regex;
 
 use crate::{
@@ -26,6 +28,7 @@ use crate::{
     },
     input::{
         bindings::{BindingMachine, Step},
+        dialog::Dialog,
         key::{InputKey, TerminalKey},
         InputContext,
     },
@@ -127,6 +130,12 @@ macro_rules! delegate_bindings {
         match $s {
             MixedBindings::Emacs(c) => $invoke(c, $arg),
             MixedBindings::Vim(c) => $invoke(c, $arg),
+        }
+    };
+    ($s: expr, $invoke: expr, $arg1: expr, $arg2: expr) => {
+        match $s {
+            MixedBindings::Emacs(c) => $invoke(c, $arg1, $arg2),
+            MixedBindings::Vim(c) => $invoke(c, $arg1, $arg2),
         }
     };
 }
@@ -287,8 +296,12 @@ where
         }
     }
 
-    fn showmode(&self) -> Option<String> {
-        delegate_bindings!(self, BindingMachine::showmode)
+    fn show_dialog(&mut self, max_rows: usize, max_cols: usize) -> Vec<Cow<'_, str>> {
+        delegate_bindings!(self, BindingMachine::show_dialog, max_rows, max_cols)
+    }
+
+    fn show_mode(&self) -> Option<String> {
+        delegate_bindings!(self, BindingMachine::show_mode)
     }
 
     fn get_cursor_indicator(&self) -> Option<char> {
@@ -310,5 +323,9 @@ where
                 panic!("Must use Vim context with Vim keybindings");
             },
         }
+    }
+
+    fn run_dialog(&mut self, dialog: Box<dyn Dialog<Action<I>>>) {
+        delegate_bindings!(self, BindingMachine::run_dialog, dialog)
     }
 }

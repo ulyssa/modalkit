@@ -5,6 +5,7 @@
 //! This widget can be used by consumers to create a tabbed window layout containing horizontal and
 //! vertical splits. It builds on top of [CommandBarState] and [WindowLayoutState] to accomplish
 //! this, both of which can also be used on their own if something different is needed.
+use std::borrow::Cow;
 use std::cmp::Ordering;
 use std::iter::Iterator;
 use std::marker::PhantomData;
@@ -630,10 +631,10 @@ where
     }
 
     /// Push an info message with a default [Style].
-    pub fn push_info<T: ToString>(&mut self, msg: T) {
+    pub fn push_info<T: Into<String>>(&mut self, msg: T) {
         let style = Style::default();
 
-        self.push_message(msg, style);
+        self.push_message(msg.into(), style);
     }
 
     /// Clear the displayed error or status message.
@@ -979,6 +980,7 @@ where
     I: ApplicationInfo,
 {
     store: &'a mut Store<I>,
+    showdialog: Vec<Span<'a>>,
     showmode: Option<Span<'a>>,
 
     borders: bool,
@@ -997,6 +999,7 @@ where
     pub fn new(store: &'a mut Store<I>) -> Self {
         Screen {
             store,
+            showdialog: Vec::new(),
             showmode: None,
             borders: false,
             border_style: Style::default(),
@@ -1023,8 +1026,14 @@ where
         self
     }
 
+    /// Show the message from an interactive dialog.
+    pub fn show_dialog(mut self, dialog: Vec<Cow<'a, str>>) -> Self {
+        self.showdialog = dialog.into_iter().map(Span::raw).collect();
+        self
+    }
+
     /// Set the mode string to display.
-    pub fn showmode(mut self, mode: Option<String>) -> Self {
+    pub fn show_mode(mut self, mode: Option<String>) -> Self {
         self.showmode = mode.map(bold);
         self
     }
@@ -1037,7 +1046,7 @@ where
 {
     type State = ScreenState<W, I>;
 
-    fn render(self, area: Rect, buf: &mut Buffer, state: &mut Self::State) {
+    fn render(mut self, area: Rect, buf: &mut Buffer, state: &mut Self::State) {
         if area.height == 0 {
             return;
         }
@@ -1058,16 +1067,27 @@ where
             .as_ref()
             .map(|l| CompletionBar::new(l, area.width))
             .unwrap_or_default();
-        let barh = cbar.rows;
+        let mut barh = cbar.rows;
+
+        // Calculate height for dialog message.
+        let dialog = std::mem::take(&mut self.showdialog);
+        let cmdh = match dialog.len() {
+            0 => 1,
+            n => {
+                // If we have a dialog message, we'll skip showing a completion bar.
+                barh = 0;
+                (n as u16).clamp(1, area.height)
+            },
+        };
 
         // The rest of the space goes to showing the open windows and the command bar.
-        let winh = area.height.saturating_sub(tabh).saturating_sub(barh).saturating_sub(1);
+        let winh = area.height.saturating_sub(tabh).saturating_sub(barh).saturating_sub(cmdh);
 
         let init = rect_zero_height(area);
         let tabarea = rect_down(init, tabh);
         let winarea = rect_down(tabarea, winh);
         let bararea = rect_down(winarea, barh);
-        let cmdarea = rect_down(bararea, 1);
+        let cmdarea = rect_down(bararea, cmdh);
 
         let titles = state
             .tabs
@@ -1106,6 +1126,17 @@ where
                 .border_type(self.border_type)
                 .borders(self.borders)
                 .render(winarea, buf, tab);
+        }
+
+        if !dialog.is_empty() {
+            let iter = dialog.into_iter().take(cmdarea.height as usize);
+
+            for (i, line) in iter.enumerate() {
+                let y = cmdarea.y + i as u16;
+                buf.set_span(0, y, &line, cmdarea.width);
+            }
+
+            return;
         }
 
         let status = if self.showmode.is_some() || !state.last_message {

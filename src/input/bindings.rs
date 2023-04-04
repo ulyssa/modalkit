@@ -44,7 +44,7 @@
 //!         ModalMachine,
 //!         Step
 //!     },
-//!     key::TerminalKey,
+//!     key::{InputKey, TerminalKey},
 //! };
 //!
 //! use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
@@ -158,7 +158,7 @@
 //! }
 //! ```
 //!
-
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::collections::VecDeque;
 use std::fmt::Debug;
@@ -166,6 +166,7 @@ use std::hash::Hash;
 
 use crate::util::IdGenerator;
 
+use super::dialog::Dialog;
 use super::key::{InputKey, MacroError};
 use super::InputContext;
 
@@ -324,8 +325,14 @@ where
     /// Get a reference to the current context.
     fn context(&self) -> C;
 
+    /// Returns the message to display for the current interactive dialog, if there is one.
+    ///
+    /// Since interactive dialogs capture user input, displaying this should take priority over any
+    /// other status line information in order to help the user understand what input is expected.
+    fn show_dialog(&mut self, max_rows: usize, max_cols: usize) -> Vec<Cow<'_, str>>;
+
     /// Returns a user-friendly string to display for the current mode.
-    fn showmode(&self) -> Option<String>;
+    fn show_mode(&self) -> Option<String>;
 
     /// Returns a character to show for the cursor.
     fn get_cursor_indicator(&self) -> Option<char>;
@@ -336,6 +343,9 @@ where
     ///
     /// See [ModeSequence::sequences] for how to control what is repeated here.
     fn repeat(&mut self, sequence: S, ctx: Option<C>);
+
+    /// Start an interactive user dialog.
+    fn run_dialog(&mut self, dialog: Box<dyn Dialog<A>>);
 }
 
 /// A default [InputKeyClass] with no members.
@@ -979,6 +989,7 @@ pub struct ModalMachine<Key: InputKey, S: Step<Key>> {
     im: InputMachine<Key, S>,
     actions: VecDeque<(S::A, S::C)>,
     sequences: HashMap<S::Sequence, SequenceTracker<S::A, S::C>>,
+    dialogs: Vec<Box<dyn Dialog<S::A>>>,
 }
 
 impl<Key: InputKey, S: Step<Key>> ModalMachine<Key, S> {
@@ -989,6 +1000,7 @@ impl<Key: InputKey, S: Step<Key>> ModalMachine<Key, S> {
             im: InputMachine::default(),
             actions: VecDeque::new(),
             sequences: HashMap::new(),
+            dialogs: Vec::new(),
         }
     }
 
@@ -1123,6 +1135,23 @@ where
     S: Step<Key>,
 {
     fn input_key(&mut self, input: Key) {
+        // Ongoing dialogs intercept all keypresses.
+        if let Some(dialog) = self.dialogs.last_mut() {
+            if let Some(c) = input.get_char() {
+                if let Some(mut acts) = dialog.input(c) {
+                    // Dialog-generated actions skip sequence tracking,
+                    // and go to the front of the action queue.
+                    while let Some(act) = acts.pop() {
+                        self.actions.push_front((act, S::C::default()));
+                    }
+
+                    let _ = self.dialogs.pop();
+                }
+            }
+
+            return;
+        }
+
         let mut stack = vec![input];
 
         while let Some(mut ke) = stack.pop() {
@@ -1155,6 +1184,11 @@ where
     }
 
     fn pop(&mut self) -> Option<(S::A, S::C)> {
+        if !self.dialogs.is_empty() {
+            // Wait until we've finished interacting w/ the dialog.
+            return None;
+        }
+
         self.actions.pop_front()
     }
 
@@ -1162,7 +1196,14 @@ where
         self.ctx.clone()
     }
 
-    fn showmode(&self) -> Option<String> {
+    fn show_dialog(&mut self, max_rows: usize, max_cols: usize) -> Vec<Cow<'_, str>> {
+        match self.dialogs.last_mut() {
+            Some(dialog) => dialog.render(max_rows, max_cols),
+            None => Vec::new(),
+        }
+    }
+
+    fn show_mode(&self) -> Option<String> {
         self.state.show(&self.ctx)
     }
 
@@ -1176,6 +1217,10 @@ where
 
         std::mem::swap(&mut self.actions, &mut seq);
         self.actions.append(&mut seq);
+    }
+
+    fn run_dialog(&mut self, dialog: Box<dyn Dialog<S::A>>) {
+        self.dialogs.push(dialog);
     }
 }
 
@@ -2225,12 +2270,12 @@ mod tests {
 
         // Start out in Insert mode.
         assert_eq!(tm.mode(), TestMode::Insert);
-        assert_eq!(tm.showmode().unwrap(), "-- insert --");
+        assert_eq!(tm.show_mode().unwrap(), "-- insert --");
 
         // Go to Normal mode.
         tm.input_key(ctl!('l'));
         assert_eq!(tm.mode(), TestMode::Normal);
-        assert_eq!(tm.showmode().unwrap(), "-- normal --");
+        assert_eq!(tm.show_mode().unwrap(), "-- normal --");
 
         // XXX: it would be nice to support showing fallthrough modes
     }

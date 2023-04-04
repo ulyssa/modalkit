@@ -11,7 +11,7 @@ use regex::Regex;
 
 use crate::input::{
     bindings::{EdgeEvent, InputKeyContext, Mode, ModeKeys, ModeSequence, SequenceStatus},
-    key::TerminalKey,
+    key::{InputKey, TerminalKey},
     InputContext,
 };
 

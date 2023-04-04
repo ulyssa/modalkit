@@ -31,7 +31,9 @@ nom = "7.0.0"
 radix_trie = "0.2.1"
 regex = "^1.5"
 ropey = "1.5.0"
+textwrap = "^0.16"
 unicode-segmentation = "^1.7"
+unicode-width = "0.1.10"
 
 [dev-dependencies]
 rand = "0.8.4"

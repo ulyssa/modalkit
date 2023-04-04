@@ -35,10 +35,13 @@
 //!
 //! let _: Action = Action::Scroll(ScrollStyle::LinePos(MovePosition::Beginning, 10.into()));
 //! ```
+use std::fmt::{self, Display, Formatter};
+
 use crate::{
     editing::context::{EditContext, Resolve},
     input::bindings::SequenceStatus,
     input::commands::{Command, CommandError, CommandMachine},
+    input::dialog::Dialog,
     input::key::MacroError,
 };
 
@@ -980,10 +983,27 @@ where
     ) -> UIResult<EditInfo, I>;
 }
 
-/// Additional information returned after an editing operation.
+/// Information to show the user at the bottom of the screen after an action.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct InfoMessage {
-    msg: String,
+pub enum InfoMessage {
+    /// Print a simple, informational message on the status line.
+    Message(String),
+
+    /// Use an interactive pager to show the user some information.
+    ///
+    /// You can handle this using [Pager] and [BindingMachine::run_dialog].
+    ///
+    /// [Pager]: crate::input::dialog::Pager
+    /// [BindingMachine::run_dialog]: crate::input::bindings::BindingMachine::run_dialog
+    Pager(String),
+}
+
+impl Display for InfoMessage {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            InfoMessage::Message(s) | InfoMessage::Pager(s) => write!(f, "{}", s),
+        }
+    }
 }
 
 impl From<&str> for InfoMessage {
@@ -994,13 +1014,7 @@ impl From<&str> for InfoMessage {
 
 impl From<String> for InfoMessage {
     fn from(msg: String) -> Self {
-        InfoMessage { msg }
-    }
-}
-
-impl std::fmt::Display for InfoMessage {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.msg)
+        InfoMessage::Message(msg)
     }
 }
 
@@ -1011,6 +1025,10 @@ pub type EditInfo = Option<InfoMessage>;
 #[derive(thiserror::Error, Debug)]
 #[non_exhaustive]
 pub enum EditError<I: ApplicationInfo> {
+    /// Run an interactive dialog to determine how to complete this action.
+    #[error("That action requires interactive confirmation")]
+    NeedConfirm(Box<dyn Dialog<Action<I>>>),
+
     /// Failure to fetch a word at a cursor position.
     #[error("No word underneath cursor")]
     NoCursorWord,
@@ -1094,6 +1112,10 @@ where
     /// Failure while attempting to execute a command.
     #[error("Failed command: {0}")]
     CommandFailure(#[from] CommandError),
+
+    /// Run an interactive dialog to determine how to complete this action.
+    #[error("That action requires interactive confirmation")]
+    NeedConfirm(Box<dyn Dialog<Action<I>>>),
 
     /// Failure while attempting to jump to previous positions.
     #[error("No previous positions in list")]
