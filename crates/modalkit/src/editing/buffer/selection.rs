@@ -520,71 +520,72 @@ where
         style: &SelectionSplitStyle,
         filter: TargetShapeFilter,
         ctx: &CursorGroupIdContext<'a>,
-        _: &mut Store<I>,
+        store: &mut Store<I>,
     ) -> EditResult<EditInfo, I> {
         let gid = ctx.0;
         let mut group = self.get_group(gid);
-        let mut created = vec![];
+        let members = std::mem::take(&mut group.members);
 
-        for state in group.iter_mut() {
+        let split = |mut state: CursorState| -> EditResult<Vec<CursorState>, I> {
             let (cursor, anchor, shape) = state.to_triple();
 
             if !filter.matches(&shape) {
-                continue;
+                return Ok(vec![state]);
             }
 
-            match (style, shape) {
+            let split = match (style, shape) {
                 (SelectionSplitStyle::Anchor, _) => {
                     if anchor.y == cursor.y && anchor.x == cursor.x {
                         // Anchor and cursor are already the same.
-                        continue;
+                        state.set_shape(TargetShape::CharWise);
+                        return Ok(vec![state]);
                     }
 
                     // Create new selection from old anchor.
-                    created.push(CursorState::Selection(anchor.clone(), anchor.clone(), shape));
+                    let anchor = CursorState::Selection(anchor.clone(), anchor.clone(), shape);
 
-                    // Update this selection's anchor to be at the cursor position.
+                    // Update the selection's anchor to be at the cursor position.
                     state.set_anchor(cursor.clone());
+
+                    vec![anchor, state]
                 },
                 (SelectionSplitStyle::Lines, TargetShape::CharWise) => {
                     let (start, end) = state.sorted();
+                    let range = start.y..=end.y;
 
-                    for line in start.y..=end.y {
-                        let lc = if line == start.y {
-                            Cursor::new(line, start.x)
-                        } else {
-                            Cursor::new(line, 0)
-                        };
+                    range
+                        .into_iter()
+                        .map(|line| {
+                            let lc = if line == start.y {
+                                Cursor::new(line, start.x)
+                            } else {
+                                Cursor::new(line, 0)
+                            };
 
-                        let rc = if line == end.y {
-                            Cursor::new(line, end.x)
-                        } else {
-                            Cursor::new(line, self.text.get_columns(line).saturating_sub(1))
-                        };
+                            let rc = if line == end.y {
+                                Cursor::new(line, end.x)
+                            } else {
+                                Cursor::new(line, self.text.get_columns(line).saturating_sub(1))
+                            };
 
-                        if line == start.y {
-                            state.set_cursor(lc.clone());
-                            state.set_anchor(rc.clone());
-                        } else {
-                            created.push(CursorState::Selection(lc.clone(), rc.clone(), shape));
-                        }
-                    }
+                            CursorState::Selection(lc.clone(), rc.clone(), shape)
+                        })
+                        .collect()
                 },
                 (SelectionSplitStyle::Lines, TargetShape::LineWise) => {
                     let (start, end) = state.sorted();
+                    let range = start.y..=end.y;
 
-                    for line in start.y..=end.y {
-                        let maxidx = self.text.get_columns(line).saturating_sub(1);
-                        let lc = Cursor::new(line, 0);
-                        let rc = Cursor::new(line, maxidx);
+                    range
+                        .into_iter()
+                        .map(|line| {
+                            let maxidx = self.text.get_columns(line).saturating_sub(1);
+                            let lc = Cursor::new(line, 0);
+                            let rc = Cursor::new(line, maxidx);
 
-                        if line == start.y {
-                            state.set_cursor(lc.clone());
-                            state.set_anchor(rc.clone());
-                        } else {
-                            created.push(CursorState::Selection(lc.clone(), rc.clone(), shape));
-                        }
-                    }
+                            CursorState::Selection(lc.clone(), rc.clone(), shape)
+                        })
+                        .collect()
                 },
                 (SelectionSplitStyle::Lines, TargetShape::BlockWise) => {
                     // Determine the left and right borders of the block.
@@ -592,27 +593,92 @@ where
 
                     // Sort the cursors.
                     let (start, end) = state.sorted();
+                    let range = start.y..=end.y;
 
-                    for line in start.y..=end.y {
-                        let lctx = &(&self.text, 0, true);
-                        let rctx = &(&self.text, 0, false);
+                    range
+                        .into_iter()
+                        .map(|line| {
+                            let lctx = &(&self.text, 0, true);
+                            let rctx = &(&self.text, 0, false);
 
-                        lc.set_line(line, lctx);
-                        rc.set_line(line, rctx);
+                            lc.set_line(line, lctx);
+                            rc.set_line(line, rctx);
 
-                        if line == start.y {
-                            state.set_cursor(lc.clone());
-                            state.set_anchor(rc.clone());
-                        } else {
-                            created.push(CursorState::Selection(lc.clone(), rc.clone(), shape));
+                            CursorState::Selection(lc.clone(), rc.clone(), shape)
+                        })
+                        .collect()
+                },
+                (SelectionSplitStyle::Regex(false), shape) => {
+                    let needle = self._get_regex(store)?;
+                    let ctx = &(&self.text, 0, true);
+
+                    self._effective_cursors(state.start(), state.end(), true, shape)
+                        .into_iter()
+                        .flat_map(|(s, mut e, inclusive)| {
+                            if !inclusive && s < e {
+                                e.column(MoveDir1D::Previous, true, 1, ctx);
+                            }
+                            self.text.find_matches(&s, &e, &needle)
+                        })
+                        .map(|m| self.text.select(m))
+                        .collect()
+                },
+                (SelectionSplitStyle::Regex(true), shape) => {
+                    let needle = self._get_regex(store)?;
+                    let ctx = &(&self.text, 0, true);
+
+                    let mut split = vec![];
+                    let cursors = self._effective_cursors(state.start(), state.end(), true, shape);
+
+                    for (mut lc, mut rc, inclusive) in cursors {
+                        if !inclusive && lc < rc {
+                            rc.column(MoveDir1D::Previous, true, 1, ctx);
+                        }
+
+                        for m in self.text.find_matches(&lc, &rc, &needle) {
+                            if lc < m.start {
+                                let mut end = m.start;
+                                end.column(MoveDir1D::Previous, true, 1, ctx);
+                                split.push(CursorState::Selection(lc, end, TargetShape::CharWise));
+                            }
+
+                            lc = m.end;
+
+                            if m.inclusive {
+                                lc.column(MoveDir1D::Next, true, 1, ctx);
+                            }
+                        }
+
+                        if lc <= rc {
+                            split.push(CursorState::Selection(lc, rc, TargetShape::CharWise));
                         }
                     }
+
+                    split
                 },
-            }
+            };
+
+            return Ok(split);
+        };
+
+        for member in members {
+            group.members.extend(split(member)?);
         }
 
-        group.members.append(&mut created);
-        group.merge();
+        let mut leader_splits = split(group.leader.clone())?.into_iter();
+
+        if let Some(leader) = leader_splits.next() {
+            group.leader = leader;
+            group.members.extend(leader_splits);
+        } else if let Some(leader) = group.members.pop() {
+            group.leader = leader;
+        } else {
+            let msg = "No selections remaining".to_string();
+            let err = EditError::Failure(msg);
+
+            return Err(err);
+        }
+
         self.set_group(gid, group);
 
         Ok(None)
@@ -687,9 +753,21 @@ mod tests {
         };
     }
 
+    macro_rules! selection_split_anchor {
+        ($ebuf: expr, $filter: expr, $ctx: expr, $store: expr) => {
+            selection_split!($ebuf, SelectionSplitStyle::Anchor, $filter, $ctx, $store)
+        };
+    }
+
     macro_rules! selection_split_lines {
         ($ebuf: expr, $filter: expr, $ctx: expr, $store: expr) => {
             selection_split!($ebuf, SelectionSplitStyle::Lines, $filter, $ctx, $store)
+        };
+    }
+
+    macro_rules! selection_split_regex {
+        ($ebuf: expr, $filter: expr, $keep: expr, $ctx: expr, $store: expr) => {
+            selection_split!($ebuf, SelectionSplitStyle::Regex($keep), $filter, $ctx, $store)
         };
     }
 
@@ -792,6 +870,42 @@ mod tests {
     }
 
     #[test]
+    fn test_selection_split_anchor() {
+        let (mut ebuf, curid, vwctx, mut vctx, mut store) =
+            mkfivestr("a b c d\ne f g\nh i j k l\nm n o p\nq r\n");
+
+        // Start out at (2, 6).
+        ebuf.set_leader(curid, Cursor::new(2, 6));
+
+        vctx.target_shape = Some(TargetShape::CharWise);
+
+        // Create a charwise selection across the three lines.
+        let mov = MoveType::FirstWord(MoveDir1D::Next);
+        edit!(ebuf, EditAction::Motion, mv!(mov, 2), ctx!(curid, vwctx, vctx), store);
+
+        let selection = (Cursor::new(2, 6), Cursor::new(4, 0), TargetShape::CharWise);
+        assert_eq!(ebuf.get_leader_selection(curid), Some(selection.clone()));
+        assert_eq!(ebuf.get_follower_selections(curid), None);
+        assert_eq!(ebuf.get_leader(curid), Cursor::new(4, 0));
+
+        // Filter doesn't match, nothing happens.
+        selection_split_anchor!(ebuf, TargetShapeFilter::LINE, ctx!(curid, vwctx, vctx), store);
+        assert_eq!(ebuf.get_leader_selection(curid), Some(selection.clone()));
+        assert_eq!(ebuf.get_leader(curid), Cursor::new(4, 0));
+        assert_eq!(ebuf.get_follower_selections(curid), None);
+
+        // Filter matches, splits into two CharWise selections.
+        selection_split_anchor!(ebuf, TargetShapeFilter::CHAR, ctx!(curid, vwctx, vctx), store);
+        let selection1 = (Cursor::new(2, 6), Cursor::new(2, 6), TargetShape::CharWise);
+        let selection2 = (Cursor::new(4, 0), Cursor::new(4, 0), TargetShape::CharWise);
+        let selections = vec![selection2];
+        assert_eq!(ebuf.get_leader_selection(curid), Some(selection1.clone()));
+        assert_eq!(ebuf.get_leader(curid), Cursor::new(2, 6));
+        assert_eq!(ebuf.get_follower_selections(curid), Some(selections));
+        assert_eq!(ebuf.get_followers(curid), vec![Cursor::new(4, 0)]);
+    }
+
+    #[test]
     fn test_selection_split_lines_blockwise() {
         let (mut ebuf, curid, vwctx, mut vctx, mut store) =
             mkfivestr("a b c d\ne f g\nh i j k l\nm n o p\nq r\n");
@@ -801,7 +915,7 @@ mod tests {
 
         vctx.target_shape = Some(TargetShape::BlockWise);
 
-        // Create a charwise selection across the three lines.
+        // Create a blockwise selection across the three lines.
         let mov = MoveType::FirstWord(MoveDir1D::Next);
         edit!(ebuf, EditAction::Motion, mv!(mov, 2), ctx!(curid, vwctx, vctx), store);
 
@@ -906,6 +1020,128 @@ mod tests {
         assert_eq!(ebuf.get_leader(curid), Cursor::new(1, 0));
         assert_eq!(ebuf.get_follower_selections(curid), Some(selections));
         assert_eq!(ebuf.get_followers(curid), vec![Cursor::new(2, 0), Cursor::new(3, 0)]);
+    }
+
+    #[test]
+    fn test_selection_split_regex_keep() {
+        let (mut ebuf, curid, vwctx, mut vctx, mut store) =
+            mkfivestr("foo,bar,baz\na,b,c\nd,,e,\nm n o p\nq r s t\n");
+
+        // Start out at (1, 0).
+        ebuf.set_leader(curid, Cursor::new(1, 0));
+
+        vctx.target_shape = Some(TargetShape::LineWise);
+
+        store.registers.set_last_search(",");
+
+        // Create a linewise selection across three lines.
+        let mov = MoveType::FirstWord(MoveDir1D::Next);
+        edit!(ebuf, EditAction::Motion, mv!(mov, 2), ctx!(curid, vwctx, vctx), store);
+
+        let selection = (Cursor::new(1, 0), Cursor::new(3, 0), TargetShape::LineWise);
+        assert_eq!(ebuf.get_leader_selection(curid), Some(selection.clone()));
+        assert_eq!(ebuf.get_follower_selections(curid), None);
+        assert_eq!(ebuf.get_leader(curid), Cursor::new(3, 0));
+
+        // Filter doesn't match, nothing happens.
+        selection_split_regex!(
+            ebuf,
+            TargetShapeFilter::CHAR,
+            false,
+            ctx!(curid, vwctx, vctx),
+            store
+        );
+        assert_eq!(ebuf.get_leader_selection(curid), Some(selection.clone()));
+        assert_eq!(ebuf.get_follower_selections(curid), None);
+        assert_eq!(ebuf.get_leader(curid), Cursor::new(3, 0));
+
+        // Filter matches, splits into multiple LineWise selections.
+        selection_split_regex!(
+            ebuf,
+            TargetShapeFilter::LINE,
+            false,
+            ctx!(curid, vwctx, vctx),
+            store
+        );
+
+        let selection1 = (Cursor::new(1, 1), Cursor::new(1, 1), TargetShape::CharWise);
+        let selection2 = (Cursor::new(1, 3), Cursor::new(1, 3), TargetShape::CharWise);
+        let selection3 = (Cursor::new(2, 1), Cursor::new(2, 1), TargetShape::CharWise);
+        let selection4 = (Cursor::new(2, 2), Cursor::new(2, 2), TargetShape::CharWise);
+        let selection5 = (Cursor::new(2, 4), Cursor::new(2, 4), TargetShape::CharWise);
+        let selections = vec![selection2, selection3, selection4, selection5];
+        let followers = vec![
+            Cursor::new(1, 3),
+            Cursor::new(2, 1),
+            Cursor::new(2, 2),
+            Cursor::new(2, 4),
+        ];
+
+        assert_eq!(ebuf.get_leader_selection(curid), Some(selection1.clone()));
+        assert_eq!(ebuf.get_leader(curid), Cursor::new(1, 1));
+        assert_eq!(ebuf.get_follower_selections(curid), Some(selections));
+        assert_eq!(ebuf.get_followers(curid), followers);
+    }
+
+    #[test]
+    fn test_selection_split_regex_drop() {
+        let (mut ebuf, curid, vwctx, mut vctx, mut store) =
+            mkfivestr("foo,bar,baz\na,b,c\nd,,e,\nm n o p\nq r s t\n");
+
+        // Start out at (1, 0).
+        ebuf.set_leader(curid, Cursor::new(1, 0));
+
+        vctx.target_shape = Some(TargetShape::LineWise);
+
+        store.registers.set_last_search(",");
+
+        // Create a linewise selection across three lines.
+        let mov = MoveType::FirstWord(MoveDir1D::Next);
+        edit!(ebuf, EditAction::Motion, mv!(mov, 2), ctx!(curid, vwctx, vctx), store);
+
+        let selection = (Cursor::new(1, 0), Cursor::new(3, 0), TargetShape::LineWise);
+        assert_eq!(ebuf.get_leader_selection(curid), Some(selection.clone()));
+        assert_eq!(ebuf.get_follower_selections(curid), None);
+        assert_eq!(ebuf.get_leader(curid), Cursor::new(3, 0));
+
+        // Filter doesn't match, nothing happens.
+        selection_split_regex!(
+            ebuf,
+            TargetShapeFilter::CHAR,
+            true,
+            ctx!(curid, vwctx, vctx),
+            store
+        );
+        assert_eq!(ebuf.get_leader_selection(curid), Some(selection.clone()));
+        assert_eq!(ebuf.get_follower_selections(curid), None);
+        assert_eq!(ebuf.get_leader(curid), Cursor::new(3, 0));
+
+        // Filter matches, splits into multiple LineWise selections.
+        selection_split_regex!(
+            ebuf,
+            TargetShapeFilter::LINE,
+            true,
+            ctx!(curid, vwctx, vctx),
+            store
+        );
+
+        let selection1 = (Cursor::new(1, 0), Cursor::new(1, 0), TargetShape::CharWise);
+        let selection2 = (Cursor::new(1, 2), Cursor::new(1, 2), TargetShape::CharWise);
+        let selection3 = (Cursor::new(1, 4), Cursor::new(2, 0), TargetShape::CharWise);
+        let selection4 = (Cursor::new(2, 3), Cursor::new(2, 3), TargetShape::CharWise);
+        let selection5 = (Cursor::new(2, 5), Cursor::new(3, 7), TargetShape::CharWise);
+        let selections = vec![selection2, selection3, selection4, selection5];
+        let followers = vec![
+            Cursor::new(1, 2),
+            Cursor::new(1, 4),
+            Cursor::new(2, 3),
+            Cursor::new(2, 5),
+        ];
+
+        assert_eq!(ebuf.get_leader_selection(curid), Some(selection1.clone()));
+        assert_eq!(ebuf.get_leader(curid), Cursor::new(1, 0));
+        assert_eq!(ebuf.get_follower_selections(curid), Some(selections));
+        assert_eq!(ebuf.get_followers(curid), followers);
     }
 
     #[test]
