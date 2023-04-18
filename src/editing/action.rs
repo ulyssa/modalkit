@@ -218,6 +218,12 @@ pub enum SelectionAction {
     /// what you want with [TargetShape::BlockWise] selections.
     Expand(SelectionBoundary, TargetShapeFilter),
 
+    /// Filter selections using the [Register::LastSearch] regular expression.
+    ///
+    /// The [bool] argument indicates whether we should drop selections that match instead of
+    /// keeping them.
+    Filter(bool),
+
     /// Join adjacent selections together.
     Join,
 

@@ -1687,6 +1687,9 @@ pub trait CursorSearch<Cursor> {
         count: usize,
     ) -> Option<Cursor>;
 
+    /// Find matches for a regular expression within a range.
+    fn find_matches(&self, start: &Cursor, end: &Cursor, needle: &Regex) -> Vec<EditRange<Cursor>>;
+
     /// Search for a regular expression.
     fn find_regex(
         &self,

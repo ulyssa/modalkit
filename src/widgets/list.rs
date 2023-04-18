@@ -553,6 +553,15 @@ where
         return None;
     }
 
+    fn find_matches(
+        &self,
+        _: &ListCursor,
+        _: &ListCursor,
+        _: &Regex,
+    ) -> Vec<EditRange<ListCursor>> {
+        return vec![];
+    }
+
     fn find_regex(
         &self,
         pos: &ListCursor,

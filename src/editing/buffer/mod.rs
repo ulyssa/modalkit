@@ -1233,6 +1233,7 @@ where
             SelectionAction::Expand(boundary, filter) => {
                 self.selection_expand(boundary, *filter, ctx, store)
             },
+            SelectionAction::Filter(drop) => self.selection_filter(*drop, ctx, store),
             SelectionAction::Join => self.selection_join(ctx, store),
             SelectionAction::Resize(style, target) => {
                 self.selection_resize(style, target, ctx, store)

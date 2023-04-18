@@ -44,6 +44,8 @@ use crate::editing::{
 
 mod diff;
 
+type CowStr<'a> = Cow<'a, str>;
+
 /// Character offset into an [EditRope].
 #[derive(
     Clone,
@@ -1693,7 +1695,7 @@ impl EditRope {
         needle: &Regex,
         count: usize,
     ) -> Option<EditRange<Cursor>> {
-        let text = self.to_string();
+        let text = CowStr::from(&self.rope);
         let ms: Vec<_> = needle.find_iter(&text).collect();
         let modulus = ms.len();
 
@@ -1717,11 +1719,11 @@ impl EditRope {
         needle: &Regex,
         mut count: usize,
     ) -> Option<EditRange<Cursor>> {
-        let text = self.to_string();
+        let text = CowStr::from(&self.rope);
 
         // Start search right after the cursor position.
         let mut res: Option<Match> = None;
-        let mut pos = next_utf8(text.as_ref(), start);
+        let mut pos = next_utf8(text.as_bytes(), start);
 
         macro_rules! advance {
             () => {
@@ -1730,7 +1732,7 @@ impl EditRope {
                     pos = e;
 
                     if m.start() == e {
-                        pos = next_utf8(text.as_ref(), pos);
+                        pos = next_utf8(text.as_bytes(), pos);
                     }
                 }
             };
@@ -2699,6 +2701,25 @@ impl CursorSearch<Cursor> for EditRope {
         }
 
         Some(nc)
+    }
+
+    fn find_matches(&self, start: &Cursor, end: &Cursor, needle: &Regex) -> Vec<EditRange<Cursor>> {
+        let so = self.cursor_to_offset(start);
+        let eo = self.cursor_to_offset(end);
+        let rope = self.slice(so, eo, true).rope;
+        let text = CowStr::from(&rope);
+
+        needle
+            .find_iter(&text)
+            .map(|m| {
+                let mso = rope.byte_to_char(m.start());
+                let meo = rope.byte_to_char(m.end());
+                let sc = self.offset_to_cursor(so + CharOff(mso));
+                let ec = self.offset_to_cursor(eo + CharOff(meo));
+
+                EditRange::inclusive(sc, ec, TargetShape::CharWise)
+            })
+            .collect()
     }
 
     fn find_regex(

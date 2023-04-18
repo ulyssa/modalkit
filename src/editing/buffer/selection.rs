@@ -8,6 +8,7 @@ use crate::editing::{
     base::{
         Count,
         CursorMovements,
+        CursorSearch,
         EditTarget,
         MoveDir1D,
         MoveTerminus,
@@ -50,6 +51,14 @@ where
         &mut self,
         boundary: &SelectionBoundary,
         filter: TargetShapeFilter,
+        ctx: &C,
+        store: &mut Store<I>,
+    ) -> EditResult<EditInfo, I>;
+
+    /// Filter selections that match the regular expression in [Register::LastSearch].
+    fn selection_filter(
+        &mut self,
+        drop: bool,
         ctx: &C,
         store: &mut Store<I>,
     ) -> EditResult<EditInfo, I>;
@@ -308,6 +317,46 @@ where
         self.set_group(gid, group);
 
         Ok(None)
+    }
+
+    fn selection_filter(
+        &mut self,
+        drop: bool,
+        ictx: &CursorGroupIdContext<'a, 'b, C>,
+        store: &mut Store<I>,
+    ) -> EditResult<EditInfo, I> {
+        let gid = ictx.0;
+        let mut group = self.get_group(gid);
+
+        let needle = self._get_regex(ictx.2, store)?;
+        let members = std::mem::take(&mut group.members);
+
+        let keep = |state: &CursorState| {
+            let ms = self.text.find_matches(state.start(), state.end(), &needle);
+
+            return ms.is_empty() == drop;
+        };
+
+        for member in members.into_iter() {
+            if keep(&member) {
+                group.members.push(member);
+            }
+        }
+
+        if !keep(&group.leader) {
+            if let Some(leader) = group.members.pop() {
+                group.leader = leader;
+            } else {
+                let msg = "No selections remaining".to_string();
+                let err = EditError::Failure(msg);
+
+                return Err(err);
+            }
+        }
+
+        self.set_group(gid, group);
+
+        return Ok(None);
     }
 
     fn selection_join(
@@ -1662,7 +1711,7 @@ mod tests {
         let (mut ebuf, curid, vwctx, mut vctx, mut store) =
             mkfivestr("  a  \n     \n  b  \n     \n  c  \n");
 
-        // Start out at (0, 1), on the space after the "a".
+        // Start out at (0, 0).
         ebuf.set_leader(curid, Cursor::new(0, 0));
 
         vctx.persist.shape = Some(TargetShape::CharWise);
@@ -1706,6 +1755,110 @@ mod tests {
 
         assert_eq!(ebuf.get_leader_selection(curid), Some(lsel.clone()));
         assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 2));
+        assert_eq!(ebuf.get_follower_selections(curid), Some(fsels.clone()));
+    }
+
+    #[test]
+    fn test_selection_filter_keep_matches() {
+        let (mut ebuf, curid, vwctx, vctx, mut store) = mkfivestr(
+            "hello\nworld\nhelp\nwhisk\nhelm\naluminum\nwrithe\ncharacter\nhelium\nproduct\n",
+        );
+
+        // Start out at (0, 0).
+        ebuf.set_leader(curid, Cursor::new(0, 0));
+
+        // Duplicate selection across the following lines.
+        selection_duplicate!(ebuf, MoveDir1D::Next, 9.into(), ctx!(curid, vwctx, vctx), store);
+
+        // Extend selection to the end of the line.
+        let mov = MoveType::Column(MoveDir1D::Next, false);
+        selection_extend!(ebuf, mv!(mov, 10), ctx!(curid, vwctx, vctx), store);
+
+        let fsels = vec![
+            (Cursor::new(1, 0), Cursor::new(1, 4), TargetShape::CharWise), // "world"
+            (Cursor::new(2, 0), Cursor::new(2, 3), TargetShape::CharWise), // "help"
+            (Cursor::new(3, 0), Cursor::new(3, 4), TargetShape::CharWise), // "whisk"
+            (Cursor::new(4, 0), Cursor::new(4, 3), TargetShape::CharWise), // "helm"
+            (Cursor::new(5, 0), Cursor::new(5, 7), TargetShape::CharWise), // "aluminum"
+            (Cursor::new(6, 0), Cursor::new(6, 5), TargetShape::CharWise), // "writhe"
+            (Cursor::new(7, 0), Cursor::new(7, 8), TargetShape::CharWise), // "character"
+            (Cursor::new(8, 0), Cursor::new(8, 5), TargetShape::CharWise), // "helium"
+            (Cursor::new(9, 0), Cursor::new(9, 6), TargetShape::CharWise), // "product"
+        ];
+
+        let lsel = (Cursor::new(0, 0), Cursor::new(0, 4), TargetShape::CharWise); // "hello"
+        assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 4));
+        assert_eq!(ebuf.get_leader_selection(curid), Some(lsel.clone()));
+        assert_eq!(ebuf.get_follower_selections(curid), Some(fsels.clone()));
+
+        // Set regex to /he/.
+        store.set_last_search("he");
+
+        // Keep selections matching /he/.
+        ebuf.selection_filter(false, ctx!(curid, vwctx, vctx), &mut store).unwrap();
+
+        let fsels = vec![
+            (Cursor::new(2, 0), Cursor::new(2, 3), TargetShape::CharWise), // "help"
+            (Cursor::new(4, 0), Cursor::new(4, 3), TargetShape::CharWise), // "helm"
+            (Cursor::new(6, 0), Cursor::new(6, 5), TargetShape::CharWise), // "writhe"
+            (Cursor::new(8, 0), Cursor::new(8, 5), TargetShape::CharWise), // "helium"
+        ];
+
+        let lsel = (Cursor::new(0, 0), Cursor::new(0, 4), TargetShape::CharWise); // "hello"
+        assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 4));
+        assert_eq!(ebuf.get_leader_selection(curid), Some(lsel.clone()));
+        assert_eq!(ebuf.get_follower_selections(curid), Some(fsels.clone()));
+    }
+
+    #[test]
+    fn test_selection_filter_drop_matches() {
+        let (mut ebuf, curid, vwctx, vctx, mut store) = mkfivestr(
+            "hello\nworld\nhelp\nwhisk\nhelm\naluminum\nwrithe\ncharacter\nhelium\nproduct\n",
+        );
+
+        // Start out at (0, 0).
+        ebuf.set_leader(curid, Cursor::new(0, 0));
+
+        // Duplicate selection across the following lines.
+        selection_duplicate!(ebuf, MoveDir1D::Next, 9.into(), ctx!(curid, vwctx, vctx), store);
+
+        // Extend selection to the end of the line.
+        let mov = MoveType::Column(MoveDir1D::Next, false);
+        selection_extend!(ebuf, mv!(mov, 10), ctx!(curid, vwctx, vctx), store);
+
+        let fsels = vec![
+            (Cursor::new(1, 0), Cursor::new(1, 4), TargetShape::CharWise), // "world"
+            (Cursor::new(2, 0), Cursor::new(2, 3), TargetShape::CharWise), // "help"
+            (Cursor::new(3, 0), Cursor::new(3, 4), TargetShape::CharWise), // "whisk"
+            (Cursor::new(4, 0), Cursor::new(4, 3), TargetShape::CharWise), // "helm"
+            (Cursor::new(5, 0), Cursor::new(5, 7), TargetShape::CharWise), // "aluminum"
+            (Cursor::new(6, 0), Cursor::new(6, 5), TargetShape::CharWise), // "writhe"
+            (Cursor::new(7, 0), Cursor::new(7, 8), TargetShape::CharWise), // "character"
+            (Cursor::new(8, 0), Cursor::new(8, 5), TargetShape::CharWise), // "helium"
+            (Cursor::new(9, 0), Cursor::new(9, 6), TargetShape::CharWise), // "product"
+        ];
+
+        let lsel = (Cursor::new(0, 0), Cursor::new(0, 4), TargetShape::CharWise); // "hello"
+        assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 4));
+        assert_eq!(ebuf.get_leader_selection(curid), Some(lsel.clone()));
+        assert_eq!(ebuf.get_follower_selections(curid), Some(fsels.clone()));
+
+        // Set regex to /he/.
+        store.set_last_search("he");
+
+        // Drop selections matching /he/.
+        ebuf.selection_filter(true, ctx!(curid, vwctx, vctx), &mut store).unwrap();
+
+        let fsels = vec![
+            (Cursor::new(1, 0), Cursor::new(1, 4), TargetShape::CharWise), // "world"
+            (Cursor::new(3, 0), Cursor::new(3, 4), TargetShape::CharWise), // "whisk"
+            (Cursor::new(5, 0), Cursor::new(5, 7), TargetShape::CharWise), // "aluminum"
+            (Cursor::new(7, 0), Cursor::new(7, 8), TargetShape::CharWise), // "character"
+        ];
+
+        let lsel = (Cursor::new(9, 0), Cursor::new(9, 6), TargetShape::CharWise); // "product"
+        assert_eq!(ebuf.get_leader(curid), Cursor::new(9, 6));
+        assert_eq!(ebuf.get_leader_selection(curid), Some(lsel.clone()));
         assert_eq!(ebuf.get_follower_selections(curid), Some(fsels.clone()));
     }
 }
