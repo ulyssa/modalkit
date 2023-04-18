@@ -412,7 +412,10 @@ pub enum PromptAction {
     Submit,
 
     /// Move backwards and forwards through previous entries.
-    Recall(MoveDir1D, Count),
+    ///
+    /// If [bool] is `true`, then this should only move through entries that share an initially
+    /// typed prefix.
+    Recall(MoveDir1D, Count, bool),
 }
 
 /// A widget that the user can switch focus of keyboard input to.

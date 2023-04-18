@@ -175,6 +175,7 @@ where
         &mut self,
         dir: &MoveDir1D,
         count: &Count,
+        prefixed: bool,
         ctx: &C,
         store: &mut Store<I>,
     ) -> EditResult<Vec<(Action<I>, C)>, I> {
@@ -182,8 +183,12 @@ where
         let rope = self.deref().get();
 
         let text = match self.cmdtype {
-            CommandType::Search => store.searches.recall(&rope, &mut self.scrollback, *dir, count),
-            CommandType::Command => store.commands.recall(&rope, &mut self.scrollback, *dir, count),
+            CommandType::Search => {
+                store.searches.recall(&rope, &mut self.scrollback, *dir, prefixed, count)
+            },
+            CommandType::Command => {
+                store.commands.recall(&rope, &mut self.scrollback, *dir, prefixed, count)
+            },
         };
 
         if let Some(text) = text {
@@ -207,7 +212,9 @@ where
     ) -> EditResult<Vec<(Action<I>, C)>, I> {
         match act {
             PromptAction::Abort(empty) => self.abort(*empty, ctx, store),
-            PromptAction::Recall(dir, count) => self.recall(dir, count, ctx, store),
+            PromptAction::Recall(dir, count, prefixed) => {
+                self.recall(dir, count, *prefixed, ctx, store)
+            },
             PromptAction::Submit => self.submit(ctx, store),
         }
     }

@@ -116,6 +116,7 @@ where
         &mut self,
         dir: &MoveDir1D,
         count: &Count,
+        prefixed: bool,
         ctx: &C,
         store: &mut S,
     ) -> EditResult<Vec<(Action<I>, C)>, I>;

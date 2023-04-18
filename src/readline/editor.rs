@@ -321,9 +321,10 @@ where
         &mut self,
         history: &mut HistoryList<EditRope>,
         dir: MoveDir1D,
+        prefixed: bool,
         count: usize,
     ) -> Option<EditRope> {
-        history.recall(self.buffer.get(), &mut self.scrollback, dir, count)
+        history.recall(self.buffer.get(), &mut self.scrollback, dir, prefixed, count)
     }
 
     pub fn line_leftover(&mut self, dir: MoveDir1D, count: usize) -> usize {
@@ -516,17 +517,17 @@ mod tests {
         assert_eq!(ed.scrollback, ScrollbackState::Pending);
         assert_eq!(history.strs(), v);
 
-        let res = ed.recall(&mut history, MoveDir1D::Previous, 3).unwrap();
+        let res = ed.recall(&mut history, MoveDir1D::Previous, false, 3).unwrap();
         assert_eq!(res, EditRope::from("bar"));
         assert_eq!(ed.scrollback, ScrollbackState::Empty);
         assert_eq!(history.strs(), v);
 
-        let res = ed.recall(&mut history, MoveDir1D::Next, 1).unwrap();
+        let res = ed.recall(&mut history, MoveDir1D::Next, false, 1).unwrap();
         assert_eq!(res, EditRope::from("writhe"));
         assert_eq!(ed.scrollback, ScrollbackState::Empty);
         assert_eq!(history.strs(), v);
 
-        let res = ed.recall(&mut history, MoveDir1D::Next, 2).unwrap();
+        let res = ed.recall(&mut history, MoveDir1D::Next, false, 2).unwrap();
         assert_eq!(res, EditRope::from(""));
         assert_eq!(ed.scrollback, ScrollbackState::Pending);
         assert_eq!(history.strs(), v);
@@ -558,17 +559,17 @@ mod tests {
             "quux",
         ];
 
-        let res = ed.recall(&mut history, MoveDir1D::Previous, 3).unwrap();
+        let res = ed.recall(&mut history, MoveDir1D::Previous, false, 3).unwrap();
         assert_eq!(res, EditRope::from("bar"));
         assert_eq!(ed.scrollback, ScrollbackState::Typed);
         assert_eq!(history.strs(), v);
 
-        let res = ed.recall(&mut history, MoveDir1D::Next, 1).unwrap();
+        let res = ed.recall(&mut history, MoveDir1D::Next, false, 1).unwrap();
         assert_eq!(res, EditRope::from("writhe"));
         assert_eq!(ed.scrollback, ScrollbackState::Typed);
         assert_eq!(history.strs(), v);
 
-        let res = ed.recall(&mut history, MoveDir1D::Next, 2).unwrap();
+        let res = ed.recall(&mut history, MoveDir1D::Next, false, 2).unwrap();
         assert_eq!(res, EditRope::from("quux"));
         assert_eq!(ed.scrollback, ScrollbackState::Typed);
         assert_eq!(history.strs(), v);

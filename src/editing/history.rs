@@ -1,4 +1,5 @@
 //! # History management
+use std::borrow::Cow;
 use std::collections::vec_deque::{Iter, VecDeque};
 
 use regex::Regex;
@@ -66,6 +67,22 @@ impl<T> HistoryList<T> {
         let future = VecDeque::with_capacity(maxlen);
 
         HistoryList { maxlen, past, current: init, future }
+    }
+
+    /// Get a reference to the oldest item in the list.
+    pub fn first(&self) -> &T {
+        match self.past.front() {
+            Some(item) => item,
+            None => &self.current,
+        }
+    }
+
+    /// Get a reference to the most recent item in the list.
+    pub fn last(&self) -> &T {
+        match self.future.back() {
+            Some(item) => item,
+            None => &self.current,
+        }
     }
 
     /// Move backwards through the history to the oldest item.
@@ -219,55 +236,56 @@ where
     T: CursorSearch<Cursor>,
 {
     /// Find a matching element in this history list.
+    fn find_matching<F>(&mut self, matches: F, dir: MoveDir1D, count: usize) -> Option<&T>
+    where
+        F: Fn(&T) -> bool,
+    {
+        let matches_idx = |(_, t): &(usize, &T)| matches(t);
+
+        match dir {
+            MoveDir1D::Previous => {
+                let iter = self.past.iter().enumerate().rev().filter(matches_idx).take(count);
+                let i = iter.last()?.0;
+                let mut shifted = self.past.split_off(i);
+
+                if let Some(mut current) = shifted.remove(0) {
+                    std::mem::swap(&mut self.current, &mut current);
+                    self.future.push_front(current);
+                }
+
+                std::mem::swap(&mut self.future, &mut shifted);
+                self.future.append(&mut shifted);
+
+                return Some(&self.current);
+            },
+            MoveDir1D::Next => {
+                let iter = self.future.iter().enumerate().filter(matches_idx).take(count);
+                let i = iter.last()?.0;
+                let mut shifted = self.future.split_off(i);
+
+                if let Some(mut current) = shifted.remove(0) {
+                    std::mem::swap(&mut self.current, &mut current);
+                    self.past.push_back(current);
+                }
+
+                std::mem::swap(&mut self.future, &mut shifted);
+                self.past.append(&mut shifted);
+
+                return Some(&self.current);
+            },
+        }
+    }
+
+    /// Find a matching element in this history list.
     pub fn find(&mut self, needle: &Regex, dir: MoveDir1D, incremental: bool) -> Option<&T> {
         let zero = Cursor::new(0, 0);
         let matches = |t: &T| t.find_regex(&zero, MoveDir1D::Next, needle, 1).is_some();
-        let matches_idx = |(_, t): &(usize, &T)| matches(t);
 
         if incremental && matches(&self.current) {
             return Some(&self.current);
         }
 
-        match dir {
-            MoveDir1D::Previous => {
-                let res = self.past.iter().enumerate().rfind(matches_idx);
-
-                if let Some((i, _)) = res {
-                    let mut shifted = self.past.split_off(i);
-
-                    if let Some(mut current) = shifted.remove(0) {
-                        std::mem::swap(&mut self.current, &mut current);
-                        self.future.push_front(current);
-                    }
-
-                    std::mem::swap(&mut self.future, &mut shifted);
-                    self.future.append(&mut shifted);
-
-                    return Some(&self.current);
-                } else {
-                    return None;
-                }
-            },
-            MoveDir1D::Next => {
-                let res = self.future.iter().enumerate().find(matches_idx);
-
-                if let Some((i, _)) = res {
-                    let mut shifted = self.future.split_off(i);
-
-                    if let Some(mut current) = shifted.remove(0) {
-                        std::mem::swap(&mut self.current, &mut current);
-                        self.past.push_back(current);
-                    }
-
-                    std::mem::swap(&mut self.future, &mut shifted);
-                    self.past.append(&mut shifted);
-
-                    return Some(&self.current);
-                } else {
-                    return None;
-                }
-            },
-        }
+        self.find_matching(matches, dir, 1)
     }
 }
 
@@ -337,41 +355,53 @@ impl HistoryList<EditRope> {
         current: &EditRope,
         scrollback: &mut ScrollbackState,
         dir: MoveDir1D,
+        prefixed: bool,
         count: usize,
     ) -> Option<EditRope> {
         if count == 0 {
             return None;
         }
 
-        match (*scrollback, dir) {
-            (ScrollbackState::Pending, MoveDir1D::Previous) => {
+        match (*scrollback, dir, prefixed) {
+            (ScrollbackState::Pending, MoveDir1D::Previous, prefixed) => {
                 let rope = current.trim();
 
                 if rope.is_empty() {
                     *scrollback = ScrollbackState::Empty;
 
                     return self.prev(count - 1).clone().into();
+                }
+
+                *scrollback = ScrollbackState::Typed;
+                self.append(rope);
+
+                if prefixed {
+                    let prefix = self.last().to_string();
+                    let matches = |r: &EditRope| Cow::<'_, str>::from(r).starts_with(&prefix);
+
+                    return self.find_matching(matches, dir, count).cloned();
                 } else {
-                    *scrollback = ScrollbackState::Typed;
-
-                    self.append(rope);
-
                     return self.prev(count).clone().into();
                 }
             },
-            (ScrollbackState::Pending, MoveDir1D::Next) => {
+            (ScrollbackState::Pending, MoveDir1D::Next, _) => {
                 return None;
             },
-            (ScrollbackState::Typed, MoveDir1D::Previous) => {
+            (ScrollbackState::Typed, dir, true) => {
+                let prefix = self.last().to_string();
+                let matches = |rope: &EditRope| Cow::<'_, str>::from(rope).starts_with(&prefix);
+                return self.find_matching(matches, dir, count).cloned();
+            },
+            (ScrollbackState::Typed, MoveDir1D::Previous, false) => {
                 return self.prev(count).clone().into();
             },
-            (ScrollbackState::Typed, MoveDir1D::Next) => {
+            (ScrollbackState::Typed, MoveDir1D::Next, false) => {
                 return self.next(count).clone().into();
             },
-            (ScrollbackState::Empty, MoveDir1D::Previous) => {
+            (ScrollbackState::Empty, MoveDir1D::Previous, _) => {
                 return self.prev(count).clone().into();
             },
-            (ScrollbackState::Empty, MoveDir1D::Next) => {
+            (ScrollbackState::Empty, MoveDir1D::Next, _) => {
                 if self.future_len() < count {
                     self.next(count);
                     *scrollback = ScrollbackState::Pending;
@@ -620,6 +650,60 @@ mod tests {
         assert_eq!(hlist.past_len(), 5);
         assert_eq!(hlist.future_len(), 0);
         assert_eq!(hlist.chars(), v);
+    }
+
+    #[test]
+    fn test_history_recall_prefixed() {
+        let mut hlist = HistoryList::new(EditRope::from("goodbye"), 100);
+
+        hlist.append(EditRope::from("hello"));
+        hlist.append(EditRope::from("world"));
+        hlist.append(EditRope::from("help"));
+        hlist.append(EditRope::from("whisk"));
+        hlist.append(EditRope::from("helm"));
+        hlist.append(EditRope::from("aluminum"));
+        hlist.append(EditRope::from("writhe"));
+        hlist.append(EditRope::from("character"));
+        hlist.append(EditRope::from("helium"));
+        hlist.append(EditRope::from("product"));
+
+        assert_eq!(hlist.current.to_string(), "product");
+
+        let typed = EditRope::from("he");
+        let mut state = ScrollbackState::Pending;
+
+        // Go backwards.
+        hlist.recall(&typed, &mut state, MoveDir1D::Previous, true, 1);
+        assert_eq!(state, ScrollbackState::Typed);
+        assert_eq!(hlist.current.to_string(), "helium");
+
+        hlist.recall(&typed, &mut state, MoveDir1D::Previous, true, 1);
+        assert_eq!(state, ScrollbackState::Typed);
+        assert_eq!(hlist.current.to_string(), "helm");
+
+        hlist.recall(&typed, &mut state, MoveDir1D::Previous, true, 2);
+        assert_eq!(state, ScrollbackState::Typed);
+        assert_eq!(hlist.current.to_string(), "hello");
+
+        // Go forwards.
+        hlist.recall(&typed, &mut state, MoveDir1D::Next, true, 1);
+        assert_eq!(state, ScrollbackState::Typed);
+        assert_eq!(hlist.current.to_string(), "help");
+
+        // Do non-prefixed recall forwards.
+        hlist.recall(&typed, &mut state, MoveDir1D::Next, false, 1);
+        assert_eq!(state, ScrollbackState::Typed);
+        assert_eq!(hlist.current.to_string(), "whisk");
+
+        // Do non-prefixed recall forwards again.
+        hlist.recall(&typed, &mut state, MoveDir1D::Next, false, 2);
+        assert_eq!(state, ScrollbackState::Typed);
+        assert_eq!(hlist.current.to_string(), "aluminum");
+
+        // Prefixed recall still works.
+        hlist.recall(&typed, &mut state, MoveDir1D::Next, true, 1);
+        assert_eq!(state, ScrollbackState::Typed);
+        assert_eq!(hlist.current.to_string(), "helium");
     }
 
     #[test]

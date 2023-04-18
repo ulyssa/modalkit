@@ -1404,7 +1404,7 @@ mod tests {
 
                     return Ok(vec![(act.into(), ctx.clone())]);
                 },
-                PromptAction::Abort(_) | PromptAction::Recall(_, _) => {
+                PromptAction::Abort(_) | PromptAction::Recall(_, _, _) => {
                     let msg = "";
                     let err = EditError::Unimplemented(msg.into());
 

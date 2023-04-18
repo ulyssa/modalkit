@@ -358,8 +358,8 @@ where
 
                 Ok(InternalResult::Nothing)
             },
-            PromptAction::Recall(dir, count) => {
-                self.recall(dir, ctx.resolve(&count));
+            PromptAction::Recall(dir, count, prefixed) => {
+                self.recall(dir, ctx.resolve(&count), prefixed);
 
                 Ok(InternalResult::Nothing)
             },
@@ -390,17 +390,17 @@ where
         }
     }
 
-    fn recall(&mut self, dir: MoveDir1D, count: usize) {
+    fn recall(&mut self, dir: MoveDir1D, count: usize, prefixed: bool) {
         match self.ct {
             None => {
-                let text = self.line.recall(&mut self.history, dir, count);
+                let text = self.line.recall(&mut self.history, dir, prefixed, count);
 
                 if let Some(text) = text {
                     self.line.set_text(text);
                 }
             },
             Some(CommandType::Search) => {
-                let text = self.cmd.recall(&mut self.store.searches, dir, count);
+                let text = self.cmd.recall(&mut self.store.searches, dir, prefixed, count);
 
                 if let Some(text) = text {
                     self.cmd.set_text(text);
@@ -428,7 +428,7 @@ where
 
         let text = self
             .cmd
-            .recall(&mut self.store.searches, MoveDir1D::Previous, 1)
+            .recall(&mut self.store.searches, MoveDir1D::Previous, false, 1)
             .ok_or(EditError::NoSearch)?;
 
         let re = Regex::new(text.to_string().as_ref())?;
@@ -499,7 +499,7 @@ where
                     if n > 0 {
                         // If we move by more lines than there are in the buffer, then we
                         // treat the remainder as history recall.
-                        self.recall(dir, n);
+                        self.recall(dir, n, false);
 
                         return Ok(None);
                     }
