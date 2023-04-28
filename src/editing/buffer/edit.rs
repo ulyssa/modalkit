@@ -585,6 +585,26 @@ mod tests {
     }
 
     #[test]
+    fn test_yank_word_search() {
+        let (mut ebuf, gid, vwctx, vctx, mut store) =
+            mkfivestr("hello world\nhellfire hello brimstone\nhello hell\n");
+
+        let op = EditAction::Yank;
+        let word = EditTarget::Search(
+            SearchType::Word(WordStyle::Little, false),
+            MoveDirMod::Same,
+            Count::Contextual,
+        );
+
+        ebuf.set_leader(gid, Cursor::new(0, 2));
+
+        // Yank to the next occurrence of "hello"
+        edit!(ebuf, op, word, ctx!(gid, vwctx, vctx), store);
+        assert_eq!(ebuf.get_leader(gid), Cursor::new(0, 2));
+        assert_eq!(get_reg!(store, Register::Unnamed), cell!(CharWise, "llo world\nhellfire "));
+    }
+
+    #[test]
     fn test_delete() {
         let (mut ebuf, curid, vwctx, vctx, mut store) =
             mkfivestr("hello world\na b c d e f\n\n\n1 2 3 4 5 6\n");

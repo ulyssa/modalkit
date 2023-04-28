@@ -481,9 +481,14 @@ where
 
                 let range = range.map(|r| {
                     let shape = TargetShape::CharWise;
-                    let inclusive = r.start > cursor;
 
-                    CursorRange::new(cursor, r.start, shape, inclusive)
+                    if r.start > cursor {
+                        let inclusive = search.is_inclusive_motion();
+                        CursorRange::new(cursor, r.start, shape, inclusive)
+                    } else {
+                        // Backwards motions are exclusive.
+                        CursorRange::exclusive(cursor, r.start, shape)
+                    }
                 });
 
                 return Ok(range);

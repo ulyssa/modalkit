@@ -280,6 +280,15 @@ pub enum SearchType {
 }
 
 impl SearchType {
+    /// Returns `true` if this is an inclusive motion.
+    pub fn is_inclusive_motion(&self) -> bool {
+        match self {
+            SearchType::Char(..) => true,
+            SearchType::Regex => false,
+            SearchType::Word(..) => false,
+        }
+    }
+
     /// Returns `true` if this is a search that causes cursor positions to be saved to
     /// [PositionList::JumpList].
     fn is_jumping(&self) -> bool {
