@@ -57,6 +57,7 @@ pub enum MixedChoice {
 }
 
 /// Wrapper for the contexts used with different keybinding environments.
+#[allow(clippy::large_enum_variant)]
 pub enum MixedContext<I: ApplicationInfo = EmptyInfo> {
     /// Wrapper for the Emacs context.
     Emacs(EmacsContext<I>),

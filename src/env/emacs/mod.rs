@@ -39,9 +39,10 @@ use super::{CharacterContext, CommonKeyClass};
 pub mod keybindings;
 
 /// Emacs' modes
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
 pub enum EmacsMode {
     /// Insert mode keypresses.
+    #[default]
     Insert,
 
     /// Command bar keypresses.
@@ -49,12 +50,6 @@ pub enum EmacsMode {
 
     /// Search bar keypresses.
     Search,
-}
-
-impl Default for EmacsMode {
-    fn default() -> Self {
-        EmacsMode::Insert
-    }
 }
 
 impl<I: ApplicationInfo> Mode<Action<I>, EmacsContext<I>> for EmacsMode {

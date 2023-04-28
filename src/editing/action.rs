@@ -49,13 +49,14 @@ use super::application::*;
 use super::base::*;
 
 /// The various actions that can be taken on text.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub enum EditAction {
     /// Move the cursor.
     ///
     /// If a shape is [specified contextually](EditContext::get_target_shape), then visually select
     /// text while moving, as if using [SelectionAction::Resize] with
     /// [SelectionResizeStyle::Extend].
+    #[default]
     Motion,
 
     /// Delete the targeted text.
@@ -115,12 +116,6 @@ impl EditAction {
     /// error.
     pub fn is_switchable<C: EditContext>(&self, _: &C) -> bool {
         self.is_motion()
-    }
-}
-
-impl Default for EditAction {
-    fn default() -> Self {
-        EditAction::Motion
     }
 }
 
@@ -879,6 +874,7 @@ impl<I: ApplicationInfo> Action<I> {
     }
 }
 
+#[allow(clippy::derivable_impls)]
 impl<I: ApplicationInfo> Default for Action<I> {
     fn default() -> Self {
         Action::NoOp

@@ -4,7 +4,7 @@ use crate::editing::{
 };
 
 /// Result type for functions that provide the option of leaving the cursor in different places.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub enum CursorChoice {
     /// One choice of cursor placement.
     Single(Cursor),
@@ -14,6 +14,7 @@ pub enum CursorChoice {
     Range(Cursor, Cursor, Cursor),
 
     /// No choices for cursor placement.
+    #[default]
     Empty,
 }
 
@@ -61,12 +62,6 @@ impl CursorChoice {
 impl From<Cursor> for CursorChoice {
     fn from(cursor: Cursor) -> Self {
         CursorChoice::Single(cursor)
-    }
-}
-
-impl Default for CursorChoice {
-    fn default() -> Self {
-        CursorChoice::Empty
     }
 }
 
