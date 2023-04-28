@@ -17,7 +17,7 @@ used by adding `modalkit` to your dependencies in your project's `Cargo.toml`.
 
 ```toml
 [dependencies]
-modalkit = "0.0.14"
+modalkit = "0.0.15"
 ```
 
 ## License
