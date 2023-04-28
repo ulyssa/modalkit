@@ -1153,9 +1153,10 @@ impl Mark {
 }
 
 /// A value that may not be known now, but is present in the context.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub enum Specifier<T> {
     /// Look for a value of `T` in the [EditContext].
+    #[default]
     Contextual,
 
     /// Use the value of `T` provided here.

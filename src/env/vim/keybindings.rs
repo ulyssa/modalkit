@@ -320,6 +320,8 @@ impl InternalAction {
 enum ExternalAction<I: ApplicationInfo> {
     Something(Action<I>),
     CountAlters(Vec<Action<I>>, Vec<Action<I>>),
+    CommandEnter(CommandType, VimMode),
+    CommandExit(PromptAction),
     MacroToggle(bool),
     PostAction,
 }
@@ -334,6 +336,23 @@ impl<I: ApplicationInfo> ExternalAction<I> {
                 } else {
                     acts2.clone()
                 }
+            },
+            ExternalAction::CommandEnter(ct, mode) => {
+                let act = CommandBarAction::Focus(*ct);
+                let mode = context.action.postmode.take().unwrap_or(*mode);
+                let shape = context.persist.shape.take();
+                let actx = Box::new(context.action.clone()).into();
+                context.persist.postcmd = (mode, shape, actx);
+
+                return vec![act.into()];
+            },
+            ExternalAction::CommandExit(act) => {
+                let (mode, shape, actx) = std::mem::take(&mut context.persist.postcmd);
+                context.action = *actx.unwrap_or_default();
+                context.action.postmode = mode.into();
+                context.persist.shape = shape;
+
+                return vec![act.clone().into()];
             },
             ExternalAction::PostAction => {
                 if let Some(target) = context.action.target.take() {
@@ -369,6 +388,8 @@ impl<I: ApplicationInfo> Clone for ExternalAction<I> {
             ExternalAction::CountAlters(act1, act2) => {
                 ExternalAction::CountAlters(act1.clone(), act2.clone())
             },
+            ExternalAction::CommandEnter(ct, mode) => ExternalAction::CommandEnter(*ct, *mode),
+            ExternalAction::CommandExit(act) => ExternalAction::CommandExit(act.clone()),
             ExternalAction::MacroToggle(reqrec) => ExternalAction::MacroToggle(*reqrec),
             ExternalAction::PostAction => ExternalAction::PostAction,
         }
@@ -1271,24 +1292,30 @@ macro_rules! window_file {
 }
 
 macro_rules! cmdbar_focus {
-    ($type: expr) => {
-        cmdbar!(CommandBarAction::Focus($type), VimMode::Command)
+    ($type: expr, $mode: expr) => {
+        isv!(vec![], vec![ExternalAction::CommandEnter($type, $mode)], VimMode::Command)
     };
 }
 
 macro_rules! search {
-    ($dir: expr) => {
-        is!(
-            InternalAction::SetSearchRegexParams($dir, false),
-            Action::CommandBar(CommandBarAction::Focus(CommandType::Search)),
+    ($dir: expr, $mode: expr) => {
+        isv!(
+            vec![InternalAction::SetSearchRegexParams($dir, false)],
+            vec![ExternalAction::CommandEnter(CommandType::Search, $mode)],
             VimMode::Command
         )
     };
 }
 
+macro_rules! command_exit {
+    ($act: expr) => {
+        isv!(vec![], vec![ExternalAction::CommandExit($act)])
+    };
+}
+
 macro_rules! command_unfocus {
     () => {
-        prompt!(PromptAction::Abort(false), VimMode::Normal)
+        command_exit!(PromptAction::Abort(false))
     };
 }
 
@@ -1369,8 +1396,6 @@ fn default_keys<I: ApplicationInfo>() -> Vec<(MappedModes, &'static str, InputSt
         ( NXOMAP, "%", edit_end_ca!(MoveType::ItemMatch, MoveType::BufferLinePercent) ),
         ( NXOMAP, "#", edit_word_search_end!(WordStyle::Little, true, MoveDir1D::Previous) ),
         ( NXOMAP, "*", edit_word_search_end!(WordStyle::Little, true, MoveDir1D::Next) ),
-        ( NXOMAP, "?", search!(MoveDir1D::Previous) ),
-        ( NXOMAP, "/", search!(MoveDir1D::Next) ),
         ( NXOMAP, "|", edit_end!(MoveType::LineColumnOffset) ),
         ( NXOMAP, ";", edit_search_end!(SearchType::Char(false), MoveDirMod::Same) ),
         ( NXOMAP, ",", edit_search_end!(SearchType::Char(false), MoveDirMod::Flip) ),
@@ -1500,6 +1525,7 @@ fn default_keys<I: ApplicationInfo>() -> Vec<(MappedModes, &'static str, InputSt
         ( NXMAP, "z<Right>", scroll2d!(MoveDir2D::Right, ScrollSize::Cell) ),
         ( NXMAP, "z<Enter>", scrollcpv!(MovePosition::Beginning, true) ),
         ( NXMAP, "z{count}<Enter>", window_resize!(Axis::Horizontal, SizeChange::Exact(Count::Contextual)) ),
+        ( NXMAP, ":", cmdbar_focus!(CommandType::Command, VimMode::Normal) ),
 
         // Visual, Operator Pending mode keys
         ( VOMAP, "aw", edit_range_end!(RangeType::Word(WordStyle::Little)) ),
@@ -1606,9 +1632,10 @@ fn default_keys<I: ApplicationInfo>() -> Vec<(MappedModes, &'static str, InputSt
         ( NMAP, "<<", edit_lines!(EditAction::Indent(IndentChange::Decrease(Count::Exact(1)))) ),
         ( NMAP, ">", edit_motion!(EditAction::Indent(IndentChange::Increase(Count::Exact(1)))) ),
         ( NMAP, ">>", edit_lines!(EditAction::Indent(IndentChange::Increase(Count::Exact(1)))) ),
+        ( NMAP, "?", search!(MoveDir1D::Previous, VimMode::Normal) ),
+        ( NMAP, "/", search!(MoveDir1D::Next, VimMode::Normal) ),
         ( NMAP, "~", tilde!() ),
         ( NMAP, ".", act!(Action::Repeat(RepeatType::EditSequence)) ),
-        ( NMAP, ":", cmdbar_focus!(CommandType::Command) ),
         ( NMAP, "@{register}", act!(MacroAction::Execute(Count::Contextual)) ),
         ( NMAP, "@:", command!(CommandAction::Repeat(Count::Contextual)) ),
         ( NMAP, "@@", act!(MacroAction::Repeat(Count::Contextual)) ),
@@ -1676,6 +1703,8 @@ fn default_keys<I: ApplicationInfo>() -> Vec<(MappedModes, &'static str, InputSt
         ( XMAP, "=", edit_selection!(EditAction::Indent(IndentChange::Auto)) ),
         ( XMAP, "<", edit_selection!(EditAction::Indent(IndentChange::Decrease(Count::Contextual))) ),
         ( XMAP, ">", edit_selection!(EditAction::Indent(IndentChange::Increase(Count::Contextual))) ),
+        ( XMAP, "?", search!(MoveDir1D::Previous, VimMode::Visual) ),
+        ( XMAP, "/", search!(MoveDir1D::Next, VimMode::Visual) ),
         ( XMAP, "<C-G>", goto!(VimMode::Select) ),
         ( XMAP, "<C-W>f", window_file!(OpenTarget::Selection) ),
         ( XMAP, "<C-W>gf", tab_open!(OpenTarget::Selection, FocusChange::Current) ),
@@ -1762,7 +1791,7 @@ fn default_keys<I: ApplicationInfo>() -> Vec<(MappedModes, &'static str, InputSt
         ( CMAP, "<Home>", edit_buffer!(EditAction::Motion, MoveTerminus::Beginning, VimMode::Command) ),
         ( CMAP, "<End>", edit_buffer!(EditAction::Motion, MoveTerminus::End, VimMode::Command) ),
         ( CMAP, "<Esc>", command_unfocus!() ),
-        ( CMAP, "<NL>", prompt!(PromptAction::Submit, VimMode::Normal) ),
+        ( CMAP, "<NL>", command_exit!(PromptAction::Submit) ),
         ( CMAP, "<Tab>", complete!(CompletionType::Auto, CompletionSelection::List(MoveDir1D::Next), CompletionDisplay::None) ),
         ( CMAP, "<S-Tab>", complete!(CompletionType::Auto, CompletionSelection::List(MoveDir1D::Previous), CompletionDisplay::None) ),
         ( CMAP, "<S-Left>", edit!(EditAction::Motion, MoveType::WordBegin(WordStyle::Big, MoveDir1D::Previous)) ),
@@ -1782,6 +1811,8 @@ fn default_keys<I: ApplicationInfo>() -> Vec<(MappedModes, &'static str, InputSt
         // Operator-Pending mode
         ( OMAP, "gn", unmapped!() ),
         ( OMAP, "gN", unmapped!() ),
+        ( OMAP, "?", search!(MoveDir1D::Previous, VimMode::Normal) ),
+        ( OMAP, "/", search!(MoveDir1D::Next, VimMode::Normal) ),
 
         // Internal mode to simplify keypresses allowed after f/F/t/T.
         ( SUFFIX_CHARSRCH, "<C-K>{digraph1}{digraph2}", charsearch_suffix!() ),
@@ -1839,7 +1870,7 @@ fn default_enter<I: ApplicationInfo>() -> Vec<(MappedModes, &'static str, InputS
         ( IMAP, "<Enter>", chartype!(Char::Single('\n')) ),
 
         // <Enter> in Command mode submits the command.
-        ( CMAP, "<Enter>", prompt!(PromptAction::Submit, VimMode::Normal) ),
+        ( CMAP, "<Enter>", command_exit!(PromptAction::Submit) ),
     ].to_vec()
 }
 
@@ -1872,7 +1903,7 @@ fn submit_on_enter<I: ApplicationInfo>() -> Vec<(MappedModes, &'static str, Inpu
         ( IMAP, "<Enter>", prompt!(PromptAction::Submit, VimMode::Insert) ),
 
         // <Enter> in Command mode submits the command.
-        ( CMAP, "<Enter>", prompt!(PromptAction::Submit, VimMode::Normal) ),
+        ( CMAP, "<Enter>", command_exit!(PromptAction::Submit) ),
 
         // <Enter> in Operator-Pending mode moves to the next line.
         ( OMAP, "<Enter>", edit_end!(MoveType::FirstWord(MoveDir1D::Next)) ),
@@ -2369,12 +2400,14 @@ mod tests {
         assert_eq!(vm.mode(), VimMode::Normal);
 
         // Move to Command mode using ":".
+        ctx.persist.postcmd.2 = Some(Box::new(ctx.action.clone()));
         vm.input_key(key!(':'));
         assert_pop2!(vm, CMDBAR, ctx);
         assert_eq!(vm.mode(), VimMode::Command);
 
         // Unmapped key types that character.
         ctx.persist.insert = Some(InsertStyle::Insert);
+        ctx.persist.postcmd.2 = Some(Box::new(ctx.action.clone()));
         vm.input_key(key!(':'));
         assert_pop2!(vm, typechar!(':'), ctx);
         assert_eq!(vm.mode(), VimMode::Command);
@@ -2390,16 +2423,19 @@ mod tests {
         assert_eq!(vm.mode(), VimMode::Command);
 
         // Go back to Normal mode via Escape.
+        ctx.persist.postcmd.2 = None;
         vm.input_key(key!(KeyCode::Esc));
         assert_pop1!(vm, CMDBAR_ABORT, ctx);
 
         ctx.persist.insert = None;
+        assert_eq!(vm.mode(), VimMode::Normal);
         assert_pop1!(vm, CURSOR_CLOSE, ctx);
         assert_pop1!(vm, CURRENT_POS, ctx);
         assert_normal!(vm, ctx);
 
         // Move to Command mode (forward search) using "/".
         ctx.persist.regexsearch_dir = MoveDir1D::Next;
+        ctx.persist.postcmd.2 = Some(Box::new(ctx.action.clone()));
         vm.input_key(key!('/'));
         assert_pop2!(vm, CMDBAR_SEARCH, ctx);
         assert_eq!(vm.mode(), VimMode::Command);
@@ -2411,6 +2447,7 @@ mod tests {
         assert_eq!(vm.mode(), VimMode::Command);
 
         // Go back to Normal mode via ^C.
+        ctx.persist.postcmd.2 = None;
         vm.input_key(ctl!('c'));
         assert_pop1!(vm, CMDBAR_ABORT, ctx);
 
@@ -2420,6 +2457,7 @@ mod tests {
         assert_normal!(vm, ctx);
 
         // Move to Command mode (reverse search) using "?".
+        ctx.persist.postcmd.2 = Some(Box::new(ctx.action.clone()));
         ctx.persist.regexsearch_dir = MoveDir1D::Previous;
         vm.input_key(key!('?'));
         assert_pop2!(vm, CMDBAR_SEARCH, ctx);
@@ -2432,6 +2470,7 @@ mod tests {
         assert_eq!(vm.mode(), VimMode::Command);
 
         // Go back to Normal mode via ^C.
+        ctx.persist.postcmd.2 = None;
         vm.input_key(ctl!('c'));
         assert_pop1!(vm, CMDBAR_ABORT, ctx);
 
@@ -2439,6 +2478,100 @@ mod tests {
         assert_pop1!(vm, CURSOR_CLOSE, ctx);
         assert_pop1!(vm, CURRENT_POS, ctx);
         assert_normal!(vm, ctx);
+
+        // Go to Visual mode via "v".
+        ctx.persist.shape = Some(TargetShape::CharWise);
+        vm.input_key(key!('v'));
+        assert_pop2!(vm, CURRENT_POS, ctx);
+        assert_eq!(vm.mode(), VimMode::Visual);
+
+        // Move to Command mode using "/".
+        ctx.persist.shape = None;
+        ctx.persist.postcmd.0 = VimMode::Visual;
+        ctx.persist.postcmd.1 = Some(TargetShape::CharWise);
+        ctx.persist.postcmd.2 = Some(Box::new(ctx.action.clone()));
+        ctx.persist.regexsearch_dir = MoveDir1D::Next;
+        vm.input_key(key!('/'));
+        assert_pop2!(vm, CMDBAR_SEARCH, ctx);
+        assert_eq!(vm.mode(), VimMode::Command);
+
+        // Unmapped key types that character.
+        ctx.persist.insert = Some(InsertStyle::Insert);
+        ctx.persist.shape = None;
+        vm.input_key(key!('1'));
+        assert_pop2!(vm, typechar!('1'), ctx);
+        assert_eq!(vm.mode(), VimMode::Command);
+
+        // <Enter> submits and takes us back to Visual mode.
+        ctx.persist.postcmd = Default::default();
+        ctx.persist.shape = Some(TargetShape::CharWise);
+        vm.input_key(key!(KeyCode::Enter));
+        assert_pop2!(vm, Action::from(PromptAction::Submit), ctx);
+        assert_eq!(vm.mode(), VimMode::Visual);
+
+        // Move to Visual mode (linewise) using "V".
+        ctx.persist.insert = None;
+        ctx.persist.shape = Some(TargetShape::LineWise);
+        vm.input_key(key!('V'));
+        assert_pop2!(vm, CURRENT_POS, ctx);
+        assert_eq!(vm.mode(), VimMode::Visual);
+
+        // Move to Command mode using "/".
+        ctx.persist.shape = None;
+        ctx.persist.postcmd.0 = VimMode::Visual;
+        ctx.persist.postcmd.1 = Some(TargetShape::LineWise);
+        ctx.persist.postcmd.2 = Some(Box::new(ctx.action.clone()));
+        ctx.persist.regexsearch_dir = MoveDir1D::Next;
+        vm.input_key(key!('/'));
+        assert_pop2!(vm, CMDBAR_SEARCH, ctx);
+        assert_eq!(vm.mode(), VimMode::Command);
+
+        // Unmapped key types that character.
+        ctx.persist.insert = Some(InsertStyle::Insert);
+        ctx.persist.shape = None;
+        vm.input_key(key!('1'));
+        assert_pop2!(vm, typechar!('1'), ctx);
+        assert_eq!(vm.mode(), VimMode::Command);
+
+        // <Enter> submits and takes us back to Visual (linewise) mode.
+        ctx.persist.postcmd = Default::default();
+        ctx.persist.shape = Some(TargetShape::LineWise);
+        vm.input_key(key!(KeyCode::Enter));
+        assert_pop2!(vm, Action::from(PromptAction::Submit), ctx);
+        assert_eq!(vm.mode(), VimMode::Visual);
+
+        // Visual -> Normal mode using ^C.
+        ctx.persist.insert = None;
+        vm.input_key(ctl!('c'));
+        assert_visual_exit!(vm, ctx);
+
+        // "2c/" should take us to Command mode, with a pending entry into Insert mode.
+        ctx.action.count = Some(2);
+        ctx.action.operation = EditAction::Delete;
+        ctx.persist.insert = Some(InsertStyle::Insert);
+        ctx.persist.postcmd.0 = VimMode::Insert;
+        ctx.persist.postcmd.2 = Some(Box::new(ctx.action.clone()));
+        ctx.persist.regexsearch_dir = MoveDir1D::Next;
+        vm.input_key(key!('2'));
+        vm.input_key(key!('c'));
+        vm.input_key(key!('/'));
+        assert_pop2!(vm, CMDBAR_SEARCH, ctx);
+        assert_eq!(vm.mode(), VimMode::Command);
+
+        // Unmapped key types that character.
+        ctx.action.count = None;
+        ctx.action.operation = EditAction::Motion;
+        vm.input_key(key!('1'));
+        assert_pop2!(vm, typechar!('1'), ctx);
+        assert_eq!(vm.mode(), VimMode::Command);
+
+        // <Enter> submits and takes us to Insert mode.
+        ctx.action.count = Some(2);
+        ctx.action.operation = EditAction::Delete;
+        ctx.persist.postcmd = Default::default();
+        vm.input_key(key!(KeyCode::Enter));
+        assert_pop2!(vm, Action::from(PromptAction::Submit), ctx);
+        assert_eq!(vm.mode(), VimMode::Insert);
     }
 
     #[test]

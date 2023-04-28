@@ -18,7 +18,6 @@ use crate::editing::{
         Action,
         CommandAction,
         CommandBarAction,
-        EditAction,
         EditResult,
         EditorAction,
         PromptAction,
@@ -138,10 +137,11 @@ where
 
                 store.set_last_search(text);
 
-                let target =
-                    EditTarget::Search(SearchType::Regex, MoveDirMod::Same, Count::Contextual);
+                let dir = MoveDirMod::Same;
+                let count = Count::Contextual;
+                let target = EditTarget::Search(SearchType::Regex, dir, count);
 
-                EditorAction::Edit(EditAction::Motion.into(), target).into()
+                EditorAction::Edit(Default::default(), target).into()
             },
         };
 

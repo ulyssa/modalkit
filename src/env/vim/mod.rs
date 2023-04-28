@@ -43,9 +43,10 @@ pub mod command;
 pub mod keybindings;
 
 /// Vim's input modes
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
 pub enum VimMode {
     /// Normal mode keypresses.
+    #[default]
     Normal,
 
     /// Insert mode keypresses.
@@ -71,12 +72,6 @@ pub enum VimMode {
 
     #[doc(hidden)]
     CharSearchSuffix,
-}
-
-impl Default for VimMode {
-    fn default() -> Self {
-        VimMode::Normal
-    }
 }
 
 impl<I: ApplicationInfo> Mode<Action<I>, VimContext<I>> for VimMode {
@@ -126,6 +121,7 @@ impl<I: ApplicationInfo> Mode<Action<I>, VimContext<I>> for VimMode {
                 }
             },
             VimMode::Visual => {
+                ctx.persist.insert = None;
                 return vec![];
             },
             VimMode::Select => {
@@ -136,7 +132,7 @@ impl<I: ApplicationInfo> Mode<Action<I>, VimContext<I>> for VimMode {
                 ctx.persist.shape = None;
 
                 match prev {
-                    VimMode::Normal | VimMode::Insert => {
+                    VimMode::Normal | VimMode::Insert | VimMode::Command => {
                         return vec![];
                     },
                     _ => {
@@ -349,6 +345,7 @@ pub(crate) struct PersistentContext {
     pub(crate) shape: Option<TargetShape>,
     pub(crate) insert: Option<InsertStyle>,
     pub(crate) recording: Option<(Register, bool)>,
+    pub(crate) postcmd: (VimMode, Option<TargetShape>, Option<Box<ActionContext>>),
 }
 
 /// This wraps both action specific context, and persistent context.
@@ -555,6 +552,7 @@ impl Default for PersistentContext {
             insert: None,
             shape: None,
             recording: None,
+            postcmd: Default::default(),
         }
     }
 }
