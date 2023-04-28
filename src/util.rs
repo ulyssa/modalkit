@@ -285,7 +285,7 @@ pub fn is_newline(c: char) -> bool {
 }
 
 pub fn is_word_char(c: char) -> bool {
-    return c.is_ascii_alphanumeric() || c == '_';
+    return c.is_alphanumeric() || c == '_';
 }
 
 pub fn is_keyword(c: char) -> bool {

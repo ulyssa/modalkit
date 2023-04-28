@@ -4131,6 +4131,27 @@ mod tests {
     }
 
     #[test]
+    fn test_motion_word_accents() {
+        let rope = EditRope::from("árvíztűrő tükörfúrógép");
+        let vwctx = ViewportContext::<Cursor>::default();
+        let vctx: VimContext = VimContext::default();
+        let mut cursor = rope.first();
+        let count = Count::Contextual;
+
+        // "w"
+        let mov = MoveType::WordBegin(WordStyle::Little, MoveDir1D::Next);
+
+        cursor = rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)).unwrap();
+        assert_eq!(cursor, Cursor::new(0, 10));
+
+        // "b"
+        let mov = MoveType::WordBegin(WordStyle::Little, MoveDir1D::Previous);
+
+        cursor = rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)).unwrap();
+        assert_eq!(cursor, Cursor::new(0, 0));
+    }
+
+    #[test]
     fn test_motion_word() {
         let rope = EditRope::from("hello world\na,b,c,d e,f,g,h\n");
         let vwctx = ViewportContext::<Cursor>::default();
