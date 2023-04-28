@@ -329,13 +329,25 @@ where
                 return count;
             }
 
+            let mut fline = false;
+
             for line in self.buffer.read().unwrap().lines(0) {
+                let clen = line.len_chars();
                 count += 1;
-                count += line.len_chars().saturating_sub(1) / width;
+                count += clen.saturating_sub(1) / width;
+                fline |= clen > 0 && clen % width == 0;
 
                 if count >= max {
                     return max;
                 }
+            }
+
+            if fline {
+                // At least one of our lines is the full area width, so
+                // we bump the count by 1 to move closer to the max, so
+                // that moving the cursor to the line end doesn't move
+                // the viewport corner in annoying ways.
+                count += 1;
             }
 
             return count;
@@ -833,7 +845,7 @@ where
 
                 if cursor_line && full && last {
                     wrapped.push((line, start, end, swrapped, false, first));
-                    wrapped.push((line, start, end, " ".to_string(), true, first));
+                    wrapped.push((line, end, end, " ".to_string(), true, first));
                 } else {
                     wrapped.push((line, start, end, swrapped, cursor_line, first));
                 }
@@ -845,7 +857,7 @@ where
 
             if slen == 0 {
                 let cursor_line = line == cursor.y;
-                wrapped.push((line, 0, 0, s.to_string(), cursor_line, true));
+                wrapped.push((line, base, base, s.to_string(), cursor_line, true));
                 sawcursor |= cursor_line;
             }
         }
