@@ -986,6 +986,7 @@ where
     borders: bool,
     border_style: Style,
     border_type: BorderType,
+    focused: bool,
 
     _p: PhantomData<(W, I)>,
 }
@@ -1004,6 +1005,7 @@ where
             borders: false,
             border_style: Style::default(),
             border_type: BorderType::Plain,
+            focused: true,
             _p: PhantomData,
         }
     }
@@ -1023,6 +1025,12 @@ where
     /// Indicate whether to draw borders around windows.
     pub fn borders(mut self, borders: bool) -> Self {
         self.borders = borders;
+        self
+    }
+
+    /// Indicates whether the terminal window is currently focused.
+    pub fn focus(mut self, focused: bool) -> Self {
+        self.focused = focused;
         self
     }
 
@@ -1121,7 +1129,7 @@ where
 
         if let Ok(tab) = state.current_tab_mut() {
             WindowLayout::new(self.store)
-                .focus(focused == CurrentFocus::Window)
+                .focus(self.focused && focused == CurrentFocus::Window)
                 .border_style(self.border_style)
                 .border_type(self.border_type)
                 .borders(self.borders)

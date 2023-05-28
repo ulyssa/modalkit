@@ -1842,17 +1842,19 @@ where
     fn render(mut self, area: Rect, buf: &mut Buffer, state: &mut Self::State) {
         if state.zoom {
             if let Some(window) = state.get_mut() {
-                window.draw(area, buf, true, self.store);
+                window.draw(area, buf, self.focused, self.store);
             }
 
             return;
         }
 
+        let focused = self.focused.then_some(state.focused);
+
         state.info.area = area;
         state.root.set_area(area, &state.info.resized);
 
         if let Some(root) = &mut state.root {
-            self._draw(root.as_mut(), state.focused.into(), area, buf);
+            self._draw(root.as_mut(), focused, area, buf);
         }
     }
 }
