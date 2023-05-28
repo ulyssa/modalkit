@@ -53,6 +53,7 @@ use crate::editing::{
         EditorAction,
         EditorActions,
         HistoryAction,
+        InfoMessage,
         InsertTextAction,
         Jumpable,
         PromptAction,
@@ -249,6 +250,11 @@ where
     /// Indicates whether or not this list contains any items.
     pub fn is_empty(&self) -> bool {
         self.items.is_empty()
+    }
+
+    /// Returns the number of items in this list.
+    pub fn len(&self) -> usize {
+        self.items.len()
     }
 
     fn _clamp(&mut self) {
@@ -697,6 +703,8 @@ where
                 return Ok(None);
             },
             EditAction::Yank => {
+                let mut info = None;
+
                 let cmc = CursorMovementsContext {
                     action: operation,
                     view: &self.viewctx,
@@ -760,12 +768,15 @@ where
                 };
 
                 if let Some(range) = range {
+                    let mut items = 0;
                     let mut yanked = EditRope::from("");
 
                     for pos in range.start.position..=range.end.position {
                         if let Some(item) = self.items.get(pos) {
                             yanked += EditRope::from(item.to_string());
                             yanked += EditRope::from('\n');
+
+                            items += 1;
                         } else {
                             break;
                         }
@@ -780,9 +791,13 @@ where
                     }
 
                     store.registers.put(&register, cell, flags)?;
+
+                    if items > 1 {
+                        info = Some(InfoMessage::Message(format!("{items} items yanked")));
+                    }
                 }
 
-                return Ok(None);
+                return Ok(info);
             },
 
             // Everything else is a modifying action.
@@ -1423,7 +1438,9 @@ mod tests {
         }
     }
 
-    fn mklist() -> (ListState<TestItem, EmptyInfo>, VimContext<EmptyInfo>, Store<EmptyInfo>) {
+    type TestListState = ListState<TestItem, EmptyInfo>;
+
+    fn mklist() -> (TestListState, VimContext<EmptyInfo>, Store<EmptyInfo>) {
         /*
          * This will render as:
          *
@@ -1461,6 +1478,25 @@ mod tests {
         list.viewctx.dimensions.1 = 5;
 
         (list, VimContext::default(), Store::default())
+    }
+
+    #[test]
+    fn test_list_length() {
+        let list = TestListState::new("".to_string(), vec![]);
+        assert_eq!(list.is_empty(), true);
+        assert_eq!(list.len(), 0);
+
+        let list = TestListState::new("".to_string(), vec![TestItem::new("Dune", "Frank Herbert")]);
+        assert_eq!(list.is_empty(), false);
+        assert_eq!(list.len(), 1);
+
+        let list = TestListState::new("".to_string(), vec![
+            TestItem::new("The Name of the Wind", "Patrick Rothfuss"),
+            TestItem::new("Sabriel", "Garth Nix"),
+            TestItem::new("The Three-Body Problem", "Cixin Liu"),
+        ]);
+        assert_eq!(list.is_empty(), false);
+        assert_eq!(list.len(), 3);
     }
 
     #[test]
