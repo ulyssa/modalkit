@@ -218,11 +218,7 @@ fn parse_anychar(input: &str) -> IResult<&str, KeyCode> {
 pub fn parse_simple(input: &str) -> IResult<&str, TerminalKey> {
     let (input, c) = anychar(input)?;
     let kc = KeyCode::Char(c);
-    let km = if c.is_ascii_uppercase() {
-        KeyModifiers::SHIFT
-    } else {
-        KeyModifiers::NONE
-    };
+    let km = KeyModifiers::NONE;
 
     let key = TerminalKey::new(kc, km);
 
@@ -290,4 +286,78 @@ pub fn parse_macro_str(input: &str) -> IResult<&str, Vec<TerminalKey>> {
     let (input, _) = eof(input)?;
 
     Ok((input, res))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_shift_key_kept() {
+        let (rem, key) = parse_key_str("<S-Left>").unwrap();
+        assert_eq!(rem, "");
+        assert_eq!(key, TerminalKey {
+            code: KeyCode::Left,
+            modifiers: KeyModifiers::SHIFT
+        });
+
+        let (rem, key) = parse_key_str("<S-Home>").unwrap();
+        assert_eq!(rem, "");
+        assert_eq!(key, TerminalKey {
+            code: KeyCode::Home,
+            modifiers: KeyModifiers::SHIFT
+        });
+
+        let (rem, key) = parse_key_str("<S-F1>").unwrap();
+        assert_eq!(rem, "");
+        assert_eq!(key, TerminalKey {
+            code: KeyCode::F(1),
+            modifiers: KeyModifiers::SHIFT
+        });
+    }
+
+    #[test]
+    fn test_shift_key_removed() {
+        let (rem, key) = parse_key_str("<S-a>").unwrap();
+        assert_eq!(rem, "");
+        assert_eq!(key, TerminalKey {
+            code: KeyCode::Char('A'),
+            modifiers: KeyModifiers::NONE
+        });
+
+        let (rem, key) = parse_key_str("<S-:>").unwrap();
+        assert_eq!(rem, "");
+        assert_eq!(key, TerminalKey {
+            code: KeyCode::Char(':'),
+            modifiers: KeyModifiers::NONE
+        });
+
+        let (rem, key) = parse_key_str("<S-;>").unwrap();
+        assert_eq!(rem, "");
+        assert_eq!(key, TerminalKey {
+            code: KeyCode::Char(';'),
+            modifiers: KeyModifiers::NONE
+        });
+
+        let (rem, key) = parse_key_str("<S-?>").unwrap();
+        assert_eq!(rem, "");
+        assert_eq!(key, TerminalKey {
+            code: KeyCode::Char('?'),
+            modifiers: KeyModifiers::NONE
+        });
+
+        let (rem, key) = parse_key_str("<S-/>").unwrap();
+        assert_eq!(rem, "");
+        assert_eq!(key, TerminalKey {
+            code: KeyCode::Char('/'),
+            modifiers: KeyModifiers::NONE
+        });
+
+        let (rem, key) = parse_key_str("<S-Tab>").unwrap();
+        assert_eq!(rem, "");
+        assert_eq!(key, TerminalKey {
+            code: KeyCode::BackTab,
+            modifiers: KeyModifiers::NONE
+        });
+    }
 }

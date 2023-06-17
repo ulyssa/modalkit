@@ -52,7 +52,13 @@ pub struct TerminalKey {
 }
 
 impl TerminalKey {
-    pub(crate) fn new(code: KeyCode, modifiers: KeyModifiers) -> Self {
+    pub(crate) fn new(code: KeyCode, mut modifiers: KeyModifiers) -> Self {
+        if let KeyCode::Char(_) = code {
+            // SHIFT is included for things like ':' and '?' on Windows, but not on *nix systems,
+            // so remove it for characters, so that it doesn't break hashing and comparisons.
+            modifiers -= KeyModifiers::SHIFT;
+        }
+
         Self { code, modifiers }
     }
 
@@ -276,15 +282,12 @@ impl InputKey for TerminalKey {
 
 impl From<KeyCode> for TerminalKey {
     fn from(code: KeyCode) -> Self {
-        Self { code, modifiers: KeyModifiers::NONE }
+        TerminalKey::new(code, KeyModifiers::NONE)
     }
 }
 
 impl From<KeyEvent> for TerminalKey {
     fn from(ke: KeyEvent) -> Self {
-        let code = ke.code;
-        let modifiers = ke.modifiers;
-
-        Self { code, modifiers }
+        TerminalKey::new(ke.code, ke.modifiers)
     }
 }
