@@ -1444,10 +1444,9 @@ where
         self.root.freeze(axis);
     }
 
-    fn resize(&mut self, axis: Axis, change: SizeChange<u16>) {
+    fn resize(&mut self, windex: usize, axis: Axis, change: SizeChange<u16>) {
         self.freeze(axis);
 
-        let windex = self.focused;
         let trail = ResizeInfoTrail::new(windex, &mut self.info.resized, None);
 
         self.root.resize(windex, axis, change, trail);
@@ -1668,11 +1667,16 @@ where
 
     fn window_resize(
         &mut self,
+        change: &FocusChange,
         axis: Axis,
         size: &SizeChange<Count>,
         ctx: &C,
         _: &mut Store<I>,
     ) -> EditResult<EditInfo, I> {
+        let Some(target) = self._target(change, ctx) else {
+            return Ok(None);
+        };
+
         let change: SizeChange<u16> = match &size {
             SizeChange::Equal => SizeChange::Equal,
             SizeChange::Exact(count) => SizeChange::Exact(ctx.resolve(count).try_into()?),
@@ -1681,7 +1685,7 @@ where
         };
 
         self.zoom = false;
-        self.resize(axis, change);
+        self.resize(target, axis, change);
 
         return Ok(None);
     }
@@ -1890,7 +1894,9 @@ where
             WindowAction::Open(target, axis, rel, count) => {
                 self.window_open(target, *axis, *rel, count, ctx, store)?
             },
-            WindowAction::Resize(axis, size) => self.window_resize(*axis, size, ctx, store)?,
+            WindowAction::Resize(target, axis, size) => {
+                self.window_resize(target, *axis, size, ctx, store)?
+            },
             WindowAction::Rotate(dir) => self.window_rotate(*dir, ctx, store)?,
             WindowAction::Split(target, axis, rel, count) => {
                 self.window_split(target, *axis, *rel, count, ctx, store)?
@@ -2100,8 +2106,8 @@ mod tests {
     }
 
     macro_rules! window_resize {
-        ($tree: expr, $axis: expr, $szch: expr, $ctx: expr, $store: expr) => {
-            $tree.window_resize($axis, &$szch, $ctx, &mut $store).unwrap()
+        ($tree: expr, $change: expr, $axis: expr, $szch: expr, $ctx: expr, $store: expr) => {
+            $tree.window_resize(&$change, $axis, &$szch, $ctx, &mut $store).unwrap()
         };
     }
 
@@ -2644,7 +2650,14 @@ mod tests {
         assert_eq!(tree.root.get(8).unwrap().get().term_area, Rect::new(67, 67, 33, 33));
 
         // Resize window 8.
-        window_resize!(tree, Vertical, SizeChange::Increase(5.into()), &ctx, store);
+        window_resize!(
+            tree,
+            FocusChange::Offset(8.into(), false),
+            Vertical,
+            SizeChange::Increase(5.into()),
+            &ctx,
+            store
+        );
 
         // Draw again so that we update the saved term_area.
         WindowLayout::new(&mut store).render(area, &mut buffer, &mut tree);

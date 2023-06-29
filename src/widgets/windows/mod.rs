@@ -269,6 +269,7 @@ where
     /// Change the size of the currently focused [Window].
     fn window_resize(
         &mut self,
+        target: &FocusChange,
         axis: Axis,
         size: &SizeChange<Count>,
         ctx: &C,

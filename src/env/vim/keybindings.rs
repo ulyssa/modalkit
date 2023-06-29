@@ -1208,7 +1208,7 @@ macro_rules! window_switch {
 
 macro_rules! window_resize {
     ($axis: expr, $change: expr) => {
-        window!(WindowAction::Resize($axis, $change))
+        window!(WindowAction::Resize(FocusChange::Current, $axis, $change))
     };
 }
 

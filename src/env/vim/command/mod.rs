@@ -30,6 +30,7 @@ use crate::editing::{
         RangeEndingModifier,
         RangeEndingType,
         RangeSpec,
+        SizeChange,
         TabTarget,
         WindowTarget,
         WordStyle,
@@ -497,6 +498,56 @@ pub fn vim_cmd_quitall<C: EditContext, I: ApplicationInfo>(
     Ok(CommandStep::Continue(action, ctx.context.take()))
 }
 
+/// The `:resize` command.
+///
+/// *Aliases:* `res`
+///
+/// Resize the current window.
+pub fn vim_cmd_resize<C: EditContext, I: ApplicationInfo>(
+    desc: CommandDescription,
+    ctx: &mut CommandContext<C>,
+) -> CommandResult<C, I> {
+    if desc.arg.text.is_empty() {
+        return Err(CommandError::InvalidArgument);
+    }
+
+    let RangeSpec::Single(range) = desc.arg.range()? else {
+        return Err(CommandError::InvalidRange);
+    };
+
+    let change = match range {
+        RangeEnding(RangeEndingType::Absolute(count), mods) => {
+            let count = ctx.context.resolve(&count);
+            let count = match sum_mods(&mods, &ctx.context) {
+                Some((MoveDir1D::Previous, off)) => count.saturating_sub(off),
+                Some((MoveDir1D::Next, off)) => count.saturating_add(off),
+                None => {
+                    return Err(CommandError::InvalidArgument);
+                },
+            };
+            SizeChange::Exact(Count::from(count))
+        },
+        RangeEnding(RangeEndingType::Unspecified, mods) => {
+            match sum_mods(&mods, &ctx.context) {
+                Some((MoveDir1D::Previous, off)) => SizeChange::Decrease(off.into()),
+                Some((MoveDir1D::Next, off)) => SizeChange::Increase(off.into()),
+                None => {
+                    return Err(CommandError::InvalidArgument);
+                },
+            }
+        },
+        _ => {
+            return Err(CommandError::InvalidRange);
+        },
+    };
+
+    let axis = ctx.axis.unwrap_or(ctx.axis_default);
+    let focus = window_range_target(&desc, ctx)?;
+    let action = WindowAction::Resize(focus, axis, change).into();
+
+    Ok(CommandStep::Continue(action, ctx.context.take()))
+}
+
 /// The `:split` command.
 ///
 /// *Aliases:* `sp`
@@ -947,6 +998,11 @@ fn default_cmds<C: EditContext, I: ApplicationInfo>() -> Vec<VimCommand<C, I>> {
             f: vim_cmd_quitall,
         },
         VimCommand {
+            name: "resize".into(),
+            aliases: strs!["res"],
+            f: vim_cmd_resize,
+        },
+        VimCommand {
             name: "split".into(),
             aliases: strs!["sp"],
             f: vim_cmd_sp,
@@ -1269,6 +1325,49 @@ mod tests {
         let act = TabAction::Move(FocusChange::Position(MovePosition::End));
         let expect = vec![(act.into(), ctx.clone())];
         let res = cmds.input_cmd("$tabmove", ctx.clone());
+        assert_eq!(res.unwrap(), expect);
+    }
+
+    #[test]
+    fn test_resize() {
+        let (mut cmds, ctx) = mkcmd();
+
+        // No arguments.
+        let res = cmds.input_cmd("resize", ctx.clone());
+        assert_eq!(res, Err(CommandError::InvalidArgument));
+
+        // :resize only accepts a subset of range types.
+        let res = cmds.input_cmd("resize 2,3", ctx.clone());
+        assert_eq!(res, Err(CommandError::InvalidRange));
+
+        // Resize current window to 5.
+        let act = WindowAction::Resize(
+            FocusChange::Current,
+            Axis::Horizontal,
+            SizeChange::Exact(5.into()),
+        );
+        let expect = vec![(act.into(), ctx.clone())];
+        let res = cmds.input_cmd("resize 5", ctx.clone());
+        assert_eq!(res.unwrap(), expect);
+
+        // Increase current window size by 7 vertically.
+        let act = WindowAction::Resize(
+            FocusChange::Current,
+            Axis::Vertical,
+            SizeChange::Increase(7.into()),
+        );
+        let expect = vec![(act.into(), ctx.clone())];
+        let res = cmds.input_cmd("vert resize +7", ctx.clone());
+        assert_eq!(res.unwrap(), expect);
+
+        // Decrease window number 4's size by 2.
+        let act = WindowAction::Resize(
+            FocusChange::Offset(4.into(), false),
+            Axis::Horizontal,
+            SizeChange::Decrease(2.into()),
+        );
+        let expect = vec![(act.into(), ctx.clone())];
+        let res = cmds.input_cmd("4resize -2", ctx.clone());
         assert_eq!(res.unwrap(), expect);
     }
 }

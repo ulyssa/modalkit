@@ -526,8 +526,8 @@ pub enum WindowAction<I: ApplicationInfo> {
     /// available rows and columns.
     ClearSizes,
 
-    /// Resize the currently focused window according to [SizeChange].
-    Resize(Axis, SizeChange),
+    /// Resize the window targeted by [FocusChange] according to [SizeChange].
+    Resize(FocusChange, Axis, SizeChange),
 
     /// Write the contents of the windows targeted by [WindowTarget].
     Write(WindowTarget, Option<String>, WriteFlags),
