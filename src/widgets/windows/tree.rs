@@ -104,11 +104,21 @@ where
     /// This should be done after inserting in the left child, or removing from the right child.
     fn balance_right(&mut self);
 
+    /// Insert a [Value] at the leftmost position in the tree.
+    fn insert_min_value(&mut self, open: Value<W, X, Y>) -> usize;
+
+    /// Insert a [Value] at the rightmost position in the tree.
+    fn insert_max_value(&mut self, open: Value<W, X, Y>) -> usize;
+
     /// Insert a [Window] at the leftmost position in the tree.
-    fn insert_min(&mut self, open: W) -> usize;
+    fn insert_min(&mut self, open: W) -> usize {
+        self.insert_min_value(Value::from(open))
+    }
 
     /// Insert a [Window] at the rightmost position in the tree.
-    fn insert_max(&mut self, open: W) -> usize;
+    fn insert_max(&mut self, open: W) -> usize {
+        self.insert_max_value(Value::from(open))
+    }
 
     /// Remove and return the root node.
     fn remove_root(&mut self) -> Self;
@@ -507,15 +517,15 @@ where
         self._rotate_right();
     }
 
-    fn insert_min(&mut self, open: W) -> usize {
-        let idx = self.left.insert_min(open);
+    fn insert_min_value(&mut self, open: Value<W, X, Y>) -> usize {
+        let idx = self.left.insert_min_value(open);
         self.balance_right();
 
         idx
     }
 
-    fn insert_max(&mut self, open: W) -> usize {
-        let idx = self.right.insert_max(open);
+    fn insert_max_value(&mut self, open: Value<W, X, Y>) -> usize {
+        let idx = self.right.insert_max_value(open);
         let idx = idx + self.left.size() + self.value.size();
         self.balance_left();
 
@@ -601,28 +611,28 @@ where
         }
     }
 
-    fn insert_min(&mut self, open: W) -> usize {
+    fn insert_min_value(&mut self, open: Value<W, X, Y>) -> usize {
         match self {
             None => {
-                *self = AxisTree::singleton(open);
+                *self = AxisTree::from(open);
 
                 return 0;
             },
             Some(node) => {
-                return node.insert_min(open);
+                return node.insert_min_value(open);
             },
         }
     }
 
-    fn insert_max(&mut self, open: W) -> usize {
+    fn insert_max_value(&mut self, open: Value<W, X, Y>) -> usize {
         match self {
             None => {
-                *self = AxisTree::singleton(open);
+                *self = AxisTree::from(open);
 
                 return 0;
             },
             Some(node) => {
-                return node.insert_max(open);
+                return node.insert_max_value(open);
             },
         }
     }

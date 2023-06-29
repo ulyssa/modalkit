@@ -1,4 +1,4 @@
-use tui::{buffer::Buffer, layout::Rect};
+use tui::{buffer::Buffer, layout::Rect, text::Spans};
 
 use crate::{
     editing::action::{EditInfo, Jumpable, UIResult},
@@ -6,7 +6,7 @@ use crate::{
     editing::base::{CloseFlags, MoveDir1D, PositionList, WordStyle, WriteFlags},
     editing::completion::CompletionList,
     editing::store::Store,
-    widgets::{TermOffset, TerminalCursor, WindowOps},
+    widgets::{TermOffset, TerminalCursor, Window, WindowOps},
 };
 
 #[derive(Debug, Eq, PartialEq)]
@@ -213,5 +213,39 @@ where
 
     fn get_selected_word(&self) -> Option<String> {
         self.current.get_selected_word()
+    }
+}
+
+impl<W, I> Window<I> for WindowSlot<W>
+where
+    W: Window<I>,
+    I: ApplicationInfo,
+{
+    fn id(&self) -> I::WindowId {
+        self.current.id()
+    }
+
+    fn get_win_title(&self, store: &mut Store<I>) -> Spans {
+        self.current.get_win_title(store)
+    }
+
+    fn get_tab_title(&self, store: &mut Store<I>) -> Spans {
+        self.current.get_tab_title(store)
+    }
+
+    fn open(id: I::WindowId, store: &mut Store<I>) -> UIResult<Self, I> {
+        W::open(id, store).map(WindowSlot::new)
+    }
+
+    fn find(name: String, store: &mut Store<I>) -> UIResult<Self, I> {
+        W::find(name, store).map(WindowSlot::new)
+    }
+
+    fn posn(index: usize, store: &mut Store<I>) -> UIResult<Self, I> {
+        W::posn(index, store).map(WindowSlot::new)
+    }
+
+    fn unnamed(store: &mut Store<I>) -> UIResult<Self, I> {
+        W::unnamed(store).map(WindowSlot::new)
     }
 }

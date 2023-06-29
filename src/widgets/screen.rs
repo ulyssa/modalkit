@@ -11,6 +11,8 @@ use std::iter::Iterator;
 use std::marker::PhantomData;
 use std::ops::Index;
 
+use serde::{Deserialize, Serialize};
+
 use tui::{
     buffer::Buffer,
     layout::Rect,
@@ -22,7 +24,7 @@ use tui::{
 use super::{
     cmdbar::{CommandBar, CommandBarState},
     util::{rect_down, rect_zero_height},
-    windows::{WindowActions, WindowLayout, WindowLayoutState},
+    windows::{WindowActions, WindowLayout, WindowLayoutDescription, WindowLayoutState},
     TerminalCursor,
     Window,
     WindowOps,
@@ -574,6 +576,30 @@ impl<T> From<T> for FocusList<T> {
     }
 }
 
+/// A description of open tabs.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(bound(deserialize = "I::WindowId: Deserialize<'de>"))]
+#[serde(bound(serialize = "I::WindowId: Serialize"))]
+pub struct TabLayoutDescription<I: ApplicationInfo> {
+    /// The description of the window layout for each tab.
+    pub tabs: Vec<WindowLayoutDescription<I>>,
+}
+
+impl<I: ApplicationInfo> TabLayoutDescription<I> {
+    /// Create a new collection of tabs from this description.
+    pub fn to_layout<W: Window<I>>(
+        self,
+        area: Option<Rect>,
+        store: &mut Store<I>,
+    ) -> UIResult<FocusList<WindowLayoutState<W, I>>, I> {
+        self.tabs
+            .into_iter()
+            .map(|desc| desc.to_layout(area, store))
+            .collect::<UIResult<Vec<_>, I>>()
+            .map(FocusList::new)
+    }
+}
+
 /// Controls which part of the [ScreenState] is currently receiving user input.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum CurrentFocus {
@@ -606,14 +632,27 @@ where
     /// Create state for a [Screen] widget.
     pub fn new(win: W, cmdbar: CommandBarState<I>) -> Self {
         let tab = WindowLayoutState::new(win);
+        let tabs = FocusList::from(tab);
 
+        Self::from_list(tabs, cmdbar)
+    }
+
+    /// Create state for a [Screen] widget from an existing set of tabs.
+    pub fn from_list(tabs: FocusList<WindowLayoutState<W, I>>, cmdbar: CommandBarState<I>) -> Self {
         ScreenState {
             focused: CurrentFocus::Window,
             cmdbar,
-            tabs: FocusList::from(tab),
+            tabs,
 
             messages: vec![],
             last_message: false,
+        }
+    }
+
+    /// Get a description of the open tabs and their window layouts.
+    pub fn as_description(&self) -> TabLayoutDescription<I> {
+        TabLayoutDescription {
+            tabs: self.tabs.iter().map(WindowLayoutState::as_description).collect(),
         }
     }
 

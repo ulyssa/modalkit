@@ -10,6 +10,8 @@ use std::convert::TryInto;
 use std::marker::PhantomData;
 use std::ops::Not;
 
+use serde::{Deserialize, Serialize};
+
 use tui::{
     buffer::Buffer,
     layout::Rect,
@@ -33,6 +35,7 @@ use super::{
     Value,
     VerticalT,
     WindowActions,
+    WindowInfo,
 };
 
 use crate::util::idx_offset;
@@ -88,45 +91,54 @@ where
     X: AxisT,
     Y: AxisT,
 {
-    if let Some(ref lengths) = info.lengths {
-        assert_eq!(lengths.len(), node.weight());
+    let Some(ref lengths) = info.lengths else { return; };
+    assert_eq!(lengths.len(), node.weight());
 
-        match X::axis() {
-            Axis::Horizontal => {
-                let mut carea = rect_zero_height(area);
-                let mut iter = lengths.iter();
-                let mut rem = area.height;
-
-                let mut f = |value: &mut Value<W, X, Y>| {
-                    let size = iter.next().unwrap();
-                    let height = size.length.min(rem);
-
-                    carea = rect_down(carea, height);
-                    rem -= height;
-
-                    value.set_area(carea, info);
-                };
-
-                node.for_each_value(&mut f);
-            },
-            Axis::Vertical => {
-                let mut carea = rect_zero_width(area);
-                let mut iter = lengths.iter();
-                let mut rem = area.width;
-
-                let mut f = |value: &mut Value<W, X, Y>| {
-                    let size = iter.next().unwrap();
-                    let width = size.length.min(rem);
-
-                    carea = rect_right(carea, width);
-                    rem -= width;
-
-                    value.set_area(carea, info);
-                };
-
-                node.for_each_value(&mut f);
-            },
+    fn winlen(sd: &super::size::SizeDescription, winrem: u16, lenrem: u16) -> u16 {
+        if winrem == 0 {
+            // Ignore sd.length for the last window.
+            return lenrem;
         }
+
+        // Make sure large window lengths don't steal too much.
+        lenrem.saturating_sub(winrem * MIN_WIN_LEN).min(sd.length)
+    }
+
+    match X::axis() {
+        Axis::Horizontal => {
+            let mut carea = rect_zero_height(area);
+            let mut iter = lengths.iter();
+            let mut rem = area.height;
+
+            let mut f = |value: &mut Value<W, X, Y>| {
+                let size = iter.next().unwrap();
+                let height = winlen(size, iter.as_slice().len() as u16, rem);
+
+                carea = rect_down(carea, height);
+                rem -= height;
+
+                value.set_area(carea, info);
+            };
+
+            node.for_each_value(&mut f);
+        },
+        Axis::Vertical => {
+            let mut carea = rect_zero_width(area);
+            let mut iter = lengths.iter();
+            let mut rem = area.width;
+
+            let mut f = |value: &mut Value<W, X, Y>| {
+                let size = iter.next().unwrap();
+                let width = winlen(size, iter.as_slice().len() as u16, rem);
+
+                carea = rect_right(carea, width);
+                rem -= width;
+
+                value.set_area(carea, info);
+            };
+
+            node.for_each_value(&mut f);
+        },
     }
 }
 
@@ -1110,6 +1122,153 @@ where
     }
 }
 
+/// A description of a window layout.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(bound(deserialize = "I::WindowId: Deserialize<'de>"))]
+#[serde(bound(serialize = "I::WindowId: Serialize"))]
+#[serde(rename_all = "lowercase", tag = "type")]
+pub enum WindowLayoutDescription<I: ApplicationInfo> {
+    /// A single window.
+    Window {
+        /// The identifier for this window.
+        window: I::WindowId,
+
+        /// The length of this window within the parent split.
+        length: Option<u16>,
+    },
+
+    /// A collection of adjacent windows.
+    Split {
+        /// The windows in this container.
+        children: Vec<Self>,
+
+        /// The length of this container within the parent split.
+        length: Option<u16>,
+    },
+}
+
+impl<I, W, X, Y> From<&Value<W, X, Y>> for WindowLayoutDescription<I>
+where
+    I: ApplicationInfo,
+    W: Window<I>,
+    X: AxisT,
+    Y: AxisT,
+{
+    fn from(node: &Value<W, X, Y>) -> Self {
+        match node {
+            Value::Window(window, info) => {
+                let length = if X::axis() == Axis::Horizontal {
+                    info.area.height.into()
+                } else {
+                    info.area.width.into()
+                };
+
+                WindowLayoutDescription::Window { window: window.id(), length }
+            },
+            Value::Tree(tree, info) => {
+                let length = if X::axis() == Axis::Horizontal {
+                    info.area.height.into()
+                } else {
+                    info.area.width.into()
+                };
+
+                WindowLayoutDescription::Split {
+                    children: tree.iter().map(Self::from).collect(),
+                    length,
+                }
+            },
+        }
+    }
+}
+
+impl<I> WindowLayoutDescription<I>
+where
+    I: ApplicationInfo,
+{
+    fn into_value<W, X, Y>(self, store: &mut Store<I>) -> UIResult<Value<W, X, Y>, I>
+    where
+        W: Window<I>,
+        X: AxisT,
+        Y: AxisT,
+    {
+        match self {
+            WindowLayoutDescription::Window { window, .. } => {
+                let w = W::open(window, store)?;
+                let v = Value::Window(w, WindowInfo::default());
+
+                Ok(v)
+            },
+            WindowLayoutDescription::Split { children, .. } => {
+                let mut layout: AxisTree<W, Y, X> = None;
+                let sizes = children
+                    .iter()
+                    .map(|v| {
+                        match v {
+                            Self::Window { length, .. } | Self::Split { length, .. } => *length,
+                        }
+                    })
+                    .collect::<Vec<_>>();
+
+                for child in children {
+                    let value = child.into_value(store)?;
+                    layout.insert_max_value(value);
+                }
+
+                let Some(layout) = layout else {
+                    let msg = "Cannot open empty split";
+                    let err = UIError::Failure(msg.to_string());
+
+                    return Err(err);
+                };
+
+                let lengths = if sizes.iter().any(Option::is_some) {
+                    let mut l = layout.get_lengths();
+
+                    for (sd, length) in l.iter_mut().zip(sizes.into_iter()) {
+                        if let Some(length) = length {
+                            sd.length = length;
+                        }
+                    }
+
+                    Some(l)
+                } else {
+                    None
+                };
+
+                let resized = ResizeInfo { lengths };
+                let info = TreeInfo { area: Rect::default(), resized };
+                Ok(Value::Tree(layout, info))
+            },
+        }
+    }
+
+    /// Restore a layout from a description of windows and splits.
+    pub fn to_layout<W: Window<I>>(
+        self,
+        area: Option<Rect>,
+        store: &mut Store<I>,
+    ) -> UIResult<WindowLayoutState<W, I>, I> {
+        let mut layout = WindowLayoutState::empty();
+
+        match self.into_value(store)? {
+            Value::Window(w, _) => {
+                layout.root.insert_min(w);
+            },
+            Value::Tree(tree, info) => {
+                layout.root = Some(tree);
+                layout.info = info;
+            },
+        }
+
+        if let Some(area) = area {
+            layout.root.set_area(area, &layout.info.resized);
+            layout.info.area = area;
+        }
+
+        return Ok(layout);
+    }
+}
+
 /// Manages the current layout and focus of [Windows](Window) on the screen.
 pub struct WindowLayoutState<W: Window<I>, I: ApplicationInfo> {
     root: HorizontalTree<WindowSlot<W>>,
@@ -1140,6 +1299,21 @@ where
             focused_last: 0,
             _p: PhantomData,
         }
+    }
+
+    /// Convert this layout to a serializable summary of its windows and splits.
+    pub fn as_description(&self) -> WindowLayoutDescription<I> {
+        let mut children = vec![];
+
+        let Some(root) = &self.root else {
+            return WindowLayoutDescription::Split { children, length: None, };
+        };
+
+        for w in root.iter() {
+            children.push(w.into());
+        }
+
+        return WindowLayoutDescription::Split { children, length: None };
     }
 
     /// Create a new instance containing a single [Window] displaying some content.
@@ -2640,5 +2814,69 @@ mod tests {
         let count = tree.jump(jl, next, 2, &ctx).unwrap();
         assert_eq!(count, 1);
         assert_eq!(tree.get().unwrap().id, Some(2));
+    }
+
+    #[test]
+    fn test_layout_as_description() {
+        use WindowLayoutDescription::{Split, Window};
+
+        let (mut tree, mut store, _) = three_by_three();
+        let mut buffer = Buffer::empty(Rect::new(0, 0, 60, 60));
+        let area = Rect::new(0, 0, 60, 60);
+
+        // Draw so that everything gets an initial area.
+        WindowLayout::new(&mut store).render(area, &mut buffer, &mut tree);
+
+        let desc1 = tree.as_description();
+        let exp = WindowLayoutDescription::<TestApp>::Split {
+            children: vec![Split {
+                children: vec![
+                    Split {
+                        children: vec![
+                            Split {
+                                children: vec![
+                                    Window { window: Some(0), length: Some(20) },
+                                    Window { window: Some(1), length: Some(20) },
+                                ],
+                                length: Some(20),
+                            },
+                            Split {
+                                children: vec![
+                                    Window { window: Some(2), length: Some(20) },
+                                    Window { window: Some(3), length: Some(20) },
+                                ],
+                                length: Some(20),
+                            },
+                            Split {
+                                children: vec![
+                                    Window { window: Some(4), length: Some(20) },
+                                    Window { window: Some(5), length: Some(20) },
+                                ],
+                                length: Some(20),
+                            },
+                        ],
+                        length: Some(40),
+                    },
+                    Split {
+                        children: vec![
+                            Window { window: Some(6), length: Some(20) },
+                            Window { window: Some(7), length: Some(20) },
+                            Window { window: Some(8), length: Some(20) },
+                        ],
+                        length: Some(20),
+                    },
+                ],
+                length: Some(60),
+            }],
+            length: None,
+        };
+        assert_eq!(desc1, exp);
+
+        // Turn back into a layout, and then generate a new description to show it's the same.
+        let tree = desc1
+            .clone()
+            .to_layout::<TestWindow>(tree.info.area.into(), &mut store)
+            .unwrap();
+        assert_eq!(tree.as_description(), desc1);
     }
 }
