@@ -1352,7 +1352,7 @@ where
         let x = area.left();
 
         for (_, _, txt) in lines.into_iter() {
-            let _ = buf.set_spans(x, y, &txt, area.width);
+            let _ = buf.set_line(x, y, &txt, area.width);
 
             y += 1;
         }
@@ -1362,7 +1362,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tui::text::{Span, Spans};
+    use tui::text::{Line, Span};
 
     use crate::{
         editing::action::WindowAction,
@@ -1403,8 +1403,8 @@ mod tests {
                 Style::default()
             };
 
-            let line1 = Spans::from(Span::styled(self.book.as_str(), style));
-            let line2 = Spans::from(vec![Span::from("    by "), Span::from(self.author.as_str())]);
+            let line1 = Line::from(Span::styled(self.book.as_str(), style));
+            let line2 = Line::from(vec![Span::from("    by "), Span::from(self.author.as_str())]);
 
             Text { lines: vec![line1, line2] }
         }

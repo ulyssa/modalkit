@@ -1,5 +1,5 @@
 use std::cmp::Ordering;
-use std::io::{stdout, BufWriter, Stdout};
+use std::io::{self, stdout, BufWriter, Stdout};
 use std::ops::{Deref, DerefMut, RangeInclusive};
 
 use regex::Regex;
@@ -141,7 +141,7 @@ where
         prompt: &Option<String>,
         off: u16,
         context: &mut EditorContext,
-    ) -> crossterm::Result<u16> {
+    ) -> Result<u16, io::Error> {
         let width = self.viewctx.dimensions.0;
         let height = self.viewctx.dimensions.1;
 
@@ -269,7 +269,7 @@ where
         _: &Option<String>,
         _: u16,
         _: &mut EditorContext,
-    ) -> crossterm::Result<u16> {
+    ) -> Result<u16, io::Error> {
         Ok(0)
     }
 
@@ -282,7 +282,7 @@ where
         prompt: &Option<String>,
         off: u16,
         context: &mut EditorContext,
-    ) -> crossterm::Result<u16> {
+    ) -> Result<u16, io::Error> {
         if self.viewctx.wrap {
             self._redraw_wrap(prompt, off, context)
         } else {

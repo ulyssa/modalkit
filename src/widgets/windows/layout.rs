@@ -2052,7 +2052,7 @@ mod tests {
     use crate::env::vim::VimContext;
     use crate::widgets::TerminalCursor;
     use rand::Rng;
-    use tui::text::Spans;
+    use tui::text::Line;
 
     macro_rules! fc {
         ($n: expr) => {
@@ -2223,8 +2223,8 @@ mod tests {
             self.id
         }
 
-        fn get_win_title(&self, _: &mut Store<TestApp>) -> Spans {
-            Spans::from("Window Title")
+        fn get_win_title(&self, _: &mut Store<TestApp>) -> Line {
+            Line::from("Window Title")
         }
 
         fn open(id: Option<usize>, _: &mut Store<TestApp>) -> UIResult<Self, TestApp> {

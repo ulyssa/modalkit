@@ -22,9 +22,9 @@ anymap2 = "0.13.0"
 arboard = "3.2.0"
 derive_more = "0.99.16"
 thiserror = "^1.0.37"
-crossterm = "0.25"
+crossterm = "0.27"
 libc = "0.2"
-tui = { version = "0.20", optional = true, package = "ratatui" }
+tui = { version = "0.23", optional = true, package = "ratatui" }
 intervaltree = { version = "0.2.6", optional = true }
 bitflags = "1.2"
 nom = "7.0.0"
