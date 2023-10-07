@@ -40,7 +40,7 @@
 //! }
 //! ```
 //!
-use std::io::Write;
+use std::io::{self, Write};
 use std::process;
 use std::time::Duration;
 
@@ -563,7 +563,7 @@ where
         }
     }
 
-    fn redraw(&mut self, prompt: &Option<String>) -> crossterm::Result<()> {
+    fn redraw(&mut self, prompt: &Option<String>) -> Result<(), io::Error> {
         self.context.stdout.queue(CursorHide)?;
 
         self.context
@@ -584,14 +584,14 @@ where
         Ok(())
     }
 
-    fn linebreak(&mut self) -> crossterm::Result<()> {
+    fn linebreak(&mut self) -> Result<(), io::Error> {
         self.context.stdout.queue(Print("\r\n"))?;
         self.context.stdout.flush()?;
 
         Ok(())
     }
 
-    fn init(&mut self) -> crossterm::Result<()> {
+    fn init(&mut self) -> Result<(), io::Error> {
         let (col, mut row) = crossterm::cursor::position()?;
 
         if col > 0 {

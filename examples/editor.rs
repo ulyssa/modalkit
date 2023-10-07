@@ -18,7 +18,7 @@ use modalkit::tui::{
     buffer::Buffer,
     layout::Rect,
     style::{Modifier as StyleModifier, Style},
-    text::{Span, Spans, Text},
+    text::{Line, Span, Text},
     Terminal,
 };
 
@@ -156,7 +156,7 @@ impl ListItem<EditorInfo> for DirectoryItem {
         };
 
         let entry = Span::styled(self.entry.as_str(), style);
-        let line = Spans(vec![entry, suffix]);
+        let line = Line::from(vec![entry, suffix]);
 
         return Text::from(line);
     }
@@ -353,13 +353,13 @@ impl Window<EditorInfo> for EditorWindow {
         }
     }
 
-    fn get_win_title(&self, _: &mut Store<EditorInfo>) -> Spans {
+    fn get_win_title(&self, _: &mut Store<EditorInfo>) -> Line {
         match self.id() {
-            EditorContentId::Command(CommandType::Command) => Spans::from("[Command Line]"),
-            EditorContentId::Command(CommandType::Search) => Spans::from("[Search Bar]"),
-            EditorContentId::Scratch => Spans::from("[Scratch]"),
-            EditorContentId::File(index) => Spans::from(format!("Buffer {index}")),
-            EditorContentId::Directory(name) => Spans::from(name),
+            EditorContentId::Command(CommandType::Command) => Line::from("[Command Line]"),
+            EditorContentId::Command(CommandType::Search) => Line::from("[Search Bar]"),
+            EditorContentId::Scratch => Line::from("[Scratch]"),
+            EditorContentId::File(index) => Line::from(format!("Buffer {index}")),
+            EditorContentId::Directory(name) => Line::from(name),
         }
     }
 

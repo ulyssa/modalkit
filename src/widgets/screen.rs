@@ -17,7 +17,7 @@ use tui::{
     buffer::Buffer,
     layout::Rect,
     style::{Color, Modifier as StyleModifier, Style},
-    text::{Span, Spans},
+    text::{Line, Span},
     widgets::{BorderType, StatefulWidget, Tabs, Widget},
 };
 
@@ -1148,14 +1148,14 @@ where
                 }
 
                 if let Some(w) = tab.get() {
-                    let mut title = w.get_tab_title(self.store).0;
+                    let mut title = w.get_tab_title(self.store).spans;
 
                     spans.append(&mut title);
                 } else {
                     spans.push(Span::from("[No Name]"));
                 }
 
-                Spans(spans)
+                Line::from(spans)
             })
             .collect();
 

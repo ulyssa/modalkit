@@ -1,4 +1,4 @@
-use tui::{buffer::Buffer, layout::Rect, text::Spans};
+use tui::{buffer::Buffer, layout::Rect, text::Line};
 
 use crate::{
     editing::action::{EditInfo, Jumpable, UIResult},
@@ -225,11 +225,11 @@ where
         self.current.id()
     }
 
-    fn get_win_title(&self, store: &mut Store<I>) -> Spans {
+    fn get_win_title(&self, store: &mut Store<I>) -> Line {
         self.current.get_win_title(store)
     }
 
-    fn get_tab_title(&self, store: &mut Store<I>) -> Spans {
+    fn get_tab_title(&self, store: &mut Store<I>) -> Line {
         self.current.get_tab_title(store)
     }
 
