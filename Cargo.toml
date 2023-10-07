@@ -11,6 +11,7 @@ license = "Apache-2.0"
 exclude = [".github", "CONTRIBUTING.md"]
 keywords = ["modal", "readline", "tui", "vim"]
 categories = ["command-line-interface", "text-editors"]
+rust-version = "1.67"
 
 [features]
 default = ["readline", "widgets"]
