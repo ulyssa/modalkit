@@ -184,6 +184,105 @@ where
     }
 }
 
+/// One of the choices for a [MultiChoice] prompt.
+#[derive(Clone, Debug)]
+pub struct MultiChoiceItem<A: Clone + Debug> {
+    choice: char,
+    text: Cow<'static, str>,
+    actions: Vec<A>,
+}
+
+impl<A> MultiChoiceItem<A>
+where
+    A: Clone + Debug,
+{
+    /// Create a new choice.
+    pub fn new<T>(choice: char, text: T, actions: Vec<A>) -> Self
+    where
+        T: Into<Cow<'static, str>>,
+    {
+        let text = text.into();
+
+        MultiChoiceItem { text, choice, actions }
+    }
+}
+
+/// A prompt that has multiple choices resulting in different actions.
+#[derive(Clone, Debug)]
+pub struct MultiChoice<A: Clone + Debug> {
+    choices: Vec<MultiChoiceItem<A>>,
+    idx_start: usize,
+    idx_end: usize,
+    area: (usize, usize),
+}
+
+impl<A> MultiChoice<A>
+where
+    A: Clone + Debug,
+{
+    /// Create a new prompt with multiple choices.
+    pub fn new(choices: Vec<MultiChoiceItem<A>>) -> Self {
+        MultiChoice {
+            idx_start: 0,
+            idx_end: choices.len(),
+            area: (0, 0),
+            choices,
+        }
+    }
+
+    fn next_page(&mut self) -> bool {
+        self.idx_start = self.idx_end;
+        self.idx_end = self.choices.len();
+
+        return self.idx_start == self.idx_end;
+    }
+}
+
+impl<A> Dialog<A> for MultiChoice<A>
+where
+    A: Clone + Debug + Send + 'static,
+{
+    fn render(&mut self, max_rows: usize, max_cols: usize) -> Vec<Cow<'_, str>> {
+        if max_rows == 0 {
+            return vec![];
+        }
+
+        let max_rows = max_rows.saturating_sub(1);
+
+        if (max_rows, max_cols) != self.area {
+            self.idx_end = self.choices.len().min(self.idx_start + max_rows);
+            self.area = (max_rows, max_cols);
+        }
+
+        let mut lines = self.choices[self.idx_start..self.idx_end]
+            .iter()
+            .map(|c| format!("({}) {}", c.choice, c.text))
+            .map(Cow::Owned)
+            .collect::<Vec<_>>();
+        lines.push("--- Select A Choice Or Press Space To Continue ---".into());
+
+        return lines;
+    }
+
+    fn input(&mut self, c: char) -> Option<Vec<A>> {
+        if c == ' ' {
+            if self.next_page() {
+                return Some(vec![]);
+            } else {
+                return None;
+            }
+        }
+
+        for item in self.choices.iter() {
+            if item.choice == c {
+                return Some(item.actions.clone());
+            }
+        }
+
+        return None;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -252,5 +351,47 @@ mod tests {
         // Press space bar again, and we're done.
         let res = dialog.input(' ');
         assert_eq!(res, Some(vec![5]));
+    }
+
+    #[test]
+    fn test_multi_choice() {
+        let choice1 = MultiChoiceItem::new('a', "Choice A", vec![0, 1]);
+        let choice2 = MultiChoiceItem::new('q', "Choice Q", vec![2]);
+        let choice3 = MultiChoiceItem::new('5', "Choice 5", vec![3]);
+        let choices = vec![choice1, choice2, choice3];
+        let mut dialog = MultiChoice::new(choices.clone());
+
+        // Only returns lines that we have room for.
+        let lines = dialog.render(2, 15);
+        assert_eq!(lines.len(), 2);
+        assert_eq!(lines[0].as_ref(), "(a) Choice A");
+        assert_eq!(lines[1].as_ref(), "--- Select A Choice Or Press Space To Continue ---");
+
+        // Increase visible lines.
+        let lines = dialog.render(3, 15);
+        assert_eq!(lines.len(), 3);
+        assert_eq!(lines[0].as_ref(), "(a) Choice A");
+        assert_eq!(lines[1].as_ref(), "(q) Choice Q");
+        assert_eq!(lines[2].as_ref(), "--- Select A Choice Or Press Space To Continue ---");
+
+        // Press Space.
+        assert_eq!(dialog.input(' '), None);
+
+        // Next page renders.
+        let lines = dialog.render(3, 15);
+        assert_eq!(lines.len(), 2);
+        assert_eq!(lines[0].as_ref(), "(5) Choice 5");
+        assert_eq!(lines[1].as_ref(), "--- Select A Choice Or Press Space To Continue ---");
+
+        // Select choice from previous page.
+        assert_eq!(dialog.input('q'), Some(vec![2]));
+
+        // Restart and select a different choice.
+        let mut dialog = MultiChoice::new(choices.clone());
+        assert_eq!(dialog.input('a'), Some(vec![0, 1]));
+
+        // Restart and select a different choice.
+        let mut dialog = MultiChoice::new(choices.clone());
+        assert_eq!(dialog.input('5'), Some(vec![3]));
     }
 }

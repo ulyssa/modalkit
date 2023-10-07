@@ -91,7 +91,9 @@ where
     X: AxisT,
     Y: AxisT,
 {
-    let Some(ref lengths) = info.lengths else { return; };
+    let Some(ref lengths) = info.lengths else {
+        return;
+    };
     assert_eq!(lengths.len(), node.weight());
 
     fn winlen(sd: &super::size::SizeDescription, winrem: u16, lenrem: u16) -> u16 {
@@ -1306,7 +1308,7 @@ where
         let mut children = vec![];
 
         let Some(root) = &self.root else {
-            return WindowLayoutDescription::Split { children, length: None, };
+            return WindowLayoutDescription::Split { children, length: None };
         };
 
         for w in root.iter() {
