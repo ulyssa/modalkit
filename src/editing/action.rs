@@ -114,7 +114,7 @@ impl EditAction {
 
     /// Returns true if this [EditAction] is allowed to trigger a [WindowAction::Switch] after an
     /// error.
-    pub fn is_switchable<C: EditContext>(&self, _: &C) -> bool {
+    pub fn is_switchable(&self, _: &EditContext) -> bool {
         self.is_motion()
     }
 }
@@ -313,7 +313,7 @@ pub enum CursorAction {
 impl CursorAction {
     /// Returns true if this [CursorAction] is allowed to trigger a [WindowAction::Switch] after an
     /// error.
-    pub fn is_switchable<C: EditContext>(&self, _: &C) -> bool {
+    pub fn is_switchable(&self, _: &EditContext) -> bool {
         match self {
             CursorAction::Restore(_) => true,
 
@@ -354,8 +354,7 @@ where
 
 impl<C, I> Commandable<C, I> for CommandMachine<C>
 where
-    C: Command<Action = Action<I>>,
-    C::Context: EditContext,
+    C: Command<Action = Action<I>, Context = EditContext>,
     I: ApplicationInfo,
 {
     fn command(
@@ -546,7 +545,6 @@ pub trait WindowCount {
 /// Trait for objects that contain windows.
 pub trait WindowContainer<C, S, I>: WindowCount
 where
-    C: EditContext,
     I: ApplicationInfo,
 {
     /// Execute a window action.
@@ -586,7 +584,7 @@ pub enum EditorAction {
 
 impl EditorAction {
     /// Indicates if this is a read-only action.
-    pub fn is_readonly<C: EditContext>(&self, ctx: &C) -> bool {
+    pub fn is_readonly(&self, ctx: &EditContext) -> bool {
         match self {
             EditorAction::Complete(_, _, _) => false,
             EditorAction::History(act) => act.is_readonly(),
@@ -603,11 +601,7 @@ impl EditorAction {
     /// Indicates how an action gets included in [RepeatType::EditSequence].
     ///
     /// `motion` indicates what to do with [EditAction::Motion].
-    pub fn is_edit_sequence<C: EditContext>(
-        &self,
-        motion: SequenceStatus,
-        ctx: &C,
-    ) -> SequenceStatus {
+    pub fn is_edit_sequence(&self, motion: SequenceStatus, ctx: &EditContext) -> SequenceStatus {
         match self {
             EditorAction::History(_) => SequenceStatus::Break,
             EditorAction::Mark(_) => SequenceStatus::Break,
@@ -626,7 +620,7 @@ impl EditorAction {
     }
 
     /// Indicates how an action gets included in [RepeatType::LastAction].
-    pub fn is_last_action<C: EditContext>(&self, _: &C) -> SequenceStatus {
+    pub fn is_last_action(&self, _: &EditContext) -> SequenceStatus {
         match self {
             EditorAction::History(HistoryAction::Checkpoint) => SequenceStatus::Ignore,
             EditorAction::History(HistoryAction::Undo(_)) => SequenceStatus::Atom,
@@ -642,7 +636,7 @@ impl EditorAction {
     }
 
     /// Indicates how an action gets included in [RepeatType::LastSelection].
-    pub fn is_last_selection<C: EditContext>(&self, ctx: &C) -> SequenceStatus {
+    pub fn is_last_selection(&self, ctx: &EditContext) -> SequenceStatus {
         match self {
             EditorAction::History(_) => SequenceStatus::Ignore,
             EditorAction::Mark(_) => SequenceStatus::Ignore,
@@ -668,7 +662,7 @@ impl EditorAction {
     }
 
     /// Returns true if this [Action] is allowed to trigger a [WindowAction::Switch] after an error.
-    pub fn is_switchable<C: EditContext>(&self, ctx: &C) -> bool {
+    pub fn is_switchable(&self, ctx: &EditContext) -> bool {
         match self {
             EditorAction::Cursor(act) => act.is_switchable(ctx),
             EditorAction::Edit(act, _) => ctx.resolve(act).is_switchable(ctx),
@@ -768,11 +762,7 @@ impl<I: ApplicationInfo> Action<I> {
     /// Indicates how an action gets included in [RepeatType::EditSequence].
     ///
     /// `motion` indicates what to do with [EditAction::Motion].
-    pub fn is_edit_sequence<C: EditContext>(
-        &self,
-        motion: SequenceStatus,
-        ctx: &C,
-    ) -> SequenceStatus {
+    pub fn is_edit_sequence(&self, motion: SequenceStatus, ctx: &EditContext) -> SequenceStatus {
         match self {
             Action::Repeat(_) => SequenceStatus::Ignore,
 
@@ -798,7 +788,7 @@ impl<I: ApplicationInfo> Action<I> {
     }
 
     /// Indicates how an action gets included in [RepeatType::LastAction].
-    pub fn is_last_action<C: EditContext>(&self, ctx: &C) -> SequenceStatus {
+    pub fn is_last_action(&self, ctx: &EditContext) -> SequenceStatus {
         match self {
             Action::Repeat(RepeatType::EditSequence) => SequenceStatus::Atom,
             Action::Repeat(RepeatType::LastAction) => SequenceStatus::Ignore,
@@ -825,7 +815,7 @@ impl<I: ApplicationInfo> Action<I> {
     }
 
     /// Indicates how an action gets included in [RepeatType::LastSelection].
-    pub fn is_last_selection<C: EditContext>(&self, ctx: &C) -> SequenceStatus {
+    pub fn is_last_selection(&self, ctx: &EditContext) -> SequenceStatus {
         match self {
             Action::Repeat(_) => SequenceStatus::Ignore,
 
@@ -850,7 +840,7 @@ impl<I: ApplicationInfo> Action<I> {
     }
 
     /// Returns true if this [Action] is allowed to trigger a [WindowAction::Switch] after an error.
-    pub fn is_switchable<C: EditContext>(&self, ctx: &C) -> bool {
+    pub fn is_switchable(&self, ctx: &EditContext) -> bool {
         match self {
             Action::Application(act) => act.is_switchable(ctx),
             Action::Editor(act) => act.is_switchable(ctx),
@@ -1152,11 +1142,10 @@ pub type UIResult<V, I> = Result<V, UIError<I>>;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::env::vim::VimContext;
 
     #[test]
     fn test_is_readonly() {
-        let mut ctx = VimContext::<EmptyInfo>::default();
+        let mut ctx = EditContext::default();
 
         let act = SelectionAction::Duplicate(MoveDir1D::Next, Count::Contextual);
         assert_eq!(EditorAction::from(act).is_readonly(&ctx), true);
@@ -1168,11 +1157,11 @@ mod tests {
         assert_eq!(EditorAction::from(act).is_readonly(&ctx), false);
 
         let act = EditorAction::Edit(Specifier::Contextual, EditTarget::CurrentPosition);
-        ctx.action.operation = EditAction::Motion;
+        ctx.operation = EditAction::Motion;
         assert_eq!(act.is_readonly(&ctx), true);
 
         let act = EditorAction::Edit(Specifier::Contextual, EditTarget::CurrentPosition);
-        ctx.action.operation = EditAction::Delete;
+        ctx.operation = EditAction::Delete;
         assert_eq!(act.is_readonly(&ctx), false);
     }
 }

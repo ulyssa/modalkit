@@ -12,7 +12,6 @@
 //! use modalkit::{
 //!     editing::application::EmptyInfo,
 //!     editing::store::{SharedStore, Store},
-//!     env::vim::VimContext,
 //! };
 //!
 //! let store: SharedStore<EmptyInfo> = Store::default().shared();

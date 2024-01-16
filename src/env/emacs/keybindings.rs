@@ -65,8 +65,8 @@ use crate::editing::{
 
 use super::{
     super::{keyparse::parse, CommonKeyClass, ShellBindings},
-    EmacsContext,
     EmacsMode,
+    EmacsState,
 };
 
 use crate::input::{
@@ -122,7 +122,7 @@ enum InternalAction {
 }
 
 impl InternalAction {
-    pub fn run<I: ApplicationInfo>(&self, ctx: &mut EmacsContext<I>) {
+    pub fn run<I: ApplicationInfo>(&self, ctx: &mut EmacsState<I>) {
         match self {
             InternalAction::ClearTargetShape(shiftreq) => {
                 if *shiftreq {
@@ -178,7 +178,7 @@ enum ExternalAction<I: ApplicationInfo> {
 }
 
 impl<I: ApplicationInfo> ExternalAction<I> {
-    fn resolve(&self, ctx: &mut EmacsContext<I>) -> Vec<Action<I>> {
+    fn resolve(&self, ctx: &mut EmacsState<I>) -> Vec<Action<I>> {
         match self {
             ExternalAction::Something(act) => {
                 ctx.persist.repeating = false;
@@ -255,7 +255,7 @@ impl<I: ApplicationInfo> Clone for InputStep<I> {
 
 impl<I: ApplicationInfo> Step<TerminalKey> for InputStep<I> {
     type A = Action<I>;
-    type C = EmacsContext<I>;
+    type C = EmacsState<I>;
     type M = EmacsMode;
     type Class = CommonKeyClass;
     type Sequence = RepeatType;
@@ -273,7 +273,7 @@ impl<I: ApplicationInfo> Step<TerminalKey> for InputStep<I> {
         None
     }
 
-    fn step(&self, ctx: &mut EmacsContext<I>) -> (Vec<Action<I>>, Option<Self::M>) {
+    fn step(&self, ctx: &mut EmacsState<I>) -> (Vec<Action<I>>, Option<Self::M>) {
         for iact in self.internal.iter() {
             iact.run(ctx);
         }
@@ -771,6 +771,7 @@ impl<I: ApplicationInfo> Default for EmacsMachine<TerminalKey, I> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::editing::context::{EditContext, EditContextBuilder};
     use crate::input::bindings::BindingMachine;
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
@@ -805,39 +806,47 @@ mod tests {
     const CMDBAR_ABORT: Action = Action::Prompt(PromptAction::Abort(false));
     const CMDBAR_SEARCH: Action = Action::CommandBar(CommandBarAction::Focus(CommandType::Search));
 
+    fn mkctx() -> EditContext {
+        EditContextBuilder::default()
+            .last_column(true)
+            .insert_style(Some(InsertStyle::Insert))
+            .search_incremental(true)
+            .build()
+    }
+
     #[test]
     fn test_selection_shift() {
         let mut vm: EmacsMachine<TerminalKey> = EmacsMachine::default();
-        let mut ctx = EmacsContext::default();
+        let mut ctx = mkctx();
 
         // Start out in Insert mode.
         assert_eq!(vm.mode(), EmacsMode::Insert);
 
         // <S-Left> begins shift selection.
         let mov = mv!(MoveType::Column(MoveDir1D::Previous, true));
-        ctx.persist.shift = true;
-        ctx.persist.shape = Some(TargetShape::CharWise);
+        ctx.target_shape = Some(TargetShape::CharWise);
 
         vm.input_key(key!(KeyCode::Left, KeyModifiers::SHIFT));
         assert_pop2!(vm, mov, ctx);
+        assert_eq!(vm.state().persist.shift, true);
         assert_eq!(vm.mode(), EmacsMode::Insert);
 
         // <Left> ends shift selection
         let mov = mv!(MoveType::Column(MoveDir1D::Previous, true));
-        ctx.persist.shift = false;
-        ctx.persist.shape = None;
+        ctx.target_shape = None;
 
         vm.input_key(key!(KeyCode::Left));
         assert_pop2!(vm, mov, ctx);
+        assert_eq!(vm.state().persist.shift, false);
         assert_eq!(vm.mode(), EmacsMode::Insert);
     }
 
     #[test]
     fn test_selection_no_shift() {
         let mut vm: EmacsMachine<TerminalKey> = EmacsMachine::default();
-        let mut ctx = EmacsContext::default();
+        let mut ctx = mkctx();
 
-        ctx.persist.shape = Some(TargetShape::CharWise);
+        ctx.target_shape = Some(TargetShape::CharWise);
 
         // Start out in Insert mode.
         assert_eq!(vm.mode(), EmacsMode::Insert);
@@ -858,13 +867,13 @@ mod tests {
     #[test]
     fn test_search() {
         let mut vm: EmacsMachine<TerminalKey> = EmacsMachine::default();
-        let mut ctx = EmacsContext::default();
+        let mut ctx = mkctx();
 
         // Start out in Insert mode.
         assert_eq!(vm.mode(), EmacsMode::Insert);
 
         // ^R moves to Search mode.
-        ctx.persist.regexsearch_dir = MoveDir1D::Previous;
+        ctx.search_regex_dir = MoveDir1D::Previous;
         vm.input_key(ctl!('r'));
         assert_pop2!(vm, CMDBAR_SEARCH, ctx);
         assert_eq!(vm.mode(), EmacsMode::Search);
@@ -883,7 +892,7 @@ mod tests {
         assert_eq!(vm.mode(), EmacsMode::Search);
 
         // ^S in Search mode results in Action::Search.
-        ctx.persist.regexsearch_dir = MoveDir1D::Next;
+        ctx.search_regex_dir = MoveDir1D::Next;
         let act = Action::Search(MoveDirMod::Exact(MoveDir1D::Next), 1.into());
         vm.input_key(ctl!('s'));
         assert_pop2!(vm, act, ctx);
@@ -908,7 +917,7 @@ mod tests {
     #[test]
     fn test_count() {
         let mut vm: EmacsMachine<TerminalKey> = EmacsMachine::default();
-        let mut ctx = EmacsContext::default();
+        let mut ctx = mkctx();
 
         // Start out in Insert mode.
         assert_eq!(vm.mode(), EmacsMode::Insert);
@@ -926,12 +935,12 @@ mod tests {
         assert_eq!(vm.pop(), None);
 
         // Type space 22 times.
-        ctx.action.count = Some(22);
+        ctx.count = Some(22);
         vm.input_key(key!(' '));
         assert_pop2!(vm, typechar!(' '), ctx);
 
         // We can also type C-U 2 2 SPC.
-        ctx.action.count = Some(22);
+        ctx.count = Some(22);
         vm.input_key(ctl!('u'));
         vm.input_key(key!('2'));
         vm.input_key(key!('2'));
@@ -939,7 +948,7 @@ mod tests {
         assert_pop2!(vm, typechar!(' '), ctx);
 
         // Typing C-U multiple times multiplies by 4 each time.
-        ctx.action.count = Some(64);
+        ctx.count = Some(64);
         vm.input_key(ctl!('u'));
         vm.input_key(ctl!('u'));
         vm.input_key(ctl!('u'));
@@ -950,7 +959,7 @@ mod tests {
     #[test]
     fn test_repeat_action() {
         let mut vm: EmacsMachine<TerminalKey> = EmacsMachine::default();
-        let mut ctx = EmacsContext::default();
+        let ctx = mkctx();
 
         // Start out in Insert mode.
         assert_eq!(vm.mode(), EmacsMode::Insert);
@@ -964,75 +973,70 @@ mod tests {
         assert_pop2!(vm, typechar!('c'), ctx);
 
         // Press C-X z to repeat typing 'c'.
-        ctx.persist.repeating = true;
         vm.input_key(ctl!('x'));
         vm.input_key(key!('z'));
+        assert_eq!(vm.state().persist.repeating, true);
         assert_pop2!(vm, Action::Repeat(RepeatType::LastAction), ctx);
 
         // Only 'c' comes back.
-        ctx.persist.repeating = false;
         vm.repeat(RepeatType::LastAction, Some(ctx.clone()));
         assert_pop2!(vm, typechar!('c'), ctx);
 
         // Pressing 'z' keeps repeating.
-        ctx.persist.repeating = true;
         vm.input_key(key!('z'));
         assert_pop2!(vm, Action::Repeat(RepeatType::LastAction), ctx);
+        assert_eq!(vm.state().persist.repeating, true);
 
         // Get back 'c' again.
-        ctx.persist.repeating = false;
         vm.repeat(RepeatType::LastAction, Some(ctx.clone()));
         assert_pop2!(vm, typechar!('c'), ctx);
 
         // Pressing 'z' keeps repeating.
-        ctx.persist.repeating = true;
         vm.input_key(key!('z'));
         assert_pop2!(vm, Action::Repeat(RepeatType::LastAction), ctx);
+        assert_eq!(vm.state().persist.repeating, true);
 
         // Get back 'c' again.
-        ctx.persist.repeating = false;
         vm.repeat(RepeatType::LastAction, Some(ctx.clone()));
         assert_pop2!(vm, typechar!('c'), ctx);
 
         // Pressing 'd', an unmapped key, interrupts the sequence.
-        ctx.persist.repeating = false;
         vm.input_key(key!('d'));
         assert_pop2!(vm, typechar!('d'), ctx);
+        assert_eq!(vm.state().persist.repeating, false);
 
         // Pressing 'z' doesn't repeat anymore.
-        ctx.persist.repeating = false;
         vm.input_key(key!('z'));
         assert_pop2!(vm, typechar!('z'), ctx);
+        assert_eq!(vm.state().persist.repeating, false);
 
         // Press C-X z to repeat typing the 'z' character.
-        ctx.persist.repeating = true;
         vm.input_key(ctl!('x'));
         vm.input_key(key!('z'));
         assert_pop2!(vm, Action::Repeat(RepeatType::LastAction), ctx);
+        assert_eq!(vm.state().persist.repeating, true);
 
         // Get back 'z'.
-        ctx.persist.repeating = false;
         vm.repeat(RepeatType::LastAction, Some(ctx.clone()));
         assert_pop2!(vm, typechar!('z'), ctx);
 
         // Pressing 'z' keeps repeating.
-        ctx.persist.repeating = true;
         vm.input_key(key!('z'));
         assert_pop2!(vm, Action::Repeat(RepeatType::LastAction), ctx);
+        assert_eq!(vm.state().persist.repeating, true);
 
         // Get back 'z'.
-        ctx.persist.repeating = false;
         vm.repeat(RepeatType::LastAction, Some(ctx.clone()));
         assert_pop2!(vm, typechar!('z'), ctx);
 
         // Pressing <Right>, a mapped key, interrupts the sequence.
-        ctx.persist.repeating = false;
         vm.input_key(key!(KeyCode::Right));
         assert_pop2!(vm, mv!(MoveType::Column(MoveDir1D::Next, true)), ctx);
+        assert_eq!(vm.state().persist.repeating, false);
 
         // Pressing 'z' doesn't repeat anymore.
-        ctx.persist.repeating = false;
         vm.input_key(key!('z'));
         assert_pop2!(vm, typechar!('z'), ctx);
+        assert_eq!(vm.state().persist.repeating, false);
     }
 }

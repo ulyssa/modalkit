@@ -69,11 +69,11 @@ use crate::editing::{
         WindowTarget,
         WriteFlags,
     },
-    context::EditContext,
+    context::{EditContext, Resolve},
     store::Store,
 };
 
-fn windex<C: EditContext>(count: &Count, ctx: &C) -> usize {
+fn windex(count: &Count, ctx: &EditContext) -> usize {
     ctx.resolve(count).saturating_sub(1)
 }
 
@@ -1319,10 +1319,10 @@ where
     }
 
     /// Create a new instance containing a single [Window] displaying some content.
-    pub fn from_target<C: EditContext>(
+    pub fn from_target(
         &self,
         target: &OpenTarget<I::WindowId>,
-        ctx: &C,
+        ctx: &EditContext,
         store: &mut Store<I>,
     ) -> UIResult<Self, I> {
         let w = self._open(target, ctx, store)?;
@@ -1474,10 +1474,10 @@ where
         self.root.size().saturating_sub(1)
     }
 
-    fn _open<C: EditContext>(
+    fn _open(
         &self,
         target: &OpenTarget<I::WindowId>,
-        ctx: &C,
+        ctx: &EditContext,
         store: &mut Store<I>,
     ) -> UIResult<W, I> {
         match target {
@@ -1534,7 +1534,7 @@ where
         }
     }
 
-    fn _target<C: EditContext>(&self, change: &FocusChange, ctx: &C) -> Option<usize> {
+    fn _target(&self, change: &FocusChange, ctx: &EditContext) -> Option<usize> {
         match change {
             FocusChange::Current => {
                 return Some(self.focused);
@@ -1581,16 +1581,15 @@ where
     }
 }
 
-impl<W, C, I> WindowActions<C, I> for WindowLayoutState<W, I>
+impl<W, I> WindowActions<EditContext, I> for WindowLayoutState<W, I>
 where
     W: Window<I>,
-    C: EditContext,
     I: ApplicationInfo,
 {
     fn window_focus(
         &mut self,
         change: &FocusChange,
-        ctx: &C,
+        ctx: &EditContext,
         _: &mut Store<I>,
     ) -> EditResult<EditInfo, I> {
         if let Some(target) = self._target(change, ctx) {
@@ -1604,7 +1603,7 @@ where
     fn window_exchange(
         &mut self,
         change: &FocusChange,
-        ctx: &C,
+        ctx: &EditContext,
         _: &mut Store<I>,
     ) -> EditResult<EditInfo, I> {
         if let Some(target) = self._target(change, ctx) {
@@ -1618,7 +1617,7 @@ where
     fn window_move_side(
         &mut self,
         dir: MoveDir2D,
-        _: &C,
+        _: &EditContext,
         _: &mut Store<I>,
     ) -> EditResult<EditInfo, I> {
         self.zoom = false;
@@ -1630,7 +1629,7 @@ where
     fn window_rotate(
         &mut self,
         _dir: MoveDir1D,
-        _ctx: &C,
+        _ctx: &EditContext,
         _: &mut Store<I>,
     ) -> EditResult<EditInfo, I> {
         // XXX: implement
@@ -1646,7 +1645,7 @@ where
         axis: Axis,
         rel: MoveDir1D,
         count: &Count,
-        ctx: &C,
+        ctx: &EditContext,
         store: &mut Store<I>,
     ) -> UIResult<EditInfo, I> {
         let count = ctx.resolve(count);
@@ -1661,7 +1660,7 @@ where
         return Ok(None);
     }
 
-    fn window_clear_sizes(&mut self, _: &C, _: &mut Store<I>) -> EditResult<EditInfo, I> {
+    fn window_clear_sizes(&mut self, _: &EditContext, _: &mut Store<I>) -> EditResult<EditInfo, I> {
         self.clear_sizes();
 
         return Ok(None);
@@ -1672,7 +1671,7 @@ where
         change: &FocusChange,
         axis: Axis,
         size: &SizeChange<Count>,
-        ctx: &C,
+        ctx: &EditContext,
         _: &mut Store<I>,
     ) -> EditResult<EditInfo, I> {
         let Some(target) = self._target(change, ctx) else {
@@ -1696,7 +1695,7 @@ where
         &mut self,
         target: &WindowTarget,
         flags: CloseFlags,
-        ctx: &C,
+        ctx: &EditContext,
         _: &mut Store<I>,
     ) -> EditResult<EditInfo, I> {
         let nwins = self.root.size();
@@ -1739,7 +1738,7 @@ where
         axis: Axis,
         rel: MoveDir1D,
         count: &Count,
-        ctx: &C,
+        ctx: &EditContext,
         store: &mut Store<I>,
     ) -> UIResult<EditInfo, I> {
         let count: u16 = ctx.resolve(count).try_into().map_err(EditError::from)?;
@@ -1753,7 +1752,7 @@ where
     fn window_switch(
         &mut self,
         target: &OpenTarget<I::WindowId>,
-        ctx: &C,
+        ctx: &EditContext,
         store: &mut Store<I>,
     ) -> UIResult<EditInfo, I> {
         let slot = self.get_slot_mut().ok_or(UIError::NoWindow)?;
@@ -1806,7 +1805,7 @@ where
         target: &WindowTarget,
         path: Option<&str>,
         flags: WriteFlags,
-        ctx: &C,
+        ctx: &EditContext,
         store: &mut Store<I>,
     ) -> UIResult<EditInfo, I> {
         match target {
@@ -1842,7 +1841,7 @@ where
         }
     }
 
-    fn window_zoom_toggle(&mut self, _: &C, _: &mut Store<I>) -> EditResult<EditInfo, I> {
+    fn window_zoom_toggle(&mut self, _: &EditContext, _: &mut Store<I>) -> EditResult<EditInfo, I> {
         self.zoom = self.zoom.not();
 
         Ok(None)
@@ -1875,16 +1874,15 @@ where
     }
 }
 
-impl<W, C, I> WindowContainer<C, Store<I>, I> for WindowLayoutState<W, I>
+impl<W, I> WindowContainer<EditContext, Store<I>, I> for WindowLayoutState<W, I>
 where
     W: Window<I>,
-    C: EditContext,
     I: ApplicationInfo,
 {
     fn window_command(
         &mut self,
         action: &WindowAction<I>,
-        ctx: &C,
+        ctx: &EditContext,
         store: &mut Store<I>,
     ) -> UIResult<EditInfo, I> {
         let info = match action {
@@ -2051,7 +2049,6 @@ mod tests {
         completion::CompletionList,
         store::Store,
     };
-    use crate::env::vim::VimContext;
     use crate::widgets::TerminalCursor;
     use rand::Rng;
     use tui::text::Line;
@@ -2261,19 +2258,18 @@ mod tests {
         }
     }
 
-    fn mkstorectx() -> (Store<TestApp>, VimContext<TestApp>) {
-        (Store::default(), VimContext::default())
+    fn mkstorectx() -> (Store<TestApp>, EditContext) {
+        (Store::default(), EditContext::default())
     }
 
-    fn mktree() -> (WindowLayoutState<TestWindow, TestApp>, Store<TestApp>, VimContext<TestApp>) {
+    fn mktree() -> (WindowLayoutState<TestWindow, TestApp>, Store<TestApp>, EditContext) {
         let (store, ctx) = mkstorectx();
         let tree = WindowLayoutState::new(TestWindow::new());
 
         return (tree, store, ctx);
     }
 
-    fn three_by_three(
-    ) -> (WindowLayoutState<TestWindow, TestApp>, Store<TestApp>, VimContext<TestApp>) {
+    fn three_by_three() -> (WindowLayoutState<TestWindow, TestApp>, Store<TestApp>, EditContext) {
         /*
          * Set up a 3x3 grid, and start in bottom right. The splitting order is important here, to
          * create a more interesting tree. The final result (and their window indexes) looks like:

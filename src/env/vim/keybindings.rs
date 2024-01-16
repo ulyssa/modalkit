@@ -112,8 +112,8 @@ use crate::editing::{
 
 use super::{
     super::{keyparse::parse, CommonKeyClass, ShellBindings},
-    VimContext,
     VimMode,
+    VimState,
 };
 
 use crate::input::{
@@ -228,7 +228,7 @@ enum InternalAction {
 }
 
 impl InternalAction {
-    pub fn run<I: ApplicationInfo>(&self, ctx: &mut VimContext<I>) {
+    pub fn run<I: ApplicationInfo>(&self, ctx: &mut VimState<I>) {
         match self {
             InternalAction::SetCursorEnd(end) => {
                 ctx.action.cursor_end = Some(*end);
@@ -242,6 +242,7 @@ impl InternalAction {
                 }
 
                 ctx.persist.charsearch = ctx.ch.get_typed();
+                ctx.ch = Default::default();
             },
             InternalAction::SetSearchRegexParams(dir, incremental) => {
                 ctx.persist.regexsearch_dir = *dir;
@@ -255,6 +256,7 @@ impl InternalAction {
                     ctx.action.replace = c.clone();
                 } else {
                     ctx.action.replace = ctx.ch.get_typed();
+                    ctx.ch = Default::default();
                 }
             },
             InternalAction::SaveCounting => {
@@ -327,7 +329,7 @@ enum ExternalAction<I: ApplicationInfo> {
 }
 
 impl<I: ApplicationInfo> ExternalAction<I> {
-    fn resolve(&self, context: &mut VimContext<I>) -> Vec<Action<I>> {
+    fn resolve(&self, context: &mut VimState<I>) -> Vec<Action<I>> {
         match self {
             ExternalAction::Something(act) => vec![act.clone()],
             ExternalAction::CountAlters(acts1, acts2) => {
@@ -462,7 +464,7 @@ impl<I: ApplicationInfo> Clone for InputStep<I> {
 
 impl<I: ApplicationInfo> Step<TerminalKey> for InputStep<I> {
     type A = Action<I>;
-    type C = VimContext<I>;
+    type C = VimState<I>;
     type Class = CommonKeyClass;
     type M = VimMode;
     type Sequence = RepeatType;
@@ -483,7 +485,7 @@ impl<I: ApplicationInfo> Step<TerminalKey> for InputStep<I> {
         self.fallthrough_mode
     }
 
-    fn step(&self, ctx: &mut VimContext<I>) -> (Vec<Action<I>>, Option<Self::M>) {
+    fn step(&self, ctx: &mut VimState<I>) -> (Vec<Action<I>>, Option<Self::M>) {
         match (self.nextm, self.internal.as_slice(), ctx.persist.shape) {
             (Some(VimMode::Visual), [InternalAction::SetTargetShape(f, s1)], Some(ref s2))
                 if f.matches(s2) && s1 == s2 =>
@@ -2078,17 +2080,18 @@ impl<I: ApplicationInfo> Default for VimMachine<TerminalKey, I> {
 mod tests {
     use super::*;
     use crate::editing::base::{CursorCloseTarget, Mark, Register};
+    use crate::editing::context::EditContext;
     use crate::input::bindings::BindingMachine;
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
     macro_rules! assert_insert_exit {
         ($mm: expr, $ctx: expr) => {
-            $ctx.action.operation = EditAction::Motion;
+            $ctx.operation = EditAction::Motion;
             assert_pop1!($mm, Action::NoOp, $ctx);
 
-            crate::input::InputContext::take(&mut $ctx);
-            $ctx.persist.shape = None;
-            $ctx.persist.insert = None;
+            $ctx.target_shape = None;
+            $ctx.insert_style = None;
+            $ctx.last_column = false;
 
             assert_pop1!($mm, CURSOR_CLOSE, $ctx);
             assert_pop1!($mm, COLUMN_PREV, $ctx);
@@ -2097,13 +2100,27 @@ mod tests {
         };
     }
 
+    macro_rules! action_reset {
+        ($ctx: expr) => {
+            $ctx.count = None;
+            $ctx.cursor_end = CursorEnd::Auto;
+            $ctx.mark = None;
+            $ctx.operation = EditAction::Motion;
+            $ctx.register = None;
+            $ctx.register_append = false;
+            $ctx.replace_char = None;
+            $ctx.typed = None;
+        };
+    }
+
     macro_rules! assert_visual_exit {
         ($mm: expr, $ctx: expr) => {
             assert_pop1!($mm, Action::NoOp, $ctx);
 
-            crate::input::InputContext::take(&mut $ctx);
-            $ctx.persist.shape = None;
-            $ctx.persist.insert = None;
+            action_reset!($ctx);
+            $ctx.target_shape = None;
+            $ctx.insert_style = None;
+            $ctx.last_column = false;
 
             assert_pop1!($mm, CURSOR_CLOSE, $ctx);
             assert_pop1!($mm, CURRENT_POS, $ctx);
@@ -2114,9 +2131,11 @@ mod tests {
 
     macro_rules! assert_normal {
         ($mm: expr, $ctx: expr) => {
-            let mut keep = crate::input::InputContext::take(&mut $ctx);
-            $ctx.persist.shape = None;
-            $ctx.persist.insert = None;
+            let mut keep = $ctx.clone();
+            action_reset!($ctx);
+            $ctx.target_shape = None;
+            $ctx.insert_style = None;
+            $ctx.last_column = false;
             assert_pop2!($mm, CHECKPOINT, $ctx);
             assert_eq!($mm.mode(), VimMode::Normal);
             std::mem::swap(&mut keep, &mut $ctx);
@@ -2276,7 +2295,7 @@ mod tests {
     #[test]
     fn test_transitions_normal() {
         let mut vm: VimMachine<TerminalKey> = VimMachine::default();
-        let mut ctx = VimContext::default();
+        let mut ctx = EditContext::default();
 
         let op = EditAction::Motion;
 
@@ -2284,7 +2303,8 @@ mod tests {
         assert_eq!(vm.mode(), VimMode::Normal);
 
         // Normal -> Insert mode using "i".
-        ctx.persist.insert = Some(InsertStyle::Insert);
+        ctx.insert_style = Some(InsertStyle::Insert);
+        ctx.last_column = true;
         vm.input_key(key!('i'));
         assert_pop2!(vm, CURSOR_SPLIT, ctx);
         assert_eq!(vm.mode(), VimMode::Insert);
@@ -2294,7 +2314,8 @@ mod tests {
         assert_insert_exit!(vm, ctx);
 
         // Normal -> Insert mode using Insert.
-        ctx.persist.insert = Some(InsertStyle::Insert);
+        ctx.insert_style = Some(InsertStyle::Insert);
+        ctx.last_column = true;
         vm.input_key(key!(KeyCode::Insert));
         assert_pop2!(vm, CURSOR_SPLIT, ctx);
         assert_eq!(vm.mode(), VimMode::Insert);
@@ -2305,7 +2326,8 @@ mod tests {
 
         // Normal -> Insert mode using "gI".
         let mov = mvop!(op, MoveType::LinePos(MovePosition::Beginning), 0);
-        ctx.persist.insert = Some(InsertStyle::Insert);
+        ctx.insert_style = Some(InsertStyle::Insert);
+        ctx.last_column = true;
         vm.input_key(key!('g'));
         vm.input_key(key!('I'));
         assert_pop1!(vm, mov, ctx);
@@ -2318,7 +2340,8 @@ mod tests {
 
         // Normal -> Insert mode using "A".
         let mov = mvop!(op, MoveType::LinePos(MovePosition::End), 0);
-        ctx.persist.insert = Some(InsertStyle::Insert);
+        ctx.insert_style = Some(InsertStyle::Insert);
+        ctx.last_column = true;
         vm.input_key(key!('A'));
         assert_pop1!(vm, mov, ctx);
         assert_pop2!(vm, CURSOR_SPLIT, ctx);
@@ -2330,7 +2353,8 @@ mod tests {
 
         // Normal -> Insert mode using "I".
         let mov = mvop!(op, MoveType::FirstWord(MoveDir1D::Next), 0);
-        ctx.persist.insert = Some(InsertStyle::Insert);
+        ctx.insert_style = Some(InsertStyle::Insert);
+        ctx.last_column = true;
         vm.input_key(key!('I'));
         assert_pop1!(vm, mov, ctx);
         assert_pop2!(vm, CURSOR_SPLIT, ctx);
@@ -2341,31 +2365,34 @@ mod tests {
         assert_insert_exit!(vm, ctx);
 
         // Normal -> Replace mode using "R".
-        ctx.persist.insert = Some(InsertStyle::Replace);
+        ctx.insert_style = Some(InsertStyle::Replace);
+        ctx.last_column = true;
         vm.input_key(key!('R'));
         assert_pop2!(vm, CURSOR_SPLIT, ctx);
         assert_eq!(vm.mode(), VimMode::Insert);
 
         // Replace -> Insert mode using Insert.
-        ctx.persist.insert = Some(InsertStyle::Insert);
+        ctx.insert_style = Some(InsertStyle::Insert);
+        ctx.last_column = true;
         vm.input_key(key!(KeyCode::Insert));
         assert_pop2!(vm, CURSOR_SPLIT, ctx);
         assert_eq!(vm.mode(), VimMode::Insert);
-        assert_eq!(vm.context().persist.insert, Some(InsertStyle::Insert));
+        assert_eq!(vm.state().persist.insert, Some(InsertStyle::Insert));
 
         // Insert -> Replace mode using Insert.
-        ctx.persist.insert = Some(InsertStyle::Replace);
+        ctx.insert_style = Some(InsertStyle::Replace);
+        ctx.last_column = true;
         vm.input_key(key!(KeyCode::Insert));
         assert_pop2!(vm, CURSOR_SPLIT, ctx);
         assert_eq!(vm.mode(), VimMode::Insert);
-        assert_eq!(vm.context().persist.insert, Some(InsertStyle::Replace));
+        assert_eq!(vm.state().persist.insert, Some(InsertStyle::Replace));
 
         // Replace -> Normal mode using ^C.
         vm.input_key(ctl!('c'));
         assert_insert_exit!(vm, ctx);
 
         // Normal -> Visual mode (charwise) using "v".
-        ctx.persist.shape = Some(TargetShape::CharWise);
+        ctx.target_shape = Some(TargetShape::CharWise);
         vm.input_key(key!('v'));
         assert_pop2!(vm, CURRENT_POS, ctx);
         assert_eq!(vm.mode(), VimMode::Visual);
@@ -2375,7 +2402,7 @@ mod tests {
         assert_visual_exit!(vm, ctx);
 
         // Normal -> Visual mode (linewise) using "V".
-        ctx.persist.shape = Some(TargetShape::LineWise);
+        ctx.target_shape = Some(TargetShape::LineWise);
         vm.input_key(key!('V'));
         assert_pop2!(vm, CURRENT_POS, ctx);
         assert_eq!(vm.mode(), VimMode::Visual);
@@ -2385,7 +2412,7 @@ mod tests {
         assert_visual_exit!(vm, ctx);
 
         // Normal -> Visual mode (blockwise) using ^V
-        ctx.persist.shape = Some(TargetShape::BlockWise);
+        ctx.target_shape = Some(TargetShape::BlockWise);
         vm.input_key(ctl!('v'));
         assert_pop2!(vm, CURRENT_POS, ctx);
         assert_eq!(vm.mode(), VimMode::Visual);
@@ -2394,20 +2421,19 @@ mod tests {
     #[test]
     fn test_transitions_command() {
         let mut vm: VimMachine<TerminalKey> = VimMachine::default();
-        let mut ctx = VimContext::default();
+        let mut ctx = EditContext::default();
 
         // Starts in Normal mode
         assert_eq!(vm.mode(), VimMode::Normal);
 
         // Move to Command mode using ":".
-        ctx.persist.postcmd.2 = Some(Box::new(ctx.action.clone()));
         vm.input_key(key!(':'));
         assert_pop2!(vm, CMDBAR, ctx);
         assert_eq!(vm.mode(), VimMode::Command);
 
         // Unmapped key types that character.
-        ctx.persist.insert = Some(InsertStyle::Insert);
-        ctx.persist.postcmd.2 = Some(Box::new(ctx.action.clone()));
+        ctx.insert_style = Some(InsertStyle::Insert);
+        ctx.last_column = true;
         vm.input_key(key!(':'));
         assert_pop2!(vm, typechar!(':'), ctx);
         assert_eq!(vm.mode(), VimMode::Command);
@@ -2423,135 +2449,130 @@ mod tests {
         assert_eq!(vm.mode(), VimMode::Command);
 
         // Go back to Normal mode via Escape.
-        ctx.persist.postcmd.2 = None;
         vm.input_key(key!(KeyCode::Esc));
         assert_pop1!(vm, CMDBAR_ABORT, ctx);
 
-        ctx.persist.insert = None;
+        ctx.insert_style = None;
+        ctx.last_column = false;
         assert_eq!(vm.mode(), VimMode::Normal);
         assert_pop1!(vm, CURSOR_CLOSE, ctx);
         assert_pop1!(vm, CURRENT_POS, ctx);
         assert_normal!(vm, ctx);
 
         // Move to Command mode (forward search) using "/".
-        ctx.persist.regexsearch_dir = MoveDir1D::Next;
-        ctx.persist.postcmd.2 = Some(Box::new(ctx.action.clone()));
+        ctx.search_regex_dir = MoveDir1D::Next;
         vm.input_key(key!('/'));
         assert_pop2!(vm, CMDBAR_SEARCH, ctx);
         assert_eq!(vm.mode(), VimMode::Command);
 
         // Unmapped key types that character.
-        ctx.persist.insert = Some(InsertStyle::Insert);
+        ctx.insert_style = Some(InsertStyle::Insert);
+        ctx.last_column = true;
         vm.input_key(key!('1'));
         assert_pop2!(vm, typechar!('1'), ctx);
         assert_eq!(vm.mode(), VimMode::Command);
 
         // Go back to Normal mode via ^C.
-        ctx.persist.postcmd.2 = None;
         vm.input_key(ctl!('c'));
         assert_pop1!(vm, CMDBAR_ABORT, ctx);
 
-        ctx.persist.insert = None;
+        ctx.insert_style = None;
+        ctx.last_column = false;
         assert_pop1!(vm, CURSOR_CLOSE, ctx);
         assert_pop1!(vm, CURRENT_POS, ctx);
         assert_normal!(vm, ctx);
 
         // Move to Command mode (reverse search) using "?".
-        ctx.persist.postcmd.2 = Some(Box::new(ctx.action.clone()));
-        ctx.persist.regexsearch_dir = MoveDir1D::Previous;
+        ctx.search_regex_dir = MoveDir1D::Previous;
         vm.input_key(key!('?'));
         assert_pop2!(vm, CMDBAR_SEARCH, ctx);
         assert_eq!(vm.mode(), VimMode::Command);
 
         // Unmapped key types that character.
-        ctx.persist.insert = Some(InsertStyle::Insert);
+        ctx.insert_style = Some(InsertStyle::Insert);
+        ctx.last_column = true;
         vm.input_key(key!('^'));
         assert_pop2!(vm, typechar!('^'), ctx);
         assert_eq!(vm.mode(), VimMode::Command);
 
         // Go back to Normal mode via ^C.
-        ctx.persist.postcmd.2 = None;
         vm.input_key(ctl!('c'));
         assert_pop1!(vm, CMDBAR_ABORT, ctx);
 
-        ctx.persist.insert = None;
+        ctx.insert_style = None;
+        ctx.last_column = false;
         assert_pop1!(vm, CURSOR_CLOSE, ctx);
         assert_pop1!(vm, CURRENT_POS, ctx);
         assert_normal!(vm, ctx);
 
         // Go to Visual mode via "v".
-        ctx.persist.shape = Some(TargetShape::CharWise);
+        ctx.target_shape = Some(TargetShape::CharWise);
         vm.input_key(key!('v'));
         assert_pop2!(vm, CURRENT_POS, ctx);
         assert_eq!(vm.mode(), VimMode::Visual);
 
         // Move to Command mode using "/".
-        ctx.persist.shape = None;
-        ctx.persist.postcmd.0 = VimMode::Visual;
-        ctx.persist.postcmd.1 = Some(TargetShape::CharWise);
-        ctx.persist.postcmd.2 = Some(Box::new(ctx.action.clone()));
-        ctx.persist.regexsearch_dir = MoveDir1D::Next;
+        ctx.target_shape = None;
+        ctx.search_regex_dir = MoveDir1D::Next;
         vm.input_key(key!('/'));
         assert_pop2!(vm, CMDBAR_SEARCH, ctx);
         assert_eq!(vm.mode(), VimMode::Command);
 
         // Unmapped key types that character.
-        ctx.persist.insert = Some(InsertStyle::Insert);
-        ctx.persist.shape = None;
+        ctx.last_column = true;
+        ctx.insert_style = Some(InsertStyle::Insert);
+        ctx.target_shape = None;
         vm.input_key(key!('1'));
         assert_pop2!(vm, typechar!('1'), ctx);
         assert_eq!(vm.mode(), VimMode::Command);
 
         // <Enter> submits and takes us back to Visual mode.
-        ctx.persist.postcmd = Default::default();
-        ctx.persist.shape = Some(TargetShape::CharWise);
+        ctx.target_shape = Some(TargetShape::CharWise);
         vm.input_key(key!(KeyCode::Enter));
         assert_pop2!(vm, Action::from(PromptAction::Submit), ctx);
         assert_eq!(vm.mode(), VimMode::Visual);
 
         // Move to Visual mode (linewise) using "V".
-        ctx.persist.insert = None;
-        ctx.persist.shape = Some(TargetShape::LineWise);
+        ctx.last_column = false;
+        ctx.insert_style = None;
+        ctx.target_shape = Some(TargetShape::LineWise);
         vm.input_key(key!('V'));
         assert_pop2!(vm, CURRENT_POS, ctx);
         assert_eq!(vm.mode(), VimMode::Visual);
 
         // Move to Command mode using "/".
-        ctx.persist.shape = None;
-        ctx.persist.postcmd.0 = VimMode::Visual;
-        ctx.persist.postcmd.1 = Some(TargetShape::LineWise);
-        ctx.persist.postcmd.2 = Some(Box::new(ctx.action.clone()));
-        ctx.persist.regexsearch_dir = MoveDir1D::Next;
+        ctx.target_shape = None;
+        ctx.search_regex_dir = MoveDir1D::Next;
         vm.input_key(key!('/'));
         assert_pop2!(vm, CMDBAR_SEARCH, ctx);
         assert_eq!(vm.mode(), VimMode::Command);
 
         // Unmapped key types that character.
-        ctx.persist.insert = Some(InsertStyle::Insert);
-        ctx.persist.shape = None;
+        ctx.last_column = true;
+        ctx.insert_style = Some(InsertStyle::Insert);
+        ctx.target_shape = None;
         vm.input_key(key!('1'));
         assert_pop2!(vm, typechar!('1'), ctx);
         assert_eq!(vm.mode(), VimMode::Command);
 
         // <Enter> submits and takes us back to Visual (linewise) mode.
-        ctx.persist.postcmd = Default::default();
-        ctx.persist.shape = Some(TargetShape::LineWise);
+        ctx.target_shape = Some(TargetShape::LineWise);
         vm.input_key(key!(KeyCode::Enter));
         assert_pop2!(vm, Action::from(PromptAction::Submit), ctx);
         assert_eq!(vm.mode(), VimMode::Visual);
 
         // Visual -> Normal mode using ^C.
-        ctx.persist.insert = None;
+        ctx.last_column = false;
+        ctx.insert_style = None;
         vm.input_key(ctl!('c'));
         assert_visual_exit!(vm, ctx);
 
         // "2c/" should take us to Command mode, with a pending entry into Insert mode.
-        ctx.action.count = Some(2);
-        ctx.action.operation = EditAction::Delete;
-        ctx.persist.insert = Some(InsertStyle::Insert);
-        ctx.persist.postcmd.0 = VimMode::Insert;
-        ctx.persist.postcmd.2 = Some(Box::new(ctx.action.clone()));
-        ctx.persist.regexsearch_dir = MoveDir1D::Next;
+        ctx.count = Some(2);
+        ctx.operation = EditAction::Delete;
+        ctx.insert_style = Some(InsertStyle::Insert);
+        ctx.last_column = true;
+        ctx.search_regex_dir = MoveDir1D::Next;
         vm.input_key(key!('2'));
         vm.input_key(key!('c'));
         vm.input_key(key!('/'));
@@ -2559,16 +2580,15 @@ mod tests {
         assert_eq!(vm.mode(), VimMode::Command);
 
         // Unmapped key types that character.
-        ctx.action.count = None;
-        ctx.action.operation = EditAction::Motion;
+        ctx.count = None;
+        ctx.operation = EditAction::Motion;
         vm.input_key(key!('1'));
         assert_pop2!(vm, typechar!('1'), ctx);
         assert_eq!(vm.mode(), VimMode::Command);
 
         // <Enter> submits and takes us to Insert mode.
-        ctx.action.count = Some(2);
-        ctx.action.operation = EditAction::Delete;
-        ctx.persist.postcmd = Default::default();
+        ctx.count = Some(2);
+        ctx.operation = EditAction::Delete;
         vm.input_key(key!(KeyCode::Enter));
         assert_pop2!(vm, Action::from(PromptAction::Submit), ctx);
         assert_eq!(vm.mode(), VimMode::Insert);
@@ -2577,10 +2597,10 @@ mod tests {
     #[test]
     fn test_transitions_visual() {
         let mut vm: VimMachine<TerminalKey> = VimMachine::default();
-        let mut ctx = VimContext::default();
+        let mut ctx = EditContext::default();
 
         // Move to Visual mode (charwise) and back using "v".
-        ctx.persist.shape = Some(TargetShape::CharWise);
+        ctx.target_shape = Some(TargetShape::CharWise);
         vm.input_key(key!('v'));
         assert_pop2!(vm, CURRENT_POS, ctx);
         assert_eq!(vm.mode(), VimMode::Visual);
@@ -2589,7 +2609,7 @@ mod tests {
         assert_visual_exit!(vm, ctx);
 
         // Move to Visual mode (linewise) and back using "V".
-        ctx.persist.shape = Some(TargetShape::LineWise);
+        ctx.target_shape = Some(TargetShape::LineWise);
         vm.input_key(key!('V'));
         assert_pop2!(vm, CURRENT_POS, ctx);
         assert_eq!(vm.mode(), VimMode::Visual);
@@ -2598,7 +2618,7 @@ mod tests {
         assert_visual_exit!(vm, ctx);
 
         // Move to Visual mode (blockwise) and back using ^V.
-        ctx.persist.shape = Some(TargetShape::BlockWise);
+        ctx.target_shape = Some(TargetShape::BlockWise);
         vm.input_key(ctl!('v'));
         assert_pop2!(vm, CURRENT_POS, ctx);
         assert_eq!(vm.mode(), VimMode::Visual);
@@ -2607,27 +2627,27 @@ mod tests {
         assert_visual_exit!(vm, ctx);
 
         // Cycle through the different Visual modes.
-        ctx.persist.shape = Some(TargetShape::CharWise);
+        ctx.target_shape = Some(TargetShape::CharWise);
         vm.input_key(key!('v'));
         assert_pop2!(vm, CURRENT_POS, ctx);
         assert_eq!(vm.mode(), VimMode::Visual);
 
-        ctx.persist.shape = Some(TargetShape::LineWise);
+        ctx.target_shape = Some(TargetShape::LineWise);
         vm.input_key(key!('V'));
         assert_pop2!(vm, CURRENT_POS, ctx);
         assert_eq!(vm.mode(), VimMode::Visual);
 
-        ctx.persist.shape = Some(TargetShape::BlockWise);
+        ctx.target_shape = Some(TargetShape::BlockWise);
         vm.input_key(ctl!('v'));
         assert_pop2!(vm, CURRENT_POS, ctx);
         assert_eq!(vm.mode(), VimMode::Visual);
 
-        ctx.persist.shape = Some(TargetShape::LineWise);
+        ctx.target_shape = Some(TargetShape::LineWise);
         vm.input_key(key!('V'));
         assert_pop2!(vm, CURRENT_POS, ctx);
         assert_eq!(vm.mode(), VimMode::Visual);
 
-        ctx.persist.shape = Some(TargetShape::CharWise);
+        ctx.target_shape = Some(TargetShape::CharWise);
         vm.input_key(key!('v'));
         assert_pop2!(vm, CURRENT_POS, ctx);
         assert_eq!(vm.mode(), VimMode::Visual);
@@ -2639,10 +2659,10 @@ mod tests {
     #[test]
     fn test_transitions_visual_select() {
         let mut vm: VimMachine<TerminalKey> = VimMachine::default();
-        let mut ctx = VimContext::default();
+        let mut ctx = EditContext::default();
 
         // Test charwise shapes.
-        ctx.persist.shape = Some(TargetShape::CharWise);
+        ctx.target_shape = Some(TargetShape::CharWise);
 
         vm.input_key(key!('v'));
         assert_pop2!(vm, CURRENT_POS, ctx);
@@ -2658,7 +2678,7 @@ mod tests {
         assert_eq!(vm.mode(), VimMode::Visual);
 
         // Test linewise shapes.
-        ctx.persist.shape = Some(TargetShape::LineWise);
+        ctx.target_shape = Some(TargetShape::LineWise);
 
         // Move to Visual mode (linewise) using "V".
         vm.input_key(key!('V'));
@@ -2675,7 +2695,7 @@ mod tests {
         assert_eq!(vm.mode(), VimMode::Visual);
 
         // Test blockwise shapes.
-        ctx.persist.shape = Some(TargetShape::BlockWise);
+        ctx.target_shape = Some(TargetShape::BlockWise);
 
         // Move to Visual mode (blockwise) using ^V.
         vm.input_key(ctl!('v'));
@@ -2704,10 +2724,10 @@ mod tests {
     #[test]
     fn test_transitions_select() {
         let mut vm: VimMachine<TerminalKey> = VimMachine::default();
-        let mut ctx = VimContext::default();
+        let mut ctx = EditContext::default();
 
         // Enter Select mode (charwise) via "gh".
-        ctx.persist.shape = Some(TargetShape::CharWise);
+        ctx.target_shape = Some(TargetShape::CharWise);
         vm.input_key(key!('g'));
         vm.input_key(key!('h'));
         assert_pop2!(vm, CURRENT_POS, ctx);
@@ -2734,14 +2754,15 @@ mod tests {
         assert_pop2!(vm, mov, ctx);
         assert_eq!(vm.mode(), VimMode::Select);
 
-        ctx.persist.insert = Some(InsertStyle::Insert);
+        ctx.insert_style = Some(InsertStyle::Insert);
+        ctx.last_column = true;
 
         let mov = selop!(EditAction::Delete);
         vm.input_key(key!('H'));
         assert_pop1!(vm, mov, ctx);
         assert_pop1!(vm, typechar!('H'), ctx);
 
-        ctx.persist.shape = None;
+        ctx.target_shape = None;
         assert_pop2!(vm, CURRENT_POS, ctx);
         assert_eq!(vm.mode(), VimMode::Insert);
 
@@ -2754,7 +2775,7 @@ mod tests {
         assert_insert_exit!(vm, ctx);
 
         // Move to Select mode (blockwise) using g^H.
-        ctx.persist.shape = Some(TargetShape::BlockWise);
+        ctx.target_shape = Some(TargetShape::BlockWise);
         vm.input_key(key!('g'));
         vm.input_key(ctl!('h'));
         assert_pop2!(vm, CURRENT_POS, ctx);
@@ -2782,7 +2803,7 @@ mod tests {
     #[test]
     fn test_count() {
         let mut vm: VimMachine<TerminalKey> = VimMachine::default();
-        let mut ctx = VimContext::default();
+        let mut ctx = EditContext::default();
 
         let mov = mv!(MoveType::WordBegin(WordStyle::Little, MoveDir1D::Next));
 
@@ -2792,14 +2813,14 @@ mod tests {
         assert_normal!(vm, ctx);
 
         // Test initial non-"0" number.
-        ctx.action.count = Some(5);
+        ctx.count = Some(5);
         vm.input_key(key!('5'));
         vm.input_key(key!('w'));
         assert_pop1!(vm, mov, ctx);
         assert_normal!(vm, ctx);
 
         // Test "0" after initial non-"0" number.
-        ctx.action.count = Some(10);
+        ctx.count = Some(10);
         vm.input_key(key!('1'));
         vm.input_key(key!('0'));
         vm.input_key(key!('w'));
@@ -2807,7 +2828,7 @@ mod tests {
         assert_normal!(vm, ctx);
 
         // Test multiple "0" keys after initial non-"0" number.
-        ctx.action.count = Some(100);
+        ctx.count = Some(100);
         vm.input_key(key!('1'));
         vm.input_key(key!('0'));
         vm.input_key(key!('0'));
@@ -2816,7 +2837,7 @@ mod tests {
         assert_normal!(vm, ctx);
 
         // Test every number.
-        ctx.action.count = Some(1234567890);
+        ctx.count = Some(1234567890);
         vm.input_key(key!('1'));
         vm.input_key(key!('2'));
         vm.input_key(key!('3'));
@@ -2831,10 +2852,10 @@ mod tests {
         assert_pop1!(vm, mov, ctx);
         assert_normal!(vm, ctx);
 
-        ctx.action.operation = EditAction::Delete;
+        ctx.operation = EditAction::Delete;
 
         // Operator-Pending mode count is multiplied by Normal mode count.
-        ctx.action.count = Some(4);
+        ctx.count = Some(4);
         vm.input_key(key!('2'));
         vm.input_key(key!('d'));
         vm.input_key(key!('2'));
@@ -2842,7 +2863,7 @@ mod tests {
         assert_pop1!(vm, mov, ctx);
         assert_normal!(vm, ctx);
 
-        ctx.action.count = Some(16);
+        ctx.count = Some(16);
         vm.input_key(key!('8'));
         vm.input_key(key!('d'));
         vm.input_key(key!('2'));
@@ -2853,13 +2874,13 @@ mod tests {
         // Initial "0" in Operator-Pending mode is a movement.
         let mov = mv!(MoveType::LinePos(MovePosition::Beginning), 0);
 
-        ctx.action.count = None;
+        ctx.count = None;
         vm.input_key(key!('d'));
         vm.input_key(key!('0'));
         assert_pop1!(vm, mov, ctx);
         assert_normal!(vm, ctx);
 
-        ctx.action.count = Some(2);
+        ctx.count = Some(2);
         vm.input_key(key!('2'));
         vm.input_key(key!('d'));
         vm.input_key(key!('0'));
@@ -2870,20 +2891,20 @@ mod tests {
     #[test]
     fn test_register() {
         let mut vm: VimMachine<TerminalKey> = VimMachine::default();
-        let mut ctx = VimContext::default();
+        let mut ctx = EditContext::default();
 
         let op = EditAction::Yank;
         let mov = rangeop!(op, RangeType::Line);
-        ctx.action.operation = EditAction::Yank;
+        ctx.operation = EditAction::Yank;
 
-        ctx.action.register = None;
+        ctx.register = None;
         vm.input_key(key!('y'));
         vm.input_key(key!('y'));
         assert_pop1!(vm, mov, ctx);
         assert_normal!(vm, ctx);
 
-        ctx.action.register = Some(Register::Named('a'));
-        ctx.action.register_append = false;
+        ctx.register = Some(Register::Named('a'));
+        ctx.register_append = false;
         vm.input_key(key!('"'));
         vm.input_key(key!('a'));
         vm.input_key(key!('y'));
@@ -2891,8 +2912,8 @@ mod tests {
         assert_pop1!(vm, mov, ctx);
         assert_normal!(vm, ctx);
 
-        ctx.action.register = Some(Register::Named('a'));
-        ctx.action.register_append = true;
+        ctx.register = Some(Register::Named('a'));
+        ctx.register_append = true;
         vm.input_key(key!('"'));
         vm.input_key(key!('A'));
         vm.input_key(key!('y'));
@@ -2900,8 +2921,8 @@ mod tests {
         assert_pop1!(vm, mov, ctx);
         assert_normal!(vm, ctx);
 
-        ctx.action.register = Some(Register::LastYanked);
-        ctx.action.register_append = false;
+        ctx.register = Some(Register::LastYanked);
+        ctx.register_append = false;
         vm.input_key(key!('"'));
         vm.input_key(key!('0'));
         vm.input_key(key!('y'));
@@ -2909,7 +2930,7 @@ mod tests {
         assert_pop1!(vm, mov, ctx);
         assert_normal!(vm, ctx);
 
-        ctx.action.register = Some(Register::RecentlyDeleted(4));
+        ctx.register = Some(Register::RecentlyDeleted(4));
         vm.input_key(key!('"'));
         vm.input_key(key!('5'));
         vm.input_key(key!('y'));
@@ -2917,7 +2938,7 @@ mod tests {
         assert_pop1!(vm, mov, ctx);
         assert_normal!(vm, ctx);
 
-        ctx.action.register = Some(Register::Unnamed);
+        ctx.register = Some(Register::Unnamed);
         vm.input_key(key!('"'));
         vm.input_key(key!('"'));
         vm.input_key(key!('y'));
@@ -2925,7 +2946,7 @@ mod tests {
         assert_pop1!(vm, mov, ctx);
         assert_normal!(vm, ctx);
 
-        ctx.action.register = Some(Register::Blackhole);
+        ctx.register = Some(Register::Blackhole);
         vm.input_key(key!('"'));
         vm.input_key(key!('_'));
         vm.input_key(key!('y'));
@@ -2937,11 +2958,11 @@ mod tests {
     #[test]
     fn test_mark() {
         let mut vm: VimMachine<TerminalKey> = VimMachine::default();
-        let mut ctx = VimContext::default();
+        let mut ctx = EditContext::default();
 
         // Create local mark 'c.
         let act = EditorAction::Mark(Specifier::Contextual);
-        ctx.action.mark = Some(Mark::BufferNamed('c'));
+        ctx.mark = Some(Mark::BufferNamed('c'));
         vm.input_key(key!('m'));
         vm.input_key(key!('c'));
         assert_pop1!(vm, Action::from(act), ctx);
@@ -2949,7 +2970,7 @@ mod tests {
 
         // Create global mark 'C.
         let act = EditorAction::Mark(Specifier::Contextual);
-        ctx.action.mark = Some(Mark::GlobalNamed('C'));
+        ctx.mark = Some(Mark::GlobalNamed('C'));
         vm.input_key(key!('m'));
         vm.input_key(key!('C'));
         assert_pop1!(vm, Action::from(act), ctx);
@@ -2958,7 +2979,7 @@ mod tests {
         // Go to the line of last inserted text.
         let target = EditTarget::LineJump(Specifier::Contextual);
         let mov = EditorAction::Edit(Specifier::Contextual, target);
-        ctx.action.mark = Some(Mark::LastInserted);
+        ctx.mark = Some(Mark::LastInserted);
         vm.input_key(key!('\''));
         vm.input_key(key!('^'));
         assert_pop1!(vm, Action::from(mov), ctx);
@@ -2967,7 +2988,7 @@ mod tests {
         // Go to the column of the end of the last visual selection.
         let target = EditTarget::CharJump(Specifier::Contextual);
         let mov = EditorAction::Edit(Specifier::Contextual, target);
-        ctx.action.mark = Some(Mark::VisualEnd);
+        ctx.mark = Some(Mark::VisualEnd);
         vm.input_key(key!('`'));
         vm.input_key(key!('>'));
         assert_pop1!(vm, Action::from(mov), ctx);
@@ -2977,57 +2998,57 @@ mod tests {
     #[test]
     fn test_normal_ops() {
         let mut vm: VimMachine<TerminalKey> = VimMachine::default();
-        let mut ctx = VimContext::default();
+        let mut ctx = EditContext::default();
 
         let mov = mv!(MoveType::WordBegin(WordStyle::Little, MoveDir1D::Next));
 
-        ctx.action.operation = EditAction::Yank;
+        ctx.operation = EditAction::Yank;
         vm.input_key(key!('y'));
         vm.input_key(key!('w'));
         assert_pop1!(vm, mov, ctx);
         assert_normal!(vm, ctx);
 
-        ctx.action.operation = EditAction::Format;
+        ctx.operation = EditAction::Format;
         vm.input_key(key!('g'));
         vm.input_key(key!('q'));
         vm.input_key(key!('w'));
         assert_pop1!(vm, mov, ctx);
         assert_normal!(vm, ctx);
 
-        ctx.action.operation = EditAction::ChangeCase(Case::Lower);
+        ctx.operation = EditAction::ChangeCase(Case::Lower);
         vm.input_key(key!('g'));
         vm.input_key(key!('u'));
         vm.input_key(key!('w'));
         assert_pop1!(vm, mov, ctx);
         assert_normal!(vm, ctx);
 
-        ctx.action.operation = EditAction::ChangeCase(Case::Upper);
+        ctx.operation = EditAction::ChangeCase(Case::Upper);
         vm.input_key(key!('g'));
         vm.input_key(key!('U'));
         vm.input_key(key!('w'));
         assert_pop1!(vm, mov, ctx);
         assert_normal!(vm, ctx);
 
-        ctx.action.operation = EditAction::ChangeCase(Case::Toggle);
+        ctx.operation = EditAction::ChangeCase(Case::Toggle);
         vm.input_key(key!('g'));
         vm.input_key(key!('~'));
         vm.input_key(key!('w'));
         assert_pop1!(vm, mov, ctx);
         assert_normal!(vm, ctx);
 
-        ctx.action.operation = EditAction::Indent(IndentChange::Auto);
+        ctx.operation = EditAction::Indent(IndentChange::Auto);
         vm.input_key(key!('='));
         vm.input_key(key!('w'));
         assert_pop1!(vm, mov, ctx);
         assert_normal!(vm, ctx);
 
-        ctx.action.operation = EditAction::Indent(IndentChange::Decrease(Count::Exact(1)));
+        ctx.operation = EditAction::Indent(IndentChange::Decrease(Count::Exact(1)));
         vm.input_key(key!('<'));
         vm.input_key(key!('w'));
         assert_pop1!(vm, mov, ctx);
         assert_normal!(vm, ctx);
 
-        ctx.action.operation = EditAction::Indent(IndentChange::Increase(Count::Exact(1)));
+        ctx.operation = EditAction::Indent(IndentChange::Increase(Count::Exact(1)));
         vm.input_key(key!('>'));
         vm.input_key(key!('w'));
         assert_pop1!(vm, mov, ctx);
@@ -3035,7 +3056,7 @@ mod tests {
 
         let mov = range!(RangeType::Word(WordStyle::Little));
 
-        ctx.action.operation = EditAction::Format;
+        ctx.operation = EditAction::Format;
         vm.input_key(key!('g'));
         vm.input_key(key!('w'));
         vm.input_key(key!('a'));
@@ -3043,7 +3064,7 @@ mod tests {
         assert_pop1!(vm, mov, ctx);
         assert_normal!(vm, ctx);
 
-        ctx.action.operation = EditAction::Motion;
+        ctx.operation = EditAction::Motion;
 
         let op = EditAction::Join(JoinStyle::OneSpace);
         let lines = rangeop!(op, RangeType::Line);
@@ -3059,23 +3080,22 @@ mod tests {
         assert_normal!(vm, ctx);
 
         let col = MoveType::Column(MoveDir1D::Next, false);
-        ctx.action.cursor_end = Some(CursorEnd::End);
+        ctx.cursor_end = CursorEnd::End;
         vm.input_key(key!('~'));
         assert_pop1!(vm, mvop!(EditAction::ChangeCase(Case::Toggle), col), ctx);
         assert_normal!(vm, ctx);
 
         let mov = mv!(MoveType::Column(MoveDir1D::Next, false));
-        ctx.action.cursor_end = None;
-        ctx.action.operation = EditAction::Replace(false);
-        ctx.action.replace = Some('A'.into());
-        ctx.ch.any = Some(key!('A'));
+        ctx.cursor_end = CursorEnd::Auto;
+        ctx.operation = EditAction::Replace(false);
+        ctx.replace_char = Some('A'.into());
         vm.input_key(key!('r'));
         vm.input_key(key!('A'));
         assert_pop1!(vm, mov, ctx);
         assert_normal!(vm, ctx);
-        ctx.action.operation = EditAction::Motion;
-        ctx.action.replace = None;
-        ctx.ch.any = None;
+
+        ctx.operation = EditAction::Motion;
+        ctx.replace_char = None;
 
         let op = EditAction::ChangeNumber(NumberChange::Increase(Count::Contextual), false);
         let mov = mvop!(op, MoveType::LinePos(MovePosition::End), 0);
@@ -3093,18 +3113,18 @@ mod tests {
     #[test]
     fn test_delete_ops() {
         let mut vm: VimMachine<TerminalKey> = VimMachine::default();
-        let mut ctx = VimContext::default();
+        let mut ctx = EditContext::default();
 
         let op = EditAction::Delete;
 
         let mov = mv!(MoveType::WordBegin(WordStyle::Little, MoveDir1D::Next));
-        ctx.action.operation = op.clone();
+        ctx.operation = op.clone();
         vm.input_key(key!('d'));
         vm.input_key(key!('w'));
         assert_pop1!(vm, mov, ctx);
         assert_normal!(vm, ctx);
 
-        ctx.action.operation = EditAction::Motion;
+        ctx.operation = EditAction::Motion;
 
         let movend = mvop!(op, MoveType::LinePos(MovePosition::End), Count::MinusOne);
         vm.input_key(key!('D'));
@@ -3130,12 +3150,13 @@ mod tests {
     #[test]
     fn test_change_ops() {
         let mut vm: VimMachine<TerminalKey> = VimMachine::default();
-        let mut ctx = VimContext::default();
+        let mut ctx = EditContext::default();
 
         // Change a word around the cursor with "caw".
         let mov = range!(RangeType::Word(WordStyle::Little));
-        ctx.action.operation = EditAction::Delete;
-        ctx.persist.insert = Some(InsertStyle::Insert);
+        ctx.operation = EditAction::Delete;
+        ctx.insert_style = Some(InsertStyle::Insert);
+        ctx.last_column = true;
         vm.input_key(key!('c'));
         vm.input_key(key!('a'));
         vm.input_key(key!('w'));
@@ -3148,8 +3169,9 @@ mod tests {
 
         // Change from cursor to end of a word with "cw".
         let mov = mv!(MoveType::WordEnd(WordStyle::Little, MoveDir1D::Next));
-        ctx.action.operation = EditAction::Delete;
-        ctx.persist.insert = Some(InsertStyle::Insert);
+        ctx.operation = EditAction::Delete;
+        ctx.insert_style = Some(InsertStyle::Insert);
+        ctx.last_column = true;
         vm.input_key(key!('c'));
         vm.input_key(key!('w'));
         assert_pop2!(vm, mov, ctx);
@@ -3161,8 +3183,9 @@ mod tests {
 
         // Change from cursor to end of a WORD with "cW".
         let mov = mv!(MoveType::WordEnd(WordStyle::Big, MoveDir1D::Next));
-        ctx.action.operation = EditAction::Delete;
-        ctx.persist.insert = Some(InsertStyle::Insert);
+        ctx.operation = EditAction::Delete;
+        ctx.insert_style = Some(InsertStyle::Insert);
+        ctx.last_column = true;
         vm.input_key(key!('c'));
         vm.input_key(key!('W'));
         assert_pop2!(vm, mov, ctx);
@@ -3175,7 +3198,8 @@ mod tests {
         // Substitute a character with "s".
         let op = EditAction::Delete;
         let mov = mvop!(op, MoveType::Column(MoveDir1D::Next, false));
-        ctx.persist.insert = Some(InsertStyle::Insert);
+        ctx.insert_style = Some(InsertStyle::Insert);
+        ctx.last_column = true;
         vm.input_key(key!('s'));
         assert_pop2!(vm, mov, ctx);
         assert_eq!(vm.mode(), VimMode::Insert);
@@ -3187,7 +3211,8 @@ mod tests {
         // Change from cursor to end of the line with "C".
         let op = EditAction::Delete;
         let mov = mvop!(op, MoveType::LinePos(MovePosition::End), Count::MinusOne);
-        ctx.persist.insert = Some(InsertStyle::Insert);
+        ctx.insert_style = Some(InsertStyle::Insert);
+        ctx.last_column = true;
         vm.input_key(key!('C'));
         assert_pop2!(vm, mov, ctx);
         assert_eq!(vm.mode(), VimMode::Insert);
@@ -3199,7 +3224,8 @@ mod tests {
         // Change the current line with "S".
         let op = EditAction::Delete;
         let mov = rangeop!(op, RangeType::Line);
-        ctx.persist.insert = Some(InsertStyle::Insert);
+        ctx.insert_style = Some(InsertStyle::Insert);
+        ctx.last_column = true;
         vm.input_key(key!('S'));
         assert_pop2!(vm, mov, ctx);
         assert_eq!(vm.mode(), VimMode::Insert);
@@ -3209,18 +3235,18 @@ mod tests {
         assert_insert_exit!(vm, ctx);
 
         // Pressing c^C should not go to Insert mode.
-        ctx.action.operation = EditAction::Delete;
-        ctx.action.postmode = Some(VimMode::Insert);
-        ctx.persist.insert = Some(InsertStyle::Insert);
+        ctx.operation = EditAction::Delete;
+        ctx.insert_style = Some(InsertStyle::Insert);
+        ctx.last_column = true;
         vm.input_key(key!('c'));
         vm.input_key(ctl!('c'));
         assert_pop1!(vm, Action::NoOp, ctx);
         assert_normal!(vm, ctx);
 
         // We should have reset, and can now type a Normal mode command.
-        ctx.action.operation = EditAction::Motion;
-        ctx.action.postmode = None;
-        ctx.persist.insert = None;
+        ctx.operation = EditAction::Motion;
+        ctx.insert_style = None;
+        ctx.last_column = false;
         vm.input_key(ctl!('l'));
         assert_pop1!(vm, Action::RedrawScreen, ctx);
         assert_normal!(vm, ctx);
@@ -3229,7 +3255,7 @@ mod tests {
     #[test]
     fn test_normal_motion_charsearch() {
         let mut vm: VimMachine<TerminalKey> = VimMachine::default();
-        let mut ctx = VimContext::default();
+        let mut ctx = EditContext::default();
 
         let same_target =
             EditTarget::Search(SearchType::Char(false), MoveDirMod::Same, Count::Contextual);
@@ -3240,34 +3266,26 @@ mod tests {
         let flip = Action::from(EditorAction::Edit(Specifier::Contextual, flip_target.clone()));
 
         // "fa" should update search params, and then continue character search.
-        ctx.persist.charsearch_params = (MoveDir1D::Next, true);
-        ctx.persist.charsearch = Some('a'.into());
-        ctx.ch.any = Some(key!('a'));
+        ctx.search_char = Some((MoveDir1D::Next, true, 'a'.into()));
         vm.input_key(key!('f'));
         vm.input_key(key!('a'));
         assert_pop1!(vm, same, ctx);
         assert_normal!(vm, ctx);
 
         // ";" should continue character search.
-        ctx.persist.charsearch_params = (MoveDir1D::Next, true);
-        ctx.persist.charsearch = Some('a'.into());
-        ctx.ch.any = None;
+        ctx.search_char = Some((MoveDir1D::Next, true, 'a'.into()));
         vm.input_key(key!(';'));
         assert_pop1!(vm, same, ctx);
         assert_normal!(vm, ctx);
 
         // "," should continue character search in reverse direction.
-        ctx.persist.charsearch_params = (MoveDir1D::Next, true);
-        ctx.persist.charsearch = Some('a'.into());
-        ctx.ch.any = None;
+        ctx.search_char = Some((MoveDir1D::Next, true, 'a'.into()));
         vm.input_key(key!(','));
         assert_pop1!(vm, flip, ctx);
         assert_normal!(vm, ctx);
 
         // "T<C-V>o125" should update params and continue search for codepoint.
-        ctx.persist.charsearch_params = (MoveDir1D::Previous, false);
-        ctx.persist.charsearch = Some('U'.into());
-        ctx.ch.oct = Some(85);
+        ctx.search_char = Some((MoveDir1D::Previous, false, 'U'.into()));
         vm.input_key(key!('T'));
         vm.input_key(ctl!('v'));
         vm.input_key(key!('o'));
@@ -3278,18 +3296,13 @@ mod tests {
         assert_normal!(vm, ctx);
 
         // ";" should continue search.
-        ctx.persist.charsearch_params = (MoveDir1D::Previous, false);
-        ctx.persist.charsearch = Some('U'.into());
-        ctx.ch.oct = None;
+        ctx.search_char = Some((MoveDir1D::Previous, false, 'U'.into()));
         vm.input_key(key!(';'));
         assert_pop1!(vm, same, ctx);
         assert_normal!(vm, ctx);
 
         // "F<C-K>Z<" should update params and continue search for digraph.
-        ctx.persist.charsearch_params = (MoveDir1D::Previous, true);
-        ctx.persist.charsearch = Some(Char::Digraph('Z', '<'));
-        ctx.ch.digraph1 = Some('Z');
-        ctx.ch.digraph2 = Some('<');
+        ctx.search_char = Some((MoveDir1D::Previous, true, Char::Digraph('Z', '<')));
         vm.input_key(key!('F'));
         vm.input_key(ctl!('k'));
         vm.input_key(key!('Z'));
@@ -3298,10 +3311,7 @@ mod tests {
         assert_normal!(vm, ctx);
 
         // "," should continue search in reverse direction.
-        ctx.persist.charsearch_params = (MoveDir1D::Previous, true);
-        ctx.persist.charsearch = Some(Char::Digraph('Z', '<'));
-        ctx.ch.digraph1 = None;
-        ctx.ch.digraph2 = None;
+        ctx.search_char = Some((MoveDir1D::Previous, true, Char::Digraph('Z', '<')));
         vm.input_key(key!(','));
         assert_pop1!(vm, flip, ctx);
         assert_normal!(vm, ctx);
@@ -3309,10 +3319,7 @@ mod tests {
         // "t<Esc>" should do nothing leave persistent search parameters alone.
         vm.input_key(key!('t'));
         vm.input_key(key!(KeyCode::Esc));
-        ctx.persist.charsearch_params = (MoveDir1D::Previous, true);
-        ctx.persist.charsearch = Some(Char::Digraph('Z', '<'));
-        ctx.action.charsearch_params = Some((MoveDir1D::Next, false));
-        ctx.action.target = Some(same_target);
+        ctx.search_char = Some((MoveDir1D::Previous, true, Char::Digraph('Z', '<')));
         assert_pop1!(vm, Action::NoOp, ctx);
         assert_normal!(vm, ctx);
     }
@@ -3320,7 +3327,7 @@ mod tests {
     #[test]
     fn test_normal_motion_special_key() {
         let mut vm: VimMachine<TerminalKey> = VimMachine::default();
-        let mut ctx = VimContext::default();
+        let mut ctx = EditContext::default();
 
         // <C-H>
         let mov = mv!(MoveType::Column(MoveDir1D::Previous, true));
@@ -3420,7 +3427,7 @@ mod tests {
 
         // <Home>
         let mov = mv!(MoveType::LinePos(MovePosition::Beginning), 0);
-        ctx.persist.shape = None;
+        ctx.target_shape = None;
         vm.input_key(key!(KeyCode::Home));
         assert_pop1!(vm, mov, ctx);
         assert_normal!(vm, ctx);
@@ -3429,10 +3436,10 @@ mod tests {
     #[test]
     fn test_visual_ops() {
         let mut vm: VimMachine<TerminalKey> = VimMachine::default();
-        let mut ctx = VimContext::default();
+        let mut ctx = EditContext::default();
 
         // Move into Visual mode (charwise)
-        ctx.persist.shape = Some(TargetShape::CharWise);
+        ctx.target_shape = Some(TargetShape::CharWise);
         vm.input_key(key!('v'));
         assert_pop2!(vm, CURRENT_POS, ctx);
         assert_eq!(vm.mode(), VimMode::Visual);
@@ -3443,13 +3450,13 @@ mod tests {
         assert_pop1!(vm, mov, ctx);
 
         // We move back to Normal mode after deletion.
-        ctx.persist.shape = None;
+        ctx.target_shape = None;
         assert_pop1!(vm, CURSOR_CLOSE, ctx);
         assert_pop1!(vm, CURRENT_POS, ctx);
         assert_normal!(vm, ctx);
 
         // Move into Visual mode (charwise)
-        ctx.persist.shape = Some(TargetShape::CharWise);
+        ctx.target_shape = Some(TargetShape::CharWise);
         vm.input_key(key!('v'));
         assert_pop2!(vm, CURRENT_POS, ctx);
         assert_eq!(vm.mode(), VimMode::Visual);
@@ -3460,13 +3467,13 @@ mod tests {
         assert_pop1!(vm, mov, ctx);
 
         // We move back to Normal after yanking.
-        ctx.persist.shape = None;
+        ctx.target_shape = None;
         assert_pop1!(vm, CURSOR_CLOSE, ctx);
         assert_pop1!(vm, CURRENT_POS, ctx);
         assert_normal!(vm, ctx);
 
         // Move into Visual mode (charwise)
-        ctx.persist.shape = Some(TargetShape::CharWise);
+        ctx.target_shape = Some(TargetShape::CharWise);
         vm.input_key(key!('v'));
         assert_pop2!(vm, CURRENT_POS, ctx);
         assert_eq!(vm.mode(), VimMode::Visual);
@@ -3478,13 +3485,13 @@ mod tests {
         assert_pop1!(vm, mov, ctx);
 
         // We move back to Normal mode after changing case.
-        ctx.persist.shape = None;
+        ctx.target_shape = None;
         assert_pop1!(vm, CURSOR_CLOSE, ctx);
         assert_pop1!(vm, CURRENT_POS, ctx);
         assert_normal!(vm, ctx);
 
         // Move into Visual mode (charwise)
-        ctx.persist.shape = Some(TargetShape::CharWise);
+        ctx.target_shape = Some(TargetShape::CharWise);
         vm.input_key(key!('v'));
         assert_pop2!(vm, CURRENT_POS, ctx);
         assert_eq!(vm.mode(), VimMode::Visual);
@@ -3496,13 +3503,13 @@ mod tests {
         assert_pop1!(vm, mov, ctx);
 
         // Move back to Normal mode after changing case.
-        ctx.persist.shape = None;
+        ctx.target_shape = None;
         assert_pop1!(vm, CURSOR_CLOSE, ctx);
         assert_pop1!(vm, CURRENT_POS, ctx);
         assert_normal!(vm, ctx);
 
         // Move into Visual mode (charwise)
-        ctx.persist.shape = Some(TargetShape::CharWise);
+        ctx.target_shape = Some(TargetShape::CharWise);
         vm.input_key(key!('v'));
         assert_pop2!(vm, CURRENT_POS, ctx);
         assert_eq!(vm.mode(), VimMode::Visual);
@@ -3510,71 +3517,72 @@ mod tests {
         // Shape made LineWise with "D"
         let op = EditAction::Delete;
         let mov = mvop!(op, MoveType::LinePos(MovePosition::End), 0);
-        ctx.persist.shape = Some(TargetShape::LineWise);
+        ctx.target_shape = Some(TargetShape::LineWise);
         vm.input_key(key!('D'));
         assert_pop1!(vm, SEL_SPLIT, ctx);
         assert_pop1!(vm, BLOCK_BEG, ctx);
         assert_pop1!(vm, mov, ctx);
 
         // Move back into Normal mode after deletion.
-        ctx.persist.shape = None;
+        ctx.target_shape = None;
         assert_pop1!(vm, CURSOR_CLOSE, ctx);
         assert_pop1!(vm, CURRENT_POS, ctx);
         assert_normal!(vm, ctx);
 
         // Move into Visual mode (charwise)
-        ctx.persist.shape = Some(TargetShape::CharWise);
+        ctx.target_shape = Some(TargetShape::CharWise);
         vm.input_key(key!('v'));
         assert_pop2!(vm, CURRENT_POS, ctx);
         assert_eq!(vm.mode(), VimMode::Visual);
 
         // Shape made LineWise with "Y".
         let mov = selop!(EditAction::Yank);
-        ctx.persist.shape = Some(TargetShape::LineWise);
+        ctx.target_shape = Some(TargetShape::LineWise);
         vm.input_key(key!('Y'));
         assert_pop1!(vm, mov, ctx);
 
         // Move back into Normal mode after yanking.
-        ctx.persist.shape = None;
+        ctx.target_shape = None;
         assert_pop1!(vm, CURSOR_CLOSE, ctx);
         assert_pop1!(vm, CURRENT_POS, ctx);
         assert_normal!(vm, ctx);
 
         // Move into Visual mode (charwise)
-        ctx.persist.shape = Some(TargetShape::CharWise);
+        ctx.target_shape = Some(TargetShape::CharWise);
         vm.input_key(key!('v'));
         assert_pop2!(vm, CURRENT_POS, ctx);
         assert_eq!(vm.mode(), VimMode::Visual);
 
         // Shape made LineWise with "X"
         let mov = selop!(EditAction::Delete);
-        ctx.persist.shape = Some(TargetShape::LineWise);
+        ctx.target_shape = Some(TargetShape::LineWise);
         vm.input_key(key!('X'));
         assert_pop1!(vm, SEL_SPLIT, ctx);
         assert_pop1!(vm, BLOCK_BEG, ctx);
         assert_pop1!(vm, mov, ctx);
 
         // Move back into Normal mode after deletion.
-        ctx.persist.shape = None;
+        ctx.target_shape = None;
         assert_pop1!(vm, CURSOR_CLOSE, ctx);
         assert_pop1!(vm, CURRENT_POS, ctx);
         assert_normal!(vm, ctx);
 
         // Move into Visual mode (charwise)
-        ctx.persist.shape = Some(TargetShape::CharWise);
+        ctx.target_shape = Some(TargetShape::CharWise);
         vm.input_key(key!('v'));
         assert_pop2!(vm, CURRENT_POS, ctx);
         assert_eq!(vm.mode(), VimMode::Visual);
 
         // Shape made LineWise with "R"
         let mov = selop!(EditAction::Delete);
-        ctx.persist.shape = Some(TargetShape::LineWise);
-        ctx.persist.insert = Some(InsertStyle::Insert);
+        ctx.target_shape = Some(TargetShape::LineWise);
+        ctx.insert_style = Some(InsertStyle::Insert);
+        ctx.last_column = true;
         vm.input_key(key!('R'));
         assert_pop1!(vm, mov, ctx);
 
         // Moves into Insert mode after "R".
-        ctx.persist.shape = None;
+        ctx.target_shape = None;
         assert_pop2!(vm, CURRENT_POS, ctx);
         assert_eq!(vm.mode(), VimMode::Insert);
 
@@ -3583,20 +3591,21 @@ mod tests {
         assert_insert_exit!(vm, ctx);
 
         // Move into Visual mode (charwise)
-        ctx.persist.shape = Some(TargetShape::CharWise);
+        ctx.target_shape = Some(TargetShape::CharWise);
         vm.input_key(key!('v'));
         assert_pop2!(vm, CURRENT_POS, ctx);
         assert_eq!(vm.mode(), VimMode::Visual);
 
         // Shape made LineWise with "S"
         let mov = selop!(EditAction::Delete);
-        ctx.persist.shape = Some(TargetShape::LineWise);
-        ctx.persist.insert = Some(InsertStyle::Insert);
+        ctx.target_shape = Some(TargetShape::LineWise);
+        ctx.insert_style = Some(InsertStyle::Insert);
+        ctx.last_column = true;
         vm.input_key(key!('S'));
         assert_pop1!(vm, mov, ctx);
 
         // Move into Insert mode after "S".
-        ctx.persist.shape = None;
+        ctx.target_shape = None;
         assert_pop2!(vm, CURRENT_POS, ctx);
         assert_eq!(vm.mode(), VimMode::Insert);
 
@@ -3605,7 +3614,7 @@ mod tests {
         assert_insert_exit!(vm, ctx);
 
         // Move into Visual mode (blockwise)
-        ctx.persist.shape = Some(TargetShape::BlockWise);
+        ctx.target_shape = Some(TargetShape::BlockWise);
         vm.input_key(ctl!('v'));
         assert_pop2!(vm, CURRENT_POS, ctx);
         assert_eq!(vm.mode(), VimMode::Visual);
@@ -3618,13 +3627,13 @@ mod tests {
         assert_pop1!(vm, mov, ctx);
 
         // Move back into Normal mode after deletion.
-        ctx.persist.shape = None;
+        ctx.target_shape = None;
         assert_pop1!(vm, CURSOR_CLOSE, ctx);
         assert_pop1!(vm, CURRENT_POS, ctx);
         assert_normal!(vm, ctx);
 
         // Move into Visual mode (blockwise)
-        ctx.persist.shape = Some(TargetShape::BlockWise);
+        ctx.target_shape = Some(TargetShape::BlockWise);
         vm.input_key(ctl!('v'));
         assert_pop2!(vm, CURRENT_POS, ctx);
         assert_eq!(vm.mode(), VimMode::Visual);
@@ -3635,7 +3644,7 @@ mod tests {
         assert_pop1!(vm, mov, ctx);
 
         // Move back into Normal mode after yanking.
-        ctx.persist.shape = None;
+        ctx.target_shape = None;
         assert_pop1!(vm, CURSOR_CLOSE, ctx);
         assert_pop1!(vm, CURRENT_POS, ctx);
         assert_normal!(vm, ctx);
@@ -3644,23 +3653,24 @@ mod tests {
     #[test]
     fn test_visual_block_insert() {
         let mut vm: VimMachine<TerminalKey> = VimMachine::default();
-        let mut ctx = VimContext::default();
+        let mut ctx = EditContext::default();
 
         // Move into Visual mode (blockwise)
-        ctx.persist.shape = Some(TargetShape::BlockWise);
+        ctx.target_shape = Some(TargetShape::BlockWise);
         vm.input_key(ctl!('v'));
         assert_pop2!(vm, CURRENT_POS, ctx);
         assert_eq!(vm.mode(), VimMode::Visual);
 
         // Insert at beginning of block ("I").
-        ctx.persist.insert = Some(InsertStyle::Insert);
+        ctx.insert_style = Some(InsertStyle::Insert);
+        ctx.last_column = true;
         vm.input_key(key!('I'));
         assert_pop1!(vm, BLOCK_SPLIT, ctx);
         assert_pop1!(vm, BLOCK_BEG, ctx);
         assert_pop1!(vm, CURSOR_SPLIT, ctx);
 
         // Moves into Insert mode after "I".
-        ctx.persist.shape = None;
+        ctx.target_shape = None;
         assert_pop2!(vm, CURRENT_POS, ctx);
         assert_eq!(vm.mode(), VimMode::Insert);
 
@@ -3669,13 +3679,14 @@ mod tests {
         assert_insert_exit!(vm, ctx);
 
         // Move into Visual mode (blockwise)
-        ctx.persist.shape = Some(TargetShape::BlockWise);
+        ctx.target_shape = Some(TargetShape::BlockWise);
         vm.input_key(ctl!('v'));
         assert_pop2!(vm, CURRENT_POS, ctx);
         assert_eq!(vm.mode(), VimMode::Visual);
 
         // Insert at beginning of block ("A").
-        ctx.persist.insert = Some(InsertStyle::Insert);
+        ctx.insert_style = Some(InsertStyle::Insert);
+        ctx.last_column = true;
         vm.input_key(key!('A'));
         assert_pop1!(vm, BLOCK_SPLIT, ctx);
         assert_pop1!(vm, BLOCK_END, ctx);
@@ -3683,7 +3694,7 @@ mod tests {
         assert_pop1!(vm, COLUMN_NEXT, ctx);
 
         // Moves into Insert mode after "A".
-        ctx.persist.shape = None;
+        ctx.target_shape = None;
         assert_pop2!(vm, CURRENT_POS, ctx);
         assert_eq!(vm.mode(), VimMode::Insert);
 
@@ -3692,13 +3703,14 @@ mod tests {
         assert_insert_exit!(vm, ctx);
 
         // Move into Visual mode (blockwise)
-        ctx.persist.shape = Some(TargetShape::BlockWise);
+        ctx.target_shape = Some(TargetShape::BlockWise);
         vm.input_key(ctl!('v'));
         assert_pop2!(vm, CURRENT_POS, ctx);
         assert_eq!(vm.mode(), VimMode::Visual);
 
         // Change block ("c").
-        ctx.persist.insert = Some(InsertStyle::Insert);
+        ctx.insert_style = Some(InsertStyle::Insert);
+        ctx.last_column = true;
         let act = selop!(EditAction::Delete);
         vm.input_key(key!('c'));
         assert_pop1!(vm, BLOCK_SPLIT, ctx);
@@ -3707,7 +3719,7 @@ mod tests {
         assert_pop1!(vm, CURSOR_SPLIT, ctx);
 
         // Moves into Insert mode after "c".
-        ctx.persist.shape = None;
+        ctx.target_shape = None;
         assert_pop2!(vm, CURRENT_POS, ctx);
         assert_eq!(vm.mode(), VimMode::Insert);
 
@@ -3719,16 +3731,16 @@ mod tests {
     #[test]
     fn test_visual_motion() {
         let mut vm: VimMachine<TerminalKey> = VimMachine::default();
-        let mut ctx = VimContext::default();
+        let mut ctx = EditContext::default();
 
-        ctx.persist.shape = Some(TargetShape::CharWise);
+        ctx.target_shape = Some(TargetShape::CharWise);
         vm.input_key(key!('v'));
         assert_pop2!(vm, CURRENT_POS, ctx);
         assert_eq!(vm.mode(), VimMode::Visual);
 
         // "w" moves forward to the next word beginning
         let mov = mv!(MoveType::WordBegin(WordStyle::Little, MoveDir1D::Next));
-        ctx.action.count = Some(5);
+        ctx.count = Some(5);
         vm.input_key(key!('5'));
         vm.input_key(key!('w'));
         assert_pop2!(vm, mov, ctx);
@@ -3736,7 +3748,7 @@ mod tests {
 
         // "e" moves forward to the next word end
         let mov = mv!(MoveType::WordEnd(WordStyle::Little, MoveDir1D::Next));
-        ctx.action.count = Some(5);
+        ctx.count = Some(5);
         vm.input_key(key!('5'));
         vm.input_key(key!('e'));
         assert_pop2!(vm, mov, ctx);
@@ -3744,7 +3756,7 @@ mod tests {
 
         // "W" moves forward to the next WORD beginning
         let mov = mv!(MoveType::WordBegin(WordStyle::Big, MoveDir1D::Next));
-        ctx.action.count = Some(10);
+        ctx.count = Some(10);
         vm.input_key(key!('1'));
         vm.input_key(key!('0'));
         vm.input_key(key!('W'));
@@ -3753,7 +3765,7 @@ mod tests {
 
         // "E" moves forward to the next WORD ending
         let mov = mv!(MoveType::WordEnd(WordStyle::Big, MoveDir1D::Next));
-        ctx.action.count = Some(10);
+        ctx.count = Some(10);
         vm.input_key(key!('1'));
         vm.input_key(key!('0'));
         vm.input_key(key!('E'));
@@ -3762,21 +3774,21 @@ mod tests {
 
         // "b" moves backward to the previous WORD beginning
         let mov = mv!(MoveType::WordBegin(WordStyle::Little, MoveDir1D::Previous));
-        ctx.action.count = None;
+        ctx.count = None;
         vm.input_key(key!('b'));
         assert_pop2!(vm, mov, ctx);
         assert_eq!(vm.mode(), VimMode::Visual);
 
         // "B" moves WORD forward
         let mov = mv!(MoveType::WordBegin(WordStyle::Big, MoveDir1D::Previous));
-        ctx.action.count = None;
+        ctx.count = None;
         vm.input_key(key!('B'));
         assert_pop2!(vm, mov, ctx);
         assert_eq!(vm.mode(), VimMode::Visual);
 
         // "E" moves forward to the next WORD ending
         let mov = mv!(MoveType::WordEnd(WordStyle::Little, MoveDir1D::Previous));
-        ctx.action.count = Some(7);
+        ctx.count = Some(7);
         vm.input_key(key!('7'));
         vm.input_key(key!('g'));
         vm.input_key(key!('e'));
@@ -3785,7 +3797,7 @@ mod tests {
 
         // "E" moves forward to the next WORD ending
         let mov = mv!(MoveType::WordEnd(WordStyle::Big, MoveDir1D::Previous));
-        ctx.action.count = Some(9);
+        ctx.count = Some(9);
         vm.input_key(key!('9'));
         vm.input_key(key!('g'));
         vm.input_key(key!('E'));
@@ -3796,48 +3808,48 @@ mod tests {
     #[test]
     fn test_force_motion() {
         let mut vm: VimMachine<TerminalKey> = VimMachine::default();
-        let mut ctx = VimContext::default();
+        let mut ctx = EditContext::default();
 
         let mov = mv!(MoveType::WordBegin(WordStyle::Little, MoveDir1D::Next));
 
-        ctx.action.operation = EditAction::Delete;
+        ctx.operation = EditAction::Delete;
 
         // By default, there's no shape in the context.
-        ctx.persist.shape = None;
+        ctx.target_shape = None;
         vm.input_key(key!('d'));
         vm.input_key(key!('w'));
         assert_pop1!(vm, mov, ctx);
         assert_normal!(vm, ctx);
 
         // "v" forces charwise
-        ctx.persist.shape = Some(TargetShape::CharWise);
+        ctx.target_shape = Some(TargetShape::CharWise);
         vm.input_key(key!('d'));
         vm.input_key(key!('v'));
         vm.input_key(key!('w'));
         assert_pop1!(vm, mov, ctx);
         assert_normal!(vm, ctx);
-        assert_eq!(vm.context().persist.shape, None);
+        assert_eq!(vm.state().persist.shape, None);
 
         // "V" forces linewise
-        ctx.persist.shape = Some(TargetShape::LineWise);
+        ctx.target_shape = Some(TargetShape::LineWise);
         vm.input_key(key!('d'));
         vm.input_key(key!('V'));
         vm.input_key(key!('w'));
         assert_pop1!(vm, mov, ctx);
         assert_normal!(vm, ctx);
-        assert_eq!(vm.context().persist.shape, None);
+        assert_eq!(vm.state().persist.shape, None);
 
         // <C-V> forces blockwise
-        ctx.persist.shape = Some(TargetShape::BlockWise);
+        ctx.target_shape = Some(TargetShape::BlockWise);
         vm.input_key(key!('d'));
         vm.input_key(ctl!('v'));
         vm.input_key(key!('w'));
         assert_pop1!(vm, mov, ctx);
         assert_normal!(vm, ctx);
-        assert_eq!(vm.context().persist.shape, None);
+        assert_eq!(vm.state().persist.shape, None);
 
         // If multiple force-motion keys are pressed, most recent is used.
-        ctx.persist.shape = Some(TargetShape::BlockWise);
+        ctx.target_shape = Some(TargetShape::BlockWise);
         vm.input_key(key!('d'));
         vm.input_key(key!('v'));
         vm.input_key(key!('V'));
@@ -3845,15 +3857,16 @@ mod tests {
         vm.input_key(key!('w'));
         assert_pop1!(vm, mov, ctx);
         assert_normal!(vm, ctx);
-        assert_eq!(vm.context().persist.shape, None);
+        assert_eq!(vm.state().persist.shape, None);
     }
 
     #[test]
     fn test_insert_mode() {
         let mut vm: VimMachine<TerminalKey> = VimMachine::default();
-        let mut ctx = VimContext::default();
+        let mut ctx = EditContext::default();
 
-        ctx.persist.insert = Some(InsertStyle::Insert);
+        ctx.insert_style = Some(InsertStyle::Insert);
+        ctx.last_column = true;
 
         vm.input_key(key!('i'));
         assert_pop2!(vm, CURSOR_SPLIT, ctx);
@@ -3886,9 +3899,7 @@ mod tests {
         vm.input_key(key!('L'));
         assert_eq!(vm.get_cursor_indicator(), Some('L'));
 
-        ctx.action.cursor = Some('L');
-        ctx.ch.digraph1 = Some('L');
-        ctx.ch.digraph2 = Some('i');
+        ctx.typed = Some(Char::Digraph('L', 'i'));
         vm.input_key(key!('i'));
         assert_pop1!(vm, TYPE_CONTEXTUAL, ctx);
         assert_eq!(vm.mode(), VimMode::Insert);
@@ -3897,18 +3908,13 @@ mod tests {
         vm.input_key(ctl!('v'));
         assert_eq!(vm.get_cursor_indicator(), Some('^'));
 
-        ctx.action.cursor = Some('^');
-        ctx.ch.digraph1 = None;
-        ctx.ch.digraph2 = None;
-        ctx.ch.any = Some(ctl!('g'));
+        ctx.typed = Some(Char::Single('\u{07}'));
         vm.input_key(ctl!('g'));
         assert_pop1!(vm, TYPE_CONTEXTUAL, ctx);
         assert_eq!(vm.mode(), VimMode::Insert);
 
         // Type a codepoint.
-        ctx.action.cursor = Some('^');
-        ctx.ch.oct = Some(97);
-        ctx.ch.any = None;
+        ctx.typed = Some('a'.into());
         vm.input_key(ctl!('v'));
         vm.input_key(key!('o'));
         vm.input_key(key!('1'));
@@ -3917,11 +3923,11 @@ mod tests {
         assert_pop1!(vm, TYPE_CONTEXTUAL, ctx);
         assert_eq!(vm.mode(), VimMode::Insert);
 
-        ctx.action.cursor = None;
-        ctx.ch.oct = None;
+        ctx.typed = None;
 
         // Enter Replace mode by pressing <Ins>.
-        ctx.persist.insert = Some(InsertStyle::Replace);
+        ctx.insert_style = Some(InsertStyle::Replace);
+        ctx.last_column = true;
         vm.input_key(key!(KeyCode::Insert));
         assert_pop2!(vm, CURSOR_SPLIT, ctx);
         assert_eq!(vm.mode(), VimMode::Insert);
@@ -3945,36 +3951,39 @@ mod tests {
         assert_eq!(vm.mode(), VimMode::Insert);
 
         let it = InsertTextAction::Paste(PasteStyle::Cursor, Count::Exact(1));
-        ctx.action.cursor = Some('"');
-        ctx.action.register = Some(Register::Named('z'));
-        ctx.action.register_append = false;
+        ctx.register = Some(Register::Named('z'));
+        ctx.register_append = false;
         vm.input_key(ctl!('r'));
         assert_eq!(vm.pop(), None);
+        assert_eq!(vm.get_cursor_indicator(), Some('"'));
         vm.input_key(key!('z'));
         assert_pop1!(vm, Action::from(it), ctx);
         assert_eq!(vm.mode(), VimMode::Insert);
+        assert_eq!(vm.get_cursor_indicator(), None);
 
         // Pressing ^R^C should go back to Normal mode.
-        ctx.action.cursor = Some('"');
-        ctx.action.register = None;
+        ctx.register = None;
         vm.input_key(ctl!('r'));
         assert_eq!(vm.pop(), None);
+        assert_eq!(vm.get_cursor_indicator(), Some('"'));
         vm.input_key(ctl!('c'));
         assert_insert_exit!(vm, ctx);
+        assert_eq!(vm.get_cursor_indicator(), None);
     }
 
     #[test]
     fn test_custom_operators() {
         let mut vm: VimMachine<TerminalKey> = VimMachine::default();
-        let mut ctx = VimContext::default();
+        let mut ctx = EditContext::default();
 
         let step = InputStep::new().operator(EditAction::Delete, Some(VimMode::Insert));
         add_mapping(&mut vm, &NMAP, "R", &step);
 
         let mov = mv!(MoveType::WordBegin(WordStyle::Little, MoveDir1D::Next));
-        ctx.action.operation = EditAction::Delete;
-        ctx.action.count = Some(5);
-        ctx.persist.insert = Some(InsertStyle::Insert);
+        ctx.operation = EditAction::Delete;
+        ctx.count = Some(5);
+        ctx.insert_style = Some(InsertStyle::Insert);
+        ctx.last_column = true;
         vm.input_key(key!('5'));
         vm.input_key(key!('R'));
         vm.input_key(key!('w'));
@@ -3985,7 +3994,7 @@ mod tests {
     #[test]
     fn test_override() {
         let mut vm: VimMachine<TerminalKey> = VimMachine::default();
-        let mut ctx = VimContext::default();
+        let mut ctx = EditContext::default();
 
         // Check the original Normal mode mapping.
         let mov = mv!(MoveType::ScreenLine(MoveDir1D::Next));
@@ -4020,7 +4029,7 @@ mod tests {
 
         // Visual mode "gj" should still be the original mapping.
         let mov = mv!(MoveType::ScreenLine(MoveDir1D::Next));
-        ctx.persist.shape = Some(TargetShape::CharWise);
+        ctx.target_shape = Some(TargetShape::CharWise);
         vm.input_key(key!('v'));
         assert_pop2!(vm, CURRENT_POS, ctx);
         assert_eq!(vm.mode(), VimMode::Visual);
@@ -4034,7 +4043,7 @@ mod tests {
     #[test]
     fn test_count_alters_motion() {
         let mut vm: VimMachine<TerminalKey> = VimMachine::default();
-        let mut ctx = VimContext::default();
+        let mut ctx = EditContext::default();
 
         // Without a count, "%" is ItemMatch.
         let mot = mv!(MoveType::ItemMatch);
@@ -4043,7 +4052,7 @@ mod tests {
         assert_pop1!(vm, mot, ctx);
         assert_normal!(vm, ctx);
 
-        ctx.action.operation = EditAction::Delete;
+        ctx.operation = EditAction::Delete;
         vm.input_key(key!('d'));
         vm.input_key(key!('%'));
         assert_pop1!(vm, mot, ctx);
@@ -4052,15 +4061,15 @@ mod tests {
         // With a count, "%" becomes BufferLinePercent.
         let mot = mv!(MoveType::BufferLinePercent);
 
-        ctx.action.count = Some(1);
-        ctx.action.operation = EditAction::Motion;
+        ctx.count = Some(1);
+        ctx.operation = EditAction::Motion;
         vm.input_key(key!('1'));
         vm.input_key(key!('%'));
         assert_pop1!(vm, mot, ctx);
         assert_normal!(vm, ctx);
 
-        ctx.action.count = Some(88);
-        ctx.action.operation = EditAction::Yank;
+        ctx.count = Some(88);
+        ctx.operation = EditAction::Yank;
         vm.input_key(key!('8'));
         vm.input_key(key!('8'));
         vm.input_key(key!('y'));
@@ -4068,8 +4077,8 @@ mod tests {
         assert_pop1!(vm, mot, ctx);
         assert_normal!(vm, ctx);
 
-        ctx.action.count = Some(101);
-        ctx.action.operation = EditAction::Delete;
+        ctx.count = Some(101);
+        ctx.operation = EditAction::Delete;
         vm.input_key(key!('d'));
         vm.input_key(key!('1'));
         vm.input_key(key!('0'));
@@ -4082,19 +4091,19 @@ mod tests {
     #[test]
     fn test_count_alters_window() {
         let mut vm: VimMachine<TerminalKey> = VimMachine::default();
-        let mut ctx = VimContext::default();
+        let mut ctx = EditContext::default();
 
         // Without a count, ^Wo closes all windows besides the currently focused one.
         let target = WindowTarget::AllBut(FocusChange::Current);
         let act: Action = WindowAction::Close(target, CloseFlags::QUIT).into();
 
-        ctx.action.count = None;
+        ctx.count = None;
         vm.input_key(ctl!('w'));
         vm.input_key(key!('o'));
         assert_pop1!(vm, act, ctx);
         assert_normal!(vm, ctx);
 
-        ctx.action.count = None;
+        ctx.count = None;
         vm.input_key(ctl!('w'));
         vm.input_key(ctl!('o'));
         assert_pop1!(vm, act, ctx);
@@ -4104,14 +4113,14 @@ mod tests {
         let target = WindowTarget::AllBut(FocusChange::Offset(Count::Contextual, true));
         let act: Action = WindowAction::Close(target, CloseFlags::QUIT).into();
 
-        ctx.action.count = Some(5);
+        ctx.count = Some(5);
         vm.input_key(key!('5'));
         vm.input_key(ctl!('w'));
         vm.input_key(key!('o'));
         assert_pop1!(vm, act, ctx);
         assert_normal!(vm, ctx);
 
-        ctx.action.count = Some(8);
+        ctx.count = Some(8);
         vm.input_key(key!('8'));
         vm.input_key(ctl!('w'));
         vm.input_key(ctl!('o'));
@@ -4126,7 +4135,7 @@ mod tests {
             Count::Contextual,
         )
         .into();
-        ctx.action.count = None;
+        ctx.count = None;
         vm.input_key(ctl!('w'));
         vm.input_key(key!('v'));
         assert_pop1!(vm, act, ctx);
@@ -4140,7 +4149,7 @@ mod tests {
             Count::Contextual,
         )
         .into();
-        ctx.action.count = Some(10);
+        ctx.count = Some(10);
         vm.input_key(key!('1'));
         vm.input_key(key!('0'));
         vm.input_key(ctl!('w'));
@@ -4152,7 +4161,7 @@ mod tests {
     #[test]
     fn test_scrollcp() {
         let mut vm: VimMachine<TerminalKey> = VimMachine::default();
-        let mut ctx = VimContext::default();
+        let mut ctx = EditContext::default();
 
         // Place cursored line at the top of the screen with "zt".
         let act = Action::Scroll(ScrollStyle::CursorPos(MovePosition::Beginning, Axis::Vertical));
@@ -4163,7 +4172,7 @@ mod tests {
 
         // Adding a count to "zt" makes it go to a specific line.
         let act = Action::Scroll(ScrollStyle::LinePos(MovePosition::Beginning, Count::Contextual));
-        ctx.action.count = Some(2118);
+        ctx.count = Some(2118);
         vm.input_key(key!('2'));
         vm.input_key(key!('1'));
         vm.input_key(key!('1'));
@@ -4176,7 +4185,7 @@ mod tests {
         // "z<Enter>" works like "zt", but it also goes to the first word on the line.
         let actfw = mvop!(EditAction::Motion, MoveType::FirstWord(MoveDir1D::Next), 0);
         let actcp = Action::Scroll(ScrollStyle::CursorPos(MovePosition::Beginning, Axis::Vertical));
-        ctx.action.count = None;
+        ctx.count = None;
         vm.input_key(key!('z'));
         vm.input_key(key!(KeyCode::Enter));
         assert_pop1!(vm, actfw, ctx);
@@ -4187,7 +4196,7 @@ mod tests {
         let actfw = mvop!(EditAction::Motion, MoveType::FirstWord(MoveDir1D::Next), 0);
         let actlp =
             Action::Scroll(ScrollStyle::LinePos(MovePosition::Beginning, Count::Contextual));
-        ctx.action.count = Some(1312);
+        ctx.count = Some(1312);
         vm.input_key(key!('1'));
         vm.input_key(key!('3'));
         vm.input_key(key!('1'));
@@ -4202,9 +4211,10 @@ mod tests {
     #[test]
     fn test_literal() {
         let mut vm: VimMachine<TerminalKey> = VimMachine::default();
-        let mut ctx = VimContext::default();
+        let mut ctx = EditContext::default();
 
-        ctx.persist.insert = Some(InsertStyle::Insert);
+        ctx.insert_style = Some(InsertStyle::Insert);
+        ctx.last_column = true;
         vm.input_key(key!('i'));
         assert_pop2!(vm, CURSOR_SPLIT, ctx);
         assert_eq!(vm.mode(), VimMode::Insert);
@@ -4215,17 +4225,14 @@ mod tests {
         assert_eq!(vm.mode(), VimMode::Insert);
         assert_eq!(vm.get_cursor_indicator(), Some('^'));
 
-        ctx.action.cursor = Some('^');
-        ctx.ch.any = Some(key!(KeyCode::Esc));
+        ctx.typed = Some('\u{1B}'.into());
         vm.input_key(key!(KeyCode::Esc));
         assert_pop2!(vm, TYPE_CONTEXTUAL, ctx);
         assert_eq!(vm.mode(), VimMode::Insert);
         assert_eq!(vm.get_cursor_indicator(), None);
 
         // Test that typing in a full octal sequence works.
-        ctx.action.cursor = Some('^');
-        ctx.ch.oct = Some(127);
-        ctx.ch.any = None;
+        ctx.typed = Some('\u{7F}'.into());
         vm.input_key(ctl!('v'));
         vm.input_key(key!('o'));
         vm.input_key(key!('1'));
@@ -4235,8 +4242,7 @@ mod tests {
         assert_eq!(vm.mode(), VimMode::Insert);
 
         // Test that valid octal character types normally afterwards.
-        ctx.action.cursor = None;
-        ctx.ch.oct = None;
+        ctx.typed = None;
         vm.input_key(key!('7'));
         assert_pop2!(vm, typechar!('7'), ctx);
 
@@ -4246,12 +4252,10 @@ mod tests {
         vm.input_key(key!('7'));
         vm.input_key(key!('8'));
 
-        ctx.action.cursor = Some('^');
-        ctx.ch.oct = Some(7);
+        ctx.typed = Some('\u{7}'.into());
         assert_pop1!(vm, TYPE_CONTEXTUAL, ctx);
 
-        ctx.action.cursor = None;
-        ctx.ch.oct = None;
+        ctx.typed = None;
         assert_pop2!(vm, typechar!('8'), ctx);
         assert_eq!(vm.mode(), VimMode::Insert);
 
@@ -4262,12 +4266,10 @@ mod tests {
         vm.input_key(key!('3'));
         vm.input_key(key!('4'));
 
-        ctx.action.cursor = Some('^');
-        ctx.ch.dec = Some(123);
+        ctx.typed = Some('\u{7B}'.into());
         assert_pop1!(vm, TYPE_CONTEXTUAL, ctx);
 
-        ctx.action.cursor = None;
-        ctx.ch.dec = None;
+        ctx.typed = None;
         assert_pop2!(vm, typechar!('4'), ctx);
         assert_eq!(vm.mode(), VimMode::Insert);
 
@@ -4280,12 +4282,10 @@ mod tests {
         vm.input_key(key!('3'));
         vm.input_key(key!('3'));
 
-        ctx.action.cursor = Some('^');
-        ctx.ch.hex = Some(9731);
+        ctx.typed = Some('\u{2603}'.into());
         assert_pop1!(vm, TYPE_CONTEXTUAL, ctx);
 
-        ctx.action.cursor = None;
-        ctx.ch.hex = None;
+        ctx.typed = None;
         assert_pop2!(vm, typechar!('3'), ctx);
         assert_eq!(vm.mode(), VimMode::Insert);
 
@@ -4302,12 +4302,10 @@ mod tests {
         vm.input_key(key!('e'));
         vm.input_key(key!('a'));
 
-        ctx.action.cursor = Some('^');
-        ctx.ch.hex = Some(128862);
+        ctx.typed = Some('\u{1f75e}'.into());
         assert_pop1!(vm, TYPE_CONTEXTUAL, ctx);
 
-        ctx.action.cursor = None;
-        ctx.ch.hex = None;
+        ctx.typed = None;
         assert_pop2!(vm, typechar!('a'), ctx);
         assert_eq!(vm.mode(), VimMode::Insert);
 
@@ -4321,12 +4319,10 @@ mod tests {
         vm.input_key(key!('D'));
         vm.input_key(key!('G'));
 
-        ctx.action.cursor = Some('^');
-        ctx.ch.hex = Some(128109);
+        ctx.typed = Some('\u{1F46D}'.into());
         assert_pop1!(vm, TYPE_CONTEXTUAL, ctx);
 
-        ctx.action.cursor = None;
-        ctx.ch.hex = None;
+        ctx.typed = None;
         assert_pop2!(vm, typechar!('G'), ctx);
         assert_eq!(vm.mode(), VimMode::Insert);
     }
@@ -4334,7 +4330,7 @@ mod tests {
     #[test]
     fn test_unmapped_reset() {
         let mut vm: VimMachine<TerminalKey> = VimMachine::default();
-        let mut ctx = VimContext::default();
+        let mut ctx = EditContext::default();
 
         /*
          * The key "z" is not mapped in Operator Pending mode, so the action context should be
@@ -4343,16 +4339,16 @@ mod tests {
         vm.input_key(key!('c'));
         vm.input_key(key!('z'));
 
-        ctx.action.operation = EditAction::Delete;
-        ctx.action.postmode = Some(VimMode::Insert);
-        ctx.persist.insert = Some(InsertStyle::Insert);
+        ctx.operation = EditAction::Delete;
+        ctx.insert_style = Some(InsertStyle::Insert);
+        ctx.last_column = true;
         assert_pop1!(vm, Action::NoOp, ctx);
         assert_normal!(vm, ctx);
 
         let mov = mv!(MoveType::Column(MoveDir1D::Next, false));
-        ctx.action.operation = EditAction::Motion;
-        ctx.action.postmode = None;
-        ctx.persist.insert = None;
+        ctx.operation = EditAction::Motion;
+        ctx.insert_style = None;
+        ctx.last_column = false;
         vm.input_key(key!('l'));
         assert_pop1!(vm, mov, ctx);
         assert_normal!(vm, ctx);
@@ -4361,7 +4357,7 @@ mod tests {
     #[test]
     fn test_count_nullifies() {
         let mut vm: VimMachine<TerminalKey> = VimMachine::default();
-        let mut ctx = VimContext::default();
+        let mut ctx = EditContext::default();
 
         // Without a count, Delete deletes one character.
         let op = EditAction::Delete;
@@ -4373,8 +4369,8 @@ mod tests {
         assert_normal!(vm, ctx);
 
         // With a count, Delete does nothing.
-        ctx.action.count = Some(1);
-        ctx.action.operation = EditAction::Motion;
+        ctx.count = Some(1);
+        ctx.operation = EditAction::Motion;
         vm.input_key(key!('1'));
         vm.input_key(key!(KeyCode::Delete));
         assert_pop1!(vm, Action::NoOp, ctx);
@@ -4384,28 +4380,27 @@ mod tests {
     #[test]
     fn test_macro_toggle() {
         let mut vm: VimMachine<TerminalKey> = VimMachine::default();
-        let mut ctx = VimContext::default();
+        let mut ctx = EditContext::default();
 
         let toggle = Action::from(MacroAction::ToggleRecording);
 
         // The first "q" does nothing.
         vm.input_key(key!('q'));
         assert_eq!(vm.pop(), None);
-        assert_eq!(vm.context(), ctx);
 
         // The second "q" is treated as a register name, and recording starts.
-        ctx.persist.recording = Some((Register::Named('q'), false));
         vm.input_key(key!('q'));
 
-        ctx.action.register = Some(Register::Named('q'));
+        ctx.register = Some(Register::Named('q'));
         assert_pop1!(vm, toggle, ctx);
 
-        ctx.action.register = None;
+        ctx.register = None;
         assert_normal!(vm, ctx);
+        assert_eq!(vm.state().persist.recording, Some((Register::Named('q'), false)));
 
         // Type "gqq" to format.
         let format = rangeop!(EditAction::Format, RangeType::Line);
-        ctx.action.operation = EditAction::Format;
+        ctx.operation = EditAction::Format;
         vm.input_key(key!('g'));
         vm.input_key(key!('q'));
         vm.input_key(key!('q'));
@@ -4413,23 +4408,23 @@ mod tests {
         assert_normal!(vm, ctx);
 
         // Type "q" to end recording.
-        ctx.action.operation = EditAction::Motion;
-        ctx.persist.recording = None;
+        ctx.operation = EditAction::Motion;
         vm.input_key(key!('q'));
         assert_pop1!(vm, toggle, ctx);
         assert_normal!(vm, ctx);
+        assert_eq!(vm.state().persist.recording, None);
     }
 
     #[test]
     fn test_edit_repeat() {
         let mut vm: VimMachine<TerminalKey> = VimMachine::default();
-        let mut ctx = VimContext::default();
+        let mut ctx = EditContext::default();
 
         let col = MoveType::Column(MoveDir1D::Next, false);
 
         // Feed in a tracked sequence.
-        ctx.action.operation = EditAction::Delete;
-        ctx.action.count = Some(2);
+        ctx.operation = EditAction::Delete;
+        ctx.count = Some(2);
         vm.input_key(key!('2'));
         vm.input_key(key!('d'));
         vm.input_key(key!('l'));
@@ -4437,22 +4432,22 @@ mod tests {
         assert_normal!(vm, ctx);
 
         // Feed in a breaking sequence.
-        ctx.action.operation = EditAction::Motion;
-        ctx.action.count = Some(3);
+        ctx.operation = EditAction::Motion;
+        ctx.count = Some(3);
         vm.input_key(key!('3'));
         vm.input_key(key!('l'));
         assert_pop1!(vm, mv!(col), ctx);
         assert_normal!(vm, ctx);
 
         // Press ".".
-        ctx.action.operation = EditAction::Motion;
-        ctx.action.count = None;
+        ctx.operation = EditAction::Motion;
+        ctx.count = None;
         vm.input_key(key!('.'));
         assert_pop1!(vm, Action::Repeat(RepeatType::EditSequence), ctx);
 
         // Check that repeating does 2dw action.
-        ctx.action.operation = EditAction::Delete;
-        ctx.action.count = Some(2);
+        ctx.operation = EditAction::Delete;
+        ctx.count = Some(2);
         vm.repeat(RepeatType::EditSequence, None);
         assert_pop1!(vm, mv!(col), ctx);
 
@@ -4460,15 +4455,15 @@ mod tests {
         assert_normal!(vm, ctx);
 
         // Press ".".
-        ctx.action.operation = EditAction::Motion;
-        ctx.action.count = None;
+        ctx.operation = EditAction::Motion;
+        ctx.count = None;
         vm.input_key(key!('.'));
         assert_pop1!(vm, Action::Repeat(RepeatType::EditSequence), ctx);
 
         // Check that we can override the count and register.
-        ctx.action.operation = EditAction::Delete;
-        ctx.action.count = Some(4);
-        ctx.action.register = Some(Register::Named('a'));
+        ctx.operation = EditAction::Delete;
+        ctx.count = Some(4);
+        ctx.register = Some(Register::Named('a'));
         vm.repeat(RepeatType::EditSequence, Some(ctx.clone()));
         assert_pop1!(vm, mv!(col), ctx);
 
@@ -4476,16 +4471,16 @@ mod tests {
         assert_normal!(vm, ctx);
 
         // Press ".".
-        ctx.action.operation = EditAction::Motion;
-        ctx.action.count = None;
-        ctx.action.register = None;
+        ctx.operation = EditAction::Motion;
+        ctx.count = None;
+        ctx.register = None;
         vm.input_key(key!('.'));
         assert_pop1!(vm, Action::Repeat(RepeatType::EditSequence), ctx);
 
         // Repeating without a context now uses the overriden context.
-        ctx.action.operation = EditAction::Delete;
-        ctx.action.count = Some(4);
-        ctx.action.register = Some(Register::Named('a'));
+        ctx.operation = EditAction::Delete;
+        ctx.count = Some(4);
+        ctx.register = Some(Register::Named('a'));
         vm.repeat(RepeatType::EditSequence, None);
         assert_pop1!(vm, mv!(col), ctx);
 
@@ -4493,9 +4488,10 @@ mod tests {
         assert_normal!(vm, ctx);
 
         // Feed in a change sequence.
-        ctx.action.count = Some(2);
-        ctx.action.register = None;
-        ctx.persist.insert = Some(InsertStyle::Insert);
+        ctx.count = Some(2);
+        ctx.register = None;
+        ctx.insert_style = Some(InsertStyle::Insert);
+        ctx.last_column = true;
         vm.input_key(key!('2'));
         vm.input_key(key!('c'));
         vm.input_key(key!('l'));
@@ -4507,8 +4503,8 @@ mod tests {
         let ch_c = typechar!('c');
         let ch_l = typechar!('l');
 
-        ctx.action.operation = EditAction::Motion;
-        ctx.action.count = None;
+        ctx.operation = EditAction::Motion;
+        ctx.count = None;
         vm.input_key(key!('2'));
         vm.input_key(key!('c'));
         vm.input_key(key!('l'));
@@ -4528,18 +4524,20 @@ mod tests {
         // Repeat the whole change sequence.
         vm.repeat(RepeatType::EditSequence, None);
 
-        ctx.action.operation = EditAction::Delete;
-        ctx.action.count = Some(2);
-        ctx.persist.insert = Some(InsertStyle::Insert);
+        ctx.operation = EditAction::Delete;
+        ctx.count = Some(2);
+        ctx.insert_style = Some(InsertStyle::Insert);
+        ctx.last_column = true;
         assert_pop1!(vm, mv!(col), ctx);
 
-        ctx.action.operation = EditAction::Motion;
-        ctx.action.count = None;
+        ctx.operation = EditAction::Motion;
+        ctx.count = None;
         assert_pop1!(vm, ch_2.clone(), ctx);
         assert_pop1!(vm, ch_c.clone(), ctx);
         assert_pop1!(vm, ch_l.clone(), ctx);
 
-        ctx.persist.insert = None;
+        ctx.insert_style = None;
+        ctx.last_column = false;
         assert_pop1!(vm, CURSOR_CLOSE, ctx);
 
         // Read the Checkpoint from pressing "." earlier.
@@ -4549,7 +4547,7 @@ mod tests {
     #[test]
     fn test_edit_repeat_append_line() {
         let mut vm: VimMachine<TerminalKey> = VimMachine::default();
-        let mut ctx = VimContext::default();
+        let mut ctx = EditContext::default();
 
         let op = EditAction::Motion;
         let mov = mvop!(op, MoveType::LinePos(MovePosition::End), 0);
@@ -4560,7 +4558,8 @@ mod tests {
         assert_normal!(vm, ctx);
 
         // Move to Insert mode at end of line.
-        ctx.persist.insert = Some(InsertStyle::Insert);
+        ctx.insert_style = Some(InsertStyle::Insert);
+        ctx.last_column = true;
         vm.input_key(key!('A'));
         assert_pop1!(vm, mov, ctx);
         assert_pop2!(vm, CURSOR_SPLIT, ctx);
@@ -4592,14 +4591,16 @@ mod tests {
         // Repeat the whole append sequence, including moving to EOL.
         vm.repeat(RepeatType::EditSequence, Some(ctx.clone()));
 
-        ctx.persist.insert = Some(InsertStyle::Insert);
+        ctx.insert_style = Some(InsertStyle::Insert);
+        ctx.last_column = true;
         assert_pop1!(vm, mov, ctx);
         assert_pop1!(vm, CURSOR_SPLIT, ctx);
         assert_pop1!(vm, typechar!('a'), ctx);
         assert_pop1!(vm, typechar!('b'), ctx);
         assert_pop1!(vm, typechar!('c'), ctx);
 
-        ctx.persist.insert = None;
+        ctx.insert_style = None;
+        ctx.last_column = false;
         assert_pop1!(vm, CURSOR_CLOSE, ctx);
 
         // Read the Checkpoint from pressing "." earlier.

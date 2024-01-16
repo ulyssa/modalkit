@@ -6,7 +6,6 @@ use crate::editing::{
     application::ApplicationInfo,
     base::{CompletionDisplay, CompletionScope, CompletionSelection, WordStyle},
     completion::{complete_path, CompletionList},
-    context::EditContext,
     cursor::Adjustable,
     store::Store,
 };
@@ -52,16 +51,15 @@ where
     ) -> EditResult<EditInfo, I>;
 }
 
-impl<'a, 'b, C, I> CompletionActions<CursorGroupIdContext<'a, 'b, C>, I> for EditBuffer<I>
+impl<'a, I> CompletionActions<CursorGroupIdContext<'a>, I> for EditBuffer<I>
 where
-    C: EditContext,
     I: ApplicationInfo,
 {
     fn complete_auto(
         &mut self,
         selection: &CompletionSelection,
         display: &CompletionDisplay,
-        ctx: &CursorGroupIdContext<'a, 'b, C>,
+        ctx: &CursorGroupIdContext<'a>,
         store: &mut Store<I>,
     ) -> EditResult<EditInfo, I> {
         let gid = ctx.0;
@@ -115,7 +113,7 @@ where
         &mut self,
         selection: &CompletionSelection,
         display: &CompletionDisplay,
-        ctx: &CursorGroupIdContext<'a, 'b, C>,
+        ctx: &CursorGroupIdContext<'a>,
         store: &mut Store<I>,
     ) -> EditResult<EditInfo, I> {
         let gid = ctx.0;
@@ -169,7 +167,7 @@ where
         scope: &CompletionScope,
         selection: &CompletionSelection,
         display: &CompletionDisplay,
-        ctx: &CursorGroupIdContext<'a, 'b, C>,
+        ctx: &CursorGroupIdContext<'a>,
         store: &mut Store<I>,
     ) -> EditResult<EditInfo, I> {
         let gid = ctx.0;
@@ -232,7 +230,7 @@ where
         scope: &CompletionScope,
         selection: &CompletionSelection,
         display: &CompletionDisplay,
-        ctx: &CursorGroupIdContext<'a, 'b, C>,
+        ctx: &CursorGroupIdContext<'a>,
         store: &mut Store<I>,
     ) -> EditResult<EditInfo, I> {
         let gid = ctx.0;
@@ -353,7 +351,7 @@ mod tests {
         let mut ebuf = EditBuffer::new("".to_string());
         let gid = ebuf.create_group();
         let vwctx = ViewportContext::default();
-        let vctx = VimContext::<TestInfo>::default();
+        let vctx = EditContext::default();
         let mut store = Store::<TestInfo>::default();
         let prev = MoveDir1D::Previous;
         let next = MoveDir1D::Next;
@@ -441,7 +439,8 @@ mod tests {
         // create buffer with path to temporary directory.
         let path = tmp.path().as_os_str().to_string_lossy();
         let (mut ebuf, gid, vwctx, mut vctx, mut store) = mkfivestr(path.as_ref());
-        vctx.persist.insert = Some(InsertStyle::Insert);
+        vctx.insert_style = Some(InsertStyle::Insert);
+        vctx.last_column = true;
 
         // Move to end of line.
         ebuf.set_leader(gid, Cursor::new(0, 0));

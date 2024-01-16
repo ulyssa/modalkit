@@ -51,7 +51,7 @@
 //! }
 //!
 //! impl ApplicationAction for CodeReviewAction {
-//!     fn is_edit_sequence<C: EditContext>(&self, _: &C) -> SequenceStatus {
+//!     fn is_edit_sequence(&self, _: &EditContext) -> SequenceStatus {
 //!         match self {
 //!             CodeReviewAction::Approve(..) => SequenceStatus::Break,
 //!             CodeReviewAction::Comment(..) => SequenceStatus::Break,
@@ -60,7 +60,7 @@
 //!         }
 //!     }
 //!
-//!     fn is_last_action<C: EditContext>(&self, _: &C) -> SequenceStatus {
+//!     fn is_last_action(&self, _: &EditContext) -> SequenceStatus {
 //!         match self {
 //!             CodeReviewAction::Approve(..) => SequenceStatus::Atom,
 //!             CodeReviewAction::Comment(..) => SequenceStatus::Atom,
@@ -69,7 +69,7 @@
 //!         }
 //!     }
 //!
-//!     fn is_last_selection<C: EditContext>(&self, _: &C) -> SequenceStatus {
+//!     fn is_last_selection(&self, _: &EditContext) -> SequenceStatus {
 //!         match self {
 //!             CodeReviewAction::Approve(..) => SequenceStatus::Ignore,
 //!             CodeReviewAction::Comment(..) => SequenceStatus::Ignore,
@@ -78,7 +78,7 @@
 //!         }
 //!     }
 //!
-//!     fn is_switchable<C: EditContext>(&self, _: &C) -> bool {
+//!     fn is_switchable(&self, _: &EditContext) -> bool {
 //!         match self {
 //!             CodeReviewAction::Approve(..) => false,
 //!             CodeReviewAction::Comment(..) => false,
@@ -170,36 +170,36 @@ use crate::{
 pub trait ApplicationAction: Clone + Debug + Eq + PartialEq + Send {
     /// Allows controlling how application-specific actions are included in
     /// [RepeatType::EditSequence](crate::editing::base::RepeatType::EditSequence).
-    fn is_edit_sequence<C: EditContext>(&self, ctx: &C) -> SequenceStatus;
+    fn is_edit_sequence(&self, ctx: &EditContext) -> SequenceStatus;
 
     /// Allows controlling how application-specific actions are included in
     /// [RepeatType::LastAction](crate::editing::base::RepeatType::LastAction).
-    fn is_last_action<C: EditContext>(&self, ctx: &C) -> SequenceStatus;
+    fn is_last_action(&self, ctx: &EditContext) -> SequenceStatus;
 
     /// Allows controlling how application-specific actions are included in
     /// [RepeatType::LastSelection](crate::editing::base::RepeatType::LastSelection).
-    fn is_last_selection<C: EditContext>(&self, ctx: &C) -> SequenceStatus;
+    fn is_last_selection(&self, ctx: &EditContext) -> SequenceStatus;
 
     /// Allows controlling whether an application-specific action can cause
     /// a buffer switch on an
     /// [EditError::WrongBuffer](crate::editing::action::EditError::WrongBuffer).
-    fn is_switchable<C: EditContext>(&self, ctx: &C) -> bool;
+    fn is_switchable(&self, ctx: &EditContext) -> bool;
 }
 
 impl ApplicationAction for () {
-    fn is_edit_sequence<C: EditContext>(&self, _: &C) -> SequenceStatus {
+    fn is_edit_sequence(&self, _: &EditContext) -> SequenceStatus {
         SequenceStatus::Break
     }
 
-    fn is_last_action<C: EditContext>(&self, _: &C) -> SequenceStatus {
+    fn is_last_action(&self, _: &EditContext) -> SequenceStatus {
         SequenceStatus::Ignore
     }
 
-    fn is_last_selection<C: EditContext>(&self, _: &C) -> SequenceStatus {
+    fn is_last_selection(&self, _: &EditContext) -> SequenceStatus {
         SequenceStatus::Ignore
     }
 
-    fn is_switchable<C: EditContext>(&self, _: &C) -> bool {
+    fn is_switchable(&self, _: &EditContext) -> bool {
         false
     }
 }

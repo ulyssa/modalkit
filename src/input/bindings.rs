@@ -11,7 +11,7 @@
 //!
 //! When a new node is reached, [Step::step] is used to determine whether we can produce any
 //! actions, and whether we need to transition to another [Mode]. If any actions are produced, the
-//! keybinding is considered fully entered and the current [InputContext] is taken. If the [Step]
+//! keybinding is considered fully entered and the current [InputState] is taken. If the [Step]
 //! transitions to another [Mode], then future input keys will be processed there. Otherwise,
 //! future keys will continue to be processed from the top of the currently entered [Mode].
 //!
@@ -22,7 +22,7 @@
 //!
 //! * Defining a custom [Step] type
 //! * Switching from [EmptyKeyClass] to a custom [InputKeyClass]
-//! * Switching from [EmptyKeyContext] to a custom [InputKeyContext]
+//! * Switching from [EmptyKeyState] to a custom [InputKeyState]
 //! * Updating the context during [Mode::enter]
 //!
 //! ## Example
@@ -33,11 +33,11 @@
 //!
 //! ```
 //! use modalkit::input::{
-//!     InputContext,
+//!     InputState,
 //!     bindings::{
 //!         BindingMachine,
 //!         EmptyKeyClass,
-//!         EmptyKeyContext,
+//!         EmptyKeyState,
 //!         InputBindings,
 //!         Mode,
 //!         ModeKeys,
@@ -77,10 +77,10 @@
 //!     }
 //! }
 //!
-//! impl Mode<ProgAction, EmptyKeyContext> for ProgMode { }
+//! impl Mode<ProgAction, EmptyKeyState> for ProgMode { }
 //!
-//! impl ModeKeys<TerminalKey, ProgAction, EmptyKeyContext> for ProgMode {
-//!     fn unmapped(&self, key: &TerminalKey, _: &mut EmptyKeyContext) -> (Vec<ProgAction>, Option<ProgMode>) {
+//! impl ModeKeys<TerminalKey, ProgAction, EmptyKeyState> for ProgMode {
+//!     fn unmapped(&self, key: &TerminalKey, _: &mut EmptyKeyState) -> (Vec<ProgAction>, Option<ProgMode>) {
 //!         match self {
 //!             ProgMode::Normal => {
 //!                 return (vec![], None);
@@ -126,7 +126,7 @@
 //!
 //! fn main() {
 //!     let mut pm = ProgMachine::from_bindings::<ProgBindings>();
-//!     let ctx = EmptyKeyContext::default();
+//!     let ctx = EmptyKeyState::default();
 //!
 //!     // We begin in the Default mode, Normal.
 //!     assert_eq!(pm.mode(), ProgMode::Normal);
@@ -168,11 +168,11 @@ use crate::util::IdGenerator;
 
 use super::dialog::Dialog;
 use super::key::{InputKey, MacroError};
-use super::InputContext;
+use super::InputState;
 
 /// Trait for context objects used within [ModalMachine].
 #[allow(unused_variables)]
-pub trait InputKeyContext<Key, C: InputKeyClass<Key>>: InputContext {
+pub trait InputKeyState<Key, C: InputKeyClass<Key>>: InputState {
     /// Update the context as needed after a `Key` has matched an [EdgeEvent].
     fn event(&mut self, event: &EdgeEvent<Key, C>, key: &Key) {}
 
@@ -214,14 +214,14 @@ pub trait ModeKeys<Key, A, C>: Mode<A, C> {
 
 /// Sequence-specific behaviour associated with a [Mode].
 #[allow(unused_variables)]
-pub trait ModeSequence<S, A, C>: Mode<A, C> {
+pub trait ModeSequence<S, A, C: InputState>: Mode<A, C> {
     /// Controls how and what gets included in the sequences of actions tracked by
     /// [ModalMachine]. When implementing, if there are actions that trigger calls to
     /// [BindingMachine::repeat], be careful that they do not get included in a way that can
     /// create cycles.
     ///
     /// By default, this will not place the action in any sequence.
-    fn sequences(&self, action: &A, ctx: &C) -> Vec<(S, SequenceStatus)> {
+    fn sequences(&self, action: &A, ctx: &C::Output) -> Vec<(S, SequenceStatus)> {
         vec![]
     }
 }
@@ -231,7 +231,7 @@ pub trait ModeSequence<S, A, C>: Mode<A, C> {
 /// For example, the input keys "0" to "9" might correspond to a `Count` variant in an
 /// implementation.
 ///
-/// You can use [InputKeyContext::event] if you need to record what key was typed for a class
+/// You can use [InputKeyState::event] if you need to record what key was typed for a class
 /// during a sequence of input keys.
 pub trait InputKeyClass<T>: Clone + Debug + Hash + Eq + PartialEq {
     /// Return the classes that the [InputKey] belongs to.
@@ -240,9 +240,6 @@ pub trait InputKeyClass<T>: Clone + Debug + Hash + Eq + PartialEq {
     /// follow.
     fn memberships(ke: &T) -> Vec<Self>;
 }
-
-/// Trait for the classes of action sequences that are tracked, and can be repeated.
-pub trait SequenceClass: Clone + Debug + Hash + Eq + PartialEq {}
 
 /// Different ways to include an action in the current action sequence.
 pub enum SequenceStatus {
@@ -270,7 +267,7 @@ pub trait Step<Key>: Clone {
     type A: Clone + Default;
 
     /// A context object for managing state that accompanies actions.
-    type C: InputKeyContext<Key, Self::Class>;
+    type C: InputKeyState<Key, Self::Class>;
 
     /// Classes of input keys.
     type Class: InputKeyClass<Key>;
@@ -278,8 +275,8 @@ pub trait Step<Key>: Clone {
     /// The possible modes for mapping keys.
     type M: ModeKeys<Key, Self::A, Self::C> + ModeSequence<Self::Sequence, Self::A, Self::C>;
 
-    /// The types of tracked action sequences.
-    type Sequence: SequenceClass;
+    /// A key type for identifying tracked action sequences which can be later repeated.
+    type Sequence: Eq + Hash;
 
     /// Indicates whether this step should be treated as if it's an unmapped key, and
     /// reset to the root of the current mode.
@@ -314,7 +311,6 @@ pub trait InputBindings<Key: InputKey, S: Step<Key>> {
 pub trait BindingMachine<K, A, S, C>
 where
     K: InputKey,
-    C: InputContext,
 {
     /// Process a typed key.
     fn input_key(&mut self, input: K);
@@ -322,8 +318,8 @@ where
     /// Fetch the next action produced by previously typed keys.
     fn pop(&mut self) -> Option<(A, C)>;
 
-    /// Get a reference to the current context.
-    fn context(&self) -> C;
+    /// Get current output context after the most recent keypress.
+    fn context(&mut self) -> C;
 
     /// Returns the message to display for the current interactive dialog, if there is one.
     ///
@@ -338,7 +334,7 @@ where
     fn get_cursor_indicator(&self) -> Option<char>;
 
     /// Repeat a recent sequence of tracked actions, and optionally override their original
-    /// contexts using [InputContext::overrides]. The repeated sequence will be inserted at
+    /// contexts using [InputState::merge]. The repeated sequence will be inserted at
     /// the beginning of the action queue, before any other pending actions.
     ///
     /// See [ModeSequence::sequences] for how to control what is repeated here.
@@ -359,22 +355,29 @@ impl<T> InputKeyClass<T> for EmptyKeyClass {
     }
 }
 
-/// A default [SequenceClass] with no members.
+/// A default type for [Step::Sequence] with no members.
 #[derive(Clone, Debug, Hash, Eq, PartialEq)]
 #[non_exhaustive]
 pub enum EmptySequence {}
 
-impl SequenceClass for EmptySequence {}
+impl<M, A, C> ModeSequence<EmptySequence, A, C> for M
+where
+    M: Mode<A, C>,
+    C: InputState,
+{
+}
 
-impl<M, A, C> ModeSequence<EmptySequence, A, C> for M where M: Mode<A, C> {}
-
-/// An implementation of [InputKeyContext] that stores nothing.
+/// An implementation of [InputKeyState] that stores nothing.
 #[derive(Clone, Debug, Default, Hash, Eq, PartialEq)]
 #[non_exhaustive]
-pub struct EmptyKeyContext {}
+pub struct EmptyKeyState {}
 
-impl InputContext for EmptyKeyContext {
-    fn overrides(&mut self, _: &Self) {}
+impl InputState for EmptyKeyState {
+    type Output = Self;
+
+    fn merge(original: Self, _: &Self) -> Self {
+        original
+    }
 
     fn reset(&mut self) {}
 
@@ -383,16 +386,16 @@ impl InputContext for EmptyKeyContext {
     }
 }
 
-impl<Key: InputKey, Class: InputKeyClass<Key>> InputKeyContext<Key, Class> for EmptyKeyContext {}
+impl<Key: InputKey, Class: InputKeyClass<Key>> InputKeyState<Key, Class> for EmptyKeyState {}
 
 impl<Key, A, M> Step<Key> for (Option<A>, Option<M>)
 where
     Key: InputKey,
     A: Clone + Default,
-    M: ModeKeys<Key, A, EmptyKeyContext>,
+    M: ModeKeys<Key, A, EmptyKeyState>,
 {
     type A = A;
-    type C = EmptyKeyContext;
+    type C = EmptyKeyState;
     type Class = EmptyKeyClass;
     type M = M;
     type Sequence = EmptySequence;
@@ -401,7 +404,7 @@ where
         self.0.is_none() && self.1.is_none()
     }
 
-    fn step(&self, _: &mut EmptyKeyContext) -> (Vec<A>, Option<M>) {
+    fn step(&self, _: &mut EmptyKeyState) -> (Vec<A>, Option<M>) {
         let act = self.0.clone().into_iter().collect();
 
         (act, self.1)
@@ -604,7 +607,7 @@ where
     K: InputKey,
     S: Step<K>,
 {
-    type Item = (S::A, S::C);
+    type Item = (S::A, <S::C as InputState>::Output);
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
@@ -916,11 +919,7 @@ impl<Key: InputKey, S: Step<Key>> Default for InputMachine<Key, S> {
     }
 }
 
-struct SequenceTracker<A, C>
-where
-    A: Clone,
-    C: InputContext,
-{
+struct SequenceTracker<A, C> {
     sequence: Vec<(A, C)>,
     sequence_break: bool,
 }
@@ -928,20 +927,18 @@ where
 impl<A, C> SequenceTracker<A, C>
 where
     A: Clone,
-    C: InputContext,
+    C: Clone,
 {
-    fn fetch(&mut self, ctx: Option<C>) -> Vec<(A, C)> {
-        let mut res = vec![];
+    fn fetch<F>(&mut self, overrides: F) -> Vec<(A, C)>
+    where
+        F: Fn(C) -> C,
+    {
+        self.sequence = std::mem::take(&mut self.sequence)
+            .into_iter()
+            .map(|(a, c)| (a, overrides(c)))
+            .collect();
 
-        for pair in self.sequence.iter_mut() {
-            if let Some(ref ctx) = ctx {
-                pair.1.overrides(ctx);
-            }
-
-            res.push(pair.clone());
-        }
-
-        return res;
+        return self.sequence.clone();
     }
 
     fn push(&mut self, status: SequenceStatus, pair: &(A, C)) {
@@ -972,11 +969,7 @@ where
     }
 }
 
-impl<A, C> Default for SequenceTracker<A, C>
-where
-    A: Clone,
-    C: InputContext,
-{
+impl<A, C> Default for SequenceTracker<A, C> {
     fn default() -> Self {
         Self { sequence: vec![], sequence_break: false }
     }
@@ -987,8 +980,8 @@ pub struct ModalMachine<Key: InputKey, S: Step<Key>> {
     state: S::M,
     ctx: S::C,
     im: InputMachine<Key, S>,
-    actions: VecDeque<(S::A, S::C)>,
-    sequences: HashMap<S::Sequence, SequenceTracker<S::A, S::C>>,
+    actions: VecDeque<(S::A, <S::C as InputState>::Output)>,
+    sequences: HashMap<S::Sequence, SequenceTracker<S::A, <S::C as InputState>::Output>>,
     dialogs: Vec<Box<dyn Dialog<S::A>>>,
 }
 
@@ -1107,11 +1100,16 @@ impl<Key: InputKey, S: Step<Key>> ModalMachine<Key, S> {
         }
     }
 
-    fn sequence(&mut self, seq: S::Sequence, status: SequenceStatus, pair: &(S::A, S::C)) {
+    fn sequence(
+        &mut self,
+        seq: S::Sequence,
+        status: SequenceStatus,
+        pair: &(S::A, <S::C as InputState>::Output),
+    ) {
         self.sequences.entry(seq).or_default().push(status, pair);
     }
 
-    fn push(&mut self, pair: (S::A, S::C)) {
+    fn push(&mut self, pair: (S::A, <S::C as InputState>::Output)) {
         let seqs = self.state.sequences(&pair.0, &pair.1);
 
         for (seq, status) in seqs {
@@ -1127,9 +1125,15 @@ impl<Key: InputKey, S: Step<Key>> ModalMachine<Key, S> {
     pub fn mode(&self) -> S::M {
         self.state
     }
+
+    /// Get a mutable reference to the keybinding state.
+    pub fn state(&mut self) -> &mut S::C {
+        &mut self.ctx
+    }
 }
 
-impl<Key, S> BindingMachine<Key, S::A, S::Sequence, S::C> for ModalMachine<Key, S>
+impl<Key, S> BindingMachine<Key, S::A, S::Sequence, <S::C as InputState>::Output>
+    for ModalMachine<Key, S>
 where
     Key: InputKey,
     S: Step<Key>,
@@ -1142,7 +1146,7 @@ where
                     // Dialog-generated actions skip sequence tracking,
                     // and go to the front of the action queue.
                     while let Some(act) = acts.pop() {
-                        self.actions.push_front((act, S::C::default()));
+                        self.actions.push_front((act, <S::C as InputState>::Output::default()));
                     }
 
                     let _ = self.dialogs.pop();
@@ -1183,7 +1187,7 @@ where
         }
     }
 
-    fn pop(&mut self) -> Option<(S::A, S::C)> {
+    fn pop(&mut self) -> Option<(S::A, <S::C as InputState>::Output)> {
         if !self.dialogs.is_empty() {
             // Wait until we've finished interacting w/ the dialog.
             return None;
@@ -1192,8 +1196,8 @@ where
         self.actions.pop_front()
     }
 
-    fn context(&self) -> S::C {
-        self.ctx.clone()
+    fn context(&mut self) -> <S::C as InputState>::Output {
+        self.ctx.take()
     }
 
     fn show_dialog(&mut self, max_rows: usize, max_cols: usize) -> Vec<Cow<'_, str>> {
@@ -1211,9 +1215,16 @@ where
         self.ctx.get_cursor_indicator()
     }
 
-    fn repeat(&mut self, seq: S::Sequence, ctx: Option<S::C>) {
+    fn repeat(&mut self, seq: S::Sequence, ctx: Option<<S::C as InputState>::Output>) {
+        let merge = |c| {
+            match &ctx {
+                Some(ctx) => S::C::merge(c, ctx),
+                None => c,
+            }
+        };
+
         let tracker = self.sequences.entry(seq).or_default();
-        let mut seq = VecDeque::from(tracker.fetch(ctx));
+        let mut seq = VecDeque::from(tracker.fetch(merge));
 
         std::mem::swap(&mut self.actions, &mut seq);
         self.actions.append(&mut seq);
@@ -1375,8 +1386,6 @@ mod tests {
 
     type TestEdgeEvent = EdgeEvent<TerminalKey, TestKeyClass>;
 
-    impl SequenceClass for TestSequence {}
-
     impl Default for TestAction {
         fn default() -> Self {
             TestAction::NoOp
@@ -1473,15 +1482,19 @@ mod tests {
         }
     }
 
-    impl InputContext for TestContext {
-        fn overrides(&mut self, other: &Self) {
+    impl InputState for TestContext {
+        type Output = Self;
+
+        fn merge(mut original: Self, other: &Self) -> Self {
             if other.temp.count.is_some() {
-                self.temp.count = other.temp.count;
+                original.temp.count = other.temp.count;
             }
 
             if other.temp.operation.is_some() {
-                self.temp.operation = other.temp.operation.clone();
+                original.temp.operation = other.temp.operation.clone();
             }
+
+            original
         }
 
         fn reset(&mut self) {
@@ -1496,7 +1509,7 @@ mod tests {
         }
     }
 
-    impl InputKeyContext<TerminalKey, TestKeyClass> for TestContext {
+    impl InputKeyState<TerminalKey, TestKeyClass> for TestContext {
         fn event(&mut self, ev: &TestEdgeEvent, ke: &TerminalKey) {
             match ev {
                 EdgeEvent::Any => {

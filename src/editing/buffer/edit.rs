@@ -17,7 +17,7 @@ use crate::editing::{
         TargetShape,
         WordStyle,
     },
-    context::EditContext,
+    context::Resolve,
     cursor::{Adjustable, Cursor, CursorChoice},
     rope::EditRope,
     store::{RegisterCell, RegisterPutFlags, Store},
@@ -93,16 +93,14 @@ where
     ) -> EditResult<CursorChoice, I>;
 }
 
-impl<'a, 'b, 'c, C, I> EditActions<CursorMovementsContext<'a, 'b, 'c, Cursor, C>, I>
-    for EditBuffer<I>
+impl<'a, I> EditActions<CursorMovementsContext<'a, Cursor>, I> for EditBuffer<I>
 where
-    C: EditContext,
     I: ApplicationInfo,
 {
     fn delete(
         &mut self,
         range: &CursorRange,
-        ctx: &CursorMovementsContext<'a, 'b, 'c, Cursor, C>,
+        ctx: &CursorMovementsContext<'a, Cursor>,
         store: &mut Store<I>,
     ) -> EditResult<CursorChoice, I> {
         let style = ctx.context.get_insert_style().unwrap_or(InsertStyle::Insert);
@@ -169,7 +167,7 @@ where
     fn yank(
         &mut self,
         range: &CursorRange,
-        ctx: &CursorMovementsContext<'a, 'b, 'c, Cursor, C>,
+        ctx: &CursorMovementsContext<'a, Cursor>,
         store: &mut Store<I>,
     ) -> EditResult<CursorChoice, I> {
         let (shape, ranges) = self._effective(range, ctx.context.get_target_shape());
@@ -229,7 +227,7 @@ where
         c: char,
         _virt: bool,
         range: &CursorRange,
-        ctx: &CursorMovementsContext<'a, 'b, 'c, Cursor, C>,
+        ctx: &CursorMovementsContext<'a, Cursor>,
         _: &mut Store<I>,
     ) -> EditResult<CursorChoice, I> {
         let (_, ranges) = self._effective(range, ctx.context.get_target_shape());
@@ -269,7 +267,7 @@ where
         &mut self,
         case: &Case,
         range: &CursorRange,
-        ctx: &CursorMovementsContext<'a, 'b, 'c, Cursor, C>,
+        ctx: &CursorMovementsContext<'a, Cursor>,
         _: &mut Store<I>,
     ) -> EditResult<CursorChoice, I> {
         let (shape, ranges) = self._effective(range, ctx.context.get_target_shape());
@@ -314,7 +312,7 @@ where
         &mut self,
         _: &IndentChange,
         _: &CursorRange,
-        _: &CursorMovementsContext<'a, 'b, 'c, Cursor, C>,
+        _: &CursorMovementsContext<'a, Cursor>,
         _: &mut Store<I>,
     ) -> EditResult<CursorChoice, I> {
         // XXX: implement (:help <, :help >, :help v_b_<, :help v_b_>)
@@ -325,7 +323,7 @@ where
     fn format(
         &mut self,
         _: &CursorRange,
-        _: &CursorMovementsContext<'a, 'b, 'c, Cursor, C>,
+        _: &CursorMovementsContext<'a, Cursor>,
         _: &mut Store<I>,
     ) -> EditResult<CursorChoice, I> {
         /*
@@ -341,7 +339,7 @@ where
         change: &NumberChange,
         mul: bool,
         range: &CursorRange,
-        ctx: &CursorMovementsContext<'a, 'b, 'c, Cursor, C>,
+        ctx: &CursorMovementsContext<'a, Cursor>,
         store: &mut Store<I>,
     ) -> EditResult<CursorChoice, I> {
         let mut diff = match change {
@@ -399,7 +397,7 @@ where
         &mut self,
         spaces: JoinStyle,
         range: &CursorRange,
-        _: &CursorMovementsContext<'a, 'b, 'c, Cursor, C>,
+        _: &CursorMovementsContext<'a, Cursor>,
         store: &mut Store<I>,
     ) -> EditResult<CursorChoice, I> {
         // Joining is always forced into a LineWise movement.
@@ -502,21 +500,21 @@ mod tests {
 
         // 3r!
         let mov = MoveType::Column(MoveDir1D::Next, false);
-        vctx.action.replace = Some('!'.into());
+        vctx.replace_char = Some('!'.into());
         edit!(ebuf, EditAction::Replace(false), mv!(mov, 3), ctx!(curid, vwctx, vctx), store);
         assert_eq!(ebuf.get_text(), "!!!lo world\na b c d e\nfoo bar baz\n");
         assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 2));
 
         // replace three words ("!", "lo", "world") w/ "Q"
         let mov = MoveType::WordBegin(WordStyle::Little, MoveDir1D::Next);
-        vctx.action.replace = Some('Q'.into());
+        vctx.replace_char = Some('Q'.into());
         edit!(ebuf, EditAction::Replace(false), mv!(mov, 3), ctx!(curid, vwctx, vctx), store);
         assert_eq!(ebuf.get_text(), "!!QQQQQQQQQ\na b c d e\nfoo bar baz\n");
         assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 10));
 
         // replace two lines w/ ":", leaving newlines intact.
         let mov = RangeType::Line;
-        vctx.action.replace = Some(':'.into());
+        vctx.replace_char = Some(':'.into());
         edit!(ebuf, EditAction::Replace(false), range!(mov, 2), ctx!(curid, vwctx, vctx), store);
         assert_eq!(ebuf.get_text(), ":::::::::::\n:::::::::\nfoo bar baz\n");
         assert_eq!(ebuf.get_leader(curid), Cursor::new(1, 8));
@@ -542,8 +540,8 @@ mod tests {
         assert_eq!(get_reg!(store, Register::Unnamed), cell!(CharWise, "world"));
 
         // Test using the named 'a' register ("a).
-        vctx.action.count = Some(3);
-        vctx.action.register = Some(Register::Named('a'));
+        vctx.count = Some(3);
+        vctx.register = Some(Register::Named('a'));
         edit!(ebuf, EditAction::Yank, mv!(mov), ctx!(curid, vwctx, vctx), store);
         assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 6));
 
@@ -553,9 +551,9 @@ mod tests {
         assert_eq!(get_named_reg!(store, 'a'), cell!(CharWise, "world\na b "));
 
         // Append a line to the 'a' register ("A).
-        vctx.action.count = None;
-        vctx.action.register = Some(Register::Named('a'));
-        vctx.action.register_append = true;
+        vctx.count = None;
+        vctx.register = Some(Register::Named('a'));
+        vctx.register_append = true;
         edit!(ebuf, EditAction::Yank, range!(RangeType::Line), ctx!(curid, vwctx, vctx), store);
         assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 6));
 
@@ -568,9 +566,9 @@ mod tests {
         assert_eq!(get_named_reg!(store, 'a'), cell!(LineWise, "world\na b \nhello world\n"));
 
         // The blackhole register ("_) discards the yanked text.
-        vctx.action.count = None;
-        vctx.action.register = Some(Register::Blackhole);
-        vctx.action.register_append = false;
+        vctx.count = None;
+        vctx.register = Some(Register::Blackhole);
+        vctx.register_append = false;
         edit!(ebuf, EditAction::Yank, mv!(mov), ctx!(curid, vwctx, vctx), store);
         assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 6));
 
@@ -696,7 +694,7 @@ mod tests {
         ebuf.set_leader(curid, Cursor::new(0, 7));
 
         // Do a blockwise delete from here to the first word of the third line.
-        vctx.persist.shape = Some(TargetShape::BlockWise);
+        vctx.target_shape = Some(TargetShape::BlockWise);
         edit!(
             ebuf,
             EditAction::Delete,
@@ -733,7 +731,8 @@ mod tests {
         let (mut ebuf, curid, vwctx, mut vctx, mut store) =
             mkfivestr("hello world\na b c d e f\n\n\n1 2 3 4 5 6\n");
 
-        vctx.persist.insert = Some(InsertStyle::Insert);
+        vctx.insert_style = Some(InsertStyle::Insert);
+        vctx.last_column = true;
 
         // Start out at (0, 3).
         ebuf.set_leader(curid, Cursor::new(0, 3));
@@ -773,7 +772,7 @@ mod tests {
 
         // Delete two previous newline characters ("<BS>").
         let mov = MoveType::Column(MoveDir1D::Previous, true);
-        vctx.action.count = Some(2);
+        vctx.count = Some(2);
         edit!(ebuf, EditAction::Delete, mv!(mov), ctx!(curid, vwctx, vctx), store);
         assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 11));
         assert_eq!(ebuf.get_text(), "a b c d e f1 2 3 4 5 6\n");
@@ -855,7 +854,7 @@ mod tests {
         let operation = EditAction::ChangeCase(Case::Toggle);
         let mov = MoveType::Column(MoveDir1D::Next, false);
 
-        vctx.action.cursor_end = Some(CursorEnd::End);
+        vctx.cursor_end = CursorEnd::End;
 
         // Start out at (0, 11), at the start of "eXaMpLE".
         ebuf.set_leader(curid, Cursor::new(0, 11));
@@ -872,7 +871,7 @@ mod tests {
             mkfivestr("hello\nworld\na b c d e\n    word\n");
 
         let op = EditAction::Yank;
-        vctx.persist.shape = Some(TargetShape::CharWise);
+        vctx.target_shape = Some(TargetShape::CharWise);
 
         // Move to (0, 2) to begin.
         ebuf.set_leader(curid, Cursor::new(0, 2));
@@ -911,7 +910,7 @@ mod tests {
             mkfivestr("hello\nworld\na b c d e\n1 2 3 4 5 6");
 
         let op = EditAction::Yank;
-        vctx.persist.shape = Some(TargetShape::LineWise);
+        vctx.target_shape = Some(TargetShape::LineWise);
 
         // Move to (0, 2) to begin.
         ebuf.set_leader(curid, Cursor::new(0, 2));
@@ -946,7 +945,7 @@ mod tests {
         let (mut ebuf, curid, vwctx, mut vctx, mut store) =
             mkfivestr("hello\nworld\na b c d e\n1 2 3 4 5 6");
 
-        vctx.persist.shape = Some(TargetShape::BlockWise);
+        vctx.target_shape = Some(TargetShape::BlockWise);
 
         let mov = MoveType::Line(MoveDir1D::Next);
 
@@ -1128,7 +1127,7 @@ mod tests {
         let opdec = EditAction::ChangeNumber(NumberChange::Decrease(Count::Contextual), false);
         let opinc = EditAction::ChangeNumber(NumberChange::Increase(Count::Contextual), false);
 
-        vctx.action.count = Some(3);
+        vctx.count = Some(3);
         edit!(
             ebuf,
             opinc,
@@ -1139,7 +1138,7 @@ mod tests {
         assert_eq!(ebuf.get_text(), "a 4 b 2 c\nd 3 e 4 f\n");
         assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 2));
 
-        vctx.action.count = Some(9);
+        vctx.count = Some(9);
         edit!(
             ebuf,
             opdec,
@@ -1150,7 +1149,7 @@ mod tests {
         assert_eq!(ebuf.get_text(), "a -5 b 2 c\nd 3 e 4 f\n");
         assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 3));
 
-        vctx.action.count = Some(1);
+        vctx.count = Some(1);
         edit!(
             ebuf,
             opdec,
@@ -1161,7 +1160,7 @@ mod tests {
         assert_eq!(ebuf.get_text(), "a -6 b 2 c\nd 3 e 4 f\n");
         assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 3));
 
-        vctx.action.count = Some(7);
+        vctx.count = Some(7);
         edit!(
             ebuf,
             opinc,
@@ -1174,7 +1173,7 @@ mod tests {
 
         ebuf.set_leader(curid, Cursor::new(1, 4));
 
-        vctx.action.count = Some(2);
+        vctx.count = Some(2);
         edit!(
             ebuf,
             opinc,
@@ -1185,7 +1184,7 @@ mod tests {
         assert_eq!(ebuf.get_text(), "a 1 b 2 c\nd 3 e 6 f\n");
         assert_eq!(ebuf.get_leader(curid), Cursor::new(1, 6));
 
-        vctx.action.count = Some(3);
+        vctx.count = Some(3);
         edit!(
             ebuf,
             opdec,
@@ -1207,12 +1206,12 @@ mod tests {
         let opdec = EditAction::ChangeNumber(NumberChange::Decrease(Count::Contextual), true);
         let opinc = EditAction::ChangeNumber(NumberChange::Increase(Count::Contextual), true);
 
-        vctx.action.count = Some(5);
+        vctx.count = Some(5);
         edit!(ebuf, opinc, &range!(RangeType::Buffer), ctx!(curid, vwctx, vctx), &mut store);
         assert_eq!(ebuf.get_text(), "a 6 b 2 c\nd 13 e 4 f\ng 20 h 6 i\nj 27 k 8 l\n");
         assert_eq!(ebuf.get_leader(curid), Cursor::new(3, 3));
 
-        vctx.action.count = Some(2);
+        vctx.count = Some(2);
         edit!(ebuf, opdec, &range!(RangeType::Buffer), ctx!(curid, vwctx, vctx), &mut store);
         assert_eq!(ebuf.get_text(), "a 4 b 2 c\nd 9 e 4 f\ng 14 h 6 i\nj 19 k 8 l\n");
         assert_eq!(ebuf.get_leader(curid), Cursor::new(3, 3));

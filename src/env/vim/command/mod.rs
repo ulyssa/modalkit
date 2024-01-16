@@ -9,10 +9,7 @@ use std::cmp::Ordering;
 use std::fmt;
 use std::str::FromStr;
 
-use crate::input::{
-    commands::{Command, CommandError, CommandMachine, CommandStep, InputCmdContext},
-    InputContext,
-};
+use crate::input::commands::{Command, CommandError, CommandMachine, CommandStep};
 
 use crate::editing::{
     action::{Action, TabAction, WindowAction},
@@ -37,25 +34,23 @@ use crate::editing::{
         WriteFlags,
     },
     completion::complete_path,
-    context::EditContext,
+    context::{EditContext, Resolve},
     cursor::Cursor,
     rope::EditRope,
 };
-
-use super::VimContext;
 
 mod parse;
 
 pub use self::parse::{CommandArgument, CommandDescription, OptionType};
 
 /// Result type for a processed command.
-pub type CommandResult<C, I> = Result<CommandStep<VimCommand<C, I>>, CommandError>;
+pub type CommandResult<I> = Result<CommandStep<VimCommand<I>>, CommandError>;
 
 /// Handler for a mapped command.
-pub type CommandFunc<C, I> = fn(CommandDescription, &mut CommandContext<C>) -> CommandResult<C, I>;
+pub type CommandFunc<I> = fn(CommandDescription, &mut CommandContext) -> CommandResult<I>;
 
 /// Description of a mapped Vim command.
-pub struct VimCommand<C: EditContext, I: ApplicationInfo = EmptyInfo> {
+pub struct VimCommand<I: ApplicationInfo = EmptyInfo> {
     /// Primary name of this command.
     pub name: String,
 
@@ -63,12 +58,11 @@ pub struct VimCommand<C: EditContext, I: ApplicationInfo = EmptyInfo> {
     pub aliases: Vec<String>,
 
     /// Function that handles command.
-    pub f: CommandFunc<C, I>,
+    pub f: CommandFunc<I>,
 }
 
-impl<C, I> Clone for VimCommand<C, I>
+impl<I> Clone for VimCommand<I>
 where
-    C: EditContext,
     I: ApplicationInfo,
 {
     fn clone(&self) -> Self {
@@ -80,9 +74,8 @@ where
     }
 }
 
-impl<C, I> fmt::Debug for VimCommand<C, I>
+impl<I> fmt::Debug for VimCommand<I>
 where
-    C: EditContext,
     I: ApplicationInfo,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -93,15 +86,14 @@ where
     }
 }
 
-impl<C, I> Command for VimCommand<C, I>
+impl<I> Command for VimCommand<I>
 where
-    C: EditContext,
     I: ApplicationInfo,
 {
     type Parsed = CommandDescription;
     type Action = Action<I>;
-    type Context = C;
-    type CommandContext = CommandContext<C>;
+    type Context = EditContext;
+    type CommandContext = CommandContext;
 
     fn name(&self) -> String {
         self.name.clone()
@@ -111,16 +103,16 @@ where
         self.aliases.clone()
     }
 
-    fn exec(&self, cmd: Self::Parsed, ctx: &mut Self::CommandContext) -> CommandResult<C, I> {
+    fn exec(&self, cmd: Self::Parsed, ctx: &mut Self::CommandContext) -> CommandResult<I> {
         (self.f)(cmd, ctx)
     }
 }
 
 /// Context object passed to each [CommandFunc].
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct CommandContext<C: EditContext> {
+#[derive(Clone, Debug)]
+pub struct CommandContext {
     /// Contextual information from user input.
-    pub context: C,
+    pub context: EditContext,
 
     tab: Option<FocusChange>,
     axis: Option<Axis>,
@@ -130,10 +122,7 @@ pub struct CommandContext<C: EditContext> {
     rel_default: MoveDir1D,
 }
 
-impl<C> CommandContext<C>
-where
-    C: EditContext,
-{
+impl CommandContext {
     /// Indicate a default [Axis] to use when one hasn't been specified via a prefix command (e.g.
     /// `:vertical`).
     pub fn default_axis(&mut self, axis: Axis) -> &mut Self {
@@ -218,11 +207,8 @@ where
     }
 }
 
-impl<C> From<C> for CommandContext<C>
-where
-    C: EditContext,
-{
-    fn from(context: C) -> Self {
+impl From<EditContext> for CommandContext {
+    fn from(context: EditContext) -> Self {
         CommandContext {
             context,
 
@@ -236,35 +222,13 @@ where
     }
 }
 
-impl<C> Default for CommandContext<C>
-where
-    C: EditContext,
-{
+impl Default for CommandContext {
     fn default() -> Self {
-        unimplemented!();
+        Self::from(EditContext::default())
     }
 }
 
-impl<C> InputContext for CommandContext<C>
-where
-    C: EditContext,
-{
-    fn overrides(&mut self, _: &Self) {
-        unimplemented!();
-    }
-
-    fn reset(&mut self) {
-        unimplemented!();
-    }
-
-    fn take(&mut self) -> Self {
-        unimplemented!();
-    }
-}
-
-impl<C: EditContext> InputCmdContext for CommandContext<C> {}
-
-fn sum_mods<C: EditContext>(mods: &[RangeEndingModifier], ctx: &C) -> Option<(MoveDir1D, usize)> {
+fn sum_mods(mods: &[RangeEndingModifier], ctx: &EditContext) -> Option<(MoveDir1D, usize)> {
     let mut dir = MoveDir1D::Next;
     let mut off = 0;
 
@@ -297,10 +261,7 @@ fn sum_mods<C: EditContext>(mods: &[RangeEndingModifier], ctx: &C) -> Option<(Mo
     Some((dir, off))
 }
 
-fn range_to_count<C: EditContext>(
-    range: &RangeSpec,
-    context: &C,
-) -> Result<Option<Count>, CommandError> {
+fn range_to_count(range: &RangeSpec, context: &EditContext) -> Result<Option<Count>, CommandError> {
     let count = match range {
         RangeSpec::Single(RangeEnding(RangeEndingType::Absolute(count), mods)) |
         RangeSpec::Double(_, RangeEnding(RangeEndingType::Absolute(count), mods), _) => {
@@ -323,10 +284,10 @@ fn range_to_count<C: EditContext>(
     return Ok(Some(count));
 }
 
-fn range_to_fc<C: EditContext>(
+fn range_to_fc(
     range: &RangeSpec,
     wrapdir: bool,
-    context: &C,
+    context: &EditContext,
 ) -> Result<FocusChange, CommandError> {
     let fc = match range {
         RangeSpec::Single(RangeEnding(RangeEndingType::Absolute(count), mods)) => {
@@ -370,9 +331,9 @@ fn range_to_fc<C: EditContext>(
 }
 
 /// Interpret the range as an optional window height or width.
-fn window_size<C: EditContext>(
+fn window_size(
     desc: &CommandDescription,
-    ctx: &mut CommandContext<C>,
+    ctx: &mut CommandContext,
 ) -> Result<Option<Count>, CommandError> {
     desc.range
         .as_ref()
@@ -383,9 +344,9 @@ fn window_size<C: EditContext>(
 /// Interpret the range provided to a window command.
 ///
 /// If no range is specified, then act on the current window by default.
-fn window_range_target<C: EditContext>(
+fn window_range_target(
     desc: &CommandDescription,
-    ctx: &mut CommandContext<C>,
+    ctx: &mut CommandContext,
 ) -> Result<FocusChange, CommandError> {
     desc.range
         .as_ref()
@@ -416,10 +377,10 @@ fn window_open_target<I: ApplicationWindowId>(
 /// *Aliases:* `clo`
 ///
 /// Close a window.
-pub fn vim_cmd_close<C: EditContext, I: ApplicationInfo>(
+pub fn vim_cmd_close<I: ApplicationInfo>(
     desc: CommandDescription,
-    ctx: &mut CommandContext<C>,
-) -> CommandResult<C, I> {
+    ctx: &mut CommandContext,
+) -> CommandResult<I> {
     let flags = if desc.bang {
         CloseFlags::FORCE
     } else {
@@ -430,7 +391,7 @@ pub fn vim_cmd_close<C: EditContext, I: ApplicationInfo>(
     let target = WindowTarget::Single(focus);
     let action = WindowAction::Close(target, flags).into();
 
-    Ok(CommandStep::Continue(action, ctx.context.take()))
+    Ok(CommandStep::Continue(action, ctx.context.clone()))
 }
 
 /// The `:only` command.
@@ -438,10 +399,10 @@ pub fn vim_cmd_close<C: EditContext, I: ApplicationInfo>(
 /// *Aliases:* `on`
 ///
 /// Close all windows but one.
-pub fn vim_cmd_only<C: EditContext, I: ApplicationInfo>(
+pub fn vim_cmd_only<I: ApplicationInfo>(
     desc: CommandDescription,
-    ctx: &mut CommandContext<C>,
-) -> CommandResult<C, I> {
+    ctx: &mut CommandContext,
+) -> CommandResult<I> {
     let flags = if desc.bang {
         CloseFlags::QUIT | CloseFlags::FORCE
     } else {
@@ -452,7 +413,7 @@ pub fn vim_cmd_only<C: EditContext, I: ApplicationInfo>(
     let target = WindowTarget::AllBut(focus);
     let action = WindowAction::Close(target, flags).into();
 
-    Ok(CommandStep::Continue(action, ctx.context.take()))
+    Ok(CommandStep::Continue(action, ctx.context.clone()))
 }
 
 /// The `:quit` command.
@@ -460,10 +421,10 @@ pub fn vim_cmd_only<C: EditContext, I: ApplicationInfo>(
 /// *Aliases:* `q`
 ///
 /// Quit a window.
-pub fn vim_cmd_quit<C: EditContext, I: ApplicationInfo>(
+pub fn vim_cmd_quit<I: ApplicationInfo>(
     desc: CommandDescription,
-    ctx: &mut CommandContext<C>,
-) -> CommandResult<C, I> {
+    ctx: &mut CommandContext,
+) -> CommandResult<I> {
     let flags = if desc.bang {
         CloseFlags::QUIT | CloseFlags::FORCE
     } else {
@@ -474,7 +435,7 @@ pub fn vim_cmd_quit<C: EditContext, I: ApplicationInfo>(
     let target = WindowTarget::Single(focus);
     let action = WindowAction::Close(target, flags).into();
 
-    Ok(CommandStep::Continue(action, ctx.context.take()))
+    Ok(CommandStep::Continue(action, ctx.context.clone()))
 }
 
 /// The `:quitall` command.
@@ -482,10 +443,10 @@ pub fn vim_cmd_quit<C: EditContext, I: ApplicationInfo>(
 /// *Aliases:* `qa`, `qall`, `quita`
 ///
 /// Quit all windows in the current tab.
-pub fn vim_cmd_quitall<C: EditContext, I: ApplicationInfo>(
+pub fn vim_cmd_quitall<I: ApplicationInfo>(
     desc: CommandDescription,
-    ctx: &mut CommandContext<C>,
-) -> CommandResult<C, I> {
+    ctx: &mut CommandContext,
+) -> CommandResult<I> {
     let flags = if desc.bang {
         CloseFlags::QUIT | CloseFlags::FORCE
     } else {
@@ -495,7 +456,7 @@ pub fn vim_cmd_quitall<C: EditContext, I: ApplicationInfo>(
     let target = TabTarget::All;
     let action = TabAction::Close(target, flags).into();
 
-    Ok(CommandStep::Continue(action, ctx.context.take()))
+    Ok(CommandStep::Continue(action, ctx.context.clone()))
 }
 
 /// The `:resize` command.
@@ -503,10 +464,10 @@ pub fn vim_cmd_quitall<C: EditContext, I: ApplicationInfo>(
 /// *Aliases:* `res`
 ///
 /// Resize the current window.
-pub fn vim_cmd_resize<C: EditContext, I: ApplicationInfo>(
+pub fn vim_cmd_resize<I: ApplicationInfo>(
     desc: CommandDescription,
-    ctx: &mut CommandContext<C>,
-) -> CommandResult<C, I> {
+    ctx: &mut CommandContext,
+) -> CommandResult<I> {
     if desc.arg.text.is_empty() {
         return Err(CommandError::InvalidArgument);
     }
@@ -545,7 +506,7 @@ pub fn vim_cmd_resize<C: EditContext, I: ApplicationInfo>(
     let focus = window_range_target(&desc, ctx)?;
     let action = WindowAction::Resize(focus, axis, change).into();
 
-    Ok(CommandStep::Continue(action, ctx.context.take()))
+    Ok(CommandStep::Continue(action, ctx.context.clone()))
 }
 
 /// The `:split` command.
@@ -553,15 +514,15 @@ pub fn vim_cmd_resize<C: EditContext, I: ApplicationInfo>(
 /// *Aliases:* `sp`
 ///
 /// Split the window. If an argument is given, then it will be opened with [OpenTarget::Name].
-pub fn vim_cmd_sp<C: EditContext, I: ApplicationInfo>(
+pub fn vim_cmd_sp<I: ApplicationInfo>(
     desc: CommandDescription,
-    ctx: &mut CommandContext<C>,
-) -> CommandResult<C, I> {
+    ctx: &mut CommandContext,
+) -> CommandResult<I> {
     let size = window_size(&desc, ctx)?;
     let target = window_open_target(&desc)?;
     let action = ctx.window(target, size);
 
-    Ok(CommandStep::Continue(action, ctx.context.take()))
+    Ok(CommandStep::Continue(action, ctx.context.clone()))
 }
 
 /// The `:vsplit` command.
@@ -570,10 +531,10 @@ pub fn vim_cmd_sp<C: EditContext, I: ApplicationInfo>(
 ///
 /// Split the window vertically. If an argument is given, then it will be opened with
 /// [OpenTarget::Name].
-pub fn vim_cmd_vs<C: EditContext, I: ApplicationInfo>(
+pub fn vim_cmd_vs<I: ApplicationInfo>(
     desc: CommandDescription,
-    ctx: &mut CommandContext<C>,
-) -> CommandResult<C, I> {
+    ctx: &mut CommandContext,
+) -> CommandResult<I> {
     // Always override axis.
     ctx.axis = Some(Axis::Vertical);
 
@@ -581,7 +542,7 @@ pub fn vim_cmd_vs<C: EditContext, I: ApplicationInfo>(
     let target = window_open_target(&desc)?;
     let action = ctx.window(target, size);
 
-    Ok(CommandStep::Continue(action, ctx.context.take()))
+    Ok(CommandStep::Continue(action, ctx.context.clone()))
 }
 
 /// The `:tabnext` command.
@@ -589,10 +550,10 @@ pub fn vim_cmd_vs<C: EditContext, I: ApplicationInfo>(
 /// *Aliases:* `tabn`
 ///
 /// Switch focus to a following tab.
-pub fn vim_cmd_tabnext<C: EditContext, I: ApplicationInfo>(
+pub fn vim_cmd_tabnext<I: ApplicationInfo>(
     desc: CommandDescription,
-    ctx: &mut CommandContext<C>,
-) -> CommandResult<C, I> {
+    ctx: &mut CommandContext,
+) -> CommandResult<I> {
     let range = match (desc.range, desc.arg.text.is_empty()) {
         (None, false) => {
             if let Ok(range) = desc.arg.range() {
@@ -614,7 +575,7 @@ pub fn vim_cmd_tabnext<C: EditContext, I: ApplicationInfo>(
 
     let action = TabAction::Focus(change).into();
 
-    Ok(CommandStep::Continue(action, ctx.context.take()))
+    Ok(CommandStep::Continue(action, ctx.context.clone()))
 }
 
 /// The `:tabprevious` command.
@@ -622,10 +583,10 @@ pub fn vim_cmd_tabnext<C: EditContext, I: ApplicationInfo>(
 /// *Aliases:* `tabp`, `tabNext`, `tabN`
 ///
 /// Switch focus to a previous tab.
-pub fn vim_cmd_tabprev<C: EditContext, I: ApplicationInfo>(
+pub fn vim_cmd_tabprev<I: ApplicationInfo>(
     desc: CommandDescription,
-    ctx: &mut CommandContext<C>,
-) -> CommandResult<C, I> {
+    ctx: &mut CommandContext,
+) -> CommandResult<I> {
     let range = match (desc.range, desc.arg.text.is_empty()) {
         (None, false) => {
             if let Ok(range) = desc.arg.range() {
@@ -661,7 +622,7 @@ pub fn vim_cmd_tabprev<C: EditContext, I: ApplicationInfo>(
 
     let action = TabAction::Focus(change).into();
 
-    Ok(CommandStep::Continue(action, ctx.context.take()))
+    Ok(CommandStep::Continue(action, ctx.context.clone()))
 }
 
 /// The `tabfirst` command.
@@ -669,14 +630,14 @@ pub fn vim_cmd_tabprev<C: EditContext, I: ApplicationInfo>(
 /// *Aliases:* `tabfir`, `tabr`, `tabrewind`
 ///
 /// Switch focus to the first tab.
-pub fn vim_cmd_tabfirst<C: EditContext, I: ApplicationInfo>(
+pub fn vim_cmd_tabfirst<I: ApplicationInfo>(
     _: CommandDescription,
-    ctx: &mut CommandContext<C>,
-) -> CommandResult<C, I> {
+    ctx: &mut CommandContext,
+) -> CommandResult<I> {
     let change = FocusChange::Position(MovePosition::Beginning);
     let action = TabAction::Focus(change).into();
 
-    Ok(CommandStep::Continue(action, ctx.context.take()))
+    Ok(CommandStep::Continue(action, ctx.context.clone()))
 }
 
 /// The `:tablast` command.
@@ -684,23 +645,23 @@ pub fn vim_cmd_tabfirst<C: EditContext, I: ApplicationInfo>(
 /// *Aliases:* `tabl`
 ///
 /// Switch focus to the last tab.
-pub fn vim_cmd_tablast<C: EditContext, I: ApplicationInfo>(
+pub fn vim_cmd_tablast<I: ApplicationInfo>(
     _: CommandDescription,
-    ctx: &mut CommandContext<C>,
-) -> CommandResult<C, I> {
+    ctx: &mut CommandContext,
+) -> CommandResult<I> {
     let change = FocusChange::Position(MovePosition::End);
     let action = TabAction::Focus(change).into();
 
-    Ok(CommandStep::Continue(action, ctx.context.take()))
+    Ok(CommandStep::Continue(action, ctx.context.clone()))
 }
 
 /// The `:tab` command.
 ///
 /// Run a command and, if it opens a window, open it in a new tab instead.
-pub fn vim_cmd_tab<C: EditContext, I: ApplicationInfo>(
+pub fn vim_cmd_tab<I: ApplicationInfo>(
     desc: CommandDescription,
-    ctx: &mut CommandContext<C>,
-) -> CommandResult<C, I> {
+    ctx: &mut CommandContext,
+) -> CommandResult<I> {
     ctx.tab = desc
         .range
         .map(|r| range_to_fc(&r, false, &ctx.context))
@@ -716,10 +677,10 @@ pub fn vim_cmd_tab<C: EditContext, I: ApplicationInfo>(
 ///
 /// Open a new tab. If an argument is given, then a window will be opened with [OpenTarget::Name]
 /// and inserted into the new tab.
-pub fn vim_cmd_tabedit<C: EditContext, I: ApplicationInfo>(
+pub fn vim_cmd_tabedit<I: ApplicationInfo>(
     desc: CommandDescription,
-    ctx: &mut CommandContext<C>,
-) -> CommandResult<C, I> {
+    ctx: &mut CommandContext,
+) -> CommandResult<I> {
     let target = open_target(&desc)?.unwrap_or(OpenTarget::Unnamed);
     let change = desc
         .range
@@ -727,7 +688,7 @@ pub fn vim_cmd_tabedit<C: EditContext, I: ApplicationInfo>(
         .unwrap_or(Ok(FocusChange::Current))?;
     let action = TabAction::Open(target, change);
 
-    Ok(CommandStep::Continue(action.into(), ctx.context.take()))
+    Ok(CommandStep::Continue(action.into(), ctx.context.clone()))
 }
 
 /// The `:tabclose` command.
@@ -735,10 +696,10 @@ pub fn vim_cmd_tabedit<C: EditContext, I: ApplicationInfo>(
 /// *Aliases:* `tabc`
 ///
 /// Close a tab.
-pub fn vim_cmd_tabclose<C: EditContext, I: ApplicationInfo>(
+pub fn vim_cmd_tabclose<I: ApplicationInfo>(
     desc: CommandDescription,
-    ctx: &mut CommandContext<C>,
-) -> CommandResult<C, I> {
+    ctx: &mut CommandContext,
+) -> CommandResult<I> {
     let change = desc
         .range
         .map(|r| range_to_fc(&r, false, &ctx.context))
@@ -751,7 +712,7 @@ pub fn vim_cmd_tabclose<C: EditContext, I: ApplicationInfo>(
     };
     let action = TabAction::Close(target, flags);
 
-    Ok(CommandStep::Continue(action.into(), ctx.context.take()))
+    Ok(CommandStep::Continue(action.into(), ctx.context.clone()))
 }
 
 /// The `:tabonly` command.
@@ -759,10 +720,10 @@ pub fn vim_cmd_tabclose<C: EditContext, I: ApplicationInfo>(
 /// *Aliases:* `tabo`
 ///
 /// Close all tabs but one.
-pub fn vim_cmd_tabonly<C: EditContext, I: ApplicationInfo>(
+pub fn vim_cmd_tabonly<I: ApplicationInfo>(
     desc: CommandDescription,
-    ctx: &mut CommandContext<C>,
-) -> CommandResult<C, I> {
+    ctx: &mut CommandContext,
+) -> CommandResult<I> {
     let change = desc
         .range
         .map(|r| range_to_fc(&r, false, &ctx.context))
@@ -775,7 +736,7 @@ pub fn vim_cmd_tabonly<C: EditContext, I: ApplicationInfo>(
     };
     let action = TabAction::Close(target, flags);
 
-    Ok(CommandStep::Continue(action.into(), ctx.context.take()))
+    Ok(CommandStep::Continue(action.into(), ctx.context.clone()))
 }
 
 /// The `:tabmove` command.
@@ -783,10 +744,10 @@ pub fn vim_cmd_tabonly<C: EditContext, I: ApplicationInfo>(
 /// *Aliases:* `tabm`
 ///
 /// Move a tab to a different position.
-pub fn vim_cmd_tabmove<C: EditContext, I: ApplicationInfo>(
+pub fn vim_cmd_tabmove<I: ApplicationInfo>(
     desc: CommandDescription,
-    ctx: &mut CommandContext<C>,
-) -> CommandResult<C, I> {
+    ctx: &mut CommandContext,
+) -> CommandResult<I> {
     let change = if let Some(r) = desc.range {
         range_to_fc(&r, false, &ctx.context)?
     } else if desc.arg.text.is_empty() {
@@ -799,7 +760,7 @@ pub fn vim_cmd_tabmove<C: EditContext, I: ApplicationInfo>(
 
     let action = TabAction::Move(change).into();
 
-    Ok(CommandStep::Continue(action, ctx.context.take()))
+    Ok(CommandStep::Continue(action, ctx.context.clone()))
 }
 
 /// The `:leftabove` command.
@@ -807,10 +768,10 @@ pub fn vim_cmd_tabmove<C: EditContext, I: ApplicationInfo>(
 /// *Aliases:* `lefta`, `aboveleft`, `abo`
 ///
 /// Modify the following command to open the window before the current one.
-pub fn vim_cmd_above<C: EditContext, I: ApplicationInfo>(
+pub fn vim_cmd_above<I: ApplicationInfo>(
     desc: CommandDescription,
-    ctx: &mut CommandContext<C>,
-) -> CommandResult<C, I> {
+    ctx: &mut CommandContext,
+) -> CommandResult<I> {
     ctx.rel = Some(MoveDir1D::Previous);
 
     Ok(CommandStep::Again(desc.arg.text))
@@ -821,10 +782,10 @@ pub fn vim_cmd_above<C: EditContext, I: ApplicationInfo>(
 /// *Aliases:* `rightb`, `belowright`, `bel`
 ///
 /// Modify the following command to open the window after the current one.
-pub fn vim_cmd_below<C: EditContext, I: ApplicationInfo>(
+pub fn vim_cmd_below<I: ApplicationInfo>(
     desc: CommandDescription,
-    ctx: &mut CommandContext<C>,
-) -> CommandResult<C, I> {
+    ctx: &mut CommandContext,
+) -> CommandResult<I> {
     ctx.rel = Some(MoveDir1D::Next);
 
     Ok(CommandStep::Again(desc.arg.text))
@@ -835,10 +796,10 @@ pub fn vim_cmd_below<C: EditContext, I: ApplicationInfo>(
 /// *Aliases:* `hor`
 ///
 /// Modify the following command to open a window horizontally.
-pub fn vim_cmd_horizontal<C: EditContext, I: ApplicationInfo>(
+pub fn vim_cmd_horizontal<I: ApplicationInfo>(
     desc: CommandDescription,
-    ctx: &mut CommandContext<C>,
-) -> CommandResult<C, I> {
+    ctx: &mut CommandContext,
+) -> CommandResult<I> {
     ctx.axis = Some(Axis::Horizontal);
 
     Ok(CommandStep::Again(desc.arg.text))
@@ -851,10 +812,10 @@ pub fn vim_cmd_horizontal<C: EditContext, I: ApplicationInfo>(
 /// Modify the following command to open a window vertically.
 ///
 /// For example, `:vertical split` will behave like `:vsplit`.
-pub fn vim_cmd_vertical<C: EditContext, I: ApplicationInfo>(
+pub fn vim_cmd_vertical<I: ApplicationInfo>(
     desc: CommandDescription,
-    ctx: &mut CommandContext<C>,
-) -> CommandResult<C, I> {
+    ctx: &mut CommandContext,
+) -> CommandResult<I> {
     ctx.axis = Some(Axis::Vertical);
 
     Ok(CommandStep::Again(desc.arg.text))
@@ -865,10 +826,10 @@ pub fn vim_cmd_vertical<C: EditContext, I: ApplicationInfo>(
 /// *Aliases:* `w`
 ///
 /// Write the window contents.
-pub fn vim_cmd_write<C: EditContext, I: ApplicationInfo>(
+pub fn vim_cmd_write<I: ApplicationInfo>(
     desc: CommandDescription,
-    ctx: &mut CommandContext<C>,
-) -> CommandResult<C, I> {
+    ctx: &mut CommandContext,
+) -> CommandResult<I> {
     let mut args = desc.arg.strings()?;
 
     if args.len() > 1 {
@@ -884,16 +845,16 @@ pub fn vim_cmd_write<C: EditContext, I: ApplicationInfo>(
     };
     let action = WindowAction::Write(target, filename, flags);
 
-    Ok(CommandStep::Continue(action.into(), ctx.context.take()))
+    Ok(CommandStep::Continue(action.into(), ctx.context.clone()))
 }
 
 /// The `:wall` command.
 ///
 /// Write the contents of all windows in the current tab.
-pub fn vim_cmd_write_all<C: EditContext, I: ApplicationInfo>(
+pub fn vim_cmd_write_all<I: ApplicationInfo>(
     desc: CommandDescription,
-    ctx: &mut CommandContext<C>,
-) -> CommandResult<C, I> {
+    ctx: &mut CommandContext,
+) -> CommandResult<I> {
     let target = WindowTarget::All;
     let flags = if desc.bang {
         WriteFlags::FORCE
@@ -902,13 +863,13 @@ pub fn vim_cmd_write_all<C: EditContext, I: ApplicationInfo>(
     };
     let action = WindowAction::Write(target, None, flags);
 
-    Ok(CommandStep::Continue(action.into(), ctx.context.take()))
+    Ok(CommandStep::Continue(action.into(), ctx.context.clone()))
 }
 
-fn vim_cmd_filter<C: EditContext, I: ApplicationInfo>(
+fn vim_cmd_filter<I: ApplicationInfo>(
     _: CommandDescription,
-    _: &mut CommandContext<C>,
-) -> CommandResult<C, I> {
+    _: &mut CommandContext,
+) -> CommandResult<I> {
     Err(CommandError::Error("filtering is not yet implemented".into()))
 }
 
@@ -917,10 +878,10 @@ fn vim_cmd_filter<C: EditContext, I: ApplicationInfo>(
 /// *Aliases:* `r`
 ///
 /// Read the contents of a file or program output into the buffer.
-pub fn vim_cmd_read<C: EditContext, I: ApplicationInfo>(
+pub fn vim_cmd_read<I: ApplicationInfo>(
     _: CommandDescription,
-    _: &mut CommandContext<C>,
-) -> CommandResult<C, I> {
+    _: &mut CommandContext,
+) -> CommandResult<I> {
     Err(CommandError::Error("read is not yet implemented".into()))
 }
 
@@ -929,28 +890,28 @@ pub fn vim_cmd_read<C: EditContext, I: ApplicationInfo>(
 /// *Aliases:* `p`
 ///
 /// Print lines in the given range.
-pub fn vim_cmd_print<C: EditContext, I: ApplicationInfo>(
+pub fn vim_cmd_print<I: ApplicationInfo>(
     _: CommandDescription,
-    _: &mut CommandContext<C>,
-) -> CommandResult<C, I> {
+    _: &mut CommandContext,
+) -> CommandResult<I> {
     Err(CommandError::Error("print is not yet implemented".into()))
 }
 
-fn vim_cmd_substitute<C: EditContext, I: ApplicationInfo>(
+fn vim_cmd_substitute<I: ApplicationInfo>(
     _: CommandDescription,
-    _: &mut CommandContext<C>,
-) -> CommandResult<C, I> {
+    _: &mut CommandContext,
+) -> CommandResult<I> {
     Err(CommandError::Error("substitution is not yet implemented".into()))
 }
 
-fn vim_cmd_substitute_repeat<C: EditContext, I: ApplicationInfo>(
+fn vim_cmd_substitute_repeat<I: ApplicationInfo>(
     _: CommandDescription,
-    _: &mut CommandContext<C>,
-) -> CommandResult<C, I> {
+    _: &mut CommandContext,
+) -> CommandResult<I> {
     Err(CommandError::Error("substitution repetition is not yet implemented".into()))
 }
 
-fn default_cmds<C: EditContext, I: ApplicationInfo>() -> Vec<VimCommand<C, I>> {
+fn default_cmds<I: ApplicationInfo>() -> Vec<VimCommand<I>> {
     vec![
         VimCommand {
             name: "!".into(),
@@ -1091,11 +1052,10 @@ fn default_cmds<C: EditContext, I: ApplicationInfo>() -> Vec<VimCommand<C, I>> {
 }
 
 /// Manages parsing and mapping Vim commands.
-pub type VimCommandMachine<C = VimContext, I = EmptyInfo> = CommandMachine<VimCommand<C, I>>;
+pub type VimCommandMachine<I = EmptyInfo> = CommandMachine<VimCommand<I>>;
 
-impl<C, I> Default for VimCommandMachine<C, I>
+impl<I> Default for VimCommandMachine<I>
 where
-    C: EditContext,
     I: ApplicationInfo,
 {
     fn default() -> Self {
@@ -1110,13 +1070,12 @@ where
 }
 
 /// Complete text in the command-bar.
-pub fn complete_cmdbar<C, I>(
+pub fn complete_cmdbar<I>(
     input: &EditRope,
     cursor: &mut Cursor,
-    cmds: &VimCommandMachine<C, I>,
+    cmds: &VimCommandMachine<I>,
 ) -> Vec<String>
 where
-    C: EditContext,
     I: ApplicationInfo,
 {
     let eo = input.cursor_to_offset(cursor);
@@ -1147,9 +1106,9 @@ mod tests {
     use crate::editing::base::Axis::{Horizontal, Vertical};
     use crate::editing::base::MoveDir1D::{Next, Previous};
 
-    fn mkcmd() -> (VimCommandMachine<VimContext>, VimContext) {
+    fn mkcmd() -> (VimCommandMachine<EmptyInfo>, EditContext) {
         let cmds = VimCommandMachine::default();
-        let ctx = VimContext::default();
+        let ctx = EditContext::default();
 
         return (cmds, ctx);
     }

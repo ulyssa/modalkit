@@ -2,7 +2,7 @@ use crate::editing::{
     action::{EditInfo, EditResult},
     application::ApplicationInfo,
     base::{Count, CursorCloseTarget, CursorGroupCombineStyle, MoveDir1D, Register},
-    context::EditContext,
+    context::Resolve,
     store::Store,
 };
 
@@ -44,16 +44,15 @@ where
     ) -> EditResult<EditInfo, I>;
 }
 
-impl<'a, 'b, C, I> CursorActions<CursorGroupIdContext<'a, 'b, C>, Store<I>, I> for EditBuffer<I>
+impl<'a, I> CursorActions<CursorGroupIdContext<'a>, Store<I>, I> for EditBuffer<I>
 where
-    C: EditContext,
     I: ApplicationInfo,
 {
     fn cursor_rotate(
         &mut self,
         dir: MoveDir1D,
         count: &Count,
-        ctx: &CursorGroupIdContext<'a, 'b, C>,
+        ctx: &CursorGroupIdContext<'a>,
         _: &mut Store<I>,
     ) -> EditResult<EditInfo, I> {
         let off = ctx.2.resolve(count);
@@ -67,7 +66,7 @@ where
     fn cursor_close(
         &mut self,
         target: &CursorCloseTarget,
-        ctx: &CursorGroupIdContext<'a, 'b, C>,
+        ctx: &CursorGroupIdContext<'a>,
         _: &mut Store<I>,
     ) -> EditResult<EditInfo, I> {
         let gid = ctx.0;
@@ -80,7 +79,7 @@ where
     fn cursor_restore(
         &mut self,
         style: &CursorGroupCombineStyle,
-        ctx: &CursorGroupIdContext<'a, 'b, C>,
+        ctx: &CursorGroupIdContext<'a>,
         store: &mut Store<I>,
     ) -> EditResult<EditInfo, I> {
         let reg = ctx.2.get_register().unwrap_or(Register::UnnamedCursorGroup);
@@ -100,7 +99,7 @@ where
     fn cursor_save(
         &mut self,
         style: &CursorGroupCombineStyle,
-        ctx: &CursorGroupIdContext<'a, 'b, C>,
+        ctx: &CursorGroupIdContext<'a>,
         store: &mut Store<I>,
     ) -> EditResult<EditInfo, I> {
         let reg = ctx.2.get_register().unwrap_or(Register::UnnamedCursorGroup);
@@ -121,7 +120,7 @@ where
     fn cursor_split(
         &mut self,
         count: &Count,
-        ctx: &CursorGroupIdContext<'a, 'b, C>,
+        ctx: &CursorGroupIdContext<'a>,
         _: &mut Store<I>,
     ) -> EditResult<EditInfo, I> {
         let count = ctx.2.resolve(count);
