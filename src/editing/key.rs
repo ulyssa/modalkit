@@ -27,24 +27,23 @@
 use std::borrow::Cow;
 use std::collections::VecDeque;
 
-use crate::input::{bindings::BindingMachine, dialog::Dialog, key::InputKey, InputContext};
+use crate::input::{bindings::BindingMachine, dialog::Dialog, key::InputKey};
 
 use super::{
     action::{EditInfo, EditResult, MacroAction},
     application::ApplicationInfo,
     base::Register,
-    context::EditContext,
+    context::{EditContext, Resolve},
     rope::EditRope,
     store::{RegisterPutFlags, Store},
 };
 
 /// Wraps keybindings so that they can be fed simulated keypresses from macros.
-pub struct KeyManager<K, A, S, C>
+pub struct KeyManager<K, A, S>
 where
     K: InputKey,
-    C: EditContext + InputContext,
 {
-    bindings: Box<dyn BindingMachine<K, A, S, C>>,
+    bindings: Box<dyn BindingMachine<K, A, S, EditContext>>,
     keystack: VecDeque<K>,
 
     recording: Option<(Register, bool)>,
@@ -53,13 +52,12 @@ where
     pending: EditRope,
 }
 
-impl<K, A, S, C> KeyManager<K, A, S, C>
+impl<K, A, S> KeyManager<K, A, S>
 where
     K: InputKey,
-    C: EditContext + InputContext,
 {
     /// Create a new instance.
-    pub fn new<B: BindingMachine<K, A, S, C> + 'static>(bindings: B) -> Self {
+    pub fn new<B: BindingMachine<K, A, S, EditContext> + 'static>(bindings: B) -> Self {
         let bindings = Box::new(bindings);
 
         Self {
@@ -77,7 +75,7 @@ where
     pub fn macro_command<I: ApplicationInfo>(
         &mut self,
         act: &MacroAction,
-        ctx: &C,
+        ctx: &EditContext,
         store: &mut Store<I>,
     ) -> EditResult<EditInfo, I> {
         let (mstr, count) = match act {
@@ -130,10 +128,9 @@ where
     }
 }
 
-impl<K, A, S, C> BindingMachine<K, A, S, C> for KeyManager<K, A, S, C>
+impl<K, A, S> BindingMachine<K, A, S, EditContext> for KeyManager<K, A, S>
 where
     K: InputKey,
-    C: EditContext + InputContext,
 {
     fn input_key(&mut self, key: K) {
         if self.recording.is_some() {
@@ -152,7 +149,7 @@ where
         self.bindings.input_key(key);
     }
 
-    fn pop(&mut self) -> Option<(A, C)> {
+    fn pop(&mut self) -> Option<(A, EditContext)> {
         loop {
             if let res @ Some(_) = self.bindings.pop() {
                 self.commit_on_input = true;
@@ -167,7 +164,7 @@ where
         }
     }
 
-    fn context(&self) -> C {
+    fn context(&mut self) -> EditContext {
         self.bindings.context()
     }
 
@@ -183,7 +180,7 @@ where
         self.bindings.get_cursor_indicator()
     }
 
-    fn repeat(&mut self, seq: S, other: Option<C>) {
+    fn repeat(&mut self, seq: S, other: Option<EditContext>) {
         self.bindings.repeat(seq, other)
     }
 
@@ -203,7 +200,7 @@ mod tests {
         editing::application::EmptyInfo,
         editing::base::Count,
         editing::store::{RegisterError, Store},
-        env::vim::VimContext,
+        env::vim::VimState,
         env::CommonKeyClass,
         input::{
             bindings::EdgeEvent::{Class, Key},
@@ -215,14 +212,14 @@ mod tests {
 
     type TestStore = Store<EmptyInfo>;
     type TestMachine = ModalMachine<TerminalKey, TestStep>;
-    type TestKeyManager = KeyManager<TerminalKey, TestAction, EmptySequence, VimContext>;
+    type TestKeyManager = KeyManager<TerminalKey, TestAction, EmptySequence>;
 
     #[derive(Clone)]
     struct TestStep(Option<TestAction>, Option<TestMode>);
 
     impl Step<TerminalKey> for TestStep {
         type A = TestAction;
-        type C = VimContext;
+        type C = VimState;
         type Class = CommonKeyClass;
         type M = TestMode;
         type Sequence = EmptySequence;
@@ -231,7 +228,7 @@ mod tests {
             self.0.is_none() && self.1.is_none()
         }
 
-        fn step(&self, ctx: &mut VimContext) -> (Vec<TestAction>, Option<TestMode>) {
+        fn step(&self, ctx: &mut VimState) -> (Vec<TestAction>, Option<TestMode>) {
             let act = self.0.clone().into_iter().collect();
 
             ctx.action.count = ctx.action.counting;
@@ -264,13 +261,13 @@ mod tests {
         }
     }
 
-    impl Mode<TestAction, VimContext> for TestMode {}
+    impl Mode<TestAction, VimState> for TestMode {}
 
-    impl ModeKeys<TerminalKey, TestAction, VimContext> for TestMode {
+    impl ModeKeys<TerminalKey, TestAction, VimState> for TestMode {
         fn unmapped(
             &self,
             key: &TerminalKey,
-            _: &mut VimContext,
+            _: &mut VimState,
         ) -> (Vec<TestAction>, Option<TestMode>) {
             match self {
                 TestMode::Normal => {

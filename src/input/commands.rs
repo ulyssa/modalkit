@@ -9,11 +9,7 @@ use std::str::FromStr;
 
 use radix_trie::Trie;
 
-use super::InputContext;
 use crate::util::completion_keys;
-
-/// Context passed to commands when they're executed.
-pub trait InputCmdContext: InputContext {}
 
 /// Result from executing a single command in a sequence.
 pub enum CommandStep<C: Command> {
@@ -69,10 +65,10 @@ pub trait Command: Clone {
     type Action;
 
     /// Context provided with each command string.
-    type Context: InputContext;
+    type Context;
 
     /// Context to be passed to [Command::exec].
-    type CommandContext: InputCmdContext + From<Self::Context>;
+    type CommandContext: From<Self::Context>;
 
     /// The primary name to map this command under.
     fn name(&self) -> String;

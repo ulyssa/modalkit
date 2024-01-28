@@ -29,7 +29,6 @@ use crate::editing::{
         WindowTarget,
         WriteFlags,
     },
-    context::EditContext,
     store::Store,
 };
 
@@ -227,7 +226,6 @@ pub(self) fn winnr_cmp(at: usize, lsize: usize, vsize: usize) -> (Ordering, usiz
 
 pub(super) trait WindowActions<C, I>
 where
-    C: EditContext,
     I: ApplicationInfo,
 {
     /// Close one or more [Windows](Window).

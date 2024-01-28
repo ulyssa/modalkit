@@ -74,7 +74,7 @@ use modalkit::{
         store::Store,
     },
     env::{
-        mixed::{MixedBindings, MixedChoice, MixedContext},
+        mixed::{MixedBindings, MixedChoice},
         vim::command::{complete_cmdbar, VimCommandMachine},
     },
     input::{bindings::BindingMachine, dialog::Pager, key::TerminalKey},
@@ -92,8 +92,6 @@ use modalkit::{
     },
 };
 
-type Context = MixedContext<EditorInfo>;
-
 #[derive(Clone)]
 struct DirectoryItem {
     ftype: FileType,
@@ -106,13 +104,13 @@ impl ToString for DirectoryItem {
     }
 }
 
-impl<C: EditContext> Promptable<C, Store<EditorInfo>, EditorInfo> for DirectoryItem {
+impl Promptable<EditContext, Store<EditorInfo>, EditorInfo> for DirectoryItem {
     fn prompt(
         &mut self,
         act: &PromptAction,
-        ctx: &C,
+        ctx: &EditContext,
         _: &mut Store<EditorInfo>,
-    ) -> EditResult<Vec<(Action<EditorInfo>, C)>, EditorInfo> {
+    ) -> EditResult<Vec<(Action<EditorInfo>, EditContext)>, EditorInfo> {
         if let PromptAction::Submit = act {
             let target = OpenTarget::Name(self.entry.clone());
             let act = WindowAction::Switch(target);
@@ -164,7 +162,7 @@ impl ListItem<EditorInfo> for DirectoryItem {
 
 #[derive(Default)]
 struct EditorStore {
-    cmds: VimCommandMachine<Context, EditorInfo>,
+    cmds: VimCommandMachine<EditorInfo>,
     filenames: HashMap<String, usize>,
     fileindex: usize,
 }
@@ -407,14 +405,11 @@ impl Window<EditorInfo> for EditorWindow {
     }
 }
 
-impl<C> Editable<C, Store<EditorInfo>, EditorInfo> for EditorWindow
-where
-    C: EditContext,
-{
+impl Editable<EditContext, Store<EditorInfo>, EditorInfo> for EditorWindow {
     fn editor_command(
         &mut self,
         act: &EditorAction,
-        ctx: &C,
+        ctx: &EditContext,
         store: &mut Store<EditorInfo>,
     ) -> EditResult<EditInfo, EditorInfo> {
         match self {
@@ -424,13 +419,13 @@ where
     }
 }
 
-impl<C: EditContext> Jumpable<C, EditorInfo> for EditorWindow {
+impl Jumpable<EditContext, EditorInfo> for EditorWindow {
     fn jump(
         &mut self,
         list: PositionList,
         dir: MoveDir1D,
         count: usize,
-        ctx: &C,
+        ctx: &EditContext,
     ) -> UIResult<usize, EditorInfo> {
         match self {
             EditorWindow::Text(tbox) => tbox.jump(list, dir, count, ctx),
@@ -439,13 +434,13 @@ impl<C: EditContext> Jumpable<C, EditorInfo> for EditorWindow {
     }
 }
 
-impl<C: EditContext> Promptable<C, Store<EditorInfo>, EditorInfo> for EditorWindow {
+impl Promptable<EditContext, Store<EditorInfo>, EditorInfo> for EditorWindow {
     fn prompt(
         &mut self,
         act: &PromptAction,
-        ctx: &C,
+        ctx: &EditContext,
         store: &mut Store<EditorInfo>,
-    ) -> EditResult<Vec<(Action<EditorInfo>, C)>, EditorInfo> {
+    ) -> EditResult<Vec<(Action<EditorInfo>, EditContext)>, EditorInfo> {
         match self {
             EditorWindow::Text(tbox) => tbox.prompt(act, ctx, store),
             EditorWindow::Listing(ls) => ls.prompt(act, ctx, store),
@@ -453,11 +448,11 @@ impl<C: EditContext> Promptable<C, Store<EditorInfo>, EditorInfo> for EditorWind
     }
 }
 
-impl<C: EditContext> Scrollable<C, Store<EditorInfo>, EditorInfo> for EditorWindow {
+impl Scrollable<EditContext, Store<EditorInfo>, EditorInfo> for EditorWindow {
     fn scroll(
         &mut self,
         style: &ScrollStyle,
-        ctx: &C,
+        ctx: &EditContext,
         store: &mut Store<EditorInfo>,
     ) -> EditResult<EditInfo, EditorInfo> {
         match self {
@@ -467,12 +462,12 @@ impl<C: EditContext> Scrollable<C, Store<EditorInfo>, EditorInfo> for EditorWind
     }
 }
 
-impl<C: EditContext> Searchable<C, Store<EditorInfo>, EditorInfo> for EditorWindow {
+impl Searchable<EditContext, Store<EditorInfo>, EditorInfo> for EditorWindow {
     fn search(
         &mut self,
         dir: MoveDirMod,
         count: Count,
-        ctx: &C,
+        ctx: &EditContext,
         store: &mut Store<EditorInfo>,
     ) -> UIResult<EditInfo, EditorInfo> {
         match self {
@@ -527,8 +522,8 @@ impl ApplicationInfo for EditorInfo {
 
 struct Editor {
     terminal: Terminal<CrosstermBackend<Stdout>>,
-    bindings: KeyManager<TerminalKey, Action<EditorInfo>, RepeatType, Context>,
-    actstack: VecDeque<(Action<EditorInfo>, Context)>,
+    bindings: KeyManager<TerminalKey, Action<EditorInfo>, RepeatType>,
+    actstack: VecDeque<(Action<EditorInfo>, EditContext)>,
     screen: ScreenState<EditorWindow, EditorInfo>,
     store: Store<EditorInfo>,
 }
@@ -633,13 +628,13 @@ impl Editor {
         }
     }
 
-    fn action_prepend(&mut self, acts: Vec<(Action<EditorInfo>, Context)>) {
+    fn action_prepend(&mut self, acts: Vec<(Action<EditorInfo>, EditContext)>) {
         let mut acts = VecDeque::from(acts);
         acts.append(&mut self.actstack);
         self.actstack = acts;
     }
 
-    fn action_pop(&mut self, keyskip: bool) -> Option<(Action<EditorInfo>, Context)> {
+    fn action_pop(&mut self, keyskip: bool) -> Option<(Action<EditorInfo>, EditContext)> {
         if let res @ Some(_) = self.actstack.pop_front() {
             return res;
         }
@@ -654,7 +649,7 @@ impl Editor {
     fn action_run(
         &mut self,
         action: Action<EditorInfo>,
-        ctx: Context,
+        ctx: EditContext,
     ) -> UIResult<EditInfo, EditorInfo> {
         let info = match action {
             // Do nothing.

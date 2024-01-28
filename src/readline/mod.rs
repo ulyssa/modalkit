@@ -70,7 +70,7 @@ use crate::editing::{
     },
     application::{ApplicationContentId, ApplicationInfo, ApplicationWindowId},
     base::{CommandType, Count, EditTarget, MoveDir1D, MoveDirMod, MoveType, Register, RepeatType},
-    context::EditContext,
+    context::{EditContext, Resolve},
     history::HistoryList,
     key::KeyManager,
     rope::EditRope,
@@ -167,12 +167,11 @@ where
 pub type ReadLineResult<I> = Result<String, ReadLineError<I>>;
 
 /// Simple editor for collecting user input.
-pub struct ReadLine<C, I = ReadLineInfo>
+pub struct ReadLine<I = ReadLineInfo>
 where
-    C: EditContext,
     I: ApplicationInfo<ContentId = ReadLineId>,
 {
-    bindings: KeyManager<TerminalKey, Action<I>, RepeatType, C>,
+    bindings: KeyManager<TerminalKey, Action<I>, RepeatType>,
     store: Store<I>,
 
     history: HistoryList<EditRope>,
@@ -187,13 +186,12 @@ where
     search: Editor<I>,
 }
 
-impl<C, I> ReadLine<C, I>
+impl<I> ReadLine<I>
 where
-    C: EditContext,
     I: ApplicationInfo<ContentId = ReadLineId>,
 {
     /// Create a new instance.
-    pub fn new<B: BindingMachine<TerminalKey, Action<I>, RepeatType, C> + 'static>(
+    pub fn new<B: BindingMachine<TerminalKey, Action<I>, RepeatType, EditContext> + 'static>(
         bindings: B,
     ) -> Result<Self, std::io::Error>
     where
@@ -285,12 +283,9 @@ where
                     // Do nothing for now.
                 },
                 Event::Paste(s) => {
-                    let mut ctx = self.bindings.context().clone();
+                    let ctx = self.bindings.context().clone();
                     let act = InsertTextAction::Transcribe(s, MoveDir1D::Previous, 1.into());
                     let act = EditorAction::InsertText(act);
-
-                    // Reset action-specific state.
-                    ctx.reset();
 
                     let _ = focused_mut!(self).editor_command(&act, &ctx, &mut self.store)?;
                 },
@@ -328,7 +323,7 @@ where
     fn command_bar(
         &mut self,
         act: &CommandBarAction,
-        ctx: C,
+        ctx: EditContext,
     ) -> Result<InternalResult, ReadLineError<I>> {
         match act {
             CommandBarAction::Focus(ct) => {
@@ -345,7 +340,11 @@ where
         }
     }
 
-    fn prompt(&mut self, act: PromptAction, ctx: C) -> Result<InternalResult, ReadLineError<I>> {
+    fn prompt(
+        &mut self,
+        act: PromptAction,
+        ctx: EditContext,
+    ) -> Result<InternalResult, ReadLineError<I>> {
         match act {
             PromptAction::Submit => {
                 let res = self.submit();
@@ -450,7 +449,12 @@ where
         return Ok(re);
     }
 
-    fn search(&mut self, flip: MoveDirMod, count: Count, ctx: &C) -> EditResult<EditInfo, I> {
+    fn search(
+        &mut self,
+        flip: MoveDirMod,
+        count: Count,
+        ctx: &EditContext,
+    ) -> EditResult<EditInfo, I> {
         let count = ctx.resolve(&count);
         let needle = self.get_regex()?;
         let dir = ctx.get_search_regex_dir();
@@ -471,7 +475,7 @@ where
         Ok(None)
     }
 
-    fn incsearch(&mut self, ctx: &C) -> Result<(), EditError<I>> {
+    fn incsearch(&mut self, ctx: &EditContext) -> Result<(), EditError<I>> {
         if let Some(CommandType::Search) = self.ct {
             if !ctx.is_search_incremental() {
                 return Ok(());
@@ -488,7 +492,7 @@ where
         Ok(())
     }
 
-    fn edit(&mut self, act: EditorAction, ctx: &C) -> EditResult<EditInfo, I> {
+    fn edit(&mut self, act: EditorAction, ctx: &EditContext) -> EditResult<EditInfo, I> {
         match act {
             EditorAction::Edit(ea, EditTarget::Motion(MoveType::Line(dir), count)) => {
                 let ea = ctx.resolve(&ea);
@@ -628,7 +632,11 @@ where
         }
     }
 
-    fn act(&mut self, action: Action<I>, ctx: C) -> Result<InternalResult, ReadLineError<I>> {
+    fn act(
+        &mut self,
+        action: Action<I>,
+        ctx: EditContext,
+    ) -> Result<InternalResult, ReadLineError<I>> {
         let store = &mut self.store;
 
         let _ = match action {

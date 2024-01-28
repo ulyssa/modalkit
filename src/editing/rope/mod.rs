@@ -38,7 +38,7 @@ use crate::editing::{
         ViewportContext,
         WordStyle,
     },
-    context::EditContext,
+    context::Resolve,
     cursor::{Cursor, CursorAdjustment, CursorChoice},
 };
 
@@ -683,7 +683,7 @@ fn titlecase(s: String) -> String {
         .collect()
 }
 
-fn get_last_column<C: EditContext>(ctx: &CursorMovementsContext<'_, '_, '_, Cursor, C>) -> bool {
+fn get_last_column(ctx: &CursorMovementsContext<'_, Cursor>) -> bool {
     let shaped = ctx.context.get_target_shape().is_some();
 
     if ctx.action.is_motion() {
@@ -2315,12 +2315,8 @@ impl ToString for EditRope {
     }
 }
 
-impl<C: EditContext> CursorMovements<Cursor, C> for EditRope {
-    fn first_word(
-        &self,
-        cursor: &Cursor,
-        _: &CursorMovementsContext<'_, '_, '_, Cursor, C>,
-    ) -> Cursor {
+impl CursorMovements<Cursor> for EditRope {
+    fn first_word(&self, cursor: &Cursor, _: &CursorMovementsContext<'_, Cursor>) -> Cursor {
         let mut nc = cursor.clone();
         let cctx = &(self, 0usize, false);
         nc.first_word(cctx);
@@ -2333,7 +2329,7 @@ impl<C: EditContext> CursorMovements<Cursor, C> for EditRope {
         cursor: &Cursor,
         movement: &MoveType,
         count: &Count,
-        ctx: &CursorMovementsContext<'_, '_, '_, Cursor, C>,
+        ctx: &CursorMovementsContext<'_, Cursor>,
     ) -> Option<Cursor> {
         let lastcol = get_last_column(ctx);
         let cctx = &(self, ctx.view.get_width(), lastcol);
@@ -2539,7 +2535,7 @@ impl<C: EditContext> CursorMovements<Cursor, C> for EditRope {
         range: &RangeType,
         inclusive: bool,
         count: &Count,
-        ctx: &CursorMovementsContext<'_, '_, '_, Cursor, C>,
+        ctx: &CursorMovementsContext<'_, Cursor>,
     ) -> Option<EditRange<Cursor>> {
         match (range, count) {
             (RangeType::Item, _) => self.find_item_range(cursor),
@@ -2631,7 +2627,7 @@ impl<C: EditContext> CursorMovements<Cursor, C> for EditRope {
         cursor: &Cursor,
         movement: &MoveType,
         count: &Count,
-        ctx: &CursorMovementsContext<'_, '_, '_, Cursor, C>,
+        ctx: &CursorMovementsContext<'_, Cursor>,
     ) -> Option<EditRange<Cursor>> {
         let nc = self.movement(cursor, movement, count, ctx)?;
         let shape = movement.shape();
@@ -2746,8 +2742,8 @@ impl CursorSearch<Cursor> for EditRope {
 mod tests {
     use super::*;
     use crate::editing::base::{CursorEnd, Radix, Wrappable};
+    use crate::editing::context::EditContext;
     use crate::editing::cursor::CursorState;
-    use crate::env::vim::VimContext;
 
     macro_rules! cmctx {
         ($vwctx: expr, $vctx: expr) => {
@@ -3997,7 +3993,7 @@ mod tests {
     fn test_motion_char_line() {
         let rope = EditRope::from("hello\nworld\na b c d e\n");
         let vwctx = ViewportContext::<Cursor>::default();
-        let mut vctx: VimContext = VimContext::default();
+        let mut vctx = EditContext::default();
         let mut cursor = rope.first();
         let count = Count::Contextual;
 
@@ -4054,34 +4050,34 @@ mod tests {
         assert_eq!(cursor, Cursor::new(2, 2));
 
         // Test moving columns forward with a count.
-        vctx.action.count = Some(2);
+        vctx.count = Some(2);
         cursor = rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(cursor, Cursor::new(2, 0));
 
         // Test moving columns backwards with a count.
         let mov = MoveType::Column(MoveDir1D::Next, false);
-        vctx.action.count = Some(4);
+        vctx.count = Some(4);
         cursor = rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(cursor, Cursor::new(2, 4));
 
-        vctx.action.count = Some(2);
+        vctx.count = Some(2);
         cursor = rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(cursor, Cursor::new(2, 6));
 
         // Can't move past last column when wrap is false.
-        vctx.action.count = Some(10);
+        vctx.count = Some(10);
         cursor = rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(cursor, Cursor::new(2, 8));
 
         // Moving up clamps cursor to a valid column.
         let mov = MoveType::Line(MoveDir1D::Previous);
-        vctx.action.count = None;
+        vctx.count = None;
         cursor = rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(cursor, Cursor::new(1, 4).goal(8));
 
         // Moving down returns to xgoal column.
         let mov = MoveType::Line(MoveDir1D::Next);
-        vctx.action.count = None;
+        vctx.count = None;
         cursor = rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(cursor, Cursor::new(2, 8));
     }
@@ -4090,7 +4086,7 @@ mod tests {
     fn test_motion_column_wrap() {
         let rope = EditRope::from("hello\nworld\na b c d e\n");
         let vwctx = ViewportContext::<Cursor>::default();
-        let mut vctx: VimContext = VimContext::default();
+        let mut vctx = EditContext::default();
         let mut cursor = rope.first();
         let count = Count::Contextual;
 
@@ -4098,34 +4094,35 @@ mod tests {
 
         // Can move past last column when wrap is true.
         let mov = MoveType::Column(MoveDir1D::Next, true);
-        vctx.action.count = Some(5);
+        vctx.count = Some(5);
         cursor = rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(cursor, Cursor::new(1, 0));
 
         // Can move past first column when wrap is true.
         let mov = MoveType::Column(MoveDir1D::Previous, true);
-        vctx.action.count = Some(2);
+        vctx.count = Some(2);
         cursor = rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(cursor, Cursor::new(0, 3));
 
         // When inserting text, we can access the last, empty column.
-        vctx.persist.insert = Some(InsertStyle::Insert);
+        vctx.insert_style = Some(InsertStyle::Insert);
+        vctx.last_column = true;
 
         // Move to last column.
         let mov = MoveType::Column(MoveDir1D::Next, true);
-        vctx.action.count = Some(2);
+        vctx.count = Some(2);
         cursor = rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(cursor, Cursor::new(0, 5));
 
         // Moving forward one from the last column moves onto next line.
         let mov = MoveType::Column(MoveDir1D::Next, true);
-        vctx.action.count = Some(1);
+        vctx.count = Some(1);
         cursor = rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(cursor, Cursor::new(1, 0));
 
         // Move back one from the first column moves into the last, empty column.
         let mov = MoveType::Column(MoveDir1D::Previous, true);
-        vctx.action.count = Some(1);
+        vctx.count = Some(1);
         cursor = rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(cursor, Cursor::new(0, 5));
     }
@@ -4134,7 +4131,7 @@ mod tests {
     fn test_motion_word_accents() {
         let rope = EditRope::from("árvíztűrő tükörfúrógép");
         let vwctx = ViewportContext::<Cursor>::default();
-        let vctx: VimContext = VimContext::default();
+        let vctx = EditContext::default();
         let mut cursor = rope.first();
         let count = Count::Contextual;
 
@@ -4155,7 +4152,7 @@ mod tests {
     fn test_motion_word() {
         let rope = EditRope::from("hello world\na,b,c,d e,f,g,h\n");
         let vwctx = ViewportContext::<Cursor>::default();
-        let vctx: VimContext = VimContext::default();
+        let vctx = EditContext::default();
         let mut cursor = rope.first();
         let count = Count::Contextual;
 
@@ -4333,11 +4330,12 @@ mod tests {
     fn test_motion_word_begin_nonalphanum() {
         let rope = EditRope::from("hello   world  \nhow,are ,, you,doing\n today\n");
         let vwctx = ViewportContext::<Cursor>::default();
-        let mut vctx: VimContext = VimContext::default();
+        let mut vctx = EditContext::default();
         let mut cursor = rope.first();
         let count = Count::Contextual;
 
-        vctx.persist.insert = Some(InsertStyle::Insert);
+        vctx.insert_style = Some(InsertStyle::Insert);
+        vctx.last_column = true;
 
         // Emacs' <M-f> movement.
         let mov = MoveType::WordBegin(WordStyle::NonAlphaNum, MoveDir1D::Next);
@@ -4428,11 +4426,12 @@ mod tests {
     fn test_motion_word_alphanum() {
         let rope = EditRope::from("hello   world  \nhow,are ,, you,doing\n today\n");
         let vwctx = ViewportContext::<Cursor>::default();
-        let mut vctx: VimContext = VimContext::default();
+        let mut vctx = EditContext::default();
         let mut cursor = rope.first();
         let count = Count::Contextual;
 
-        vctx.persist.insert = Some(InsertStyle::Insert);
+        vctx.insert_style = Some(InsertStyle::Insert);
+        vctx.last_column = true;
 
         // Move forwards with WordStyle::AlphaNum.
         let mov = MoveType::WordBegin(WordStyle::AlphaNum, MoveDir1D::Next);
@@ -4526,7 +4525,7 @@ mod tests {
     fn test_final_non_blank() {
         let rope = EditRope::from("hello world       \na b c d e  \n12345\n");
         let vwctx = ViewportContext::<Cursor>::default();
-        let vctx: VimContext = VimContext::default();
+        let vctx = EditContext::default();
         let mut cursor = rope.first();
 
         assert_eq!(cursor, Cursor::new(0, 0));
@@ -4572,7 +4571,7 @@ mod tests {
     fn test_first_word() {
         let rope = EditRope::from("       hello world\n  a b c d e\n    first\n");
         let vwctx = ViewportContext::<Cursor>::default();
-        let vctx: VimContext = VimContext::default();
+        let vctx = EditContext::default();
         let mut cursor = rope.first();
 
         assert_eq!(cursor, Cursor::new(0, 0));
@@ -4605,7 +4604,7 @@ mod tests {
     fn test_motion_line_pos() {
         let rope = EditRope::from("1234567890\nabcde\n");
         let vwctx = ViewportContext::<Cursor>::default();
-        let mut vctx: VimContext = VimContext::default();
+        let mut vctx = EditContext::default();
         let mut cursor = rope.first();
 
         assert_eq!(cursor, Cursor::new(0, 0));
@@ -4622,7 +4621,7 @@ mod tests {
         assert_eq!(cursor, Cursor::new(0, 9).goal(usize::MAX));
 
         // Using a higher context count allows us to move to the next line ending.
-        vctx.action.count = Some(2);
+        vctx.count = Some(2);
         cursor = rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(cursor, Cursor::new(1, 4).goal(usize::MAX));
 
@@ -4630,7 +4629,7 @@ mod tests {
         assert_eq!(rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)), None);
 
         // Move to middle of line.
-        vctx.action.count = None;
+        vctx.count = None;
         let mov = MoveType::LinePos(MovePosition::Middle);
         let count = Count::MinusOne;
         cursor = rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)).unwrap();
@@ -4651,7 +4650,7 @@ mod tests {
             klmnopqrst\n",
         );
         let vwctx = ViewportContext::<Cursor>::default();
-        let vctx: VimContext = VimContext::default();
+        let vctx = EditContext::default();
         let mut cursor = rope.first();
 
         let mov = MoveType::LineColumnOffset;
@@ -4686,7 +4685,7 @@ mod tests {
     fn test_motion_line_percent() {
         let rope = EditRope::from("abcdefghijklmnopqrstuvwxyz\n");
         let vwctx = ViewportContext::<Cursor>::default();
-        let vctx: VimContext = VimContext::default();
+        let vctx = EditContext::default();
         let mut cursor = rope.first();
 
         let mov = MoveType::LinePercent;
@@ -4721,7 +4720,7 @@ mod tests {
             klmnopqrst\n",
         );
         let vwctx = ViewportContext::<Cursor>::default();
-        let vctx: VimContext = VimContext::default();
+        let vctx = EditContext::default();
         let mut cursor = rope.first();
 
         let mov = MoveType::BufferByteOffset;
@@ -4769,7 +4768,7 @@ mod tests {
             1234567890\n",
         );
         let vwctx = ViewportContext::<Cursor>::default();
-        let vctx: VimContext = VimContext::default();
+        let vctx = EditContext::default();
         let mut cursor = rope.first();
 
         // Move to end of buffer ("8G")
@@ -4810,7 +4809,7 @@ mod tests {
             abcdefghij\n",
         );
         let vwctx = ViewportContext::<Cursor>::default();
-        let vctx: VimContext = VimContext::default();
+        let vctx = EditContext::default();
         let mut cursor = rope.first();
 
         // Move to end of buffer ("100%")
@@ -4854,7 +4853,7 @@ mod tests {
             1234567890\n",
         );
         let vwctx = ViewportContext::<Cursor>::default();
-        let vctx: VimContext = VimContext::default();
+        let vctx = EditContext::default();
         let mut cursor = rope.first();
         let count = Count::Contextual;
 
@@ -4890,7 +4889,7 @@ mod tests {
             KLMNO\n",
         );
         let mut vwctx = ViewportContext::<Cursor>::default();
-        let mut vctx: VimContext = VimContext::default();
+        let mut vctx = EditContext::default();
         let count = Count::Contextual;
 
         /*
@@ -4915,45 +4914,45 @@ mod tests {
 
         // Navigate to the top of screen (H).
         let mov = MoveType::ViewportPos(MovePosition::Beginning);
-        vctx.action.count = Some(1);
+        vctx.count = Some(1);
         cursor = rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(cursor, Cursor::new(2, 0));
 
         // Navigate to the third line from the top of screen ("3H").
         let mov = MoveType::ViewportPos(MovePosition::Beginning);
-        vctx.action.count = Some(3);
+        vctx.count = Some(3);
         cursor = rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(cursor, Cursor::new(4, 0));
 
         // Attempting to navigate to the seventh line from the top of screen just stops at the
         // bottommost visible line ("7H").
         let mov = MoveType::ViewportPos(MovePosition::Beginning);
-        vctx.action.count = Some(7);
+        vctx.count = Some(7);
         cursor = rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(cursor, Cursor::new(5, 0));
 
         // Navigate to the middle of the screen ("M").
         let mov = MoveType::ViewportPos(MovePosition::Middle);
-        vctx.action.count = None;
+        vctx.count = None;
         cursor = rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(cursor, Cursor::new(4, 0));
 
         // Navigate to the bottom of the screen ("L").
         let mov = MoveType::ViewportPos(MovePosition::End);
-        vctx.action.count = None;
+        vctx.count = None;
         cursor = rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(cursor, Cursor::new(5, 0));
 
         // Navigate to the third line from the bottom of screen ("3L").
         let mov = MoveType::ViewportPos(MovePosition::End);
-        vctx.action.count = Some(3);
+        vctx.count = Some(3);
         cursor = rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(cursor, Cursor::new(3, 0));
 
         // Attempting to navigate to the sixth line from the bottom of the screen just stops at the
         // topmost visible line ("6L").
         let mov = MoveType::ViewportPos(MovePosition::End);
-        vctx.action.count = Some(6);
+        vctx.count = Some(6);
         cursor = rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(cursor, Cursor::new(2, 0));
     }
@@ -4962,7 +4961,7 @@ mod tests {
     fn test_motion_screen_wrap() {
         let rope = EditRope::from("abcdefghij\nklmnopqrstuvwxyz\n");
         let mut vwctx = ViewportContext::<Cursor>::default();
-        let vctx: VimContext = VimContext::default();
+        let vctx = EditContext::default();
 
         vwctx.corner = Cursor::new(0, 0);
         vwctx.set_wrap(true);
@@ -5021,7 +5020,7 @@ mod tests {
     fn test_motion_screen_nowrap() {
         let rope = EditRope::from("abcdefghij\nklmnopqrstuvwxyz\n");
         let mut vwctx = ViewportContext::<Cursor>::default();
-        let vctx: VimContext = VimContext::default();
+        let vctx = EditContext::default();
 
         vwctx.corner = Cursor::new(0, 5);
         vwctx.set_wrap(false);
@@ -5074,7 +5073,7 @@ mod tests {
     fn test_motion_screen_first_word_wrap() {
         let rope = EditRope::from("abcde  f g  hij\n  klm  nop\n");
         let mut vwctx = ViewportContext::<Cursor>::default();
-        let vctx: VimContext = VimContext::default();
+        let vctx = EditContext::default();
 
         vwctx.set_wrap(true);
         vwctx.corner = Cursor::new(0, 5);
@@ -5106,7 +5105,7 @@ mod tests {
     fn test_motion_screen_first_word_nowrap() {
         let rope = EditRope::from("abcde  f g  hij\n  klm  nop\n");
         let mut vwctx = ViewportContext::<Cursor>::default();
-        let vctx: VimContext = VimContext::default();
+        let vctx = EditContext::default();
 
         vwctx.set_wrap(false);
         vwctx.corner = Cursor::new(0, 5);
@@ -5131,7 +5130,7 @@ mod tests {
     fn test_range_buffer() {
         let rope = EditRope::from("abcdef\nghijklmn\n");
         let vwctx = ViewportContext::<Cursor>::default();
-        let vctx: VimContext = VimContext::default();
+        let vctx = EditContext::default();
         let cw = TargetShape::LineWise;
         let count = Count::Contextual;
         let rt = RangeType::Buffer;
@@ -5158,7 +5157,7 @@ mod tests {
     fn test_range_number_base2() {
         let rope = EditRope::from("abc103g-458\n");
         let vwctx = ViewportContext::<Cursor>::default();
-        let vctx: VimContext = VimContext::default();
+        let vctx = EditContext::default();
         let cw = TargetShape::CharWise;
         let count = Count::Contextual;
 
@@ -5188,7 +5187,7 @@ mod tests {
     fn test_range_number_base8() {
         let rope = EditRope::from("abc103g-458\n");
         let vwctx = ViewportContext::<Cursor>::default();
-        let vctx: VimContext = VimContext::default();
+        let vctx = EditContext::default();
         let cw = TargetShape::CharWise;
         let count = Count::Contextual;
 
@@ -5226,7 +5225,7 @@ mod tests {
     fn test_range_number_base10() {
         let rope = EditRope::from("abc103g-458\n");
         let vwctx = ViewportContext::<Cursor>::default();
-        let vctx: VimContext = VimContext::default();
+        let vctx = EditContext::default();
         let cw = TargetShape::CharWise;
         let count = Count::Contextual;
 
@@ -5258,7 +5257,7 @@ mod tests {
     fn test_range_number_base16() {
         let rope = EditRope::from("abc103g-458\n");
         let vwctx = ViewportContext::<Cursor>::default();
-        let vctx: VimContext = VimContext::default();
+        let vctx = EditContext::default();
         let cw = TargetShape::CharWise;
         let count = Count::Contextual;
 
@@ -5286,7 +5285,7 @@ mod tests {
     fn test_range_whitespace() {
         let rope = EditRope::from("a   \t   b\nc  \t\n\n    d");
         let vwctx = ViewportContext::<Cursor>::default();
-        let vctx: VimContext = VimContext::default();
+        let vctx = EditContext::default();
         let cw = TargetShape::CharWise;
         let count = Count::Contextual;
         let inc = true;
@@ -5342,7 +5341,7 @@ mod tests {
     fn test_range_line() {
         let rope = EditRope::from("1 2 3\nhello world\n    foo bar\na b c d e f\n");
         let vwctx = ViewportContext::<Cursor>::default();
-        let mut vctx: VimContext = VimContext::default();
+        let mut vctx = EditContext::default();
         let cw = TargetShape::LineWise;
         let count = Count::Contextual;
         let rt = RangeType::Line;
@@ -5350,22 +5349,22 @@ mod tests {
         let inc = true;
 
         // Select a single line.
-        vctx.action.count = Some(1);
+        vctx.count = Some(1);
         let er = rope.range(&cursor, &rt, inc, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(er, EditRange::exclusive(Cursor::new(1, 0), Cursor::new(1, 6), cw));
 
         // End cursor is placed on the first word (important for forced-motion compatibility).
-        vctx.action.count = Some(2);
+        vctx.count = Some(2);
         let er = rope.range(&cursor, &rt, inc, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(er, EditRange::exclusive(Cursor::new(1, 6), Cursor::new(2, 4), cw));
 
         // Select up to the last line.
-        vctx.action.count = Some(3);
+        vctx.count = Some(3);
         let er = rope.range(&cursor, &rt, inc, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(er, EditRange::exclusive(Cursor::new(1, 6), Cursor::new(3, 0), cw));
 
         // Providing a count higher than number of lines stops at the last line.
-        vctx.action.count = Some(4);
+        vctx.count = Some(4);
         let er = rope.range(&cursor, &rt, inc, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(er, EditRange::exclusive(Cursor::new(1, 6), Cursor::new(3, 0), cw));
     }
@@ -5374,7 +5373,7 @@ mod tests {
     fn test_range_bracketed_start_at_paren() {
         let rope = EditRope::from("foo (1 ( (a) \")\" (b) ')' (c) ) 2 3) bar");
         let vwctx = ViewportContext::<Cursor>::default();
-        let mut vctx: VimContext = VimContext::default();
+        let mut vctx = EditContext::default();
         let cw = TargetShape::CharWise;
         let count = Count::Contextual;
         let rt = RangeType::Bracketed('(', ')');
@@ -5386,38 +5385,38 @@ mod tests {
         let cursor_cr = Cursor::new(0, 27);
 
         // Select parentheses surrounding "a" w/ count = 1.
-        vctx.action.count = Some(1);
+        vctx.count = Some(1);
         let er = rope.range(&cursor_al, &rt, inc, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(er, EditRange::inclusive(Cursor::new(0, 9), Cursor::new(0, 11), cw));
 
-        vctx.action.count = Some(1);
+        vctx.count = Some(1);
         let er = rope.range(&cursor_ar, &rt, inc, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(er, EditRange::inclusive(Cursor::new(0, 9), Cursor::new(0, 11), cw));
 
         // Select parentheses surrounding "a" w/ count = 3.
-        vctx.action.count = Some(3);
+        vctx.count = Some(3);
         let er = rope.range(&cursor_al, &rt, inc, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(er, EditRange::inclusive(Cursor::new(0, 4), Cursor::new(0, 34), cw));
 
-        vctx.action.count = Some(3);
+        vctx.count = Some(3);
         let er = rope.range(&cursor_ar, &rt, inc, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(er, EditRange::inclusive(Cursor::new(0, 4), Cursor::new(0, 34), cw));
 
         // Select the parentheses surrounding "c" w/ count = 1.
-        vctx.action.count = Some(1);
+        vctx.count = Some(1);
         let er = rope.range(&cursor_cl, &rt, inc, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(er, EditRange::inclusive(Cursor::new(0, 25), Cursor::new(0, 27), cw));
 
-        vctx.action.count = Some(1);
+        vctx.count = Some(1);
         let er = rope.range(&cursor_cr, &rt, inc, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(er, EditRange::inclusive(Cursor::new(0, 25), Cursor::new(0, 27), cw));
 
         // Look for the parentheses surrounding "c" w/ count = 3.
-        vctx.action.count = Some(3);
+        vctx.count = Some(3);
         let er = rope.range(&cursor_cl, &rt, inc, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(er, EditRange::inclusive(Cursor::new(0, 4), Cursor::new(0, 34), cw));
 
-        vctx.action.count = Some(3);
+        vctx.count = Some(3);
         let er = rope.range(&cursor_cr, &rt, inc, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(er, EditRange::inclusive(Cursor::new(0, 4), Cursor::new(0, 34), cw));
     }
@@ -5426,7 +5425,7 @@ mod tests {
     fn test_range_bracketed_forward() {
         let rope = EditRope::from("foo (1 ( (a) \")\" (b) ')' (c) ) 2 3) bar");
         let vwctx = ViewportContext::<Cursor>::default();
-        let mut vctx: VimContext = VimContext::default();
+        let mut vctx = EditContext::default();
         let cw = TargetShape::CharWise;
         let count = Count::Contextual;
         let rt = RangeType::Bracketed('(', ')');
@@ -5437,27 +5436,27 @@ mod tests {
         let cursor_a = Cursor::new(0, 10);
 
         // Look for the parentheses surrounding "1".
-        vctx.action.count = Some(1);
+        vctx.count = Some(1);
         let er = rope.range(&cursor_1, &rt, inc, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(er, EditRange::inclusive(Cursor::new(0, 4), Cursor::new(0, 34), cw));
 
         // Look for the parentheses surrounding "a" w/ count = 1.
-        vctx.action.count = Some(1);
+        vctx.count = Some(1);
         let er = rope.range(&cursor_a, &rt, inc, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(er, EditRange::inclusive(Cursor::new(0, 9), Cursor::new(0, 11), cw));
 
         // Look for the parentheses surrounding "a" w/ count = 2.
-        vctx.action.count = Some(2);
+        vctx.count = Some(2);
         let er = rope.range(&cursor_a, &rt, inc, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(er, EditRange::inclusive(Cursor::new(0, 7), Cursor::new(0, 29), cw));
 
         // Look for the parentheses surrounding "a" w/ count = 3.
-        vctx.action.count = Some(3);
+        vctx.count = Some(3);
         let er = rope.range(&cursor_a, &rt, inc, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(er, EditRange::inclusive(Cursor::new(0, 4), Cursor::new(0, 34), cw));
 
         // Look for the parentheses surrounding "a" w/ count = 4.
-        vctx.action.count = Some(4);
+        vctx.count = Some(4);
         let er = rope.range(&cursor_a, &rt, inc, &count, cmctx!(vwctx, vctx));
         assert_eq!(er, None);
     }
@@ -5466,7 +5465,7 @@ mod tests {
     fn test_range_bracketed_backward() {
         let rope = EditRope::from("foo (1 ( (a) \")\" (b) ')' (c) ) 2 3) bar");
         let vwctx = ViewportContext::<Cursor>::default();
-        let mut vctx: VimContext = VimContext::default();
+        let mut vctx = EditContext::default();
         let cw = TargetShape::CharWise;
         let count = Count::Contextual;
         let rt = RangeType::Bracketed('(', ')');
@@ -5477,27 +5476,27 @@ mod tests {
         let cursor_c = Cursor::new(0, 26);
 
         // Look for the parentheses surrounding "2".
-        vctx.action.count = Some(1);
+        vctx.count = Some(1);
         let er = rope.range(&cursor_2, &rt, inc, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(er, EditRange::inclusive(Cursor::new(0, 4), Cursor::new(0, 34), cw));
 
         // Look for the parentheses surrounding "c" w/ count = 1.
-        vctx.action.count = Some(1);
+        vctx.count = Some(1);
         let er = rope.range(&cursor_c, &rt, inc, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(er, EditRange::inclusive(Cursor::new(0, 25), Cursor::new(0, 27), cw));
 
         // Look for the parentheses surrounding "c" w/ count = 2.
-        vctx.action.count = Some(2);
+        vctx.count = Some(2);
         let er = rope.range(&cursor_c, &rt, inc, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(er, EditRange::inclusive(Cursor::new(0, 7), Cursor::new(0, 29), cw));
 
         // Look for the parentheses surrounding "c" w/ count = 3.
-        vctx.action.count = Some(3);
+        vctx.count = Some(3);
         let er = rope.range(&cursor_c, &rt, inc, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(er, EditRange::inclusive(Cursor::new(0, 4), Cursor::new(0, 34), cw));
 
         // Look for the parentheses surrounding "c" w/ count = 4.
-        vctx.action.count = Some(4);
+        vctx.count = Some(4);
         let er = rope.range(&cursor_c, &rt, inc, &count, cmctx!(vwctx, vctx));
         assert_eq!(er, None);
     }
@@ -5506,7 +5505,7 @@ mod tests {
     fn test_range_bracketed_no_surrounding_parens() {
         let rope = EditRope::from("foo (1 ( (a) \")\" (b) ')' (c) ) 2 3) bar");
         let vwctx = ViewportContext::<Cursor>::default();
-        let vctx: VimContext = VimContext::default();
+        let vctx = EditContext::default();
         let count = Count::Contextual;
         let rt = RangeType::Bracketed('(', ')');
         let inc = true;
@@ -5526,7 +5525,7 @@ mod tests {
     fn test_range_bracketed_exclusive() {
         let rope = EditRope::from("foo (1 ( (a) \")\" (b) ')' (c) ) 2 3) bar");
         let vwctx = ViewportContext::<Cursor>::default();
-        let mut vctx: VimContext = VimContext::default();
+        let mut vctx = EditContext::default();
         let cw = TargetShape::CharWise;
         let count = Count::Contextual;
         let rt = RangeType::Bracketed('(', ')');
@@ -5537,27 +5536,27 @@ mod tests {
         let cursor_a = Cursor::new(0, 10);
 
         // Look for the parentheses surrounding "1".
-        vctx.action.count = Some(1);
+        vctx.count = Some(1);
         let er = rope.range(&cursor_1, &rt, inc, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(er, EditRange::inclusive(Cursor::new(0, 5), Cursor::new(0, 33), cw));
 
         // Look for the parentheses surrounding "a" w/ count = 1.
-        vctx.action.count = Some(1);
+        vctx.count = Some(1);
         let er = rope.range(&cursor_a, &rt, inc, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(er, EditRange::inclusive(Cursor::new(0, 10), Cursor::new(0, 10), cw));
 
         // Look for the parentheses surrounding "a" w/ count = 2.
-        vctx.action.count = Some(2);
+        vctx.count = Some(2);
         let er = rope.range(&cursor_a, &rt, inc, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(er, EditRange::inclusive(Cursor::new(0, 8), Cursor::new(0, 28), cw));
 
         // Look for the parentheses surrounding "a" w/ count = 3.
-        vctx.action.count = Some(3);
+        vctx.count = Some(3);
         let er = rope.range(&cursor_a, &rt, inc, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(er, EditRange::inclusive(Cursor::new(0, 5), Cursor::new(0, 33), cw));
 
         // Look for the parentheses surrounding "a" w/ count = 4.
-        vctx.action.count = Some(4);
+        vctx.count = Some(4);
         let er = rope.range(&cursor_a, &rt, inc, &count, cmctx!(vwctx, vctx));
         assert_eq!(er, None);
     }
@@ -5566,7 +5565,7 @@ mod tests {
     fn test_range_quoted() {
         let rope = EditRope::from("a b c 'd e f \\'g h i\\' j k' l m n 'o p' q");
         let vwctx = ViewportContext::<Cursor>::default();
-        let vctx: VimContext = VimContext::default();
+        let vctx = EditContext::default();
         let count = Count::Contextual;
         let rt = RangeType::Quote('\'');
         let cw = TargetShape::CharWise;

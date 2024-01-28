@@ -26,7 +26,7 @@ use crate::editing::{
     application::ApplicationInfo,
     base::{CommandType, Count, EditTarget, MoveDir1D, MoveDirMod, SearchType},
     completion::CompletionList,
-    context::EditContext,
+    context::{EditContext, Resolve},
     history::ScrollbackState,
     rope::EditRope,
     store::Store,
@@ -115,12 +115,15 @@ where
     }
 }
 
-impl<C, I> PromptActions<C, Store<I>, I> for CommandBarState<I>
+impl<I> PromptActions<EditContext, Store<I>, I> for CommandBarState<I>
 where
-    C: Default + EditContext,
     I: ApplicationInfo,
 {
-    fn submit(&mut self, ctx: &C, store: &mut Store<I>) -> EditResult<Vec<(Action<I>, C)>, I> {
+    fn submit(
+        &mut self,
+        ctx: &EditContext,
+        store: &mut Store<I>,
+    ) -> EditResult<Vec<(Action<I>, EditContext)>, I> {
         let unfocus = CommandBarAction::Unfocus.into();
 
         let action = match self.cmdtype {
@@ -151,9 +154,9 @@ where
     fn abort(
         &mut self,
         _empty: bool,
-        ctx: &C,
+        ctx: &EditContext,
         store: &mut Store<I>,
-    ) -> EditResult<Vec<(Action<I>, C)>, I> {
+    ) -> EditResult<Vec<(Action<I>, EditContext)>, I> {
         // We always unfocus currently, regardless of whether _empty=true.
         let act = Action::CommandBar(CommandBarAction::Unfocus);
 
@@ -176,9 +179,9 @@ where
         dir: &MoveDir1D,
         count: &Count,
         prefixed: bool,
-        ctx: &C,
+        ctx: &EditContext,
         store: &mut Store<I>,
-    ) -> EditResult<Vec<(Action<I>, C)>, I> {
+    ) -> EditResult<Vec<(Action<I>, EditContext)>, I> {
         let count = ctx.resolve(count);
         let rope = self.deref().get();
 
@@ -199,17 +202,16 @@ where
     }
 }
 
-impl<C, I> Promptable<C, Store<I>, I> for CommandBarState<I>
+impl<I> Promptable<EditContext, Store<I>, I> for CommandBarState<I>
 where
-    C: Default + EditContext,
     I: ApplicationInfo,
 {
     fn prompt(
         &mut self,
         act: &PromptAction,
-        ctx: &C,
+        ctx: &EditContext,
         store: &mut Store<I>,
-    ) -> EditResult<Vec<(Action<I>, C)>, I> {
+    ) -> EditResult<Vec<(Action<I>, EditContext)>, I> {
         match act {
             PromptAction::Abort(empty) => self.abort(*empty, ctx, store),
             PromptAction::Recall(dir, count, prefixed) => {

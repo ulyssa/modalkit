@@ -10,13 +10,16 @@ pub mod dialog;
 pub mod key;
 
 /// Represents contextual information that is updated upon user input.
-pub trait InputContext: Clone + Default {
-    /// Override implementor-determined fields in this context using values from another.
-    fn overrides(&mut self, other: &Self);
+pub trait InputState: Clone + Default {
+    /// The output context type returned along with actions.
+    type Output: Clone + Default;
 
     /// Reset any action-specific state.
     fn reset(&mut self);
 
-    /// Return a copy of the InputContext, and reset any action-specific state.
-    fn take(&mut self) -> Self;
+    /// Return a copy of the InputState, and reset any action-specific state.
+    fn take(&mut self) -> Self::Output;
+
+    /// Copy any overriding values into an `Output` object.
+    fn merge(original: Self::Output, overrides: &Self::Output) -> Self::Output;
 }

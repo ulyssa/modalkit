@@ -7,29 +7,17 @@
 //!
 use std::marker::PhantomData;
 
-use regex::Regex;
-
 use crate::input::{
-    bindings::{EdgeEvent, InputKeyContext, Mode, ModeKeys, ModeSequence, SequenceStatus},
+    bindings::{EdgeEvent, InputKeyState, Mode, ModeKeys, ModeSequence, SequenceStatus},
     key::{InputKey, TerminalKey},
-    InputContext,
+    InputState,
 };
 
 use crate::editing::{
-    action::{Action, EditAction, InsertTextAction, PromptAction},
+    action::{Action, InsertTextAction, PromptAction},
     application::{ApplicationInfo, EmptyInfo},
-    base::{
-        Char,
-        Count,
-        InsertStyle,
-        Mark,
-        MoveDir1D,
-        Register,
-        RepeatType,
-        Specifier,
-        TargetShape,
-    },
-    context::{EditContext, Resolve},
+    base::{Char, Count, InsertStyle, MoveDir1D, Register, RepeatType, TargetShape},
+    context::{EditContext, EditContextBuilder},
 };
 
 use crate::util::{keycode_to_num, option_muladd_u32, option_muladd_usize};
@@ -52,8 +40,8 @@ pub enum EmacsMode {
     Search,
 }
 
-impl<I: ApplicationInfo> Mode<Action<I>, EmacsContext<I>> for EmacsMode {
-    fn enter(&self, _: Self, ctx: &mut EmacsContext<I>) -> Vec<Action<I>> {
+impl<I: ApplicationInfo> Mode<Action<I>, EmacsState<I>> for EmacsMode {
+    fn enter(&self, _: Self, ctx: &mut EmacsState<I>) -> Vec<Action<I>> {
         match self {
             EmacsMode::Insert => {
                 return vec![];
@@ -66,7 +54,7 @@ impl<I: ApplicationInfo> Mode<Action<I>, EmacsContext<I>> for EmacsMode {
         }
     }
 
-    fn show(&self, ctx: &EmacsContext<I>) -> Option<String> {
+    fn show(&self, ctx: &EmacsState<I>) -> Option<String> {
         match self {
             EmacsMode::Insert => {
                 match ctx.persist.insert {
@@ -85,11 +73,11 @@ impl<I: ApplicationInfo> Mode<Action<I>, EmacsContext<I>> for EmacsMode {
     }
 }
 
-impl<I: ApplicationInfo> ModeSequence<RepeatType, Action<I>, EmacsContext<I>> for EmacsMode {
+impl<I: ApplicationInfo> ModeSequence<RepeatType, Action<I>, EmacsState<I>> for EmacsMode {
     fn sequences(
         &self,
         action: &Action<I>,
-        ctx: &EmacsContext<I>,
+        ctx: &EditContext,
     ) -> Vec<(RepeatType, SequenceStatus)> {
         match self {
             EmacsMode::Insert | EmacsMode::Command => {
@@ -107,11 +95,11 @@ impl<I: ApplicationInfo> ModeSequence<RepeatType, Action<I>, EmacsContext<I>> fo
     }
 }
 
-impl<I: ApplicationInfo> ModeKeys<TerminalKey, Action<I>, EmacsContext<I>> for EmacsMode {
+impl<I: ApplicationInfo> ModeKeys<TerminalKey, Action<I>, EmacsState<I>> for EmacsMode {
     fn unmapped(
         &self,
         ke: &TerminalKey,
-        ctx: &mut EmacsContext<I>,
+        ctx: &mut EmacsState<I>,
     ) -> (Vec<Action<I>>, Option<Self>) {
         ctx.persist.repeating = false;
 
@@ -190,7 +178,7 @@ impl Default for PersistentContext {
 
 /// This wraps both action specific context, and persistent context.
 #[derive(Debug, Eq, PartialEq)]
-pub struct EmacsContext<I: ApplicationInfo = EmptyInfo> {
+pub struct EmacsState<I: ApplicationInfo = EmptyInfo> {
     pub(crate) action: ActionContext,
     pub(crate) persist: PersistentContext,
     pub(self) ch: CharacterContext,
@@ -198,7 +186,7 @@ pub struct EmacsContext<I: ApplicationInfo = EmptyInfo> {
     _p: PhantomData<I>,
 }
 
-impl<I: ApplicationInfo> Clone for EmacsContext<I> {
+impl<I: ApplicationInfo> Clone for EmacsState<I> {
     fn clone(&self) -> Self {
         Self {
             action: self.action.clone(),
@@ -210,72 +198,54 @@ impl<I: ApplicationInfo> Clone for EmacsContext<I> {
     }
 }
 
-impl<I: ApplicationInfo> InputContext for EmacsContext<I> {
-    fn overrides(&mut self, other: &Self) {
+impl<I: ApplicationInfo> InputState for EmacsState<I> {
+    type Output = EditContext;
+
+    fn merge(original: EditContext, overrides: &EditContext) -> EditContext {
+        let mut builder = EditContextBuilder::from(original);
+
         // Allow overriding count.
-        if other.action.count.is_some() {
-            self.action.count = other.action.count;
+        if let n @ Some(_) = overrides.count {
+            builder = builder.count(n);
         }
+
+        builder.build()
     }
 
     fn reset(&mut self) {
         self.action = ActionContext::default();
     }
 
-    fn take(&mut self) -> Self {
-        Self {
+    fn take(&mut self) -> Self::Output {
+        let state = Self {
             persist: self.persist.clone(),
             action: std::mem::take(&mut self.action),
             ch: std::mem::take(&mut self.ch),
 
             _p: PhantomData,
-        }
+        };
+
+        EditContext::from(state)
     }
 }
 
-impl<I: ApplicationInfo> EditContext for EmacsContext<I> {
-    fn get_replace_char(&self) -> Option<Char> {
-        None
-    }
-
-    fn get_search_regex(&self) -> Option<Regex> {
-        None
-    }
-
-    fn get_search_regex_dir(&self) -> MoveDir1D {
-        self.persist.regexsearch_dir
-    }
-
-    fn get_search_char(&self) -> Option<(MoveDir1D, bool, Char)> {
-        None
-    }
-
-    fn get_target_shape(&self) -> Option<TargetShape> {
-        self.persist.shape
-    }
-
-    fn get_insert_style(&self) -> Option<InsertStyle> {
-        self.persist.insert.into()
-    }
-
-    fn get_last_column(&self) -> bool {
-        true
-    }
-
-    fn get_register(&self) -> Option<Register> {
-        self.action.register.clone()
-    }
-
-    fn get_register_append(&self) -> bool {
-        false
-    }
-
-    fn is_search_incremental(&self) -> bool {
-        self.persist.regexsearch_inc
+impl<I: ApplicationInfo> From<EmacsState<I>> for EditContext {
+    fn from(ctx: EmacsState<I>) -> Self {
+        EditContextBuilder::default()
+            .count(ctx.action.count)
+            .typed_char(ctx.ch.get_typed())
+            .search_regex_dir(ctx.persist.regexsearch_dir)
+            .target_shape(ctx.persist.shape)
+            .insert_style(ctx.persist.insert.into())
+            .last_column(true)
+            .register(ctx.action.register.clone())
+            .register_append(false)
+            .search_incremental(ctx.persist.regexsearch_inc)
+            .build()
     }
 }
 
-impl<I: ApplicationInfo> Default for EmacsContext<I> {
+impl<I: ApplicationInfo> Default for EmacsState<I> {
     fn default() -> Self {
         Self {
             action: ActionContext::default(),
@@ -287,44 +257,7 @@ impl<I: ApplicationInfo> Default for EmacsContext<I> {
     }
 }
 
-impl<I: ApplicationInfo> Resolve<Count, usize> for EmacsContext<I> {
-    fn resolve(&self, count: &Count) -> usize {
-        match count {
-            Count::Contextual => self.action.count.unwrap_or(1),
-            Count::MinusOne => self.action.count.unwrap_or(0).saturating_sub(1),
-            Count::Exact(n) => *n,
-        }
-    }
-}
-
-impl<I: ApplicationInfo> Resolve<Specifier<Char>, Option<Char>> for EmacsContext<I> {
-    fn resolve(&self, c: &Specifier<Char>) -> Option<Char> {
-        match c {
-            Specifier::Contextual => self.ch.get_typed(),
-            Specifier::Exact(c) => Some(c.clone()),
-        }
-    }
-}
-
-impl<I: ApplicationInfo> Resolve<Specifier<Mark>, Mark> for EmacsContext<I> {
-    fn resolve(&self, mark: &Specifier<Mark>) -> Mark {
-        match mark {
-            Specifier::Contextual => Mark::LastJump,
-            Specifier::Exact(m) => *m,
-        }
-    }
-}
-
-impl<I: ApplicationInfo> Resolve<Specifier<EditAction>, EditAction> for EmacsContext<I> {
-    fn resolve(&self, mark: &Specifier<EditAction>) -> EditAction {
-        match mark {
-            Specifier::Contextual => EditAction::Motion,
-            Specifier::Exact(a) => a.clone(),
-        }
-    }
-}
-
-impl<I: ApplicationInfo> InputKeyContext<TerminalKey, CommonKeyClass> for EmacsContext<I> {
+impl<I: ApplicationInfo> InputKeyState<TerminalKey, CommonKeyClass> for EmacsState<I> {
     fn event(&mut self, ev: &EdgeEvent<TerminalKey, CommonKeyClass>, ke: &TerminalKey) {
         match ev {
             EdgeEvent::Key(_) | EdgeEvent::Fallthrough => {
@@ -388,7 +321,7 @@ mod tests {
 
     #[test]
     fn test_mode_show() {
-        let mut ctx: EmacsContext = EmacsContext::default();
+        let mut ctx: EmacsState = EmacsState::default();
 
         assert_eq!(EmacsMode::Search.show(&ctx), None);
 

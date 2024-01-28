@@ -71,7 +71,7 @@ use crate::editing::{
         WindowTarget,
     },
     completion::CompletionList,
-    context::EditContext,
+    context::{EditContext, Resolve},
     store::Store,
 };
 
@@ -333,10 +333,14 @@ impl<T> FocusList<T> {
     /// Try closing targeted items using `f` until one fails or all targets are closed.
     ///
     /// If the target cannot be closed, focus will be moved to it.
-    pub fn try_close<E, F, C>(&mut self, target: &TabTarget, mut f: F, ctx: &C) -> Result<(), E>
+    pub fn try_close<E, F>(
+        &mut self,
+        target: &TabTarget,
+        mut f: F,
+        ctx: &EditContext,
+    ) -> Result<(), E>
     where
         F: FnMut(&mut T) -> Result<(), E>,
-        C: EditContext,
     {
         let mut result = Ok(());
 
@@ -410,17 +414,14 @@ impl<T> FocusList<T> {
         self.len().saturating_sub(1)
     }
 
-    fn _idx<C: EditContext>(&self, count: &Count, ctx: &C) -> Option<usize> {
+    fn _idx(&self, count: &Count, ctx: &EditContext) -> Option<usize> {
         ctx.resolve(count).checked_sub(1)
     }
 
     /// Determine the index of the item targeted by a given [FocusChange].
     ///
     /// The [MoveDir1D] value returned indicates which side of the index to insert at.
-    pub fn target<C>(&self, change: &FocusChange, ctx: &C) -> Option<(usize, MoveDir1D)>
-    where
-        C: EditContext,
-    {
+    pub fn target(&self, change: &FocusChange, ctx: &EditContext) -> Option<(usize, MoveDir1D)> {
         let target = match change {
             FocusChange::Current => self.idx_curr,
             FocusChange::Offset(count, false) => {
@@ -531,14 +532,14 @@ impl<T> FocusList<T> {
     }
 
     /// Switch focus to a new item.
-    pub fn focus<C: EditContext>(&mut self, change: &FocusChange, ctx: &C) {
+    pub fn focus(&mut self, change: &FocusChange, ctx: &EditContext) {
         if let Some((idx, _)) = self.target(change, ctx) {
             self.set_focus(idx);
         }
     }
 
     /// Move the currently focused item to a new position.
-    pub fn transfer<C: EditContext>(&mut self, change: &FocusChange, ctx: &C) {
+    pub fn transfer(&mut self, change: &FocusChange, ctx: &EditContext) {
         if let Some((idx, side)) = self.target(change, ctx) {
             idx_move(&mut self.items, &mut self.idx_curr, idx, &mut self.idx_last, side);
         }
@@ -698,10 +699,10 @@ where
     }
 
     /// Perform a command bar action.
-    pub fn command_bar<C: EditContext>(
+    pub fn command_bar(
         &mut self,
         act: &CommandBarAction,
-        ctx: &C,
+        ctx: &EditContext,
     ) -> EditResult<EditInfo, I> {
         match act {
             CommandBarAction::Focus(ct) => self.focus_command(*ct, ctx.get_search_regex_dir()),
@@ -735,17 +736,16 @@ where
     }
 }
 
-impl<W, C, I> TabActions<C, Store<I>, I> for ScreenState<W, I>
+impl<W, I> TabActions<EditContext, Store<I>, I> for ScreenState<W, I>
 where
     W: Window<I>,
-    C: EditContext,
     I: ApplicationInfo,
 {
     fn tab_close(
         &mut self,
         target: &TabTarget,
         flags: CloseFlags,
-        ctx: &C,
+        ctx: &EditContext,
         store: &mut Store<I>,
     ) -> UIResult<EditInfo, I> {
         let mut filter = |tab: &mut WindowLayoutState<W, I>| -> UIResult<(), I> {
@@ -770,7 +770,7 @@ where
         &mut self,
         change: &FocusChange,
         side: &MoveDir1D,
-        ctx: &C,
+        ctx: &EditContext,
         _: &mut Store<I>,
     ) -> UIResult<EditInfo, I> {
         if self.windows() <= 1 {
@@ -793,7 +793,7 @@ where
     fn tab_focus(
         &mut self,
         change: &FocusChange,
-        ctx: &C,
+        ctx: &EditContext,
         _: &mut Store<I>,
     ) -> UIResult<EditInfo, I> {
         self.tabs.focus(change, ctx);
@@ -804,7 +804,7 @@ where
     fn tab_move(
         &mut self,
         change: &FocusChange,
-        ctx: &C,
+        ctx: &EditContext,
         _: &mut Store<I>,
     ) -> UIResult<EditInfo, I> {
         self.tabs.transfer(change, ctx);
@@ -816,7 +816,7 @@ where
         &mut self,
         target: &OpenTarget<I::WindowId>,
         change: &FocusChange,
-        ctx: &C,
+        ctx: &EditContext,
         store: &mut Store<I>,
     ) -> UIResult<EditInfo, I> {
         let (idx, side) =
@@ -839,16 +839,15 @@ where
     }
 }
 
-impl<W, C, I> TabContainer<C, Store<I>, I> for ScreenState<W, I>
+impl<W, I> TabContainer<EditContext, Store<I>, I> for ScreenState<W, I>
 where
     W: Window<I>,
-    C: EditContext,
     I: ApplicationInfo,
 {
     fn tab_command(
         &mut self,
         act: &TabAction<I>,
-        ctx: &C,
+        ctx: &EditContext,
         store: &mut Store<I>,
     ) -> UIResult<EditInfo, I> {
         match act {
@@ -871,16 +870,15 @@ where
     }
 }
 
-impl<W, C, I> WindowContainer<C, Store<I>, I> for ScreenState<W, I>
+impl<W, I> WindowContainer<EditContext, Store<I>, I> for ScreenState<W, I>
 where
     W: Window<I>,
-    C: EditContext,
     I: ApplicationInfo,
 {
     fn window_command(
         &mut self,
         act: &WindowAction<I>,
-        ctx: &C,
+        ctx: &EditContext,
         store: &mut Store<I>,
     ) -> UIResult<EditInfo, I> {
         let tab = self.current_tab_mut()?;
@@ -912,16 +910,15 @@ macro_rules! delegate_focus {
     };
 }
 
-impl<W, C, I> Editable<C, Store<I>, I> for ScreenState<W, I>
+impl<W, I> Editable<EditContext, Store<I>, I> for ScreenState<W, I>
 where
-    W: Window<I> + Editable<C, Store<I>, I>,
-    C: EditContext,
+    W: Window<I> + Editable<EditContext, Store<I>, I>,
     I: ApplicationInfo,
 {
     fn editor_command(
         &mut self,
         act: &EditorAction,
-        ctx: &C,
+        ctx: &EditContext,
         store: &mut Store<I>,
     ) -> EditResult<EditInfo, I> {
         delegate_focus!(self, f => f.editor_command(act, ctx, store))
@@ -963,32 +960,30 @@ where
     }
 }
 
-impl<W, C, I> Promptable<C, Store<I>, I> for ScreenState<W, I>
+impl<W, I> Promptable<EditContext, Store<I>, I> for ScreenState<W, I>
 where
-    W: Window<I> + Promptable<C, Store<I>, I>,
-    C: EditContext,
+    W: Window<I> + Promptable<EditContext, Store<I>, I>,
     I: ApplicationInfo,
 {
     fn prompt(
         &mut self,
         act: &PromptAction,
-        ctx: &C,
+        ctx: &EditContext,
         store: &mut Store<I>,
-    ) -> EditResult<Vec<(Action<I>, C)>, I> {
+    ) -> EditResult<Vec<(Action<I>, EditContext)>, I> {
         delegate_focus!(self, f => f.prompt(act, ctx, store))
     }
 }
 
-impl<W, C, I> Scrollable<C, Store<I>, I> for ScreenState<W, I>
+impl<W, I> Scrollable<EditContext, Store<I>, I> for ScreenState<W, I>
 where
-    W: Window<I> + Scrollable<C, Store<I>, I>,
-    C: EditContext,
+    W: Window<I> + Scrollable<EditContext, Store<I>, I>,
     I: ApplicationInfo,
 {
     fn scroll(
         &mut self,
         style: &ScrollStyle,
-        ctx: &C,
+        ctx: &EditContext,
         store: &mut Store<I>,
     ) -> EditResult<EditInfo, I> {
         delegate_focus!(self, f => f.scroll(style, ctx, store))
@@ -998,7 +993,6 @@ where
 impl<W, C, I> Searchable<C, Store<I>, I> for ScreenState<W, I>
 where
     W: Window<I> + Searchable<C, Store<I>, I>,
-    C: EditContext,
     I: ApplicationInfo,
 {
     fn search(
@@ -1220,9 +1214,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::editing::application::EmptyInfo;
     use crate::editing::base::MoveDir1D::{Next, Previous as Prev};
-    use crate::env::vim::VimContext;
 
     fn close1(v: &mut char) -> Result<(), char> {
         if *v == 'c' {
@@ -1301,7 +1293,7 @@ mod tests {
     #[test]
     fn test_focus_dir() {
         let mut list = FocusList::new(vec!['a', 'b', 'c', 'd', 'e', 'f', 'g']);
-        let ctx = VimContext::<EmptyInfo>::default();
+        let ctx = EditContext::default();
 
         assert_eq!(list.idx_curr, 0);
         assert_eq!(list.idx_last, 0);
@@ -1354,7 +1346,7 @@ mod tests {
     #[test]
     fn test_focus_offset() {
         let mut list = FocusList::new(vec!['a', 'b', 'c', 'd', 'e', 'f', 'g']);
-        let ctx = VimContext::<EmptyInfo>::default();
+        let ctx = EditContext::default();
 
         assert_eq!(list.idx_curr, 0);
         assert_eq!(list.idx_last, 0);
@@ -1388,7 +1380,7 @@ mod tests {
     #[test]
     fn test_focus_position() {
         let mut list = FocusList::new(vec!['a', 'b', 'c', 'd', 'e', 'f', 'g']);
-        let ctx = VimContext::<EmptyInfo>::default();
+        let ctx = EditContext::default();
 
         assert_eq!(list.idx_curr, 0);
         assert_eq!(list.idx_last, 0);
@@ -1412,7 +1404,7 @@ mod tests {
     #[test]
     fn test_focus_previously_focused() {
         let mut list = FocusList::new(vec!['a', 'b', 'c', 'd', 'e', 'f', 'g']);
-        let ctx = VimContext::<EmptyInfo>::default();
+        let ctx = EditContext::default();
 
         assert_eq!(list.idx_curr, 0);
         assert_eq!(list.idx_last, 0);
@@ -1456,7 +1448,7 @@ mod tests {
     #[test]
     fn test_move_item() {
         let mut list = FocusList::new(vec!['a', 'b', 'c', 'd', 'e', 'f', 'g']);
-        let ctx = VimContext::<EmptyInfo>::default();
+        let ctx = EditContext::default();
 
         list.idx_curr = 1;
         list.idx_last = 3;
@@ -1507,7 +1499,7 @@ mod tests {
     #[test]
     fn test_try_close_all() {
         let mut list = FocusList::new(vec!['a', 'b', 'c', 'd', 'e', 'f', 'g']);
-        let ctx = VimContext::<EmptyInfo>::default();
+        let ctx = EditContext::default();
 
         list.idx_curr = 4;
         list.idx_last = 5;
@@ -1537,7 +1529,7 @@ mod tests {
     #[test]
     fn test_try_close_all_but() {
         let mut list = FocusList::new(vec!['a', 'b', 'c', 'd', 'e', 'f', 'g']);
-        let ctx = VimContext::<EmptyInfo>::default();
+        let ctx = EditContext::default();
 
         list.idx_curr = 4;
         list.idx_last = 4;
@@ -1570,7 +1562,7 @@ mod tests {
     #[test]
     fn test_try_close_single() {
         let mut list = FocusList::new(vec!['a', 'b', 'c', 'd', 'e', 'f', 'g']);
-        let ctx = VimContext::<EmptyInfo>::default();
+        let ctx = EditContext::default();
 
         list.idx_curr = 5;
         list.idx_last = 0;

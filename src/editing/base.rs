@@ -13,7 +13,6 @@ use regex::Regex;
 
 use crate::{
     editing::application::ApplicationWindowId,
-    input::bindings::SequenceClass,
     util::{
         is_filename_char,
         is_filepath_char,
@@ -256,8 +255,6 @@ pub enum RepeatType {
     /// The last selection resize made in a buffer.
     LastSelection,
 }
-
-impl SequenceClass for RepeatType {}
 
 /// Specify a range within the text around the current cursor position.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -1630,7 +1627,7 @@ impl<Cursor: Wrappable> Wrappable for ViewportContext<Cursor> {
 /// This context object wraps information used when calculating what text covered by cursor
 /// movements.
 #[non_exhaustive]
-pub struct CursorMovementsContext<'a, 'b, 'c, Cursor, C: EditContext> {
+pub struct CursorMovementsContext<'a, Cursor> {
     /// What operation this movement is being done as part of.
     ///
     /// Certain movements, like [MoveType::WordBegin], behave different depending on the action.
@@ -1638,21 +1635,17 @@ pub struct CursorMovementsContext<'a, 'b, 'c, Cursor, C: EditContext> {
 
     /// Information about the user's view of the text, since this impacts movements that rely on
     /// how the text is displayed, such as [MoveType::ScreenLine].
-    pub view: &'b ViewportContext<Cursor>,
+    pub view: &'a ViewportContext<Cursor>,
 
     /// The editing context contains information about the current [InsertStyle], as well as the
     /// user-supplied [Count].
-    pub context: &'c C,
+    pub context: &'a EditContext,
 }
 
 /// Trait for objects capable of calculating contextual offsets from a cursor.
-pub trait CursorMovements<Cursor, Context: EditContext> {
+pub trait CursorMovements<Cursor> {
     /// Calculate the position of the first word on the line of the provided cursor.
-    fn first_word(
-        &self,
-        cursor: &Cursor,
-        ctx: &CursorMovementsContext<'_, '_, '_, Cursor, Context>,
-    ) -> Cursor;
+    fn first_word(&self, cursor: &Cursor, ctx: &CursorMovementsContext<'_, Cursor>) -> Cursor;
 
     /// Calculate the position of the cursor after performing a movement.
     fn movement(
@@ -1660,7 +1653,7 @@ pub trait CursorMovements<Cursor, Context: EditContext> {
         cursor: &Cursor,
         movement: &MoveType,
         count: &Count,
-        ctx: &CursorMovementsContext<'_, '_, '_, Cursor, Context>,
+        ctx: &CursorMovementsContext<'_, Cursor>,
     ) -> Option<Cursor>;
 
     /// Calculate a cursor range from the given cursor to the location after performing the
@@ -1670,7 +1663,7 @@ pub trait CursorMovements<Cursor, Context: EditContext> {
         cursor: &Cursor,
         movement: &MoveType,
         count: &Count,
-        ctx: &CursorMovementsContext<'_, '_, '_, Cursor, Context>,
+        ctx: &CursorMovementsContext<'_, Cursor>,
     ) -> Option<EditRange<Cursor>>;
 
     /// Calculate a cursor range based on a given cursor position and a [RangeType].
@@ -1680,7 +1673,7 @@ pub trait CursorMovements<Cursor, Context: EditContext> {
         range: &RangeType,
         inclusive: bool,
         count: &Count,
-        ctx: &CursorMovementsContext<'_, '_, '_, Cursor, Context>,
+        ctx: &CursorMovementsContext<'_, Cursor>,
     ) -> Option<EditRange<Cursor>>;
 }
 

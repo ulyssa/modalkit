@@ -11,13 +11,13 @@
 //!     editing::action::{Editable, EditAction, EditorActions},
 //!     editing::application::EmptyInfo,
 //!     editing::base::{MovePosition, MoveType},
+//!     editing::context::EditContext,
 //!     editing::store::Store,
-//!     env::vim::VimContext,
 //!     widgets::list::ListState,
 //! };
 //!
 //! let mut store = Store::default();
-//! let ctx = VimContext::<EmptyInfo>::default();
+//! let ctx = EditContext::default();
 //!
 //! // Create new list state.
 //! let items = vec!["Alice".into(), "Bob".into(), "Eve".into()];
@@ -96,7 +96,7 @@ use crate::editing::{
         WriteFlags,
     },
     completion::CompletionList,
-    context::EditContext,
+    context::{EditContext, Resolve},
     cursor::{Cursor, CursorGroup, CursorState},
     history::HistoryList,
     rope::EditRope,
@@ -371,16 +371,15 @@ where
     }
 }
 
-impl<C, T, I> CursorMovements<ListCursor, C> for ListState<T, I>
+impl<T, I> CursorMovements<ListCursor> for ListState<T, I>
 where
-    C: EditContext,
     T: ListItem<I>,
     I: ApplicationInfo,
 {
     fn first_word(
         &self,
         pos: &ListCursor,
-        _: &CursorMovementsContext<'_, '_, '_, ListCursor, C>,
+        _: &CursorMovementsContext<'_, ListCursor>,
     ) -> ListCursor {
         pos.clone()
     }
@@ -390,7 +389,7 @@ where
         pos: &ListCursor,
         movement: &MoveType,
         count: &Count,
-        ctx: &CursorMovementsContext<'_, '_, '_, ListCursor, C>,
+        ctx: &CursorMovementsContext<'_, ListCursor>,
     ) -> Option<ListCursor> {
         let len = self.items.len();
         let count = ctx.context.resolve(count);
@@ -496,7 +495,7 @@ where
         pos: &ListCursor,
         movement: &MoveType,
         count: &Count,
-        ctx: &CursorMovementsContext<'_, '_, '_, ListCursor, C>,
+        ctx: &CursorMovementsContext<'_, ListCursor>,
     ) -> Option<EditRange<ListCursor>> {
         let other = self.movement(pos, movement, count, ctx)?;
 
@@ -509,7 +508,7 @@ where
         range: &RangeType,
         _: bool,
         count: &Count,
-        ctx: &CursorMovementsContext<'_, '_, '_, ListCursor, C>,
+        ctx: &CursorMovementsContext<'_, ListCursor>,
     ) -> Option<EditRange<ListCursor>> {
         let len = self.items.len();
         let max = len.saturating_sub(1);
@@ -609,9 +608,8 @@ where
     }
 }
 
-impl<C, T, I> EditorActions<C, Store<I>, I> for ListState<T, I>
+impl<T, I> EditorActions<EditContext, Store<I>, I> for ListState<T, I>
 where
-    C: EditContext,
     T: ListItem<I>,
     I: ApplicationInfo,
 {
@@ -619,7 +617,7 @@ where
         &mut self,
         operation: &EditAction,
         motion: &EditTarget,
-        ctx: &C,
+        ctx: &EditContext,
         store: &mut Store<I>,
     ) -> EditResult<EditInfo, I> {
         match operation {
@@ -676,15 +674,9 @@ where
                         let dir = ctx.get_search_regex_dir();
                         let dir = flip.resolve(&dir);
 
-                        let needle = match ctx.get_search_regex() {
-                            Some(re) => re,
-                            None => {
-                                let lsearch = store.registers.get(&Register::LastSearch)?;
-                                let lsearch = lsearch.value.to_string();
-
-                                Regex::new(lsearch.as_ref())?
-                            },
-                        };
+                        let lsearch = store.registers.get(&Register::LastSearch)?;
+                        let lsearch = lsearch.value.to_string();
+                        let needle = Regex::new(lsearch.as_ref())?;
 
                         self.find_regex(&self.cursor, dir, &needle, count).map(|r| r.start)
                     },
@@ -747,15 +739,9 @@ where
                         let dir = ctx.get_search_regex_dir();
                         let dir = flip.resolve(&dir);
 
-                        let needle = match ctx.get_search_regex() {
-                            Some(re) => re,
-                            None => {
-                                let lsearch = store.registers.get(&Register::LastSearch)?;
-                                let lsearch = lsearch.value.to_string();
-
-                                Regex::new(lsearch.as_ref())?
-                            },
-                        };
+                        let lsearch = store.registers.get(&Register::LastSearch)?;
+                        let lsearch = lsearch.value.to_string();
+                        let needle = Regex::new(lsearch.as_ref())?;
 
                         self.find_regex(&self.cursor, dir, &needle, count)
                     },
@@ -811,7 +797,12 @@ where
         }
     }
 
-    fn mark(&mut self, name: Mark, _: &C, store: &mut Store<I>) -> EditResult<EditInfo, I> {
+    fn mark(
+        &mut self,
+        name: Mark,
+        _: &EditContext,
+        store: &mut Store<I>,
+    ) -> EditResult<EditInfo, I> {
         let cursor = Cursor::new(self.cursor.position, 0);
 
         store.cursors.set_mark(self.id.clone(), name, cursor);
@@ -824,7 +815,7 @@ where
         _: &CompletionType,
         _: &CompletionSelection,
         _: &CompletionDisplay,
-        _: &C,
+        _: &EditContext,
         _: &mut Store<I>,
     ) -> EditResult<EditInfo, I> {
         let msg = "Cannot complete any text inside a list";
@@ -836,7 +827,7 @@ where
     fn insert_text(
         &mut self,
         _: &InsertTextAction,
-        _: &C,
+        _: &EditContext,
         _: &mut Store<I>,
     ) -> EditResult<EditInfo, I> {
         Err(EditError::ReadOnly)
@@ -845,7 +836,7 @@ where
     fn selection_command(
         &mut self,
         _: &SelectionAction,
-        _: &C,
+        _: &EditContext,
         _: &mut Store<I>,
     ) -> EditResult<EditInfo, I> {
         Err(EditError::Failure("Cannot perform selection actions in a list".into()))
@@ -854,7 +845,7 @@ where
     fn history_command(
         &mut self,
         act: &HistoryAction,
-        _: &C,
+        _: &EditContext,
         _: &mut Store<I>,
     ) -> EditResult<EditInfo, I> {
         match act {
@@ -867,7 +858,7 @@ where
     fn cursor_command(
         &mut self,
         act: &CursorAction,
-        ctx: &C,
+        ctx: &EditContext,
         store: &mut Store<I>,
     ) -> EditResult<EditInfo, I> {
         match act {
@@ -906,16 +897,15 @@ where
     }
 }
 
-impl<C, T, I> Editable<C, Store<I>, I> for ListState<T, I>
+impl<T, I> Editable<EditContext, Store<I>, I> for ListState<T, I>
 where
-    C: EditContext,
     T: ListItem<I>,
     I: ApplicationInfo,
 {
     fn editor_command(
         &mut self,
         act: &EditorAction,
-        ctx: &C,
+        ctx: &EditContext,
         store: &mut Store<I>,
     ) -> EditResult<EditInfo, I> {
         match act {
@@ -931,9 +921,8 @@ where
     }
 }
 
-impl<C, T, I> Jumpable<C, I> for ListState<T, I>
+impl<T, I> Jumpable<EditContext, I> for ListState<T, I>
 where
-    C: EditContext,
     T: ListItem<I>,
     I: ApplicationInfo,
 {
@@ -942,7 +931,7 @@ where
         list: PositionList,
         dir: MoveDir1D,
         count: usize,
-        _: &C,
+        _: &EditContext,
     ) -> UIResult<usize, I> {
         match list {
             PositionList::ChangeList => {
@@ -984,7 +973,6 @@ where
 
 impl<C, I, T> Promptable<C, Store<I>, I> for ListState<T, I>
 where
-    C: EditContext,
     I: ApplicationInfo,
     T: ListItem<I> + Promptable<C, Store<I>, I>,
 {
@@ -1005,9 +993,8 @@ where
     }
 }
 
-impl<C, I, T> Searchable<C, Store<I>, I> for ListState<T, I>
+impl<I, T> Searchable<EditContext, Store<I>, I> for ListState<T, I>
 where
-    C: EditContext,
     I: ApplicationInfo,
     T: ListItem<I>,
 {
@@ -1015,7 +1002,7 @@ where
         &mut self,
         dir: MoveDirMod,
         count: Count,
-        ctx: &C,
+        ctx: &EditContext,
         store: &mut Store<I>,
     ) -> UIResult<EditInfo, I> {
         let search = EditTarget::Search(SearchType::Regex, dir, count);
@@ -1024,9 +1011,8 @@ where
     }
 }
 
-impl<C, I, T> ScrollActions<C, Store<I>, I> for ListState<T, I>
+impl<I, T> ScrollActions<EditContext, Store<I>, I> for ListState<T, I>
 where
-    C: EditContext,
     I: ApplicationInfo,
     T: ListItem<I>,
 {
@@ -1035,7 +1021,7 @@ where
         dir: MoveDir2D,
         size: ScrollSize,
         count: &Count,
-        ctx: &C,
+        ctx: &EditContext,
         store: &mut Store<I>,
     ) -> EditResult<EditInfo, I> {
         if self.items.is_empty() {
@@ -1122,7 +1108,7 @@ where
         &mut self,
         pos: MovePosition,
         axis: Axis,
-        _: &C,
+        _: &EditContext,
         store: &mut Store<I>,
     ) -> EditResult<EditInfo, I> {
         match axis {
@@ -1144,7 +1130,7 @@ where
         &mut self,
         pos: MovePosition,
         count: &Count,
-        ctx: &C,
+        ctx: &EditContext,
         store: &mut Store<I>,
     ) -> EditResult<EditInfo, I> {
         let len = self.items.len();
@@ -1157,16 +1143,15 @@ where
     }
 }
 
-impl<C, I, T> Scrollable<C, Store<I>, I> for ListState<T, I>
+impl<I, T> Scrollable<EditContext, Store<I>, I> for ListState<T, I>
 where
-    C: EditContext,
     I: ApplicationInfo,
     T: ListItem<I>,
 {
     fn scroll(
         &mut self,
         style: &ScrollStyle,
-        ctx: &C,
+        ctx: &EditContext,
         store: &mut Store<I>,
     ) -> EditResult<EditInfo, I> {
         match style {
@@ -1368,7 +1353,6 @@ mod tests {
         editing::action::WindowAction,
         editing::application::EmptyInfo,
         editing::base::OpenTarget,
-        env::vim::VimContext,
     };
 
     #[derive(Clone)]
@@ -1410,17 +1394,16 @@ mod tests {
         }
     }
 
-    impl<C, I> Promptable<C, Store<I>, I> for TestItem
+    impl<I> Promptable<EditContext, Store<I>, I> for TestItem
     where
-        C: EditContext,
         I: ApplicationInfo,
     {
         fn prompt(
             &mut self,
             act: &PromptAction,
-            ctx: &C,
+            ctx: &EditContext,
             _: &mut Store<I>,
-        ) -> EditResult<Vec<(Action<I>, C)>, I> {
+        ) -> EditResult<Vec<(Action<I>, EditContext)>, I> {
             match act {
                 PromptAction::Submit => {
                     let target = OpenTarget::Name(self.author.clone());
@@ -1440,7 +1423,7 @@ mod tests {
 
     type TestListState = ListState<TestItem, EmptyInfo>;
 
-    fn mklist() -> (TestListState, VimContext<EmptyInfo>, Store<EmptyInfo>) {
+    fn mklist() -> (TestListState, EditContext, Store<EmptyInfo>) {
         /*
          * This will render as:
          *
@@ -1477,7 +1460,7 @@ mod tests {
         list.viewctx.dimensions.0 = 30;
         list.viewctx.dimensions.1 = 5;
 
-        (list, VimContext::default(), Store::default())
+        (list, EditContext::default(), Store::default())
     }
 
     #[test]
@@ -1653,7 +1636,7 @@ mod tests {
         let op = EditAction::Yank;
         let end = EditTarget::Motion(MoveType::BufferPos(MovePosition::End), 1.into());
         list.cursor.position = 4;
-        ctx.action.register = Some(Register::Named('c'));
+        ctx.register = Some(Register::Named('c'));
 
         list.edit(&op, &end, &ctx, &mut store).unwrap();
 

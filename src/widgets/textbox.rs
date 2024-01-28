@@ -83,7 +83,7 @@ use crate::editing::{
     },
     buffer::{CursorGroupId, FollowersInfo, HighlightInfo},
     completion::CompletionList,
-    context::EditContext,
+    context::{EditContext, Resolve},
     cursor::Cursor,
     rope::EditRope,
     store::{SharedBuffer, Store},
@@ -363,15 +363,14 @@ macro_rules! c2cgi {
     };
 }
 
-impl<C, I> Editable<C, Store<I>, I> for TextBoxState<I>
+impl<I> Editable<EditContext, Store<I>, I> for TextBoxState<I>
 where
-    C: EditContext,
     I: ApplicationInfo,
 {
     fn editor_command(
         &mut self,
         act: &EditorAction,
-        ctx: &C,
+        ctx: &EditContext,
         store: &mut Store<I>,
     ) -> EditResult<EditInfo, I> {
         if self.readonly && !act.is_readonly(ctx) {
@@ -382,9 +381,8 @@ where
     }
 }
 
-impl<C, I> Jumpable<C, I> for TextBoxState<I>
+impl<I> Jumpable<EditContext, I> for TextBoxState<I>
 where
-    C: EditContext,
     I: ApplicationInfo,
 {
     fn jump(
@@ -392,46 +390,43 @@ where
         list: PositionList,
         dir: MoveDir1D,
         count: usize,
-        ctx: &C,
+        ctx: &EditContext,
     ) -> UIResult<usize, I> {
         self.buffer.jump(list, dir, count, c2cgi!(self, ctx))
     }
 }
 
-impl<C, I> Promptable<C, Store<I>, I> for TextBoxState<I>
+impl<I> Promptable<EditContext, Store<I>, I> for TextBoxState<I>
 where
-    C: EditContext,
     I: ApplicationInfo,
 {
     fn prompt(
         &mut self,
         _: &PromptAction,
-        _: &C,
+        _: &EditContext,
         _: &mut Store<I>,
-    ) -> EditResult<Vec<(Action<I>, C)>, I> {
+    ) -> EditResult<Vec<(Action<I>, EditContext)>, I> {
         Err(EditError::Failure("Not at a prompt".to_string()))
     }
 }
 
-impl<C, I> Searchable<C, Store<I>, I> for TextBoxState<I>
+impl<I> Searchable<EditContext, Store<I>, I> for TextBoxState<I>
 where
-    C: EditContext,
     I: ApplicationInfo,
 {
     fn search(
         &mut self,
         dir: MoveDirMod,
         count: Count,
-        ctx: &C,
+        ctx: &EditContext,
         store: &mut Store<I>,
     ) -> UIResult<EditInfo, I> {
         self.buffer.search(dir, count, c2cgi!(self, ctx), store)
     }
 }
 
-impl<C, I> ScrollActions<C, Store<I>, I> for TextBoxState<I>
+impl<I> ScrollActions<EditContext, Store<I>, I> for TextBoxState<I>
 where
-    C: EditContext,
     I: ApplicationInfo,
 {
     fn dirscroll(
@@ -439,7 +434,7 @@ where
         dir: MoveDir2D,
         size: ScrollSize,
         count: &Count,
-        ctx: &C,
+        ctx: &EditContext,
         _: &mut Store<I>,
     ) -> EditResult<EditInfo, I> {
         let count = ctx.resolve(count);
@@ -486,7 +481,7 @@ where
         &mut self,
         pos: MovePosition,
         axis: Axis,
-        _: &C,
+        _: &EditContext,
         _: &mut Store<I>,
     ) -> EditResult<EditInfo, I> {
         if axis == Axis::Horizontal && self.viewctx.wrap {
@@ -533,7 +528,7 @@ where
         &mut self,
         pos: MovePosition,
         count: &Count,
-        ctx: &C,
+        ctx: &EditContext,
         _: &mut Store<I>,
     ) -> EditResult<EditInfo, I> {
         let mut buffer = self.buffer.write().unwrap();
@@ -564,15 +559,14 @@ where
     }
 }
 
-impl<C, I> Scrollable<C, Store<I>, I> for TextBoxState<I>
+impl<I> Scrollable<EditContext, Store<I>, I> for TextBoxState<I>
 where
-    C: EditContext,
     I: ApplicationInfo,
 {
     fn scroll(
         &mut self,
         style: &ScrollStyle,
-        ctx: &C,
+        ctx: &EditContext,
         store: &mut Store<I>,
     ) -> EditResult<EditInfo, I> {
         match style {
@@ -1213,7 +1207,6 @@ mod tests {
     use crate::editing::action::{EditAction, HistoryAction};
     use crate::editing::base::{EditTarget, MoveDir1D, MoveType};
     use crate::editing::store::Store;
-    use crate::env::vim::VimContext;
 
     macro_rules! mv {
         ($mt: expr) => {
@@ -1253,9 +1246,9 @@ mod tests {
         (TextBoxState::new(buffer), store)
     }
 
-    fn mkboxstr(s: &str) -> (TextBoxState, VimContext, Store<EmptyInfo>) {
+    fn mkboxstr(s: &str) -> (TextBoxState, EditContext, Store<EmptyInfo>) {
         let (mut b, mut store) = mkbox();
-        let ctx = VimContext::default();
+        let ctx = EditContext::default();
 
         b.set_text(s);
         b.editor_command(&HistoryAction::Checkpoint.into(), &ctx, &mut store)
@@ -1280,27 +1273,27 @@ mod tests {
         tbox.set_term_info(Rect::new(0, 0, 6, 4));
 
         // Scroll by terminal cells
-        ctx.action.count = Some(4);
+        ctx.count = Some(4);
         dirscroll!(tbox, MoveDir2D::Down, ScrollSize::Cell, Count::Contextual, &ctx, store);
         assert_eq!(tbox.viewctx.corner, Cursor::new(4, 0));
         assert_eq!(tbox.get_cursor(), Cursor::new(4, 0));
 
-        ctx.action.count = Some(2);
+        ctx.count = Some(2);
         dirscroll!(tbox, MoveDir2D::Up, ScrollSize::Cell, Count::Contextual, &ctx, store);
         assert_eq!(tbox.viewctx.corner, Cursor::new(2, 0));
         assert_eq!(tbox.get_cursor(), Cursor::new(4, 0));
 
-        ctx.action.count = Some(6);
+        ctx.count = Some(6);
         dirscroll!(tbox, MoveDir2D::Right, ScrollSize::Cell, Count::Contextual, &ctx, store);
         assert_eq!(tbox.viewctx.corner, Cursor::new(2, 6));
         assert_eq!(tbox.get_cursor(), Cursor::new(4, 6));
 
-        ctx.action.count = Some(2);
+        ctx.count = Some(2);
         dirscroll!(tbox, MoveDir2D::Left, ScrollSize::Cell, Count::Contextual, &ctx, store);
         assert_eq!(tbox.viewctx.corner, Cursor::new(2, 4));
         assert_eq!(tbox.get_cursor(), Cursor::new(4, 6));
 
-        ctx.action.count = None;
+        ctx.count = None;
 
         // Scroll by half page
         dirscroll!(tbox, MoveDir2D::Down, ScrollSize::HalfPage, Count::Contextual, &ctx, store);

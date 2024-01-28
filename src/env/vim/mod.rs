@@ -7,12 +7,10 @@
 //!
 use std::marker::PhantomData;
 
-use regex::Regex;
-
 use crate::{
-    input::bindings::{EdgeEvent, InputKeyContext, Mode, ModeKeys, ModeSequence, SequenceStatus},
+    input::bindings::{EdgeEvent, InputKeyState, Mode, ModeKeys, ModeSequence, SequenceStatus},
     input::key::{InputKey, TerminalKey},
-    input::InputContext,
+    input::InputState,
     util::{keycode_to_num, option_muladd_u32, option_muladd_usize},
 };
 
@@ -31,10 +29,9 @@ use crate::editing::{
         MoveType,
         Register,
         RepeatType,
-        Specifier,
         TargetShape,
     },
-    context::{EditContext, Resolve},
+    context::{EditContext, EditContextBuilder},
 };
 
 use super::{CharacterContext, CommonKeyClass};
@@ -74,8 +71,8 @@ pub enum VimMode {
     CharSearchSuffix,
 }
 
-impl<I: ApplicationInfo> Mode<Action<I>, VimContext<I>> for VimMode {
-    fn enter(&self, prev: Self, ctx: &mut VimContext<I>) -> Vec<Action<I>> {
+impl<I: ApplicationInfo> Mode<Action<I>, VimState<I>> for VimMode {
+    fn enter(&self, prev: Self, ctx: &mut VimState<I>) -> Vec<Action<I>> {
         match self {
             VimMode::Normal => {
                 ctx.persist.shape = None;
@@ -164,7 +161,7 @@ impl<I: ApplicationInfo> Mode<Action<I>, VimContext<I>> for VimMode {
         }
     }
 
-    fn show(&self, ctx: &VimContext<I>) -> Option<String> {
+    fn show(&self, ctx: &VimState<I>) -> Option<String> {
         let recording = ctx.persist.recording.as_ref().and_then(register_to_char);
 
         let msg = match self {
@@ -208,11 +205,11 @@ impl<I: ApplicationInfo> Mode<Action<I>, VimContext<I>> for VimMode {
     }
 }
 
-impl<I: ApplicationInfo> ModeSequence<RepeatType, Action<I>, VimContext<I>> for VimMode {
+impl<I: ApplicationInfo> ModeSequence<RepeatType, Action<I>, VimState<I>> for VimMode {
     fn sequences(
         &self,
         action: &Action<I>,
-        ctx: &VimContext<I>,
+        ctx: &EditContext,
     ) -> Vec<(RepeatType, SequenceStatus)> {
         let motion = match self {
             VimMode::Command => {
@@ -220,7 +217,7 @@ impl<I: ApplicationInfo> ModeSequence<RepeatType, Action<I>, VimContext<I>> for 
                 return vec![];
             },
             VimMode::Normal => {
-                if ctx.persist.insert.is_some() {
+                if ctx.get_insert_style().is_some() {
                     SequenceStatus::Restart
                 } else {
                     SequenceStatus::Break
@@ -238,12 +235,8 @@ impl<I: ApplicationInfo> ModeSequence<RepeatType, Action<I>, VimContext<I>> for 
     }
 }
 
-impl<I: ApplicationInfo> ModeKeys<TerminalKey, Action<I>, VimContext<I>> for VimMode {
-    fn unmapped(
-        &self,
-        ke: &TerminalKey,
-        ctx: &mut VimContext<I>,
-    ) -> (Vec<Action<I>>, Option<Self>) {
+impl<I: ApplicationInfo> ModeKeys<TerminalKey, Action<I>, VimState<I>> for VimMode {
+    fn unmapped(&self, ke: &TerminalKey, ctx: &mut VimState<I>) -> (Vec<Action<I>>, Option<Self>) {
         match self {
             VimMode::Normal => {
                 return (vec![], None);
@@ -350,7 +343,7 @@ pub(crate) struct PersistentContext {
 
 /// This wraps both action specific context, and persistent context.
 #[derive(Debug, Eq, PartialEq)]
-pub struct VimContext<I: ApplicationInfo = EmptyInfo> {
+pub struct VimState<I: ApplicationInfo = EmptyInfo> {
     pub(crate) action: ActionContext,
     pub(crate) persist: PersistentContext,
     pub(self) ch: CharacterContext,
@@ -358,7 +351,7 @@ pub struct VimContext<I: ApplicationInfo = EmptyInfo> {
     _p: PhantomData<I>,
 }
 
-impl<I: ApplicationInfo> Clone for VimContext<I> {
+impl<I: ApplicationInfo> Clone for VimState<I> {
     fn clone(&self) -> Self {
         Self {
             action: self.action.clone(),
@@ -369,35 +362,42 @@ impl<I: ApplicationInfo> Clone for VimContext<I> {
     }
 }
 
-impl<I: ApplicationInfo> InputContext for VimContext<I> {
-    fn overrides(&mut self, other: &Self) {
+impl<I: ApplicationInfo> InputState for VimState<I> {
+    type Output = EditContext;
+
+    fn merge(original: EditContext, overrides: &EditContext) -> EditContext {
+        let mut builder = EditContextBuilder::from(original);
+
         // Allow overriding the two fields that can prefix keybindings.
-
-        if other.action.count.is_some() {
-            self.action.count = other.action.count;
+        if let n @ Some(_) = overrides.count {
+            builder = builder.count(n);
         }
 
-        if other.action.register.is_some() {
-            self.action.register = other.action.register.clone();
+        if let reg @ Some(_) = overrides.get_register() {
+            builder = builder.register(reg).register_append(overrides.get_register_append());
         }
+
+        builder.build()
     }
 
     fn reset(&mut self) {
         self.action = ActionContext::default();
     }
 
-    fn take(&mut self) -> Self {
-        Self {
+    fn take(&mut self) -> Self::Output {
+        let state = Self {
             persist: self.persist.clone(),
             action: std::mem::take(&mut self.action),
             ch: std::mem::take(&mut self.ch),
 
             _p: PhantomData,
-        }
+        };
+
+        EditContext::from(state)
     }
 }
 
-impl<I: ApplicationInfo> InputKeyContext<TerminalKey, CommonKeyClass> for VimContext<I> {
+impl<I: ApplicationInfo> InputKeyState<TerminalKey, CommonKeyClass> for VimState<I> {
     fn event(&mut self, ev: &EdgeEvent<TerminalKey, CommonKeyClass>, ke: &TerminalKey) {
         match ev {
             EdgeEvent::Key(_) | EdgeEvent::Fallthrough => {
@@ -465,55 +465,32 @@ impl<I: ApplicationInfo> InputKeyContext<TerminalKey, CommonKeyClass> for VimCon
     }
 }
 
-impl<I: ApplicationInfo> EditContext for VimContext<I> {
-    fn get_cursor_end(&self) -> CursorEnd {
-        self.action.cursor_end.unwrap_or(CursorEnd::Auto)
-    }
-
-    fn get_replace_char(&self) -> Option<Char> {
-        self.action.replace.clone()
-    }
-
-    fn get_search_regex(&self) -> Option<Regex> {
-        None
-    }
-
-    fn get_search_regex_dir(&self) -> MoveDir1D {
-        self.persist.regexsearch_dir
-    }
-
-    fn get_search_char(&self) -> Option<(MoveDir1D, bool, Char)> {
-        if let Some(c) = &self.persist.charsearch {
-            let (dir, inc) = self.persist.charsearch_params;
+impl<I: ApplicationInfo> From<VimState<I>> for EditContext {
+    fn from(ctx: VimState<I>) -> Self {
+        let search_char = if let Some(c) = &ctx.persist.charsearch {
+            let (dir, inc) = ctx.persist.charsearch_params;
 
             Some((dir, inc, c.clone()))
         } else {
             None
-        }
-    }
+        };
 
-    fn get_target_shape(&self) -> Option<TargetShape> {
-        self.persist.shape
-    }
-
-    fn get_insert_style(&self) -> Option<InsertStyle> {
-        self.persist.insert
-    }
-
-    fn get_last_column(&self) -> bool {
-        self.persist.insert.is_some()
-    }
-
-    fn get_register(&self) -> Option<Register> {
-        self.action.register.clone()
-    }
-
-    fn get_register_append(&self) -> bool {
-        self.action.register_append
-    }
-
-    fn is_search_incremental(&self) -> bool {
-        self.persist.regexsearch_inc
+        EditContextBuilder::default()
+            .operation(ctx.action.operation)
+            .count(ctx.action.count)
+            .mark(ctx.action.mark)
+            .typed_char(ctx.ch.get_typed())
+            .cursor_end(ctx.action.cursor_end.unwrap_or(CursorEnd::Auto))
+            .replace_char(ctx.action.replace.clone())
+            .search_char(search_char)
+            .search_regex_dir(ctx.persist.regexsearch_dir)
+            .target_shape(ctx.persist.shape)
+            .insert_style(ctx.persist.insert)
+            .last_column(ctx.persist.insert.is_some())
+            .register(ctx.action.register.clone())
+            .register_append(ctx.action.register_append)
+            .search_incremental(ctx.persist.regexsearch_inc)
+            .build()
     }
 }
 
@@ -557,7 +534,7 @@ impl Default for PersistentContext {
     }
 }
 
-impl<I: ApplicationInfo> Default for VimContext<I> {
+impl<I: ApplicationInfo> Default for VimState<I> {
     fn default() -> Self {
         Self {
             action: ActionContext::default(),
@@ -565,43 +542,6 @@ impl<I: ApplicationInfo> Default for VimContext<I> {
             ch: CharacterContext::default(),
 
             _p: PhantomData,
-        }
-    }
-}
-
-impl<I: ApplicationInfo> Resolve<Count, usize> for VimContext<I> {
-    fn resolve(&self, count: &Count) -> usize {
-        match count {
-            Count::Contextual => self.action.count.unwrap_or(1),
-            Count::MinusOne => self.action.count.unwrap_or(0).saturating_sub(1),
-            Count::Exact(n) => *n,
-        }
-    }
-}
-
-impl<I: ApplicationInfo> Resolve<Specifier<Char>, Option<Char>> for VimContext<I> {
-    fn resolve(&self, c: &Specifier<Char>) -> Option<Char> {
-        match c {
-            Specifier::Contextual => self.ch.get_typed(),
-            Specifier::Exact(c) => Some(c.clone()),
-        }
-    }
-}
-
-impl<I: ApplicationInfo> Resolve<Specifier<Mark>, Mark> for VimContext<I> {
-    fn resolve(&self, mark: &Specifier<Mark>) -> Mark {
-        match mark {
-            Specifier::Contextual => self.action.mark.unwrap_or(Mark::LastJump),
-            Specifier::Exact(m) => *m,
-        }
-    }
-}
-
-impl<I: ApplicationInfo> Resolve<Specifier<EditAction>, EditAction> for VimContext<I> {
-    fn resolve(&self, mark: &Specifier<EditAction>) -> EditAction {
-        match mark {
-            Specifier::Contextual => self.action.operation.clone(),
-            Specifier::Exact(a) => a.clone(),
         }
     }
 }
@@ -717,7 +657,7 @@ mod tests {
 
     #[test]
     fn test_show_mode() {
-        let mut ctx = VimContext::<EmptyInfo>::default();
+        let mut ctx = VimState::<EmptyInfo>::default();
 
         let normal = VimMode::Normal;
         let visual = VimMode::Visual;

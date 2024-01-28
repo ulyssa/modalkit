@@ -352,15 +352,14 @@ where
     }
 }
 
-impl<C, I> Editable<C, Store<I>, I> for Editor<I>
+impl<I> Editable<EditContext, Store<I>, I> for Editor<I>
 where
-    C: EditContext,
     I: ApplicationInfo,
 {
     fn editor_command(
         &mut self,
         act: &EditorAction,
-        ctx: &C,
+        ctx: &EditContext,
         store: &mut Store<I>,
     ) -> EditResult<EditInfo, I> {
         let ctx = (self.gid, &self.viewctx, ctx);
@@ -369,9 +368,8 @@ where
     }
 }
 
-impl<C, I> Jumpable<C, I> for Editor<I>
+impl<I> Jumpable<EditContext, I> for Editor<I>
 where
-    C: EditContext,
     I: ApplicationInfo,
 {
     fn jump(
@@ -379,7 +377,7 @@ where
         list: PositionList,
         dir: MoveDir1D,
         count: usize,
-        ctx: &C,
+        ctx: &EditContext,
     ) -> UIResult<usize, I> {
         let ctx = (self.gid, &self.viewctx, ctx);
 
