@@ -9,7 +9,7 @@ use crossterm::event::KeyModifiers;
 use crate::{
     editing::base::Char,
     input::{
-        bindings::{EdgeEvent, EdgePath, EdgePathPart, InputKeyClass},
+        bindings::{EdgeEvent, EdgePathPart, InputKeyClass},
         key::{InputKey, TerminalKey},
     },
 };
@@ -25,7 +25,7 @@ pub mod vim;
 
 pub(crate) type CommonEdgeEvent = EdgeEvent<TerminalKey, CommonKeyClass>;
 pub(crate) type CommonEdgePathPart = EdgePathPart<TerminalKey, CommonKeyClass>;
-pub(crate) type CommonEdgePath = EdgePath<TerminalKey, CommonKeyClass>;
+pub(crate) type CommonEdgePath = Vec<CommonEdgePathPart>;
 
 /// Classes of characters that input keys can belong to.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]

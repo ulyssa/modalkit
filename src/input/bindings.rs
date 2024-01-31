@@ -163,6 +163,7 @@ use std::collections::HashMap;
 use std::collections::VecDeque;
 use std::fmt::Debug;
 use std::hash::Hash;
+use std::sync::Arc;
 
 use crate::util::IdGenerator;
 
@@ -267,13 +268,13 @@ pub trait Step<Key>: Clone {
     type A: Clone + Default;
 
     /// A context object for managing state that accompanies actions.
-    type C: InputKeyState<Key, Self::Class>;
+    type State: InputKeyState<Key, Self::Class>;
 
     /// Classes of input keys.
     type Class: InputKeyClass<Key>;
 
     /// The possible modes for mapping keys.
-    type M: ModeKeys<Key, Self::A, Self::C> + ModeSequence<Self::Sequence, Self::A, Self::C>;
+    type M: ModeKeys<Key, Self::A, Self::State> + ModeSequence<Self::Sequence, Self::A, Self::State>;
 
     /// A key type for identifying tracked action sequences which can be later repeated.
     type Sequence: Eq + Hash;
@@ -298,7 +299,7 @@ pub trait Step<Key>: Clone {
     /// that are triggered conditionally (e.g., "q" in Vim stops a recording macro if it's already
     /// doing so, otherwise it waits for the next key to indicate the register for starting macro
     /// recording).
-    fn step(&self, ctx: &mut Self::C) -> (Vec<Self::A>, Option<Self::M>);
+    fn step(&self, ctx: &mut Self::State) -> (Vec<Self::A>, Option<Self::M>);
 }
 
 /// A collection of bindings that can be added to a [ModalMachine].
@@ -395,7 +396,7 @@ where
     M: ModeKeys<Key, A, EmptyKeyState>,
 {
     type A = A;
-    type C = EmptyKeyState;
+    type State = EmptyKeyState;
     type Class = EmptyKeyClass;
     type M = M;
     type Sequence = EmptySequence;
@@ -421,15 +422,46 @@ enum FollowResult<'a, Key, S: Step<Key>> {
 }
 
 enum InputResult<S> {
-    Step(S),
+    /// Clear the input trail, and try the key again.
+    ClearTrail,
+    /// Clear the input trail, and move on to the next key.
+    Consumed,
+    /// Clear the input trail, and run a [Step].
+    Step(Arc<S>),
+    /// Clear the input trail, run a [Step], and try the key again.
+    RetryAfter(Arc<S>),
+    /// Need more input to do anything; add the key to the trail.
     NeedMore,
+    /// The input key sequence is unmapped, so do default behaviour on the first key and retry
+    /// the rest of the input trail.
     Unmapped,
-    RetryAfter(S),
+}
+
+enum NodeAction<S> {
+    Empty,
+    Root,
+    Step(Arc<S>),
+}
+
+impl<S> NodeAction<S> {
+    fn new(step: S) -> Self {
+        NodeAction::Step(Arc::new(step))
+    }
+}
+
+impl<S> From<Option<S>> for NodeAction<S> {
+    fn from(step: Option<S>) -> Self {
+        if let Some(step) = step {
+            NodeAction::new(step)
+        } else {
+            NodeAction::Empty
+        }
+    }
 }
 
 struct Node<M, S> {
     mode: M,
-    action: Option<S>,
+    action: NodeAction<S>,
 }
 
 /// What kind of input is acceptible for continuing towards a [Step].
@@ -476,7 +508,7 @@ pub enum EdgeRepeat {
 pub type EdgePathPart<Key, Class> = (EdgeRepeat, EdgeEvent<Key, Class>);
 
 /// A description of a sequence of input keys that leads to a [Step].
-pub type EdgePath<Key, Class> = Vec<EdgePathPart<Key, Class>>;
+pub type EdgePath<Key, Class> = [EdgePathPart<Key, Class>];
 
 #[derive(Clone, Debug)]
 struct Edge<Key, S: Step<Key>> {
@@ -492,7 +524,7 @@ struct Graph<Key: InputKey, S: Step<Key>> {
 }
 
 impl<Key: InputKey, S: Step<Key>> Graph<Key, S> {
-    fn add_node(&mut self, mode: S::M, action: Option<S>) -> NodeId {
+    fn add_node(&mut self, mode: S::M, action: NodeAction<S>) -> NodeId {
         let id = NodeId(self.idgen.next());
         let node = Node { mode, action };
 
@@ -506,12 +538,12 @@ impl<Key: InputKey, S: Step<Key>> Graph<Key, S> {
         mode: S::M,
         prev: NodeId,
         ev: &EdgeEvent<Key, S::Class>,
-        action: Option<S>,
+        action: NodeAction<S>,
     ) -> NodeId {
         if let Some(e) = self.get_edge(prev, ev) {
             let id = e.end;
 
-            if action.is_some() {
+            if matches!(action, NodeAction::Step(_)) {
                 let node = self.nodes.get_mut(&id).unwrap();
                 node.action = action;
                 assert_eq!(node.mode, mode);
@@ -542,7 +574,7 @@ impl<Key: InputKey, S: Step<Key>> Graph<Key, S> {
     fn get_mode(&mut self, mode: S::M) -> NodeId {
         match self.modes.get(&mode) {
             None => {
-                let id = self.add_node(mode, None);
+                let id = self.add_node(mode, NodeAction::Root);
                 self.modes.insert(mode, id);
                 return id;
             },
@@ -558,6 +590,10 @@ impl<Key: InputKey, S: Step<Key>> Graph<Key, S> {
         }
 
         return None;
+    }
+
+    fn has_edges(&self, id: NodeId) -> bool {
+        self.edges.get(&id).map(|es| !es.is_empty()).unwrap_or(false)
     }
 
     fn follow_edge(&self, id: NodeId, ke: &Key) -> FollowResult<Key, S> {
@@ -607,7 +643,7 @@ where
     K: InputKey,
     S: Step<K>,
 {
-    type Item = (S::A, <S::C as InputState>::Output);
+    type Item = (S::A, <S::State as InputState>::Output);
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
@@ -640,7 +676,7 @@ impl<Key: InputKey, S: Step<Key>> InputMachine<Key, S> {
         prev: &mut NodeId,
         fallthrough: &mut bool,
     ) -> NodeId {
-        let id = self.graph.upsert_node(mode, *prev, ev, step);
+        let id = self.graph.upsert_node(mode, *prev, ev, step.into());
 
         if *fallthrough {
             self.graph.add_edge(*prev, id, EdgeEvent::Fallthrough);
@@ -680,7 +716,7 @@ impl<Key: InputKey, S: Step<Key>> InputMachine<Key, S> {
                 *prev = self.add_simple(mode, ev, prev, fallthrough);
             },
             EdgeRepeat::Min(n) => {
-                let many = self.graph.add_node(mode, None);
+                let many = self.graph.add_node(mode, NodeAction::Empty);
 
                 self.graph.add_edge(many, many, ev.clone());
 
@@ -702,7 +738,7 @@ impl<Key: InputKey, S: Step<Key>> InputMachine<Key, S> {
                     return;
                 }
 
-                let end = self.graph.add_node(mode, None);
+                let end = self.graph.add_node(mode, NodeAction::Empty);
 
                 self.graph.add_edge(*prev, end, EdgeEvent::Fallthrough);
 
@@ -743,7 +779,7 @@ impl<Key: InputKey, S: Step<Key>> InputMachine<Key, S> {
                          * Because we end on the root node, we can't store the result InputStep there, so
                          * we need to create a node to hold it and then fall through to the root.
                          */
-                        let id = self.graph.add_node(mode, action.clone());
+                        let id = self.graph.add_node(mode, action.clone().into());
 
                         self.graph.add_edge(*prev, id, ev.clone());
                         self.graph.add_edge(id, root, EdgeEvent::Fallthrough);
@@ -754,8 +790,8 @@ impl<Key: InputKey, S: Step<Key>> InputMachine<Key, S> {
                 (EdgeRepeat::Min(n), ev) => {
                     let n = if single { 1.max(*n) } else { *n };
 
-                    let end = self.graph.add_node(mode, action.clone());
-                    let many = self.graph.add_node(mode, None);
+                    let end = self.graph.add_node(mode, action.clone().into());
+                    let many = self.graph.add_node(mode, NodeAction::Empty);
 
                     self.graph.add_edge(many, many, ev.clone());
                     self.graph.add_edge(many, end, EdgeEvent::Fallthrough);
@@ -776,7 +812,7 @@ impl<Key: InputKey, S: Step<Key>> InputMachine<Key, S> {
                         return;
                     }
 
-                    let end = self.graph.add_node(mode, action.clone());
+                    let end = self.graph.add_node(mode, action.clone().into());
 
                     self.graph.add_edge(*prev, end, EdgeEvent::Fallthrough);
                     self.graph.add_edge(end, root, EdgeEvent::Fallthrough);
@@ -814,8 +850,8 @@ impl<Key: InputKey, S: Step<Key>> InputMachine<Key, S> {
                     *prev = self.add_simple_step(mode, ev, step, prev, fallthrough);
                 },
                 (EdgeRepeat::Min(n), ev) => {
-                    let end = self.graph.add_node(mode, Some(step.clone()));
-                    let many = self.graph.add_node(mode, None);
+                    let end = self.graph.add_node(mode, NodeAction::new(step.clone()));
+                    let many = self.graph.add_node(mode, NodeAction::Empty);
 
                     self.graph.add_edge(many, end, EdgeEvent::Fallthrough);
                     self.graph.add_edge(many, many, ev.clone());
@@ -833,7 +869,7 @@ impl<Key: InputKey, S: Step<Key>> InputMachine<Key, S> {
                     *prev = end;
                 },
                 (EdgeRepeat::Max(n), ev) => {
-                    let end = self.graph.add_node(mode, Some(step.clone()));
+                    let end = self.graph.add_node(mode, NodeAction::new(step.clone()));
 
                     self.graph.add_edge(*prev, end, EdgeEvent::Fallthrough);
 
@@ -861,7 +897,7 @@ impl<Key: InputKey, S: Step<Key>> InputMachine<Key, S> {
         }
     }
 
-    fn input(&mut self, ke: &Key, ctx: &mut S::C) -> InputResult<S> {
+    fn input(&mut self, ke: &Key, ctx: &mut S::State) -> InputResult<S> {
         loop {
             match self.graph.follow_edge(self.curr, ke) {
                 FollowResult::Successor(e) => {
@@ -870,19 +906,25 @@ impl<Key: InputKey, S: Step<Key>> InputMachine<Key, S> {
 
                     let node = self.graph.get_node(self.curr);
 
-                    if let Some(is) = &node.action {
-                        // XXX: If there are edges here, then we need to indicate to wait on a
-                        // timeout.
-                        if is.is_unmapped() {
-                            return InputResult::Unmapped;
-                        } else {
-                            return InputResult::Step(is.clone());
-                        }
-                    } else {
-                        /*
-                         * Still waiting on pending input.
-                         */
-                        return InputResult::NeedMore;
+                    match &node.action {
+                        NodeAction::Step(is) => {
+                            if is.is_unmapped() {
+                                if self.graph.has_edges(self.curr) {
+                                    return InputResult::NeedMore;
+                                } else {
+                                    return InputResult::Unmapped;
+                                }
+                            } else {
+                                return InputResult::Step(is.clone());
+                            }
+                        },
+                        NodeAction::Empty => {
+                            // Still waiting on pending input.
+                            return InputResult::NeedMore;
+                        },
+                        NodeAction::Root => {
+                            return InputResult::Consumed;
+                        },
                     }
                 },
                 FollowResult::NoSuccessor => {
@@ -893,8 +935,10 @@ impl<Key: InputKey, S: Step<Key>> InputMachine<Key, S> {
 
                     let node = self.graph.get_node(self.curr);
 
-                    if let Some(is) = &node.action {
-                        return InputResult::RetryAfter(is.clone());
+                    match &node.action {
+                        NodeAction::Empty => continue,
+                        NodeAction::Root => return InputResult::ClearTrail,
+                        NodeAction::Step(s) => return InputResult::RetryAfter(s.clone()),
                     }
                 },
             }
@@ -978,28 +1022,25 @@ impl<A, C> Default for SequenceTracker<A, C> {
 /// Manage and process modal keybindings.
 pub struct ModalMachine<Key: InputKey, S: Step<Key>> {
     state: S::M,
-    ctx: S::C,
+    ctx: S::State,
     im: InputMachine<Key, S>,
-    actions: VecDeque<(S::A, <S::C as InputState>::Output)>,
-    sequences: HashMap<S::Sequence, SequenceTracker<S::A, <S::C as InputState>::Output>>,
+    actions: VecDeque<(S::A, <S::State as InputState>::Output)>,
+    sequences: HashMap<S::Sequence, SequenceTracker<S::A, <S::State as InputState>::Output>>,
     dialogs: Vec<Box<dyn Dialog<S::A>>>,
+
+    /// Previously en
+    key_trail: Vec<Key>,
 }
 
-impl<Key: InputKey, S: Step<Key>> ModalMachine<Key, S> {
-    fn new() -> Self {
-        Self {
-            state: S::M::default(),
-            ctx: S::C::default(),
-            im: InputMachine::default(),
-            actions: VecDeque::new(),
-            sequences: HashMap::new(),
-            dialogs: Vec::new(),
-        }
-    }
-
+impl<Key, S> ModalMachine<Key, S>
+where
+    Key: InputKey,
+    S: Step<Key>,
+    S::State: Default,
+{
     /// Return a new instance without any bindings.
     pub fn empty() -> Self {
-        ModalMachine::new()
+        ModalMachine::from_state(S::State::default())
     }
 
     /// Return an instance that contains default bindings provided by `B`.
@@ -1009,6 +1050,25 @@ impl<Key: InputKey, S: Step<Key>> ModalMachine<Key, S> {
         B::default().setup(&mut machine);
 
         machine
+    }
+}
+
+impl<Key, S> ModalMachine<Key, S>
+where
+    Key: InputKey,
+    S: Step<Key>,
+{
+    /// Return a new instance using an already initialized state.
+    pub fn from_state(state: S::State) -> Self {
+        Self {
+            state: S::M::default(),
+            ctx: state,
+            im: InputMachine::default(),
+            actions: VecDeque::new(),
+            sequences: HashMap::new(),
+            dialogs: Vec::new(),
+            key_trail: Vec::new(),
+        }
     }
 
     /// Prefix a mode with the key sequence described by [EdgePath].
@@ -1104,12 +1164,12 @@ impl<Key: InputKey, S: Step<Key>> ModalMachine<Key, S> {
         &mut self,
         seq: S::Sequence,
         status: SequenceStatus,
-        pair: &(S::A, <S::C as InputState>::Output),
+        pair: &(S::A, <S::State as InputState>::Output),
     ) {
         self.sequences.entry(seq).or_default().push(status, pair);
     }
 
-    fn push(&mut self, pair: (S::A, <S::C as InputState>::Output)) {
+    fn push(&mut self, pair: (S::A, <S::State as InputState>::Output)) {
         let seqs = self.state.sequences(&pair.0, &pair.1);
 
         for (seq, status) in seqs {
@@ -1127,12 +1187,12 @@ impl<Key: InputKey, S: Step<Key>> ModalMachine<Key, S> {
     }
 
     /// Get a mutable reference to the keybinding state.
-    pub fn state(&mut self) -> &mut S::C {
+    pub fn state(&mut self) -> &mut S::State {
         &mut self.ctx
     }
 }
 
-impl<Key, S> BindingMachine<Key, S::A, S::Sequence, <S::C as InputState>::Output>
+impl<Key, S> BindingMachine<Key, S::A, S::Sequence, <S::State as InputState>::Output>
     for ModalMachine<Key, S>
 where
     Key: InputKey,
@@ -1146,7 +1206,7 @@ where
                     // Dialog-generated actions skip sequence tracking,
                     // and go to the front of the action queue.
                     while let Some(act) = acts.pop() {
-                        self.actions.push_front((act, <S::C as InputState>::Output::default()));
+                        self.actions.push_front((act, <S::State as InputState>::Output::default()));
                     }
 
                     let _ = self.dialogs.pop();
@@ -1161,7 +1221,12 @@ where
         while let Some(mut ke) = stack.pop() {
             loop {
                 match self.im.input(&ke, &mut self.ctx) {
+                    InputResult::Consumed => {
+                        self.key_trail.clear();
+                        break;
+                    },
                     InputResult::NeedMore => {
+                        self.key_trail.push(ke);
                         break;
                     },
                     InputResult::Unmapped => {
@@ -1171,15 +1236,34 @@ where
                             continue;
                         }
 
-                        self.unmapped(ke);
+                        // The path we took to get here was unmapped. We now
+                        // need to do the unmapped behaviour for the first key,
+                        // and try reprocessing the successors. For example,
+                        // consider the two mappings, "jj" and "kk". When typing
+                        // "jkk" the "j" will start taking us down the path
+                        // towards the "jj" node, but the "k" won't go anywhere.
+                        //
+                        // We then need to do the unmapped behaviour for "j",
+                        // and reprocess the "k" at the root node so that we can reach
+                        // "kk".
+                        let mut key_trail = std::mem::take(&mut self.key_trail);
+                        key_trail.push(ke);
+                        self.unmapped(key_trail.remove(0));
+                        key_trail.into_iter().rev().for_each(|k| stack.push(k));
                         break;
                     },
-                    InputResult::RetryAfter(ref step) => {
-                        self.step(step);
+                    InputResult::ClearTrail => {
+                        self.key_trail.clear();
                         continue;
                     },
-                    InputResult::Step(ref step) => {
-                        self.step(step);
+                    InputResult::RetryAfter(step) => {
+                        self.key_trail.clear();
+                        self.step(step.as_ref());
+                        continue;
+                    },
+                    InputResult::Step(step) => {
+                        self.key_trail.clear();
+                        self.step(step.as_ref());
                         break;
                     },
                 }
@@ -1187,7 +1271,7 @@ where
         }
     }
 
-    fn pop(&mut self) -> Option<(S::A, <S::C as InputState>::Output)> {
+    fn pop(&mut self) -> Option<(S::A, <S::State as InputState>::Output)> {
         if !self.dialogs.is_empty() {
             // Wait until we've finished interacting w/ the dialog.
             return None;
@@ -1196,7 +1280,7 @@ where
         self.actions.pop_front()
     }
 
-    fn context(&mut self) -> <S::C as InputState>::Output {
+    fn context(&mut self) -> <S::State as InputState>::Output {
         self.ctx.take()
     }
 
@@ -1215,10 +1299,10 @@ where
         self.ctx.get_cursor_indicator()
     }
 
-    fn repeat(&mut self, seq: S::Sequence, ctx: Option<<S::C as InputState>::Output>) {
+    fn repeat(&mut self, seq: S::Sequence, ctx: Option<<S::State as InputState>::Output>) {
         let merge = |c| {
             match &ctx {
-                Some(ctx) => S::C::merge(c, ctx),
+                Some(ctx) => S::State::merge(c, ctx),
                 None => c,
             }
         };
@@ -1550,7 +1634,7 @@ mod tests {
 
     impl Step<TerminalKey> for TestStep {
         type A = TestAction;
-        type C = TestContext;
+        type State = TestContext;
         type Class = TestKeyClass;
         type M = TestMode;
         type Sequence = TestSequence;
@@ -1571,7 +1655,7 @@ mod tests {
             self.fall_mode
         }
 
-        fn step(&self, ctx: &mut Self::C) -> (Vec<Self::A>, Option<Self::M>) {
+        fn step(&self, ctx: &mut Self::State) -> (Vec<Self::A>, Option<Self::M>) {
             let actions: Vec<Self::A> = self.action.clone().into_iter().collect();
 
             if let Some(f) = &self.run {
@@ -1658,6 +1742,8 @@ mod tests {
                 &None,
             );
 
+            machine.add_prefix(TestMode::Normal, &keys!('m'), &Some(op!(|_| ())));
+
             // Suffix mode mappings
             machine.add_mapping(TestMode::Suffix, &keys!('w'), &action!(TestAction::EditWord));
             machine.add_mapping(
@@ -1684,7 +1770,8 @@ mod tests {
      *     - Pasting via ^R{register}
      *
      * Normal mode supports:
-     *     - Entering a count prefix
+     *     - Entering a count prefix, which has no step
+     *     - Entering a no-op "m" prefix, which has a step
      *     - Deletion via "d" followed by a suffix
      *     - Yanking via "y" followed by a suffix
      *     - Delete lines with "dd"
@@ -1697,7 +1784,8 @@ mod tests {
      *     - Edit from cursor to word beginning with "w"
      *
      * The following should be unmapped in the default bindings for tests:
-     *     - "?", "$" and "!" in all modes
+     *     - "a", "b", "c" and "e" in Normal mode.
+     *     - "?", "$" and "!" in all modes.
      *     - "d" and "y" in Suffix mode.
      */
     type TestMachine = ModalMachine<TerminalKey, TestStep>;
@@ -1840,6 +1928,26 @@ mod tests {
         tm.input_key(ctl!('l'));
         tm.input_key(key!('?'));
         assert_pop1!(tm, TestAction::NoOp, ctx);
+        assert_pop2!(tm, TestAction::NoOp, ctx);
+        assert_eq!(tm.mode(), TestMode::Normal);
+
+        // Unmapped key in Normal mode with count prefix.
+        ctx.temp.operation = None;
+        ctx.temp.count = Some(123);
+        tm.input_key(key!('1'));
+        tm.input_key(key!('2'));
+        tm.input_key(key!('3'));
+        tm.input_key(key!('?'));
+        assert_pop2!(tm, TestAction::NoOp, ctx);
+        assert_eq!(tm.mode(), TestMode::Normal);
+
+        // Unmapped key in Normal mode with "m" prefix.
+        ctx.temp.operation = None;
+        ctx.temp.count = None;
+        tm.input_key(key!('m'));
+        tm.input_key(key!('m'));
+        tm.input_key(key!('m'));
+        tm.input_key(key!('?'));
         assert_pop2!(tm, TestAction::NoOp, ctx);
         assert_eq!(tm.mode(), TestMode::Normal);
 
@@ -2019,12 +2127,14 @@ mod tests {
         assert_pop2!(tm, TestAction::EditWord, ctx);
         assert_eq!(tm.mode(), TestMode::Normal);
 
-        // "?" is not a valid prefix
-        ctx.temp.operation = Some(TestOperation::Delete);
+        // "?" is not a valid prefix, so we do unmapped behaviour for '?' and 'w'.
         ctx.temp.count = None;
         tm.input_key(key!('d'));
         tm.input_key(key!('?'));
         tm.input_key(key!('w'));
+        ctx.temp.operation = Some(TestOperation::Delete);
+        assert_pop1!(tm, TestAction::NoOp, ctx);
+        ctx.temp.operation = None;
         assert_pop2!(tm, TestAction::NoOp, ctx);
         assert_eq!(tm.mode(), TestMode::Normal);
 
@@ -2040,6 +2150,20 @@ mod tests {
         tm.input_key(key!('?'));
         tm.input_key(key!('w'));
         assert_pop2!(tm, TestAction::EditWord, ctx);
+        assert_eq!(tm.mode(), TestMode::Normal);
+
+        // An odd number of "?" characters should do unmapped behaviour for the final '?' and 'w'.
+        tm.input_key(key!('d'));
+        tm.input_key(key!('?'));
+        tm.input_key(key!('?'));
+        tm.input_key(key!('?'));
+        tm.input_key(key!('w'));
+        ctx.temp.operation = Some(TestOperation::Decimate);
+        ctx.temp.count = Some(10);
+        assert_pop1!(tm, TestAction::NoOp, ctx);
+        ctx.temp.operation = None;
+        ctx.temp.count = None;
+        assert_pop2!(tm, TestAction::NoOp, ctx);
         assert_eq!(tm.mode(), TestMode::Normal);
 
         // Test using "!"
@@ -2313,19 +2437,25 @@ mod tests {
             })),
         );
 
-        // Typing once fails.
-        ctx.temp.operation = Some(TestOperation::Yank);
+        // Typing once fails, and should do unmapped behaviour for '!' and 'w'.
         tm.input_key(key!('y'));
         tm.input_key(key!('!'));
         tm.input_key(key!('w'));
+        ctx.temp.operation = Some(TestOperation::Yank);
+        assert_pop1!(tm, TestAction::NoOp, ctx);
+        ctx.temp.operation = None;
         assert_pop2!(tm, TestAction::NoOp, ctx);
+        assert_eq!(tm.mode(), TestMode::Normal);
 
-        // Typing twice fails.
-        ctx.temp.operation = Some(TestOperation::Yank);
+        // Typing twice fails, and should do unmapped behaviour for '!', '!' and 'w'.
         tm.input_key(key!('y'));
         tm.input_key(key!('!'));
         tm.input_key(key!('!'));
         tm.input_key(key!('w'));
+        ctx.temp.operation = Some(TestOperation::Yank);
+        assert_pop1!(tm, TestAction::NoOp, ctx);
+        ctx.temp.operation = None;
+        assert_pop1!(tm, TestAction::NoOp, ctx);
         assert_pop2!(tm, TestAction::NoOp, ctx);
 
         // Typing thrice succeeds.
@@ -2380,7 +2510,7 @@ mod tests {
                 (EdgeRepeat::Once, EdgeEvent::Key(key!('!'))),
                 (EdgeRepeat::Once, EdgeEvent::Key(key!('a'))),
                 (EdgeRepeat::Min(0), EdgeEvent::Key(key!('?'))),
-                (EdgeRepeat::Once, EdgeEvent::Key(key!('!'))),
+                (EdgeRepeat::Once, EdgeEvent::Key(key!('$'))),
             ],
             &action!(TestAction::Inveigle),
         );
@@ -2388,7 +2518,7 @@ mod tests {
         // Type it zero times.
         tm.input_key(key!('!'));
         tm.input_key(key!('a'));
-        tm.input_key(key!('!'));
+        tm.input_key(key!('$'));
         assert_pop2!(tm, TestAction::Inveigle, ctx);
         assert_eq!(tm.mode(), TestMode::Normal);
 
@@ -2396,7 +2526,7 @@ mod tests {
         tm.input_key(key!('!'));
         tm.input_key(key!('a'));
         tm.input_key(key!('?'));
-        tm.input_key(key!('!'));
+        tm.input_key(key!('$'));
         assert_pop2!(tm, TestAction::Inveigle, ctx);
         assert_eq!(tm.mode(), TestMode::Normal);
 
@@ -2406,7 +2536,7 @@ mod tests {
         tm.input_key(key!('?'));
         tm.input_key(key!('?'));
         tm.input_key(key!('?'));
-        tm.input_key(key!('!'));
+        tm.input_key(key!('$'));
         assert_pop2!(tm, TestAction::Inveigle, ctx);
         assert_eq!(tm.mode(), TestMode::Normal);
 
@@ -2417,23 +2547,28 @@ mod tests {
                 (EdgeRepeat::Once, EdgeEvent::Key(key!('!'))),
                 (EdgeRepeat::Once, EdgeEvent::Key(key!('b'))),
                 (EdgeRepeat::Min(3), EdgeEvent::Key(key!('?'))),
-                (EdgeRepeat::Once, EdgeEvent::Key(key!('!'))),
+                (EdgeRepeat::Once, EdgeEvent::Key(key!('$'))),
             ],
             &action!(TestAction::Inveigle),
         );
 
-        // Typing it zero times fails.
+        // Typing it zero times fails, and does unmapped behaviour for all keys.
         tm.input_key(key!('!'));
         tm.input_key(key!('b'));
-        tm.input_key(key!('!'));
+        tm.input_key(key!('$'));
+        assert_pop1!(tm, TestAction::NoOp, ctx);
+        assert_pop1!(tm, TestAction::NoOp, ctx);
         assert_pop2!(tm, TestAction::NoOp, ctx);
         assert_eq!(tm.mode(), TestMode::Normal);
 
-        // Typing it once fails.
+        // Typing it once fails, and does unmapped behaviour for all keys.
         tm.input_key(key!('!'));
         tm.input_key(key!('b'));
         tm.input_key(key!('?'));
-        tm.input_key(key!('!'));
+        tm.input_key(key!('$'));
+        assert_pop1!(tm, TestAction::NoOp, ctx);
+        assert_pop1!(tm, TestAction::NoOp, ctx);
+        assert_pop1!(tm, TestAction::NoOp, ctx);
         assert_pop2!(tm, TestAction::NoOp, ctx);
         assert_eq!(tm.mode(), TestMode::Normal);
 
@@ -2443,7 +2578,7 @@ mod tests {
         tm.input_key(key!('?'));
         tm.input_key(key!('?'));
         tm.input_key(key!('?'));
-        tm.input_key(key!('!'));
+        tm.input_key(key!('$'));
         assert_pop2!(tm, TestAction::Inveigle, ctx);
         assert_eq!(tm.mode(), TestMode::Normal);
 
@@ -2491,34 +2626,50 @@ mod tests {
             TestMode::Normal,
             &vec![
                 (EdgeRepeat::Once, EdgeEvent::Key(key!('!'))),
-                (EdgeRepeat::Once, EdgeEvent::Key(key!('d'))),
+                (EdgeRepeat::Once, EdgeEvent::Key(key!('e'))),
                 (EdgeRepeat::Min(3), EdgeEvent::Key(key!('?'))),
             ],
             &action!(TestAction::Inveigle),
         );
 
-        // Typing it zero times fails, and "n" is considered unmapped.
+        // Typing it zero times fails, and does unmapped behaviour for all keys.
         tm.input_key(key!('!'));
-        tm.input_key(key!('d'));
+        tm.input_key(key!('e'));
         tm.input_key(key!('n'));
+        assert_pop1!(tm, TestAction::NoOp, ctx);
+        assert_pop1!(tm, TestAction::NoOp, ctx);
         assert_pop2!(tm, TestAction::NoOp, ctx);
         assert_eq!(tm.mode(), TestMode::Normal);
 
-        // Typing it once fails, and "n" is considered unmapped.
+        // Typing it once fails, and does unmapped behaviour for all keys.
         tm.input_key(key!('!'));
-        tm.input_key(key!('d'));
+        tm.input_key(key!('e'));
         tm.input_key(key!('?'));
         tm.input_key(key!('n'));
+        assert_pop1!(tm, TestAction::NoOp, ctx);
+        assert_pop1!(tm, TestAction::NoOp, ctx);
+        assert_pop1!(tm, TestAction::NoOp, ctx);
         assert_pop2!(tm, TestAction::NoOp, ctx);
         assert_eq!(tm.mode(), TestMode::Normal);
 
         // Typing it thrice succeeds.
         tm.input_key(key!('!'));
-        tm.input_key(key!('d'));
+        tm.input_key(key!('e'));
         tm.input_key(key!('?'));
         tm.input_key(key!('?'));
         tm.input_key(key!('?'));
         tm.input_key(key!('n'));
+        assert_pop1!(tm, TestAction::Inveigle, ctx);
+        assert_pop2!(tm, TestAction::NoOp, ctx);
+        assert_eq!(tm.mode(), TestMode::Normal);
+
+        // Typing it thrice succeeds even when the ending key is unmapped.
+        tm.input_key(key!('!'));
+        tm.input_key(key!('e'));
+        tm.input_key(key!('?'));
+        tm.input_key(key!('?'));
+        tm.input_key(key!('?'));
+        tm.input_key(key!('a'));
         assert_pop1!(tm, TestAction::Inveigle, ctx);
         assert_pop2!(tm, TestAction::NoOp, ctx);
         assert_eq!(tm.mode(), TestMode::Normal);
@@ -2637,12 +2788,14 @@ mod tests {
         assert_pop2!(tm, TestAction::Inveigle, ctx);
         assert_eq!(tm.mode(), TestMode::Normal);
 
-        // Typing it once fails, and "$" is processed at root of Normal mode.
+        // Typing it once fails, and all of the keys are reprocessed at root of Normal mode.
         tm.input_key(key!('!'));
         tm.input_key(key!('a'));
         tm.input_key(key!('?'));
         tm.input_key(key!('$'));
         assert_pop1!(tm, TestAction::NoOp, ctx);
+        assert_pop1!(tm, TestAction::NoOp, ctx);
+        assert_pop1!(tm, TestAction::Query, ctx);
         assert_pop2!(tm, TestAction::Palaver, ctx);
         assert_eq!(tm.mode(), TestMode::Normal);
 
@@ -2682,7 +2835,7 @@ mod tests {
         assert_pop2!(tm, TestAction::Inveigle, ctx);
         assert_eq!(tm.mode(), TestMode::Normal);
 
-        // Third "?" is treated as unmapped, so "$" is processed at root of Normal mode.
+        // Third "?" is treated as unmapped, so the keys are reprocessed at root of Normal mode.
         tm.input_key(key!('!'));
         tm.input_key(key!('b'));
         tm.input_key(key!('?'));
@@ -2690,6 +2843,10 @@ mod tests {
         tm.input_key(key!('?'));
         tm.input_key(key!('$'));
         assert_pop1!(tm, TestAction::NoOp, ctx);
+        assert_pop1!(tm, TestAction::NoOp, ctx);
+        assert_pop1!(tm, TestAction::Query, ctx);
+        assert_pop1!(tm, TestAction::Query, ctx);
+        assert_pop1!(tm, TestAction::Query, ctx);
         assert_pop2!(tm, TestAction::Palaver, ctx);
         assert_eq!(tm.mode(), TestMode::Normal);
 
@@ -2744,6 +2901,15 @@ mod tests {
         tm.input_key(key!('d'));
         tm.input_key(key!('?'));
         tm.input_key(key!('n'));
+        assert_pop1!(tm, TestAction::Inveigle, ctx);
+        assert_pop2!(tm, TestAction::NoOp, ctx);
+        assert_eq!(tm.mode(), TestMode::Normal);
+
+        // Typing it once succeeds, even when the key that ends it early is unmapped.
+        tm.input_key(key!('!'));
+        tm.input_key(key!('d'));
+        tm.input_key(key!('?'));
+        tm.input_key(key!('a'));
         assert_pop1!(tm, TestAction::Inveigle, ctx);
         assert_pop2!(tm, TestAction::NoOp, ctx);
         assert_eq!(tm.mode(), TestMode::Normal);
