@@ -1,0 +1,23 @@
+[package]
+name = "modalkit-ratatui"
+version = "0.0.17"
+homepage = "https://github.com/ulyssa/modalkit/tree/main/crates/modalkit-ratatui"
+keywords = ["modal", "ratatui", "tui"]
+
+edition.workspace = true
+authors.workspace = true
+repository.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+crossterm = { workspace = true }
+intervaltree = { workspace = true }
+libc = { workspace = true }
+modalkit = { workspace = true }
+ratatui = { version = "0.23" }
+regex = { workspace = true }
+serde = { version = "^1.0", features = ["derive"] }
+
+[dev-dependencies]
+rand = { workspace = true }

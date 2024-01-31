@@ -1,0 +1,16 @@
+[package]
+name = "keybindings"
+version = "0.0.1"
+homepage = "https://github.com/ulyssa/modalkit/tree/main/crates/keybindings"
+keywords = ["modal", "keybindings"]
+
+edition.workspace = true
+authors.workspace = true
+repository.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+textwrap = "^0.16"
+unicode-segmentation = { workspace = true }
+unicode-width = { workspace = true }
