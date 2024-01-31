@@ -157,22 +157,6 @@ impl Cursor {
             },
         }
     }
-
-    fn compare(&self, other: &Cursor) -> Ordering {
-        let ycmp = self.y.cmp(&other.y);
-
-        if ycmp != Ordering::Equal {
-            return ycmp;
-        }
-
-        let xcmp = self.x.cmp(&other.x);
-
-        if xcmp != Ordering::Equal {
-            return xcmp;
-        }
-
-        self.xgoal.cmp(&other.xgoal)
-    }
 }
 
 /// Trait for adjusting cursors and objects that contain cursors.
@@ -243,13 +227,25 @@ impl Wrappable for Cursor {
 
 impl PartialOrd for Cursor {
     fn partial_cmp(&self, other: &Cursor) -> Option<Ordering> {
-        Some(self.compare(other))
+        Some(self.cmp(other))
     }
 }
 
 impl Ord for Cursor {
     fn cmp(&self, other: &Cursor) -> Ordering {
-        self.compare(other)
+        let ycmp = self.y.cmp(&other.y);
+
+        if ycmp != Ordering::Equal {
+            return ycmp;
+        }
+
+        let xcmp = self.x.cmp(&other.x);
+
+        if xcmp != Ordering::Equal {
+            return xcmp;
+        }
+
+        self.xgoal.cmp(&other.xgoal)
     }
 }
 

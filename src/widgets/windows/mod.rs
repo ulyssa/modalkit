@@ -43,15 +43,15 @@ mod tree;
 
 pub use self::layout::{WindowLayout, WindowLayoutDescription, WindowLayoutState};
 
-pub(self) struct AxisTreeNode<W, X: AxisT, Y: AxisT> {
-    pub(self) value: Value<W, X, Y>,
-    pub(self) info: Info,
-    pub(self) left: Option<Box<Self>>,
-    pub(self) right: Option<Box<Self>>,
+struct AxisTreeNode<W, X: AxisT, Y: AxisT> {
+    value: Value<W, X, Y>,
+    info: Info,
+    left: Option<Box<Self>>,
+    right: Option<Box<Self>>,
     _p: PhantomData<(X, Y)>,
 }
 
-pub(self) type AxisTree<W, X, Y> = Option<Box<AxisTreeNode<W, X, Y>>>;
+type AxisTree<W, X, Y> = Option<Box<AxisTreeNode<W, X, Y>>>;
 
 struct Info {
     dimensions: (usize, usize),
@@ -114,7 +114,7 @@ impl WindowInfo {
     }
 }
 
-pub(self) enum Value<W, X: AxisT, Y: AxisT> {
+enum Value<W, X: AxisT, Y: AxisT> {
     Window(W, WindowInfo),
     Tree(Box<AxisTreeNode<W, Y, X>>, TreeInfo),
 }
@@ -192,12 +192,12 @@ where
     }
 }
 
-pub(self) trait AxisT: std::fmt::Debug {
+trait AxisT: std::fmt::Debug {
     fn axis() -> Axis;
 }
 
 #[derive(Debug)]
-pub(self) enum HorizontalT {}
+enum HorizontalT {}
 
 impl AxisT for HorizontalT {
     fn axis() -> Axis {
@@ -206,7 +206,7 @@ impl AxisT for HorizontalT {
 }
 
 #[derive(Debug)]
-pub(self) enum VerticalT {}
+enum VerticalT {}
 
 impl AxisT for VerticalT {
     fn axis() -> Axis {
@@ -214,7 +214,7 @@ impl AxisT for VerticalT {
     }
 }
 
-pub(self) fn winnr_cmp(at: usize, lsize: usize, vsize: usize) -> (Ordering, usize) {
+fn winnr_cmp(at: usize, lsize: usize, vsize: usize) -> (Ordering, usize) {
     if at < lsize {
         (Ordering::Less, at)
     } else if at - lsize < vsize {

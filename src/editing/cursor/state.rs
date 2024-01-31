@@ -324,7 +324,7 @@ impl Default for CursorState {
 
 impl PartialOrd for CursorState {
     fn partial_cmp(&self, other: &CursorState) -> Option<Ordering> {
-        self.cmp(other).into()
+        Some(self.cmp(other))
     }
 }
 

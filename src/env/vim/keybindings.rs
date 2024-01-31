@@ -122,6 +122,7 @@ use crate::input::{
 };
 
 bitflags! {
+    #[derive(Debug, Clone, Copy)]
     struct MappedModes: u32 {
         const N = 0b0000000000000001;
         const X = 0b0000000000000010;
@@ -134,15 +135,15 @@ bitflags! {
         const SUFFIX_CHARSRCH = 0b1000000000000000;
         const SUFFIX_CHARREPL = 0b0100000000000000;
 
-        const V = MappedModes::X.bits | MappedModes::S.bits;
+        const V = MappedModes::X.bits() | MappedModes::S.bits();
 
-        const NVI = MappedModes::N.bits | MappedModes::V.bits | MappedModes::I.bits;
-        const NVO = MappedModes::N.bits | MappedModes::V.bits | MappedModes::O.bits;
-        const NXO = MappedModes::N.bits | MappedModes::X.bits | MappedModes::O.bits;
-        const NV = MappedModes::N.bits | MappedModes::V.bits;
-        const NX = MappedModes::N.bits | MappedModes::X.bits;
-        const VO = MappedModes::V.bits | MappedModes::O.bits;
-        const IC = MappedModes::I.bits | MappedModes::C.bits;
+        const NVI = MappedModes::N.bits() | MappedModes::V.bits() | MappedModes::I.bits();
+        const NVO = MappedModes::N.bits() | MappedModes::V.bits() | MappedModes::O.bits();
+        const NXO = MappedModes::N.bits() | MappedModes::X.bits() | MappedModes::O.bits();
+        const NV = MappedModes::N.bits() | MappedModes::V.bits();
+        const NX = MappedModes::N.bits() | MappedModes::X.bits();
+        const VO = MappedModes::V.bits() | MappedModes::O.bits();
+        const IC = MappedModes::I.bits() | MappedModes::C.bits();
     }
 }
 
