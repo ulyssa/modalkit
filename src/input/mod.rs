@@ -10,7 +10,7 @@ pub mod dialog;
 pub mod key;
 
 /// Represents contextual information that is updated upon user input.
-pub trait InputState: Clone + Default {
+pub trait InputState {
     /// The output context type returned along with actions.
     type Output: Clone + Default;
 

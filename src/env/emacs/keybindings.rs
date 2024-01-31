@@ -255,7 +255,7 @@ impl<I: ApplicationInfo> Clone for InputStep<I> {
 
 impl<I: ApplicationInfo> Step<TerminalKey> for InputStep<I> {
     type A = Action<I>;
-    type C = EmacsState<I>;
+    type State = EmacsState<I>;
     type M = EmacsMode;
     type Class = CommonKeyClass;
     type Sequence = RepeatType;

@@ -219,7 +219,7 @@ mod tests {
 
     impl Step<TerminalKey> for TestStep {
         type A = TestAction;
-        type C = VimState;
+        type State = VimState;
         type Class = CommonKeyClass;
         type M = TestMode;
         type Sequence = EmptySequence;

@@ -464,7 +464,7 @@ impl<I: ApplicationInfo> Clone for InputStep<I> {
 
 impl<I: ApplicationInfo> Step<TerminalKey> for InputStep<I> {
     type A = Action<I>;
-    type C = VimState<I>;
+    type State = VimState<I>;
     type Class = CommonKeyClass;
     type M = VimMode;
     type Sequence = RepeatType;
@@ -3969,6 +3969,30 @@ mod tests {
         vm.input_key(ctl!('c'));
         assert_insert_exit!(vm, ctx);
         assert_eq!(vm.get_cursor_indicator(), None);
+    }
+
+    #[test]
+    fn test_insert_jk() {
+        let mut vm: VimMachine<TerminalKey> = VimMachine::default();
+        let mut ctx = EditContext::default();
+
+        ctx.insert_style = Some(InsertStyle::Insert);
+        ctx.last_column = true;
+
+        let step = InputStep::new().goto(VimMode::Normal);
+        add_mapping(&mut vm, &IMAP, "jk", &step);
+
+        // Go to Insert mode
+        vm.input_key(key!('i'));
+        assert_pop2!(vm, CURSOR_SPLIT, ctx);
+        assert_eq!(vm.mode(), VimMode::Insert);
+
+        // Input "jjk", which should type the first "j", and then go to Normal mode.
+        vm.input_key(key!('j'));
+        vm.input_key(key!('j'));
+        vm.input_key(key!('k'));
+        assert_pop1!(vm, typechar!('j'), ctx);
+        assert_insert_exit!(vm, ctx);
     }
 
     #[test]

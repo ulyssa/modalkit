@@ -95,8 +95,8 @@ impl<K, I> BindingMachine<K, Action<I>, RepeatType, EditContext> for MixedBindin
 where
     K: InputKey,
     I: ApplicationInfo,
-    EmacsStep<I>: Step<K, A = Action<I>, Sequence = RepeatType, C = EmacsState<I>>,
-    VimStep<I>: Step<K, A = Action<I>, Sequence = RepeatType, C = VimState<I>>,
+    EmacsStep<I>: Step<K, A = Action<I>, Sequence = RepeatType, State = EmacsState<I>>,
+    VimStep<I>: Step<K, A = Action<I>, Sequence = RepeatType, State = VimState<I>>,
 {
     fn input_key(&mut self, key: K) {
         delegate_bindings!(self, BindingMachine::input_key, key)
