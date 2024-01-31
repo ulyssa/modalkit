@@ -75,13 +75,14 @@ use crate::input::{
 };
 
 bitflags! {
+    #[derive(Debug, Clone, Copy, Eq, PartialEq)]
     struct MappedModes: u32 {
         const I = 0b0000000000000001;
         const C = 0b0000000000000010;
         const S = 0b0000000000000100;
 
-        const IC = MappedModes::I.bits | MappedModes::C.bits;
-        const ICS = MappedModes::IC.bits | MappedModes::S.bits;
+        const IC = MappedModes::I.bits() | MappedModes::C.bits();
+        const ICS = MappedModes::IC.bits() | MappedModes::S.bits();
     }
 }
 

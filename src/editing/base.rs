@@ -1177,6 +1177,7 @@ impl<T> From<T> for Specifier<T> {
 
 bitflags! {
     /// These flags are used to specify the behaviour while writing a window.
+    #[derive(Debug, Clone, Copy, Eq, PartialEq)]
     pub struct WriteFlags: u32 {
         /// No flags set.
         const NONE = 0b00000000;
@@ -1188,6 +1189,7 @@ bitflags! {
 
 bitflags! {
     /// These flags are used to specify the behaviour while writing a window.
+    #[derive(Debug, Clone, Copy, Eq, PartialEq)]
     pub struct OpenFlags: u32 {
         /// No flags set.
         const NONE = 0b00000000;
@@ -1202,6 +1204,7 @@ bitflags! {
 
 bitflags! {
     /// These flags are used to specify the behaviour while closing a window.
+    #[derive(Debug, Clone, Copy, Eq, PartialEq)]
     pub struct CloseFlags: u32 {
         /// No flags set.
         const NONE = 0b00000000;
@@ -1216,10 +1219,10 @@ bitflags! {
         const QUIT  = 0b00000100;
 
         /// Write out the window's contents and quit.
-        const WQ = CloseFlags::WRITE.bits | CloseFlags::QUIT.bits;
+        const WQ = CloseFlags::WRITE.bits() | CloseFlags::QUIT.bits();
 
         /// Force quit the window.
-        const FQ = CloseFlags::FORCE.bits | CloseFlags::QUIT.bits;
+        const FQ = CloseFlags::FORCE.bits() | CloseFlags::QUIT.bits();
     }
 }
 
@@ -1472,6 +1475,7 @@ pub enum TargetShape {
 
 bitflags! {
     /// Bitmask that specifies what shapes are targeted by an action.
+    #[derive(Debug, Clone, Copy, Eq, PartialEq)]
     pub struct TargetShapeFilter: u32 {
         /// Match no shapes.
         const NONE = 0b00000000;

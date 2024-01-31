@@ -63,7 +63,7 @@ impl CompletionList {
                         self.selected = None;
                         return Some(self.prefix.clone());
                     },
-                    (Some(idx), MoveDir1D::Previous) if idx == 0 => {
+                    (Some(0), MoveDir1D::Previous) => {
                         self.selected = None;
                         return Some(self.prefix.clone());
                     },

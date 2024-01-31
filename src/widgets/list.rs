@@ -146,7 +146,7 @@ impl Ord for ListCursor {
 
 impl PartialOrd for ListCursor {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        self.cmp(other).into()
+        Some(self.cmp(other))
     }
 }
 

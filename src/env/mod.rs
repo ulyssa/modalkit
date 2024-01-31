@@ -133,13 +133,13 @@ fn is_mark_char(c: char) -> bool {
 
 /// Fields for tracking entered codepoints, literals and digraphs.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub(self) struct CharacterContext {
-    pub(self) dec: Option<u32>,
-    pub(self) oct: Option<u32>,
-    pub(self) hex: Option<u32>,
-    pub(self) any: Option<TerminalKey>,
-    pub(self) digraph1: Option<char>,
-    pub(self) digraph2: Option<char>,
+struct CharacterContext {
+    dec: Option<u32>,
+    oct: Option<u32>,
+    hex: Option<u32>,
+    any: Option<TerminalKey>,
+    digraph1: Option<char>,
+    digraph2: Option<char>,
 }
 
 impl CharacterContext {
