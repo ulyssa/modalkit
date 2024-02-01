@@ -2,6 +2,7 @@
 name = "modalkit-ratatui"
 version = "0.0.17"
 homepage = "https://github.com/ulyssa/modalkit/tree/main/crates/modalkit-ratatui"
+description = "A library for building TUI applications that use modal editing"
 keywords = ["modal", "ratatui", "tui"]
 
 edition.workspace = true
