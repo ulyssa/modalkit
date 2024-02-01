@@ -1,0 +1,18 @@
+[package]
+name = "scansion"
+version = "0.0.1"
+homepage = "https://github.com/ulyssa/modalkit/tree/main/crates/scansion"
+keywords = ["modal", "readline", "vim", "emacs"]
+
+edition.workspace = true
+authors.workspace = true
+repository.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+crossterm = { workspace = true }
+libc = { workspace = true }
+modalkit = { workspace = true }
+thiserror = { workspace = true }
+regex = { workspace = true }

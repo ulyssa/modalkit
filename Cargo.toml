@@ -1,42 +1,29 @@
-[package]
-name = "modalkit"
-version = "0.0.16"
-edition = "2018"
+[workspace]
+members = [ "crates/*" ]
+default-members = [ "crates/*" ]
+resolver = "2"
+
+[workspace.package]
 authors = ["Ulyssa <git@ulyssa.dev>"]
 repository = "https://github.com/ulyssa/modalkit"
-homepage = "https://github.com/ulyssa/modalkit"
-readme = "README.md"
-description = "A library for building applications that use modal editing"
 license = "Apache-2.0"
-exclude = [".github", "CONTRIBUTING.md"]
-keywords = ["modal", "readline", "tui", "vim"]
-categories = ["command-line-interface", "text-editors"]
+edition = "2018"
 rust-version = "1.67"
 
-[features]
-default = ["readline", "widgets"]
-readline = ["intervaltree"]
-widgets = ["tui", "intervaltree"]
+[workspace.dependencies.keybindings]
+path = "crates/keybindings"
 
-[dependencies]
-anymap2 = "0.13.0"
-arboard = "3.2.0"
-derive_more = "0.99.16"
-thiserror = "^1.0.37"
-crossterm = "0.27"
-libc = "0.2"
-tui = { version = "0.23", optional = true, package = "ratatui" }
-intervaltree = { version = "0.2.6", optional = true }
+[workspace.dependencies.modalkit]
+path = "crates/modalkit"
+
+[workspace.dependencies]
 bitflags = "2.4.2"
-nom = "7.0.0"
-radix_trie = "0.2.1"
+crossterm = "0.27"
+intervaltree = { version = "0.2.6" }
+libc = "0.2"
+rand = "0.8.4"
 regex = "^1.5"
-ropey = "1.5.0"
-serde = { version = "^1.0", features = ["derive"] }
-textwrap = "^0.16"
+temp-dir = "0.1.11"
+thiserror = "^1.0.37"
 unicode-segmentation = "^1.7"
 unicode-width = "0.1.10"
-
-[dev-dependencies]
-rand = "0.8.4"
-temp-dir = "0.1.11"
