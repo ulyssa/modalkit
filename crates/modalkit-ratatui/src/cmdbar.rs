@@ -37,8 +37,7 @@ pub struct CommandBarState<I: ApplicationInfo> {
     prompt: String,
     action: Option<(Action<I>, EditContext)>,
     cmdtype: CommandType,
-    tbox_cmd: TextBoxState<I>,
-    tbox_search: TextBoxState<I>,
+    tbox_states: CommandMap<TextBoxState<I>>,
 }
 
 impl<I> CommandBarState<I>
@@ -47,16 +46,17 @@ where
 {
     /// Create state for a [CommandBar] widget.
     pub fn new(store: &mut Store<I>) -> Self {
-        let buffer_cmd = store.load_buffer(I::content_of_command(CommandType::Command));
-        let buffer_search = store.load_buffer(I::content_of_command(CommandType::Search));
+        let tbox_states = CommandMap::new(|c| {
+            let buffer = store.load_buffer(I::content_of_command(c));
+            TextBoxState::new(buffer)
+        });
 
         CommandBarState {
             scrollback: ScrollbackState::Pending,
             prompt: String::new(),
             action: None,
             cmdtype: CommandType::Command,
-            tbox_cmd: TextBoxState::new(buffer_cmd),
-            tbox_search: TextBoxState::new(buffer_search),
+            tbox_states,
         }
     }
 
@@ -92,10 +92,7 @@ where
     type Target = TextBoxState<I>;
 
     fn deref(&self) -> &Self::Target {
-        match self.cmdtype {
-            CommandType::Command => &self.tbox_cmd,
-            CommandType::Search => &self.tbox_search,
-        }
+        &self.tbox_states[self.cmdtype]
     }
 }
 
@@ -104,10 +101,7 @@ where
     I: ApplicationInfo,
 {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        match self.cmdtype {
-            CommandType::Command => &mut self.tbox_cmd,
-            CommandType::Search => &mut self.tbox_search,
-        }
+        &mut self.tbox_states[self.cmdtype]
     }
 }
 
@@ -251,10 +245,7 @@ where
             let prompt_style = self.style_prompt.unwrap_or(self.style_text);
             let prompt = Span::styled(&state.prompt, prompt_style);
             let tbox = TextBox::new().prompt(prompt).style(self.style_text).oneline();
-            let tbox_state = match state.cmdtype {
-                CommandType::Command => &mut state.tbox_cmd,
-                CommandType::Search => &mut state.tbox_search,
-            };
+            let tbox_state = &mut state.tbox_states[state.cmdtype];
 
             tbox.render(area, buf, tbox_state);
         } else if let Some(span) = self.message {

@@ -33,6 +33,7 @@ version = "0.0.29"
 [workspace.dependencies]
 bitflags = "2.4.2"
 crossterm = "0.29"
+enum-map = "2.7.3"
 intervaltree = { version = "0.2.6" }
 libc = "0.2"
 nom = "8.0.0"

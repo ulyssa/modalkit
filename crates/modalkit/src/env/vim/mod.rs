@@ -565,6 +565,7 @@ fn register_to_char((reg, append): &(Register, bool)) -> Option<String> {
         Register::SmallDelete => '-',
         Register::LastCommand(CommandType::Command) => ':',
         Register::LastCommand(CommandType::Search) => '/',
+        Register::LastCommand(CommandType::Shell) => '|',
         Register::LastInserted => '.',
         Register::LastYanked => '0',
         Register::AltBufName => '#',

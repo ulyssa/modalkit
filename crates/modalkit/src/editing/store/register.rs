@@ -12,7 +12,7 @@ use std::cell::{RefCell, RefMut};
 use crate::editing::history::HistoryList;
 use crate::editing::rope::EditRope;
 use crate::prelude::TargetShape::{self, BlockWise, CharWise, LineWise};
-use crate::prelude::{CommandType, Register};
+use crate::prelude::{CommandMap, CommandType, Register};
 
 #[cfg(all(feature = "clipboard", target_os = "linux"))]
 mod clipboard {
@@ -144,7 +144,7 @@ struct CommandHistory {
 pub struct RegisterStore {
     default_text: Register,
 
-    last_commands: HashMap<CommandType, CommandHistory>,
+    last_commands: CommandMap<CommandHistory>,
 
     altbufname: RegisterCell,
     curbufname: RegisterCell,
@@ -251,7 +251,7 @@ impl RegisterStore {
         RegisterStore {
             default_text: Register::Unnamed,
 
-            last_commands: HashMap::default(),
+            last_commands: CommandMap::default(),
 
             altbufname: RegisterCell::default(),
             curbufname: RegisterCell::default(),
@@ -502,16 +502,12 @@ impl RegisterStore {
 
     #[inline]
     pub(crate) fn _get_last_cmd(&self, ct: CommandType) -> EditRope {
-        if let Some(hist) = self.last_commands.get(&ct) {
-            hist.last_used.clone()
-        } else {
-            EditRope::empty()
-        }
+        self.last_commands[ct].last_used.clone()
     }
 
     /// Update the value and history of [Register::LastCommand] for the given [CommandType].
     pub fn get_command_history(&mut self, ct: CommandType) -> &mut HistoryList<EditRope> {
-        &mut self.last_commands.entry(ct).or_default().history
+        &mut self.last_commands[ct].history
     }
 
     /// Update the value and history of [Register::LastCommand] for the given [CommandType].
@@ -523,7 +519,7 @@ impl RegisterStore {
             return;
         }
 
-        let hist = self.last_commands.entry(ct).or_default();
+        let hist = &mut self.last_commands[ct];
         hist.history.select(rope.clone());
         hist.last_used = rope;
     }
@@ -531,7 +527,7 @@ impl RegisterStore {
     /// Add an item to the history for [CommandType] without updating the last used value.
     pub fn set_aborted_command<T: Into<EditRope>>(&mut self, ct: CommandType, text: T) {
         let rope = text.into();
-        let hist = self.last_commands.entry(ct).or_default();
+        let hist = &mut self.last_commands[ct];
 
         if rope.is_empty() {
             let _ = hist.history.end();
@@ -560,6 +556,11 @@ impl RegisterStore {
     /// Get the value of `Register::LastCommand(CommandType::Search)`.
     pub fn get_last_search(&self) -> EditRope {
         self._get_last_cmd(CommandType::Search)
+    }
+
+    /// Get the value of `Register::LastCommand(CommandType::Shell)`.
+    pub fn get_last_shell(&self) -> EditRope {
+        self._get_last_cmd(CommandType::Shell)
     }
 }
 

@@ -440,6 +440,7 @@ fn register_to_char(reg: &Register) -> Option<char> {
         Register::CurBufName => '%'.into(),
         Register::LastCommand(CommandType::Command) => ':'.into(),
         Register::LastCommand(CommandType::Search) => '/'.into(),
+        Register::LastCommand(CommandType::Shell) => '|'.into(),
 
         Register::RecentlyDeleted(_) => None,
         Register::SmallDelete => None,

@@ -343,8 +343,11 @@ impl Window<EditorInfo> for EditorWindow {
 
     fn get_win_title(&self, _: &mut Store<EditorInfo>) -> Line {
         match self.id() {
+            EditorContentId::Command(CommandType::Application) => Line::from("[Application]"),
             EditorContentId::Command(CommandType::Command) => Line::from("[Command Line]"),
+            EditorContentId::Command(CommandType::Content) => Line::from("[Content Line]"),
             EditorContentId::Command(CommandType::Search) => Line::from("[Search Bar]"),
+            EditorContentId::Command(CommandType::Shell) => Line::from("[Shell Bar]"),
             EditorContentId::Scratch => Line::from("[Scratch]"),
             EditorContentId::File(index) => Line::from(format!("Buffer {index}")),
             EditorContentId::Directory(name) => Line::from(name),
@@ -493,7 +496,10 @@ impl Completer<EditorInfo> for EditorCompleter {
             EditorContentId::Command(CommandType::Command) => {
                 complete_cmdbar(text, cursor, &store.cmds)
             },
+            EditorContentId::Command(CommandType::Application) => vec![],
+            EditorContentId::Command(CommandType::Content) => vec![],
             EditorContentId::Command(CommandType::Search) => vec![],
+            EditorContentId::Command(CommandType::Shell) => vec![],
             EditorContentId::Directory(_) => vec![],
             EditorContentId::File(_) => vec![],
             EditorContentId::Scratch => vec![],
