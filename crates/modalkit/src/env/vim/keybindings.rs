@@ -11,7 +11,7 @@
 //! use modalkit::env::vim::VimMode;
 //! use modalkit::env::vim::keybindings::{default_vim_keys, VimMachine};
 //!
-//! use modalkit::editing::action::{Action, EditAction, EditorAction, HistoryAction};
+//! use modalkit::actions::{Action, EditAction, EditorAction, HistoryAction};
 //! use modalkit::editing::context::Resolve;
 //! use modalkit::prelude::*;
 //!
@@ -50,24 +50,22 @@
 //! ```
 use bitflags::bitflags;
 
-use crate::editing::{
-    action::{
-        Action,
-        CommandAction,
-        CommandBarAction,
-        CursorAction,
-        EditAction,
-        EditorAction,
-        HistoryAction,
-        InsertTextAction,
-        MacroAction,
-        PromptAction,
-        SelectionAction,
-        TabAction,
-        WindowAction,
-    },
-    application::{ApplicationInfo, EmptyInfo},
+use crate::actions::{
+    Action,
+    CommandAction,
+    CommandBarAction,
+    CursorAction,
+    EditAction,
+    EditorAction,
+    HistoryAction,
+    InsertTextAction,
+    MacroAction,
+    PromptAction,
+    SelectionAction,
+    TabAction,
+    WindowAction,
 };
+use crate::editing::application::{ApplicationInfo, EmptyInfo};
 use crate::prelude::*;
 
 use super::{

@@ -14,12 +14,12 @@ use std::marker::PhantomData;
 
 use ratatui::layout::Rect;
 
-use modalkit::editing::{
-    action::{EditInfo, EditResult, UIResult},
-    application::ApplicationInfo,
-    store::Store,
+use modalkit::{
+    editing::application::ApplicationInfo,
+    editing::store::Store,
+    errors::{EditResult, UIResult},
+    prelude::*,
 };
-use modalkit::prelude::*;
 
 use self::layout::LayoutOps;
 use self::size::{ResizeInfo, SizeDescription, MIN_WIN_LEN};

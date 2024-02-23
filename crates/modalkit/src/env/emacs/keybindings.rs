@@ -13,8 +13,8 @@
 //!
 use bitflags::bitflags;
 
-use crate::editing::{
-    action::{
+use crate::{
+    actions::{
         Action,
         CommandBarAction,
         EditAction,
@@ -25,9 +25,9 @@ use crate::editing::{
         SelectionAction,
         WindowAction,
     },
-    application::{ApplicationInfo, EmptyInfo},
+    editing::application::{ApplicationInfo, EmptyInfo},
+    prelude::*,
 };
-use crate::prelude::*;
 
 use super::{
     super::{keyparse::parse, CommonKeyClass, ShellBindings},

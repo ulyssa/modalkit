@@ -2,12 +2,12 @@ use std::borrow::Cow;
 use std::sync::Arc;
 
 use crate::editing::{
-    action::{EditInfo, EditResult},
     application::ApplicationInfo,
     completion::{complete_path, CompletionList},
     cursor::Adjustable,
     store::Store,
 };
+use crate::errors::EditResult;
 use crate::prelude::*;
 
 use super::{CursorGroupIdContext, EditBuffer};

@@ -13,16 +13,15 @@ use std::ops::{Deref, DerefMut};
 
 use ratatui::{buffer::Buffer, layout::Rect, text::Span, widgets::StatefulWidget};
 
+use modalkit::actions::{
+    Action,
+    CommandAction,
+    CommandBarAction,
+    EditorAction,
+    PromptAction,
+    Promptable,
+};
 use modalkit::editing::{
-    action::{
-        Action,
-        CommandAction,
-        CommandBarAction,
-        EditResult,
-        EditorAction,
-        PromptAction,
-        Promptable,
-    },
     application::ApplicationInfo,
     completion::CompletionList,
     context::{EditContext, Resolve},
@@ -30,6 +29,7 @@ use modalkit::editing::{
     rope::EditRope,
     store::Store,
 };
+use modalkit::errors::EditResult;
 use modalkit::prelude::*;
 
 use super::{

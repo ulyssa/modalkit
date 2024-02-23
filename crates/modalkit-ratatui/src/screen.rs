@@ -28,32 +28,12 @@ use super::{
     WindowOps,
 };
 
+use modalkit::actions::*;
+use modalkit::errors::{EditResult, UIError, UIResult};
 use modalkit::prelude::*;
 use modalkit::ui::FocusList;
 
 use modalkit::editing::{
-    action::{
-        Action,
-        CommandBarAction,
-        EditInfo,
-        EditResult,
-        Editable,
-        EditorAction,
-        InfoMessage,
-        Jumpable,
-        PromptAction,
-        Promptable,
-        Scrollable,
-        Searchable,
-        TabAction,
-        TabContainer,
-        TabCount,
-        UIError,
-        UIResult,
-        WindowAction,
-        WindowContainer,
-        WindowCount,
-    },
     application::{ApplicationInfo, EmptyInfo},
     completion::CompletionList,
     context::EditContext,

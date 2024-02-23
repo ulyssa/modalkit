@@ -3,10 +3,10 @@ use std::collections::HashMap;
 use std::hash::Hash;
 
 use crate::editing::{
-    action::{EditError, EditResult},
     application::{ApplicationContentId, ApplicationInfo},
     cursor::{Adjustable, Cursor, CursorAdjustment, CursorGroup, CursorGroupCombineError},
 };
+use crate::errors::{EditError, EditResult};
 use crate::prelude::{Mark, Register};
 
 /// Trait for objects that store cursors from multiple buffers.
@@ -133,8 +133,8 @@ where
 /// - Saved cursors (see [EditorAction::Mark])
 /// - Saved cursor groups (see [CursorAction::Save])
 ///
-/// [EditorAction::Mark]: crate::editing::action::EditorAction::Mark
-/// [CursorAction::Save]: crate::editing::action::CursorAction::Save
+/// [EditorAction::Mark]: crate::actions::EditorAction::Mark
+/// [CursorAction::Save]: crate::actions::CursorAction::Save
 pub struct CursorStore<I>
 where
     I: ApplicationInfo,

@@ -8,6 +8,7 @@
 use std::marker::PhantomData;
 
 use crate::{
+    actions::{Action, InsertTextAction, PromptAction},
     key::TerminalKey,
     keybindings::{
         EdgeEvent,
@@ -23,7 +24,6 @@ use crate::{
 };
 
 use crate::editing::{
-    action::{Action, InsertTextAction, PromptAction},
     application::{ApplicationInfo, EmptyInfo},
     context::{EditContext, EditContextBuilder},
 };

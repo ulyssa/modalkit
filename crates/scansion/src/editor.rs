@@ -11,8 +11,8 @@ use crossterm::{
     QueueableCommand,
 };
 
+use modalkit::actions::{Editable, EditorAction, Jumpable};
 use modalkit::editing::{
-    action::{EditInfo, EditResult, Editable, EditorAction, Jumpable, UIResult},
     application::ApplicationInfo,
     buffer::{CursorGroupId, EditBuffer},
     context::EditContext,
@@ -21,6 +21,7 @@ use modalkit::editing::{
     rope::{CharOff, EditRope},
     store::Store,
 };
+use modalkit::errors::{EditResult, UIResult};
 use modalkit::prelude::*;
 
 pub struct EditorContext {

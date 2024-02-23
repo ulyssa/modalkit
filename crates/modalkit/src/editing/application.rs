@@ -161,7 +161,7 @@ use crate::{
 /// create additional keybindings and commands on top of the defaults provided within
 /// [modalkit::env](crate::env).
 ///
-/// [Action::Application]: super::action::Action::Application
+/// [Action::Application]: super::actions::Action::Application
 pub trait ApplicationAction: Clone + Debug + Eq + PartialEq + Send {
     /// Allows controlling how application-specific actions are included in
     /// [RepeatType::EditSequence](crate::prelude::RepeatType::EditSequence).
@@ -177,7 +177,7 @@ pub trait ApplicationAction: Clone + Debug + Eq + PartialEq + Send {
 
     /// Allows controlling whether an application-specific action can cause
     /// a buffer switch on an
-    /// [EditError::WrongBuffer](crate::editing::action::EditError::WrongBuffer).
+    /// [EditError::WrongBuffer](crate::actions::EditError::WrongBuffer).
     fn is_switchable(&self, ctx: &EditContext) -> bool;
 }
 

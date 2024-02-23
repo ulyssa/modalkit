@@ -1,13 +1,13 @@
 use std::borrow::Cow;
 
 use crate::editing::{
-    action::EditResult,
     application::ApplicationInfo,
     context::Resolve,
     cursor::{Adjustable, Cursor, CursorChoice},
     rope::EditRope,
     store::{RegisterCell, RegisterPutFlags, Store},
 };
+use crate::errors::EditResult;
 use crate::prelude::*;
 use crate::util::into_range;
 

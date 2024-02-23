@@ -16,8 +16,8 @@ use std::ops::{Add, AddAssign, Bound, Range, RangeBounds};
 use regex::{Match, Regex};
 use ropey::{Rope, RopeSlice};
 
+use crate::actions::EditAction;
 use crate::editing::{
-    action::EditAction,
     context::Resolve,
     cursor::{Cursor, CursorAdjustment, CursorChoice},
 };

@@ -1,5 +1,4 @@
 use crate::editing::{
-    action::{EditInfo, EditResult},
     application::ApplicationInfo,
     buffer::{CursorGroupIdContext, EditBuffer},
     context::Resolve,
@@ -7,6 +6,7 @@ use crate::editing::{
     rope::EditRope,
     store::Store,
 };
+use crate::errors::EditResult;
 use crate::prelude::*;
 
 pub trait InsertTextActions<C, I>

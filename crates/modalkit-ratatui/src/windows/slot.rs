@@ -1,10 +1,11 @@
 use ratatui::{buffer::Buffer, layout::Rect, text::Line};
 
 use modalkit::{
-    editing::action::{EditInfo, Jumpable, UIResult},
+    actions::Jumpable,
     editing::application::ApplicationInfo,
     editing::completion::CompletionList,
     editing::store::Store,
+    errors::UIResult,
     prelude::*,
 };
 

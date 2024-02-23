@@ -4,15 +4,16 @@
 //!
 //! These types are used to specify the details of [actions].
 //!
-//! [actions]: crate::editing::action
-use std::fmt::Debug;
+//! [actions]: crate::action
+use std::fmt::{self, Debug, Display, Formatter};
 use std::hash::Hash;
 
 use bitflags::bitflags;
 use regex::Regex;
 
 use crate::{
-    editing::{action::EditAction, application::ApplicationWindowId, context::EditContext},
+    actions::EditAction,
+    editing::{application::ApplicationWindowId, context::EditContext},
     util::{
         is_filename_char,
         is_filepath_char,
@@ -246,7 +247,7 @@ pub enum RepeatType {
     /// A sequence of changes made to a buffer.
     EditSequence,
 
-    /// The last [Action](crate::editing::action::Action) done.
+    /// The last [Action](crate::actions::Action) done.
     LastAction,
 
     /// The last selection resize made in a buffer.
@@ -948,8 +949,8 @@ pub enum NumberChange {
 
 /// Targets for [WindowAction::Open] and [WindowAction::Switch].
 ///
-/// [WindowAction::Open]: crate::editing::action::WindowAction::Open
-/// [WindowAction::Switch]: crate::editing::action::WindowAction::Switch
+/// [WindowAction::Open]: crate::actions::WindowAction::Open
+/// [WindowAction::Switch]: crate::actions::WindowAction::Switch
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum OpenTarget<W: ApplicationWindowId> {
     /// An alternate window. This is usually the previous window.
@@ -1858,3 +1859,41 @@ impl From<MoveDir1D> for MoveDirMod {
         MoveDirMod::Exact(dir)
     }
 }
+
+/// Information to show the user at the bottom of the screen after an action.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum InfoMessage {
+    /// Print a simple, informational message on the status line.
+    Message(String),
+
+    /// Use an interactive pager to show the user some information.
+    ///
+    /// You can handle this using [Pager] and [BindingMachine::run_dialog].
+    ///
+    /// [Pager]: crate::keybindings::dialog::Pager
+    /// [BindingMachine::run_dialog]: crate::keybindings::BindingMachine::run_dialog
+    Pager(String),
+}
+
+impl Display for InfoMessage {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            InfoMessage::Message(s) | InfoMessage::Pager(s) => write!(f, "{}", s),
+        }
+    }
+}
+
+impl From<&str> for InfoMessage {
+    fn from(msg: &str) -> Self {
+        InfoMessage::from(msg.to_string())
+    }
+}
+
+impl From<String> for InfoMessage {
+    fn from(msg: String) -> Self {
+        InfoMessage::Message(msg)
+    }
+}
+
+/// An optional, information message provided during editing.
+pub type EditInfo = Option<InfoMessage>;

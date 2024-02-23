@@ -38,23 +38,14 @@ use super::{
     WindowInfo,
 };
 
+use modalkit::actions::{Jumpable, WindowAction, WindowContainer, WindowCount};
+use modalkit::errors::{EditError, EditResult, UIError, UIResult};
 use modalkit::prelude::Axis::{Horizontal, Vertical};
 use modalkit::prelude::MoveDir2D::{Down, Left, Right, Up};
 use modalkit::prelude::*;
 use modalkit::ui::idx_offset;
 
 use modalkit::editing::{
-    action::{
-        EditError,
-        EditInfo,
-        EditResult,
-        Jumpable,
-        UIError,
-        UIResult,
-        WindowAction,
-        WindowContainer,
-        WindowCount,
-    },
     application::ApplicationInfo,
     context::{EditContext, Resolve},
     store::Store,
@@ -2034,7 +2025,8 @@ where
 mod tests {
     use super::*;
     use crate::TerminalCursor;
-    use modalkit::editing::{action::EditError, completion::CompletionList, store::Store};
+    use modalkit::editing::{completion::CompletionList, store::Store};
+    use modalkit::errors::EditError;
     use rand::Rng;
     use ratatui::text::Line;
 

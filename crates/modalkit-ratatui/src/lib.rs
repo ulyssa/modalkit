@@ -15,9 +15,10 @@
 //!
 //! ```no_run
 //! use modalkit::{
+//!     actions::{Action, Editable, Jumpable, Scrollable},
 //!     editing::{context::Resolve, key::KeyManager, store::Store},
-//!     editing::action::{Action, Editable, Jumpable, Scrollable, UIResult},
 //!     editing::application::EmptyInfo,
+//!     errors::UIResult,
 //!     env::vim::keybindings::default_vim_keys,
 //!     key::TerminalKey,
 //!     keybindings::BindingMachine,
@@ -106,12 +107,9 @@ use crossterm::{
     terminal::{EnterAlternateScreen, LeaveAlternateScreen},
 };
 
-use modalkit::editing::{
-    action::{Action, EditInfo, EditResult, UIResult},
-    application::ApplicationInfo,
-    completion::CompletionList,
-    store::Store,
-};
+use modalkit::actions::Action;
+use modalkit::editing::{application::ApplicationInfo, completion::CompletionList, store::Store};
+use modalkit::errors::{EditResult, UIResult};
 use modalkit::prelude::*;
 
 pub mod cmdbar;

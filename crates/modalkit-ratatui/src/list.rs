@@ -8,7 +8,7 @@
 //!
 //! ```
 //! use modalkit::{
-//!     editing::action::{Editable, EditAction, EditorActions},
+//!     actions::{Editable, EditAction, EditorActions},
 //!     editing::application::EmptyInfo,
 //!     editing::context::EditContext,
 //!     editing::store::Store,
@@ -41,29 +41,8 @@ use ratatui::{
     widgets::{Paragraph, StatefulWidget, Widget},
 };
 
+use modalkit::actions::*;
 use modalkit::editing::{
-    action::{
-        Action,
-        CursorAction,
-        EditAction,
-        EditError,
-        EditInfo,
-        EditResult,
-        Editable,
-        EditorAction,
-        EditorActions,
-        HistoryAction,
-        InfoMessage,
-        InsertTextAction,
-        Jumpable,
-        PromptAction,
-        Promptable,
-        Scrollable,
-        Searchable,
-        SelectionAction,
-        UIError,
-        UIResult,
-    },
     application::ApplicationInfo,
     completion::CompletionList,
     context::{EditContext, Resolve},
@@ -72,6 +51,7 @@ use modalkit::editing::{
     rope::EditRope,
     store::{RegisterCell, RegisterPutFlags, Store},
 };
+use modalkit::errors::{EditError, EditResult, UIError, UIResult};
 use modalkit::prelude::*;
 use modalkit::ui::idx_offset;
 
@@ -1328,7 +1308,7 @@ mod tests {
     use super::*;
     use ratatui::text::{Line, Span};
 
-    use modalkit::editing::action::WindowAction;
+    use modalkit::actions::WindowAction;
     use modalkit::editing::application::EmptyInfo;
     use modalkit::editing::context::EditContextBuilder;
 
