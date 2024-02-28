@@ -91,7 +91,7 @@ where
 }
 
 /// Context object passed to each [CommandFunc].
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CommandContext {
     /// Contextual information from user input.
     pub context: EditContext,
