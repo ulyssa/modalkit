@@ -16,7 +16,7 @@ rust-version.workspace = true
 
 [dependencies]
 anymap2 = "0.13.0"
-arboard = "3.2.0"
+arboard = "=3.3.0"
 bitflags = { workspace = true }
 crossterm = { workspace = true }
 derive_more = "0.99.16"
