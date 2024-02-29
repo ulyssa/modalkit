@@ -44,4 +44,4 @@ jobs:
         github_token: ${{ secrets.GITHUB_TOKEN }}
         reporter: 'github-check'
     - name: Run tests
-      run: cargo test
+      run: cargo test --locked
