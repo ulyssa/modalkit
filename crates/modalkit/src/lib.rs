@@ -16,7 +16,6 @@
 //! - [scansion] for building a shell-like application
 //! - [iamb] for a larger example of building a TUI application with custom actions
 //!
-//! [actions]: editing::action::Action
 //! [modalkit-ratatui]: https://docs.rs/modalkit-ratatui/latest/modalkit_ratatui/
 //! [scansion]: https://docs.rs/scansion/latest/scansion/
 //! [iamb]: https://github.com/ulyssa/iamb
@@ -35,9 +34,11 @@
 #[macro_use]
 mod util;
 
+pub mod actions;
 pub mod commands;
 pub mod editing;
 pub mod env;
+pub mod errors;
 pub mod key;
 pub mod prelude;
 pub mod ui;

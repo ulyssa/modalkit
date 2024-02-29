@@ -44,21 +44,8 @@ use ratatui::{
     widgets::{Block, StatefulWidget, Widget},
 };
 
+use modalkit::actions::*;
 use modalkit::editing::{
-    action::{
-        Action,
-        EditError,
-        EditInfo,
-        EditResult,
-        Editable,
-        EditorAction,
-        Jumpable,
-        PromptAction,
-        Promptable,
-        Scrollable,
-        Searchable,
-        UIResult,
-    },
     application::{ApplicationInfo, EmptyInfo},
     buffer::{CursorGroupId, FollowersInfo, HighlightInfo},
     completion::CompletionList,
@@ -67,6 +54,7 @@ use modalkit::editing::{
     rope::{CharOff, EditRope},
     store::{SharedBuffer, Store},
 };
+use modalkit::errors::{EditError, EditResult, UIResult};
 use modalkit::prelude::*;
 
 use super::{ScrollActions, TerminalCursor, WindowOps};
@@ -1190,7 +1178,6 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use modalkit::editing::action::{EditAction, HistoryAction};
     use modalkit::editing::store::Store;
 
     macro_rules! mv {

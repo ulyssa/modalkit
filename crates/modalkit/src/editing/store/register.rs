@@ -106,9 +106,9 @@ pub struct RegisterCell {
 /// - Last used commands, searches and substitution patterns
 /// - Recorded macros (see [MacroAction::ToggleRecording])
 ///
-/// [EditAction::Delete]: crate::editing::action::EditAction::Delete
-/// [EditAction::Yank]: crate::editing::action::EditAction::Yank
-/// [MacroAction::ToggleRecording]: crate::editing::action::MacroAction::ToggleRecording
+/// [EditAction::Delete]: crate::actions::EditAction::Delete
+/// [EditAction::Yank]: crate::actions::EditAction::Yank
+/// [MacroAction::ToggleRecording]: crate::actions::MacroAction::ToggleRecording
 pub struct RegisterStore {
     altbufname: RegisterCell,
     curbufname: RegisterCell,

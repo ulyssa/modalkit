@@ -1,11 +1,7 @@
-use crate::editing::{
-    action::{EditInfo, EditResult},
-    application::ApplicationInfo,
-    context::Resolve,
-    store::Store,
-};
+use crate::editing::{application::ApplicationInfo, context::Resolve, store::Store};
 
 use super::{CursorGroupIdContext, EditBuffer};
+use crate::errors::EditResult;
 use crate::prelude::*;
 
 pub trait CursorActions<C, S, I>

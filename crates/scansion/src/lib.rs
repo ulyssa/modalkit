@@ -65,20 +65,17 @@ use crossterm::{
     QueueableCommand,
 };
 
+use modalkit::actions::{
+    Action,
+    CommandBarAction,
+    Editable,
+    EditorAction,
+    InsertTextAction,
+    Jumpable,
+    PromptAction,
+};
+
 use modalkit::editing::{
-    action::{
-        Action,
-        CommandBarAction,
-        EditError,
-        EditInfo,
-        EditResult,
-        Editable,
-        EditorAction,
-        InsertTextAction,
-        Jumpable,
-        PromptAction,
-        UIError,
-    },
     application::{ApplicationContentId, ApplicationInfo, ApplicationWindowId},
     context::{EditContext, Resolve},
     history::HistoryList,
@@ -88,6 +85,7 @@ use modalkit::editing::{
 };
 
 use modalkit::{
+    errors::{EditError, EditResult, UIError},
     key::{MacroError, TerminalKey},
     keybindings::BindingMachine,
     prelude::*,

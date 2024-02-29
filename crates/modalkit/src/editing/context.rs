@@ -3,7 +3,7 @@
 //! ## Overview
 //!
 //! This module contains the contexts used by the editing buffer.
-use super::action::EditAction;
+use crate::actions::EditAction;
 use crate::prelude::*;
 
 /// Trait for values that can be converted by the [EditContext].

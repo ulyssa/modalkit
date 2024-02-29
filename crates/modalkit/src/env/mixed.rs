@@ -7,11 +7,9 @@
 use std::borrow::Cow;
 
 use crate::{
-    editing::{
-        action::Action,
-        application::{ApplicationInfo, EmptyInfo},
-        context::EditContext,
-    },
+    actions::Action,
+    editing::application::{ApplicationInfo, EmptyInfo},
+    editing::context::EditContext,
     key::TerminalKey,
     keybindings::{dialog::Dialog, BindingMachine, InputKey, Step},
     prelude::RepeatType,

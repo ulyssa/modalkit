@@ -3,23 +3,23 @@
 //! ## Overview
 //!
 //! These components allow parsing Vim commands and turning them into
-//! [actions](crate::editing::action::Action).
+//! [actions][Action].
 use std::borrow::Cow;
 use std::cmp::Ordering;
 use std::fmt;
 use std::str::FromStr;
 
+use crate::actions::{Action, TabAction, WindowAction};
 use crate::commands::{Command, CommandError, CommandMachine, CommandStep};
+use crate::prelude::*;
 
 use crate::editing::{
-    action::{Action, TabAction, WindowAction},
     application::{ApplicationInfo, ApplicationWindowId, EmptyInfo},
     completion::complete_path,
     context::{EditContext, Resolve},
     cursor::Cursor,
     rope::EditRope,
 };
-use crate::prelude::*;
 
 mod parse;
 

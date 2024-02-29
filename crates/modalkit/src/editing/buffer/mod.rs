@@ -20,26 +20,24 @@ use std::ops::Range;
 
 use regex::Regex;
 
+use crate::errors::{EditError, EditResult, UIResult};
 use crate::prelude::*;
 use crate::util::IdGenerator;
 
+use crate::actions::{
+    CursorAction,
+    EditAction,
+    Editable,
+    EditorAction,
+    EditorActions,
+    HistoryAction,
+    InsertTextAction,
+    Jumpable,
+    Searchable,
+    SelectionAction,
+};
+
 use crate::editing::{
-    action::{
-        CursorAction,
-        EditAction,
-        EditError,
-        EditInfo,
-        EditResult,
-        Editable,
-        EditorAction,
-        EditorActions,
-        HistoryAction,
-        InsertTextAction,
-        Jumpable,
-        Searchable,
-        SelectionAction,
-        UIResult,
-    },
     application::ApplicationInfo,
     completion::{CompletionList, LineCompleter},
     context::{EditContext, Resolve},

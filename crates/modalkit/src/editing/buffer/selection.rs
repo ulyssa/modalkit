@@ -1,14 +1,16 @@
-use crate::editing::cursor::{block_cursors, Cursor};
-use crate::editing::rope::PrivateCursorOps;
-use crate::util::sort2;
-
-use crate::editing::{
-    action::{EditAction, EditError, EditInfo, EditResult},
-    application::ApplicationInfo,
-    context::Resolve,
-    store::Store,
+use crate::{
+    actions::EditAction,
+    editing::{
+        application::ApplicationInfo,
+        context::Resolve,
+        cursor::{block_cursors, Cursor},
+        rope::PrivateCursorOps,
+        store::Store,
+    },
+    errors::{EditError, EditResult},
+    prelude::*,
+    util::sort2,
 };
-use crate::prelude::*;
 
 use super::{CursorGroupIdContext, CursorState, EditBuffer};
 

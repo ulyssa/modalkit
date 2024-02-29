@@ -9,7 +9,6 @@
 //!
 //! [scansion]: https://docs.rs/scansion/latest/scansion/
 //! [modalkit-ratatui]: https://docs.rs/modalkit-ratatui/latest/modalkit_ratatui/
-pub mod action;
 pub mod application;
 pub mod buffer;
 pub mod completion;

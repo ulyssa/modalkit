@@ -27,12 +27,13 @@
 use std::borrow::Cow;
 use std::collections::VecDeque;
 
+use crate::actions::MacroAction;
+use crate::errors::EditResult;
 use crate::key::MacroError;
 use crate::keybindings::{dialog::Dialog, BindingMachine, InputKey};
 use crate::prelude::*;
 
 use super::{
-    action::{EditInfo, EditResult, MacroAction},
     application::ApplicationInfo,
     context::{EditContext, Resolve},
     rope::EditRope,
@@ -201,11 +202,11 @@ mod tests {
     use crossterm::event::{KeyCode, KeyEvent};
 
     use crate::{
-        editing::action::EditError,
         editing::application::EmptyInfo,
         editing::store::{RegisterError, Store},
         env::vim::VimState,
         env::CommonKeyClass,
+        errors::EditError,
         key::TerminalKey,
         keybindings::EdgeEvent::{Class, Key},
         keybindings::{dialog::PromptYesNo, EmptySequence, ModalMachine, Mode, ModeKeys, Step},
