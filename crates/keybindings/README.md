@@ -22,12 +22,12 @@ project's `Cargo.toml`.
 
 ```toml
 [dependencies]
-modalkit = "0.0.16"
+keybindings = "0.0.1"
 ```
 
 ## License
 
-`modalkit` is released under the [Apache License, Version 2.0].
+`keybindings` is released under the [Apache License, Version 2.0].
 
 [Apache License, Version 2.0]: https://github.com/ulyssa/modalkit/blob/master/LICENSE
 [modalkit]: https://docs.rs/modalkit/latest/modalkit/
