@@ -89,6 +89,7 @@ where
 
                 (rope.to_string(), ctx.resolve(count))
             },
+            MacroAction::Run(s, count) => (s.clone(), ctx.resolve(count)),
             MacroAction::Repeat(count) => {
                 let rope = store.registers.get_last_macro()?;
 
@@ -284,7 +285,7 @@ mod tests {
         }
     }
 
-    #[derive(Clone, Debug)]
+    #[derive(Clone, Debug, Eq, PartialEq)]
     enum TestAction {
         Macro(MacroAction),
         SetFlag(bool),
@@ -385,6 +386,34 @@ mod tests {
                 TestAction::Type(c) => s.push(c),
             }
         }
+    }
+
+    #[test]
+    fn test_macro_run() {
+        let (mut bindings, mut store) = setup_bindings(true);
+        let ctx = EditContext::default();
+
+        // Run a sequence of key presses twice.
+        let run = MacroAction::Run("flif<Esc>fi".into(), 2.into());
+        let _ = bindings.macro_command(&run, &ctx, &mut store).unwrap();
+
+        // Run the first time, starting in Normal mode.
+        assert_pop1!(bindings, TestAction::SetFlag(true), ctx);
+        assert_pop1!(bindings, TestAction::NoOp, ctx);
+        assert_pop1!(bindings, TestAction::NoOp, ctx);
+        assert_pop1!(bindings, TestAction::Type('f'), ctx);
+        assert_pop1!(bindings, TestAction::NoOp, ctx);
+        assert_pop1!(bindings, TestAction::SetFlag(true), ctx);
+        assert_pop1!(bindings, TestAction::NoOp, ctx);
+
+        // Run the second time, but this time in Insert mode.
+        assert_pop1!(bindings, TestAction::Type('f'), ctx);
+        assert_pop1!(bindings, TestAction::Type('l'), ctx);
+        assert_pop1!(bindings, TestAction::Type('i'), ctx);
+        assert_pop1!(bindings, TestAction::Type('f'), ctx);
+        assert_pop1!(bindings, TestAction::NoOp, ctx);
+        assert_pop1!(bindings, TestAction::SetFlag(true), ctx);
+        assert_pop2!(bindings, TestAction::NoOp, ctx);
     }
 
     #[test]

@@ -428,9 +428,14 @@ where
 #[non_exhaustive]
 pub enum MacroAction {
     /// Execute the contents of the contextually specified Register [*n* times](Count).
+    ///
+    /// If no register is specified, then this should default to [Register::UnnamedMacro].
     Execute(Count),
 
-    /// Execute the contents of the previously specified macro [*n* times](Count).
+    /// Run the given macro string [*n* times](Count).
+    Run(String, Count),
+
+    /// Execute the contents of the previously specified register [*n* times](Count).
     Repeat(Count),
 
     /// Start or stop recording a macro.
