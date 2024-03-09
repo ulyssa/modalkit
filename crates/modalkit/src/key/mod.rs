@@ -24,6 +24,10 @@ pub enum MacroError {
     /// Empty macro string.
     #[error("Empty macro string")]
     EmptyMacro,
+
+    /// A macro that seems to be looping.
+    #[error("Ending suspected macro loop; macro run {0} times w/o keyboard input")]
+    LoopingMacro(usize),
 }
 
 /// A key pressed in a terminal.

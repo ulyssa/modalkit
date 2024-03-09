@@ -40,6 +40,8 @@ use super::{
     store::{RegisterPutFlags, Store},
 };
 
+const MAX_MACRO_EXEC_DEPTH: usize = 100;
+
 /// Wraps keybindings so that they can be fed simulated keypresses from macros.
 pub struct KeyManager<K, A, S>
 where
@@ -49,6 +51,7 @@ where
     keystack: VecDeque<K>,
 
     recording: Option<(Register, bool)>,
+    macro_exec_depth: usize,
     commit_on_input: bool,
     committed: EditRope,
     pending: EditRope,
@@ -67,6 +70,7 @@ where
             keystack: VecDeque::new(),
 
             recording: None,
+            macro_exec_depth: 0,
             commit_on_input: false,
             committed: EditRope::from(""),
             pending: EditRope::from(""),
@@ -93,7 +97,6 @@ where
             MacroAction::Run(s, count) => (s.clone(), ctx.resolve(count)),
             MacroAction::Repeat(count) => {
                 let rope = store.registers.get_last_macro()?;
-
                 (rope.to_string(), ctx.resolve(count))
             },
             MacroAction::ToggleRecording => {
@@ -124,6 +127,13 @@ where
             },
         };
 
+        self.macro_exec_depth += 1;
+
+        if self.macro_exec_depth >= MAX_MACRO_EXEC_DEPTH {
+            let err = MacroError::LoopingMacro(self.macro_exec_depth);
+            return Err(err.into());
+        }
+
         for _ in 0..count {
             let mut keys = VecDeque::from(K::from_macro_str(mstr.as_ref())?);
             keys.append(&mut self.keystack);
@@ -139,6 +149,8 @@ where
     K: InputKey + ToString,
 {
     fn input_key(&mut self, key: K) {
+        self.macro_exec_depth = 0;
+
         if self.recording.is_some() {
             let mut rope = EditRope::from(key.to_string());
 
@@ -300,6 +312,48 @@ mod tests {
         }
     }
 
+    fn setup_recursive_bindings() -> (TestKeyManager, TestStore) {
+        use crate::keybindings::EdgeRepeat::{Min, Once};
+
+        let mut bindings = TestMachine::empty();
+        let store = Store::default();
+
+        // Normal mode mappings
+        bindings.add_mapping(
+            TestMode::Normal,
+            &vec![(Once, Key("n".parse().unwrap()))],
+            &TestAction::NoOp.into(),
+        );
+        bindings.add_mapping(
+            TestMode::Normal,
+            &vec![(Once, Key("a".parse().unwrap()))],
+            &TestAction::Macro(MacroAction::Run("n".into(), Count::Contextual)).into(),
+        );
+        bindings.add_mapping(
+            TestMode::Normal,
+            &vec![(Once, Key("b".parse().unwrap()))],
+            &TestAction::Macro(MacroAction::Run("aa".into(), Count::Contextual)).into(),
+        );
+        bindings.add_mapping(
+            TestMode::Normal,
+            &vec![(Once, Key("c".parse().unwrap()))],
+            &TestAction::Macro(MacroAction::Run("c".into(), Count::Contextual)).into(),
+        );
+
+        // Normal mode prefixes
+        bindings.add_prefix(
+            TestMode::Normal,
+            &vec![
+                (Once, Key("\"".parse().unwrap())),
+                (Once, Class(CommonKeyClass::Register)),
+            ],
+            &None,
+        );
+        bindings.add_prefix(TestMode::Normal, &vec![(Min(1), Class(CommonKeyClass::Count))], &None);
+
+        (TestKeyManager::new(bindings), store)
+    }
+
     fn setup_bindings(skip_confirm: bool) -> (TestKeyManager, TestStore) {
         use crate::keybindings::EdgeRepeat::{Min, Once};
 
@@ -364,15 +418,26 @@ mod tests {
         store: &mut TestStore,
         s: &mut String,
         flag: &mut bool,
+        noops: &mut usize,
         err: &mut Option<EditError<EmptyInfo>>,
     ) {
+        *noops = 0;
+        *err = None;
+
         bindings.input_key(key);
 
         while let Some((act, ctx)) = bindings.pop() {
             match act {
-                TestAction::NoOp => continue,
+                TestAction::NoOp => {
+                    *noops += 1;
+                    continue;
+                },
                 TestAction::Macro(act) => {
                     *err = bindings.macro_command(&act, &ctx, store).err();
+
+                    if err.is_some() {
+                        return;
+                    }
                 },
                 TestAction::SetFlag(skip_confirm) => {
                     if skip_confirm {
@@ -423,6 +488,7 @@ mod tests {
         let mut s = String::new();
         let mut flag = false;
         let mut err = None;
+        let mut noops = 0;
 
         macro_rules! get_register {
             ($reg: expr) => {
@@ -432,7 +498,7 @@ mod tests {
 
         macro_rules! input {
             ($key: expr) => {
-                input($key, &mut bindings, &mut store, &mut s, &mut flag, &mut err)
+                input($key, &mut bindings, &mut store, &mut s, &mut flag, &mut noops, &mut err)
             };
         }
 
@@ -548,6 +614,7 @@ mod tests {
         let mut s = String::new();
         let mut flag = false;
         let mut err = None;
+        let mut noops = 0;
 
         macro_rules! get_register {
             ($reg: expr) => {
@@ -557,7 +624,7 @@ mod tests {
 
         macro_rules! input {
             ($key: expr) => {
-                input($key, &mut bindings, &mut store, &mut s, &mut flag, &mut err)
+                input($key, &mut bindings, &mut store, &mut s, &mut flag, &mut noops, &mut err)
             };
         }
 
@@ -600,5 +667,55 @@ mod tests {
         // Flag is now true, and we end with the dialog cleared.
         assert_eq!(bindings.show_dialog(10, 100).len(), 0);
         assert_eq!(flag, true);
+    }
+
+    #[test]
+    fn test_macro_limit_depth() {
+        let (mut bindings, mut store) = setup_recursive_bindings();
+        let mut s = String::new();
+        let mut flag = false;
+        let mut err = None;
+        let mut noops = 0;
+
+        macro_rules! input {
+            ($key: expr) => {
+                input($key, &mut bindings, &mut store, &mut s, &mut flag, &mut noops, &mut err)
+            };
+        }
+
+        // It's okay to run a MacroAction::Run with a count >100.
+        input!(key!('1'));
+        input!(key!('1'));
+        input!(key!('0'));
+        input!(key!('a'));
+        assert!(err.is_none());
+        assert_eq!(noops, 110);
+
+        // It's okay to run a macro that calls other macros multiple times.
+        input!(key!('4'));
+        input!(key!('9'));
+        input!(key!('b'));
+        assert!(err.is_none());
+        assert_eq!(noops, 98);
+
+        // But if they repeatedly call other macros enough times, we abort.
+        input!(key!('5'));
+        input!(key!('0'));
+        input!(key!('b'));
+        println!("err = {err:?}");
+        assert!(matches!(
+            err.take().unwrap(),
+            EditError::MacroFailure(MacroError::LoopingMacro(100))
+        ));
+        assert_eq!(noops, 98);
+
+        // And a key that just always triggers itself should error.
+        input!(key!('c'));
+        println!("err = {err:?}");
+        assert!(matches!(
+            err.take().unwrap(),
+            EditError::MacroFailure(MacroError::LoopingMacro(100))
+        ));
+        assert_eq!(noops, 0);
     }
 }
