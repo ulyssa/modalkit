@@ -412,7 +412,7 @@ dependencies = [
 
 [[package]]
 name = "modalkit"
-version = "0.0.17"
+version = "0.0.18"
 dependencies = [
  "anymap2",
  "arboard",
@@ -434,7 +434,7 @@ dependencies = [
 
 [[package]]
 name = "modalkit-ratatui"
-version = "0.0.17"
+version = "0.0.18"
 dependencies = [
  "crossterm",
  "intervaltree",
