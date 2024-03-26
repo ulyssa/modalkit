@@ -252,7 +252,7 @@ pub trait Window<I: ApplicationInfo>: WindowOps<I> + Sized {
 
 /// Position and draw a terminal cursor.
 pub fn render_cursor<T: TerminalCursor>(
-    f: &mut Frame<CrosstermBackend<Stdout>>,
+    f: &mut Frame,
     widget: &T,
     cursor: Option<char>,
 ) {

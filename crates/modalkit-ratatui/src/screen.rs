@@ -797,7 +797,7 @@ where
         let bararea = rect_down(winarea, barh);
         let cmdarea = rect_down(bararea, cmdh);
 
-        let titles = state
+        let titles : Vec<Line> = state
             .tabs
             .iter()
             .map(|tab| {

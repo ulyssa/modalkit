@@ -1347,7 +1347,7 @@ mod tests {
             let line1 = Line::from(Span::styled(self.book.as_str(), style));
             let line2 = Line::from(vec![Span::from("    by "), Span::from(self.author.as_str())]);
 
-            Text { lines: vec![line1, line2] }
+            Text::from(vec![line1, line2])
         }
     }
 
