@@ -251,11 +251,7 @@ pub trait Window<I: ApplicationInfo>: WindowOps<I> + Sized {
 }
 
 /// Position and draw a terminal cursor.
-pub fn render_cursor<T: TerminalCursor>(
-    f: &mut Frame<CrosstermBackend<Stdout>>,
-    widget: &T,
-    cursor: Option<char>,
-) {
+pub fn render_cursor<T: TerminalCursor>(f: &mut Frame, widget: &T, cursor: Option<char>) {
     if let Some((cx, cy)) = widget.get_term_cursor() {
         if let Some(c) = cursor {
             let style = Style::default().fg(Color::Green);
