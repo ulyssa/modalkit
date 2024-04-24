@@ -231,42 +231,11 @@ pub fn parse_special(input: &str) -> IResult<&str, TerminalKey> {
     let (input, mut k) = alt((parse_keyname, parse_function, parse_anychar))(input)?;
     let (input, _) = char('>')(input)?;
 
-    let mut m = m.into_iter().fold(KeyModifiers::NONE, BitOr::bitor);
+    let m = m.into_iter().fold(KeyModifiers::NONE, BitOr::bitor);
 
-    if let KeyCode::Char(c) = k {
-        if m.contains(KeyModifiers::CONTROL) {
-            m -= KeyModifiers::SHIFT;
-
-            let k = match c.to_ascii_lowercase() {
-                'i' => TerminalKey::from(KeyCode::Tab),
-                'j' => TerminalKey::from(KeyCode::Char('\n')),
-                'm' => TerminalKey::from(KeyCode::Enter),
-                '[' => TerminalKey::from(KeyCode::Esc),
-                '?' => TerminalKey::from(KeyCode::Backspace),
-                '\\' => TerminalKey::new(KeyCode::Char('4'), m),
-                ']' => TerminalKey::new(KeyCode::Char('5'), m),
-                '^' => TerminalKey::new(KeyCode::Char('6'), m),
-                '_' => TerminalKey::new(KeyCode::Char('7'), m),
-                '@' => TerminalKey::new(KeyCode::Char(' '), m),
-                c => TerminalKey::new(KeyCode::Char(c), m),
-            };
-
-            return Ok((input, k));
-        }
-
-        if m.contains(KeyModifiers::SHIFT) {
-            k = KeyCode::Char(c.to_ascii_uppercase());
-        }
-
-        if m.contains(KeyModifiers::ALT) && c.is_uppercase() {
-            m |= KeyModifiers::SHIFT;
-        }
-    } else if let KeyCode::Tab = k {
-        if m == KeyModifiers::SHIFT {
-            let key = TerminalKey::from(KeyCode::BackTab);
-
-            return Ok((input, key));
-        }
+    if k == KeyCode::Tab && m.contains(KeyModifiers::SHIFT) {
+        // Normalize the key to how crossterm represents it.
+        k = KeyCode::BackTab;
     }
 
     let key = TerminalKey::new(k, m);
@@ -314,6 +283,20 @@ mod tests {
             code: KeyCode::F(1),
             modifiers: KeyModifiers::SHIFT
         });
+
+        let (rem, key) = parse_key_str("<S-Tab>").unwrap();
+        assert_eq!(rem, "");
+        assert_eq!(key, TerminalKey {
+            code: KeyCode::BackTab,
+            modifiers: KeyModifiers::SHIFT
+        });
+
+        let (rem, key) = parse_key_str("<S-Enter>").unwrap();
+        assert_eq!(rem, "");
+        assert_eq!(key, TerminalKey {
+            code: KeyCode::Enter,
+            modifiers: KeyModifiers::SHIFT
+        });
     }
 
     #[test]
@@ -350,13 +333,6 @@ mod tests {
         assert_eq!(rem, "");
         assert_eq!(key, TerminalKey {
             code: KeyCode::Char('/'),
-            modifiers: KeyModifiers::NONE
-        });
-
-        let (rem, key) = parse_key_str("<S-Tab>").unwrap();
-        assert_eq!(rem, "");
-        assert_eq!(key, TerminalKey {
-            code: KeyCode::BackTab,
             modifiers: KeyModifiers::NONE
         });
     }

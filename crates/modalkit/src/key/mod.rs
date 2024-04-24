@@ -31,6 +31,30 @@ pub enum MacroError {
 }
 
 /// A key pressed in a terminal.
+///
+/// It's important to remember when setting up keybindings and building a TUI that some terminals
+/// represent several keypresses the same way by default, while others are capable of precisely
+/// representing what keys the user actually pressed, such as when using something like
+/// [crossterm::event::PushKeyboardEnhancementFlags] or when running in Windows terminal.
+///
+/// For example, if you're using [crossterm::event::KeyCode] then you'll likely run into the
+/// following in a Unix terminal:
+///
+/// - `<C-M>` will sometimes be represented as `<Enter>`
+/// - `<C-I>` will sometimes be represented as `<Tab>`
+/// - `<C-?>` will sometimes be represented as `<BackSpace>`
+/// - `<C-@>` will sometimes be represented as `<C-Space>`
+/// - `<C-[>` will sometimes be represented as `<Esc>`
+/// - `<C-\>` will sometimes be represented as `<C-4>`
+/// - `<C-]>` will sometimes be represented as `<C-5>`
+/// - `<C-^>` will sometimes be represented as `<C-6>`
+/// - `<C-_>` will sometimes be represented as `<C-7>`
+///
+/// You can avoid getting bit by differences between terminals by mapping all of these to the same
+/// action for consistency.
+///
+/// Additionally, some modifier keys can't be expressed by default: `<S-Enter>` or `<C-Enter>`
+/// cannot always be represented. If you map those, make sure you also provide alternatives!
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct TerminalKey {
     code: KeyCode,
@@ -38,11 +62,27 @@ pub struct TerminalKey {
 }
 
 impl TerminalKey {
-    pub(crate) fn new(code: KeyCode, mut modifiers: KeyModifiers) -> Self {
-        if let KeyCode::Char(_) = code {
-            // SHIFT is included for things like ':' and '?' on Windows, but not on *nix systems,
-            // so remove it for characters, so that it doesn't break hashing and comparisons.
-            modifiers -= KeyModifiers::SHIFT;
+    /// We internally represent terminal keys using the crossterm types, but we do a little bit of
+    /// normalization first, since how keys end up getting represented varies based on terminal.
+    pub(crate) fn new(mut code: KeyCode, mut modifiers: KeyModifiers) -> Self {
+        if let KeyCode::Char(ref mut c) = code {
+            if modifiers.intersects(KeyModifiers::SHIFT | KeyModifiers::CONTROL) {
+                // If Shift or Control are pressed, represent the character as uppercase.
+                *c = c.to_ascii_uppercase();
+            } else if c.is_ascii_uppercase() {
+                // If the character is uppercase, imply Shift.
+                modifiers.insert(KeyModifiers::SHIFT);
+            }
+
+            if modifiers == KeyModifiers::SHIFT && *c != ' ' {
+                // SHIFT is included for things like ':' and '?' on Windows, but not on *nix systems,
+                // so remove it for character keypresses that *only* contain Shift, so that it
+                // doesn't break hashing and comparisons.
+                //
+                // The exception here is <S-Space>, which can be parsed on both Windows and *nix
+                // systems when using the Kitty enhanced key protocol/modifyOtherKeys.
+                modifiers -= KeyModifiers::SHIFT;
+            }
         }
 
         Self { code, modifiers }
@@ -66,11 +106,11 @@ impl TerminalKey {
 
                 if self.modifiers == KeyModifiers::CONTROL {
                     let cp = match c {
-                        'a'..='z' => c as u32 - b'a' as u32 + 0x01,
+                        'A'..='Z' => c as u32 - b'A' as u32 + 0x01,
                         ' ' | '@' => 0x0,
                         '4'..='7' => c as u32 - b'4' as u32 + 0x1C,
                         _ => {
-                            panic!("unknown control key")
+                            panic!("unknown control key: {:?}", c)
                         },
                     };
 
@@ -116,26 +156,28 @@ impl ToString for TerminalKey {
     fn to_string(&self) -> String {
         let mut res = String::new();
 
-        let push_mods = |res: &mut String| {
-            if self.modifiers.contains(KeyModifiers::CONTROL) {
+        let push_mods = |res: &mut String, mods: KeyModifiers| {
+            if mods.contains(KeyModifiers::CONTROL) {
                 res.push_str("C-");
             }
 
-            if self.modifiers.contains(KeyModifiers::SHIFT) {
-                res.push_str("S-");
+            if mods.contains(KeyModifiers::ALT) {
+                res.push_str("A-");
             }
 
-            if self.modifiers.contains(KeyModifiers::ALT) {
-                res.push_str("A-");
+            if mods.contains(KeyModifiers::SHIFT) {
+                res.push_str("S-");
             }
         };
 
-        let push_named = |res: &mut String, name: &str| {
+        let push_named_mods = |res: &mut String, name: &str, mods| {
             res.push('<');
-            push_mods(res);
+            push_mods(res, mods);
             res.push_str(name);
             res.push('>');
         };
+
+        let push_named = |res: &mut String, name: &str| push_named_mods(res, name, self.modifiers);
 
         match self.code {
             KeyCode::Left => push_named(&mut res, "Left"),
@@ -159,47 +201,32 @@ impl ToString for TerminalKey {
             KeyCode::Pause => push_named(&mut res, "Pause"),
             KeyCode::Menu => push_named(&mut res, "Menu"),
             KeyCode::Tab => push_named(&mut res, "Tab"),
-            KeyCode::BackTab => res.push_str("<S-Tab>"),
+            KeyCode::BackTab => {
+                push_named_mods(&mut res, "Tab", self.modifiers | KeyModifiers::SHIFT)
+            },
             KeyCode::F(n) => {
                 let n = n.to_string();
 
                 push_named(&mut res, n.as_str());
             },
             KeyCode::Char(c) => {
-                if (self.modifiers - KeyModifiers::SHIFT).is_empty() {
-                    if c == '<' {
-                        res.push_str("<lt>");
-                    } else {
+                if c == ' ' {
+                    if self.modifiers.is_empty() {
                         res.push(c);
+                    } else {
+                        push_named(&mut res, "Space");
                     }
-                } else if self.modifiers.contains(KeyModifiers::CONTROL) {
-                    match c {
-                        '4' => {
-                            push_named(&mut res, "\\");
-                        },
-                        '5' => {
-                            push_named(&mut res, "]");
-                        },
-                        '6' => {
-                            push_named(&mut res, "^");
-                        },
-                        '7' => {
-                            push_named(&mut res, "_");
-                        },
-                        ' ' => {
-                            push_named(&mut res, "Space");
-                        },
-                        '<' => {
-                            push_named(&mut res, "lt");
-                        },
-                        _ => {
-                            let c = c.to_uppercase().to_string();
-
-                            push_named(&mut res, c.as_str());
-                        },
-                    }
+                } else if c == '<' {
+                    push_named(&mut res, "lt");
+                } else if (self.modifiers - KeyModifiers::SHIFT).is_empty() {
+                    res.push(c);
                 } else {
-                    let c = c.to_string();
+                    let c =
+                        if self.modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::SHIFT) {
+                            c.to_uppercase().to_string()
+                        } else {
+                            c.to_string()
+                        };
 
                     push_named(&mut res, c.as_str());
                 }
@@ -277,5 +304,77 @@ impl From<KeyCode> for TerminalKey {
 impl From<KeyEvent> for TerminalKey {
     fn from(ke: KeyEvent) -> Self {
         TerminalKey::new(ke.code, ke.modifiers)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn roundtrip(s: &str) {
+        let key = TerminalKey::from_str(s).expect("can parse");
+        assert_eq!(s, key.to_string());
+    }
+
+    #[test]
+    fn test_roundtrips() {
+        // Normal characters and their shifted variants on a QWERTY keyboard.
+        roundtrip("s");
+        roundtrip("S");
+        roundtrip("5");
+        roundtrip("^");
+        roundtrip(":");
+        roundtrip(";");
+
+        // '<' is special.
+        roundtrip("<lt>");
+
+        // Space is ' ' until a modifier is added.
+        roundtrip(" ");
+        roundtrip("<C-Space>");
+        roundtrip("<S-Space>");
+
+        // Ctrl-Alt-Delete
+        roundtrip("<C-A-Del>");
+
+        // Named keys and modified variants.
+        roundtrip("<Left>");
+        roundtrip("<S-Left>");
+        roundtrip("<A-Left>");
+        roundtrip("<C-Left>");
+        roundtrip("<Enter>");
+        roundtrip("<S-Enter>");
+        roundtrip("<A-Enter>");
+        roundtrip("<C-Enter>");
+        roundtrip("<BS>");
+        roundtrip("<S-BS>");
+        roundtrip("<A-BS>");
+        roundtrip("<C-BS>");
+
+        // Make sure Tab/BackTab survive a roundtrip.
+        roundtrip("<A-Tab>");
+        roundtrip("<A-S-Tab>");
+        roundtrip("<C-A-S-Tab>");
+        roundtrip("<C-A-Tab>");
+
+        // Alt-j and Alt-J
+        roundtrip("<A-S-J>");
+        roundtrip("<A-j>");
+
+        // <C-?> is sometimes sent as <BS>, but we should be able to represent both.
+        roundtrip("<BS>");
+        roundtrip("<C-?>");
+
+        // <C-\> is sometimes sent as <C-4>, but we should be able to represent both.
+        roundtrip("<C-\\>");
+        roundtrip("<C-4>");
+
+        // <C-]> is sometimes sent as <C-5>, but we should be able to represent both.
+        roundtrip("<C-]>");
+        roundtrip("<C-5>");
+
+        // <C-[> is sometimes sent as <Esc>, but we should be able to represent both.
+        roundtrip("<C-[>");
+        roundtrip("<Esc>");
     }
 }

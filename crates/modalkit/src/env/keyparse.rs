@@ -208,13 +208,19 @@ mod tests {
     }
 
     #[test]
-    fn test_ctl_rename() {
-        assert_eq!(parse("<C-?>"), res![evkey!(KeyCode::Backspace)]);
-        assert_eq!(parse("<C-I>"), res![evkey!(KeyCode::Tab)]);
-        assert_eq!(parse("<C-J>"), res![evkey!('\n')]);
-        assert_eq!(parse("<C-M>"), res![evkey!(KeyCode::Enter)]);
-        assert_eq!(parse("<C-@>"), res![evctl!(' ')]);
-        assert_eq!(parse("<C-[>"), res![evkey!(KeyCode::Esc)]);
+    fn test_ctl_no_collision() {
+        // These characters are sometimes be the same keypresses, but we should
+        // allow them to be mapped separately for environments that support it.
+        assert_eq!(parse("<C-?>"), res![evctl!('?')]);
+        assert_eq!(parse("<BS>"), res![evkey!(KeyCode::Backspace)]);
+        assert_eq!(parse("<C-I>"), res![evctl!('i')]);
+        assert_eq!(parse("<Tab>"), res![evkey!(KeyCode::Tab)]);
+        assert_eq!(parse("<C-M>"), res![evctl!('m')]);
+        assert_eq!(parse("<Enter>"), res![evkey!(KeyCode::Enter)]);
+        assert_eq!(parse("<C-@>"), res![evctl!('@')]);
+        assert_eq!(parse("<C-Space>"), res![evctl!(' ')]);
+        assert_eq!(parse("<C-[>"), res![evctl!('[')]);
+        assert_eq!(parse("<Esc>"), res![evkey!(KeyCode::Esc)]);
     }
 
     #[test]
@@ -273,7 +279,7 @@ mod tests {
         assert_eq!(parse("<Delete>"), res![evkey!(KeyCode::Delete)]);
         assert_eq!(parse("<Undo>"), res![evkey!(KeyCode::F(14))]);
         assert_eq!(parse("<Help>"), res![evkey!(KeyCode::F(15))]);
-        assert_eq!(parse("<S-Tab>"), res![evkey!(KeyCode::BackTab)]);
+        assert_eq!(parse("<S-Tab>"), res![evkey!(KeyCode::BackTab, KeyModifiers::SHIFT)]);
     }
 
     #[test]
