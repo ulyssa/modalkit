@@ -1283,6 +1283,7 @@ fn default_keys<I: ApplicationInfo>() -> Vec<(MappedModes, &'static str, InputSt
     [
         // Normal, Visual, Select, Insert mode keys
         ( NVIMAP, "<C-\\><C-N>", normal!() ),
+        ( NVIMAP, "<C-4><C-N>", normal!() ),
         ( NVIMAP, "<C-End>", edit_target_end!(EditTarget::Boundary(RangeType::Buffer, true, MoveTerminus::End, Count::Contextual)) ),
         ( NVIMAP, "<C-PageDown>", tab_focus!(FocusChange::Direction1D(MoveDir1D::Next, Count::Exact(1), true), FocusChange::Offset(Count::Contextual, false)) ),
         ( NVIMAP, "<C-PageUp>", tab_focus!(FocusChange::Direction1D(MoveDir1D::Previous, Count::Contextual, true)) ),
@@ -1292,6 +1293,7 @@ fn default_keys<I: ApplicationInfo>() -> Vec<(MappedModes, &'static str, InputSt
         ( MAP, "<C-J>", edit_end!(MoveType::Line(MoveDir1D::Next)) ),
         ( MAP, "<C-N>", edit_end!(MoveType::Line(MoveDir1D::Next)) ),
         ( MAP, "<C-P>", edit_end!(MoveType::Line(MoveDir1D::Previous)) ),
+        ( MAP, "<C-?>", edit_end!(MoveType::Column(MoveDir1D::Previous, true)) ),
         ( MAP, "<Up>", edit_end!(MoveType::Line(MoveDir1D::Previous)) ),
         ( MAP, "<Down>", edit_end!(MoveType::Line(MoveDir1D::Next)) ),
         ( MAP, "<Left>", edit_end!(MoveType::Column(MoveDir1D::Previous, false)) ),
@@ -1607,10 +1609,13 @@ fn default_keys<I: ApplicationInfo>() -> Vec<(MappedModes, &'static str, InputSt
         ( NMAP, "<C-T>", unmapped!() ),
         ( NMAP, "<C-X>", edit_target!(EditAction::ChangeNumber(NumberChange::Decrease(Count::Contextual), false), EditTarget::Motion(MoveType::LinePos(MovePosition::End), 0.into())) ),
         ( NMAP, "<C-Z>", act!(Action::Suspend) ),
+        ( NMAP, "<C-[>", normal!() ),
         ( NMAP, "<C-^>", window_switch!(OpenTarget::Alternate, OpenTarget::List(Count::Contextual)) ),
+        ( NMAP, "<C-6>", window_switch!(OpenTarget::Alternate, OpenTarget::List(Count::Contextual)) ),
         ( NMAP, "<Del>", edit_nocount!(EditAction::Delete, MoveType::Column(MoveDir1D::Next, false)) ),
         ( NMAP, "<Esc>", normal!() ),
         ( NMAP, "<Insert>", insert!(InsertStyle::Insert) ),
+        ( NMAP, "<Tab>", jump!(PositionList::JumpList, MoveDir1D::Next) ),
 
         // Visual, Select mode keys
         ( VMAP, "<C-A>", edit_selection!(EditAction::ChangeNumber(NumberChange::Increase(Count::Contextual), false)) ),
@@ -1620,6 +1625,7 @@ fn default_keys<I: ApplicationInfo>() -> Vec<(MappedModes, &'static str, InputSt
         ( VMAP, "<C-X>", edit_selection!(EditAction::ChangeNumber(NumberChange::Decrease(Count::Contextual), false)) ),
         ( VMAP, "<C-Z>", act!(Action::Suspend) ),
         ( VMAP, "<Del>", edit_selection_nocount!(EditAction::Delete) ),
+        ( VMAP, "<C-[>", normal!() ),
         ( VMAP, "<Esc>", normal!() ),
 
         // Visual mode keys
@@ -1717,6 +1723,7 @@ fn default_keys<I: ApplicationInfo>() -> Vec<(MappedModes, &'static str, InputSt
         ( IMAP, "<C-X><C-E>", scroll2d!(MoveDir2D::Down, ScrollSize::Cell) ),
         ( IMAP, "<C-X><C-Y>", scroll2d!(MoveDir2D::Up, ScrollSize::Cell) ),
         ( IMAP, "<C-Y>", chartype!(Char::CopyLine(MoveDir1D::Previous)) ),
+        ( IMAP, "<C-[>", normal!() ),
         ( IMAP, "<Home>", edit!(EditAction::Motion, MoveType::LinePos(MovePosition::Beginning), 0) ),
         ( IMAP, "<End>", edit!(EditAction::Motion, MoveType::LinePos(MovePosition::End), 0) ),
         ( IMAP, "<Up>", edit!(EditAction::Motion, MoveType::Line(MoveDir1D::Previous)) ),
@@ -1729,6 +1736,7 @@ fn default_keys<I: ApplicationInfo>() -> Vec<(MappedModes, &'static str, InputSt
         ( IMAP, "<S-Right>", edit!(EditAction::Motion, MoveType::WordBegin(WordStyle::Little, MoveDir1D::Next)) ),
         ( IMAP, "<C-Left>", edit_end!(MoveType::WordBegin(WordStyle::Little, MoveDir1D::Previous)) ),
         ( IMAP, "<C-Right>", edit_end!(MoveType::WordBegin(WordStyle::Little, MoveDir1D::Next)) ),
+        ( IMAP, "<C-Space>", paste_register!(MoveDir1D::Previous, Register::LastInserted, VimMode::Normal) ),
         ( IMAP, "<Esc>", normal!() ),
         ( IMAP, "<Tab>", chartype!(Char::Single('\t')) ),
         ( IMAP, "<C-Home>", edit!(EditAction::Motion, MoveType::BufferPos(MovePosition::Beginning)) ),
@@ -1747,6 +1755,8 @@ fn default_keys<I: ApplicationInfo>() -> Vec<(MappedModes, &'static str, InputSt
         ( CMAP, "<C-N>", unmapped!() ),
         ( CMAP, "<C-P>", unmapped!() ),
         ( CMAP, "<C-\\><C-N>", command_unfocus!() ),
+        ( CMAP, "<C-4><C-N>", command_unfocus!() ),
+        ( CMAP, "<C-[>", command_unfocus!() ),
         ( CMAP, "<Home>", edit_buffer!(EditAction::Motion, MoveTerminus::Beginning, VimMode::Command) ),
         ( CMAP, "<End>", edit_buffer!(EditAction::Motion, MoveTerminus::End, VimMode::Command) ),
         ( CMAP, "<Esc>", command_unfocus!() ),
@@ -1784,6 +1794,7 @@ fn default_keys<I: ApplicationInfo>() -> Vec<(MappedModes, &'static str, InputSt
         ( SUFFIX_CHARSRCH, "<C-V>{dec<=3}", charsearch_suffix!() ),
         ( SUFFIX_CHARSRCH, "<C-V>{any}", charsearch_suffix!() ),
         ( SUFFIX_CHARSRCH, "{any}", charsearch_suffix!() ),
+        ( SUFFIX_CHARSRCH, "<C-[>", act!(Action::NoOp) ),
         ( SUFFIX_CHARSRCH, "<Esc>", act!(Action::NoOp) ),
 
         // Internal mode to simplify keypresses allowed after r/gr.
@@ -1797,6 +1808,7 @@ fn default_keys<I: ApplicationInfo>() -> Vec<(MappedModes, &'static str, InputSt
         ( SUFFIX_CHARREPL, "<C-V>{dec<=3}", charreplace_suffix!() ),
         ( SUFFIX_CHARREPL, "{any}", charreplace_suffix!() ),
         ( SUFFIX_CHARREPL, "<C-C>", normal!() ),
+        ( SUFFIX_CHARREPL, "<C-[>", act!(Action::NoOp) ),
         ( SUFFIX_CHARREPL, "<Esc>", act!(Action::NoOp) ),
         ( SUFFIX_CHARREPL, "<C-E>", charreplace_suffix!(Char::CopyLine(MoveDir1D::Previous)) ),
         ( SUFFIX_CHARREPL, "<C-Y>", charreplace_suffix!(Char::CopyLine(MoveDir1D::Next)) ),
@@ -3304,7 +3316,7 @@ mod tests {
 
         // <C-J> (newline)
         let mov = mv!(MoveType::Line(MoveDir1D::Next));
-        vm.input_key(key!('\n'));
+        vm.input_key(ctl!('j'));
         assert_pop1!(vm, mov, ctx);
         assert_normal!(vm, ctx);
 

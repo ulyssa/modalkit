@@ -8,7 +8,7 @@ use std::time::Duration;
 
 use modalkit::crossterm::{
     self,
-    event::{poll, read, Event},
+    event::{poll, read, Event, KeyboardEnhancementFlags, PushKeyboardEnhancementFlags},
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen},
 };
@@ -517,6 +517,14 @@ impl Editor {
         let mut stdout = stdout();
 
         crossterm::execute!(stdout, EnterAlternateScreen)?;
+
+        if crossterm::terminal::supports_keyboard_enhancement()? {
+            // Enable the Kitty keyboard enhancement protocol for improved keypresses.
+            crossterm::execute!(
+                stdout,
+                PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES)
+            )?;
+        }
 
         let backend = CrosstermBackend::new(stdout);
         let terminal = Terminal::new(backend)?;
