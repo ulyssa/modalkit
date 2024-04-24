@@ -1,17 +1,19 @@
-use std::cell::{RefCell, RefMut};
 use std::collections::HashMap;
 
-use arboard::{Clipboard, Get, ImageData, Set};
 use bitflags::bitflags;
 
-#[cfg(target_os = "linux")]
+#[cfg(feature = "clipboard")]
+use arboard::{Clipboard, Get, ImageData, Set};
+#[cfg(all(feature = "clipboard", target_os = "linux"))]
 use arboard::{GetExtLinux, LinuxClipboardKind, SetExtLinux};
+#[cfg(feature = "clipboard")]
+use std::cell::{RefCell, RefMut};
 
 use crate::editing::rope::EditRope;
 use crate::prelude::Register;
 use crate::prelude::TargetShape::{self, BlockWise, CharWise, LineWise};
 
-#[cfg(target_os = "linux")]
+#[cfg(all(feature = "clipboard", target_os = "linux"))]
 mod clipboard {
     use super::*;
 
@@ -32,7 +34,7 @@ mod clipboard {
     }
 }
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(all(feature = "clipboard", not(target_os = "linux")))]
 mod clipboard {
     use super::*;
 
@@ -53,6 +55,7 @@ mod clipboard {
     }
 }
 
+#[cfg(feature = "clipboard")]
 use self::clipboard::*;
 
 bitflags! {
@@ -81,6 +84,7 @@ bitflags! {
 pub enum RegisterError {
     /// The operating system clipboard contains an image instead of text.
     #[error("Clipboard contains image instead of text")]
+    #[cfg(feature = "clipboard")]
     ClipboardImage(ImageData<'static>),
 
     /// Failure to determine a macro register to use.
@@ -126,6 +130,7 @@ pub struct RegisterStore {
     unnamed_macro: RegisterCell,
     named: HashMap<char, RegisterCell>,
 
+    #[cfg(feature = "clipboard")]
     clipboard: Option<RefCell<Clipboard>>,
 }
 
@@ -230,10 +235,12 @@ impl RegisterStore {
             unnamed_macro: RegisterCell::default(),
             named: HashMap::new(),
 
+            #[cfg(feature = "clipboard")]
             clipboard: Clipboard::new().ok().map(RefCell::new),
         }
     }
 
+    #[cfg(feature = "clipboard")]
     fn clipboard(&self) -> Option<RefMut<'_, Clipboard>> {
         self.clipboard.as_ref().map(RefCell::borrow_mut)
     }
@@ -268,6 +275,7 @@ impl RegisterStore {
              * Operating system clipboards.
              */
             Register::SelectionPrimary => {
+                #[cfg(feature = "clipboard")]
                 if let Some(ref mut clipboard) = self.clipboard() {
                     if let Ok(image) = get_primary(clipboard).image() {
                         return Err(RegisterError::ClipboardImage(image.to_owned_img()));
@@ -281,8 +289,12 @@ impl RegisterStore {
                 } else {
                     RegisterCell::default()
                 }
+
+                #[cfg(not(feature = "clipboard"))]
+                RegisterCell::default()
             },
             Register::SelectionClipboard => {
+                #[cfg(feature = "clipboard")]
                 if let Some(ref mut clipboard) = self.clipboard() {
                     if let Ok(image) = get_clipboard(clipboard).image() {
                         return Err(RegisterError::ClipboardImage(image));
@@ -296,6 +308,9 @@ impl RegisterStore {
                 } else {
                     RegisterCell::default()
                 }
+
+                #[cfg(not(feature = "clipboard"))]
+                RegisterCell::default()
             },
 
             /*
@@ -383,6 +398,7 @@ impl RegisterStore {
              * Operating system clipboards.
              */
             Register::SelectionPrimary => {
+                #[cfg(feature = "clipboard")]
                 if let Some(ref mut clipboard) = self.clipboard() {
                     let op = set_primary(clipboard);
                     let _ = op.text(&cell.value);
@@ -391,6 +407,7 @@ impl RegisterStore {
                 cell
             },
             Register::SelectionClipboard => {
+                #[cfg(feature = "clipboard")]
                 if let Some(ref mut clipboard) = self.clipboard() {
                     let op = set_clipboard(clipboard);
                     let _ = op.text(&cell.value);

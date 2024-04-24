@@ -14,9 +14,13 @@ repository.workspace = true
 license.workspace = true
 rust-version.workspace = true
 
+[features]
+default = ["clipboard"]
+clipboard = ["dep:arboard"]
+
 [dependencies]
 anymap2 = "0.13.0"
-arboard = "=3.3.0"
+arboard = { version = "^3.3.2", optional = true, features = ["wayland-data-control"] }
 bitflags = { workspace = true }
 crossterm = { workspace = true }
 derive_more = "0.99.16"
