@@ -1102,6 +1102,33 @@ where
     }
 }
 
+/// Data structure holding layout description and state
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(bound(deserialize = "I::WindowId: Deserialize<'de>"))]
+#[serde(bound(serialize = "I::WindowId: Serialize"))]
+#[serde(rename_all = "lowercase", tag = "type")]
+pub struct WindowLayoutStorage<I: ApplicationInfo> {
+    layout: WindowLayoutDescription<I>,
+    focused: usize,
+    zoomed: bool,
+}
+
+impl<I> WindowLayoutStorage<I>
+where
+    I: ApplicationInfo,
+{
+    /// Restore a layout from a description of windows and splits.
+    pub fn to_layout<W: Window<I>>(
+        self,
+        area: Option<Rect>,
+        store: &mut Store<I>,
+    ) -> UIResult<WindowLayoutState<W, I>, I> {
+        let mut layout = self.layout.to_layout(area, store)?;
+        layout.focused = self.focused;
+        layout.zoom = self.zoomed;
+        Ok(layout)
+    }
+}
 /// A description of a window layout.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(bound(deserialize = "I::WindowId: Deserialize<'de>"))]
@@ -1282,18 +1309,28 @@ where
     }
 
     /// Convert this layout to a serializable summary of its windows and splits.
-    pub fn as_description(&self) -> WindowLayoutDescription<I> {
+    pub fn as_description(&self) -> WindowLayoutStorage<I> {
         let mut children = vec![];
+        let focused = self.focused;
+        let zoomed = self.zoom;
 
         let Some(root) = &self.root else {
-            return WindowLayoutDescription::Split { children, length: None };
+            return WindowLayoutStorage {
+                layout: WindowLayoutDescription::Split { children, length: None },
+                focused,
+                zoomed,
+            };
         };
 
         for w in root.iter() {
             children.push(w.into());
         }
 
-        return WindowLayoutDescription::Split { children, length: None };
+        return WindowLayoutStorage {
+            layout: WindowLayoutDescription::Split { children, length: None },
+            focused,
+            zoomed,
+        };
     }
 
     /// Create a new instance containing a single [Window] displaying some content.
@@ -2855,7 +2892,7 @@ mod tests {
             }],
             length: None,
         };
-        assert_eq!(desc1, exp);
+        assert_eq!(desc1.layout, exp);
 
         // Turn back into a layout, and then generate a new description to show it's the same.
         let tree = desc1
