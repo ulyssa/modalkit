@@ -22,7 +22,7 @@ use ratatui::{
 use super::{
     cmdbar::{CommandBar, CommandBarState},
     util::{rect_down, rect_zero_height},
-    windows::{WindowActions, WindowLayout, WindowLayoutDescription, WindowLayoutState},
+    windows::{WindowActions, WindowLayout, WindowLayoutState, WindowLayoutStorage},
     TerminalCursor,
     Window,
     WindowOps,
@@ -246,7 +246,9 @@ fn bold<'a>(s: String) -> Span<'a> {
 #[serde(bound(serialize = "I::WindowId: Serialize"))]
 pub struct TabLayoutDescription<I: ApplicationInfo> {
     /// The description of the window layout for each tab.
-    pub tabs: Vec<WindowLayoutDescription<I>>,
+    pub tabs: Vec<WindowLayoutStorage<I>>,
+    /// The index of the last focused tab
+    pub focused: usize,
 }
 
 impl<I: ApplicationInfo> TabLayoutDescription<I> {
@@ -256,11 +258,19 @@ impl<I: ApplicationInfo> TabLayoutDescription<I> {
         area: Option<Rect>,
         store: &mut Store<I>,
     ) -> UIResult<FocusList<WindowLayoutState<W, I>>, I> {
+        let focused = self.focused;
         self.tabs
             .into_iter()
             .map(|desc| desc.to_layout(area, store))
             .collect::<UIResult<Vec<_>, I>>()
-            .map(FocusList::new)
+            .map(|layout| {
+                let mut focus = FocusList::new(layout);
+                let ctx = EditContext::default();
+                // Count starts at 1
+                let change = FocusChange::Offset(Count::Exact(focused + 1), true);
+                focus.focus(&change, &ctx);
+                focus
+            })
     }
 }
 
@@ -317,6 +327,7 @@ where
     pub fn as_description(&self) -> TabLayoutDescription<I> {
         TabLayoutDescription {
             tabs: self.tabs.iter().map(WindowLayoutState::as_description).collect(),
+            focused: self.tabs.pos(),
         }
     }
 
