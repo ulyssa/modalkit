@@ -275,11 +275,11 @@ impl InternalAction {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 enum ExternalAction<I: ApplicationInfo> {
     Something(Action<I>),
     CountAlters(Vec<Action<I>>, Vec<Action<I>>),
-    CommandEnter(CommandType, VimMode),
+    CommandEnter(String, CommandType, Action<I>, VimMode),
     CommandExit(PromptAction),
     MacroToggle(bool),
     PostAction,
@@ -296,8 +296,8 @@ impl<I: ApplicationInfo> ExternalAction<I> {
                     acts2.clone()
                 }
             },
-            ExternalAction::CommandEnter(ct, mode) => {
-                let act = CommandBarAction::Focus(*ct);
+            ExternalAction::CommandEnter(s, ct, act, mode) => {
+                let act = CommandBarAction::Focus(s.clone(), *ct, Box::new(act.clone()));
                 let mode = context.action.postmode.take().unwrap_or(*mode);
                 let shape = context.persist.shape.take();
                 let actx = Box::new(context.action.clone()).into();
@@ -336,21 +336,6 @@ impl<I: ApplicationInfo> ExternalAction<I> {
 
                 vec![MacroAction::ToggleRecording.into()]
             },
-        }
-    }
-}
-
-impl<I: ApplicationInfo> Clone for ExternalAction<I> {
-    fn clone(&self) -> Self {
-        match self {
-            ExternalAction::Something(act) => ExternalAction::Something(act.clone()),
-            ExternalAction::CountAlters(act1, act2) => {
-                ExternalAction::CountAlters(act1.clone(), act2.clone())
-            },
-            ExternalAction::CommandEnter(ct, mode) => ExternalAction::CommandEnter(*ct, *mode),
-            ExternalAction::CommandExit(act) => ExternalAction::CommandExit(act.clone()),
-            ExternalAction::MacroToggle(reqrec) => ExternalAction::MacroToggle(*reqrec),
-            ExternalAction::PostAction => ExternalAction::PostAction,
         }
     }
 }
@@ -1252,7 +1237,16 @@ macro_rules! window_file {
 
 macro_rules! cmdbar_focus {
     ($type: expr, $mode: expr) => {
-        isv!(vec![], vec![ExternalAction::CommandEnter($type, $mode)], VimMode::Command)
+        isv!(
+            vec![],
+            vec![ExternalAction::CommandEnter(
+                ":".into(),
+                $type,
+                CommandAction::Execute(1.into()).into(),
+                $mode
+            )],
+            VimMode::Command
+        )
     };
 }
 
@@ -1260,7 +1254,19 @@ macro_rules! search {
     ($dir: expr, $mode: expr) => {
         isv!(
             vec![InternalAction::SetSearchRegexParams($dir, false)],
-            vec![ExternalAction::CommandEnter(CommandType::Search, $mode)],
+            vec![ExternalAction::CommandEnter(
+                match $dir {
+                    MoveDir1D::Next => "/".into(),
+                    MoveDir1D::Previous => "?".into(),
+                },
+                CommandType::Search,
+                EditorAction::Edit(
+                    Specifier::Contextual,
+                    EditTarget::Search(SearchType::Regex, MoveDirMod::Same, Count::Contextual)
+                )
+                .into(),
+                $mode
+            )],
             VimMode::Command
         )
     };
@@ -1598,7 +1604,7 @@ fn default_keys<I: ApplicationInfo>() -> Vec<(MappedModes, &'static str, InputSt
         ( NMAP, "~", tilde!() ),
         ( NMAP, ".", act!(Action::Repeat(RepeatType::EditSequence)) ),
         ( NMAP, "@{register}", act!(MacroAction::Execute(Count::Contextual)) ),
-        ( NMAP, "@:", command!(CommandAction::Repeat(Count::Contextual)) ),
+        ( NMAP, "@:", command!(CommandAction::Execute(Count::Contextual)) ),
         ( NMAP, "@@", act!(MacroAction::Repeat(Count::Contextual)) ),
         ( NMAP, "<C-A>", edit_target!(EditAction::ChangeNumber(NumberChange::Increase(Count::Contextual), false), EditTarget::Motion(MoveType::LinePos(MovePosition::End), 0.into())) ),
         ( NMAP, "<C-I>", jump!(PositionList::JumpList, MoveDir1D::Next) ),
@@ -2234,9 +2240,7 @@ mod tests {
         EditTarget::Motion(MoveType::Column(MoveDir1D::Previous, false), Count::Exact(1)),
     ));
     const CHECKPOINT: Action = Action::Editor(EditorAction::History(HistoryAction::Checkpoint));
-    const CMDBAR: Action = Action::CommandBar(CommandBarAction::Focus(CommandType::Command));
     const CMDBAR_ABORT: Action = Action::Prompt(PromptAction::Abort(false));
-    const CMDBAR_SEARCH: Action = Action::CommandBar(CommandBarAction::Focus(CommandType::Search));
     const CURSOR_CLOSE: Action =
         Action::Editor(EditorAction::Cursor(CursorAction::Close(CursorCloseTarget::Followers)));
     const CURSOR_SPLIT: Action =
@@ -2258,6 +2262,21 @@ mod tests {
     const TYPE_CONTEXTUAL: Action = Action::Editor(EditorAction::InsertText(
         InsertTextAction::Type(Specifier::Contextual, MoveDir1D::Previous, Count::Exact(1)),
     ));
+
+    fn cmdbar_focus(s: &str, ct: CommandType, act: Action) -> Action {
+        Action::CommandBar(CommandBarAction::Focus(s.into(), ct, act.into()))
+    }
+
+    fn cmdbar_command() -> Action {
+        let exec = CommandAction::Execute(1.into());
+        cmdbar_focus(":", CommandType::Command, exec.into())
+    }
+
+    fn cmdbar_search(s: &str) -> Action {
+        let search = EditTarget::Search(SearchType::Regex, MoveDirMod::Same, Count::Contextual);
+        let search = EditorAction::Edit(Specifier::Contextual, search);
+        cmdbar_focus(s, CommandType::Search, search.into())
+    }
 
     #[test]
     fn test_transitions_normal() {
@@ -2395,7 +2414,7 @@ mod tests {
 
         // Move to Command mode using ":".
         vm.input_key(key!(':'));
-        assert_pop2!(vm, CMDBAR, ctx);
+        assert_pop2!(vm, cmdbar_command(), ctx);
         assert_eq!(vm.mode(), VimMode::Command);
 
         // Unmapped key types that character.
@@ -2429,7 +2448,7 @@ mod tests {
         // Move to Command mode (forward search) using "/".
         ctx.search_regex_dir = MoveDir1D::Next;
         vm.input_key(key!('/'));
-        assert_pop2!(vm, CMDBAR_SEARCH, ctx);
+        assert_pop2!(vm, cmdbar_search("/"), ctx);
         assert_eq!(vm.mode(), VimMode::Command);
 
         // Unmapped key types that character.
@@ -2452,7 +2471,7 @@ mod tests {
         // Move to Command mode (reverse search) using "?".
         ctx.search_regex_dir = MoveDir1D::Previous;
         vm.input_key(key!('?'));
-        assert_pop2!(vm, CMDBAR_SEARCH, ctx);
+        assert_pop2!(vm, cmdbar_search("?"), ctx);
         assert_eq!(vm.mode(), VimMode::Command);
 
         // Unmapped key types that character.
@@ -2482,7 +2501,7 @@ mod tests {
         ctx.target_shape = None;
         ctx.search_regex_dir = MoveDir1D::Next;
         vm.input_key(key!('/'));
-        assert_pop2!(vm, CMDBAR_SEARCH, ctx);
+        assert_pop2!(vm, cmdbar_search("/"), ctx);
         assert_eq!(vm.mode(), VimMode::Command);
 
         // Unmapped key types that character.
@@ -2511,7 +2530,7 @@ mod tests {
         ctx.target_shape = None;
         ctx.search_regex_dir = MoveDir1D::Next;
         vm.input_key(key!('/'));
-        assert_pop2!(vm, CMDBAR_SEARCH, ctx);
+        assert_pop2!(vm, cmdbar_search("/"), ctx);
         assert_eq!(vm.mode(), VimMode::Command);
 
         // Unmapped key types that character.
@@ -2543,7 +2562,7 @@ mod tests {
         vm.input_key(key!('2'));
         vm.input_key(key!('c'));
         vm.input_key(key!('/'));
-        assert_pop2!(vm, CMDBAR_SEARCH, ctx);
+        assert_pop2!(vm, cmdbar_search("/"), ctx);
         assert_eq!(vm.mode(), VimMode::Command);
 
         // Unmapped key types that character.

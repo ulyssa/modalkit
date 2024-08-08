@@ -367,7 +367,7 @@ where
             Regex::new(word.as_str())
         }?;
 
-        store.set_last_search(needle.to_string());
+        store.registers.set_last_command(CommandType::Search, needle.to_string());
 
         let res = self.text.find_regex(&cursor, dir, &needle, count);
 
@@ -397,7 +397,7 @@ where
     }
 
     fn _get_regex(&self, store: &Store<I>) -> EditResult<Regex, I> {
-        let lsearch = store.registers.get(&Register::LastSearch)?.value;
+        let lsearch = store.registers.get_last_search();
         let regex = Regex::new(lsearch.to_string().as_ref())?;
 
         return Ok(regex);
@@ -2034,7 +2034,7 @@ mod tests {
         let op = EditAction::Motion;
         let mv = EditTarget::Search(SearchType::Regex, MoveDirMod::Same, Count::Contextual);
 
-        store.set_last_search("he");
+        store.registers.set_last_search("he");
 
         // Move to (0, 6) to begin.
         ebuf.set_leader(gid, Cursor::new(0, 6));

@@ -624,8 +624,8 @@ where
                         let dir = ctx.get_search_regex_dir();
                         let dir = flip.resolve(&dir);
 
-                        let lsearch = store.registers.get(&Register::LastSearch)?;
-                        let lsearch = lsearch.value.to_string();
+                        let lsearch = store.registers.get_last_search();
+                        let lsearch = lsearch.to_string();
                         let needle = Regex::new(lsearch.as_ref())?;
 
                         self.find_regex(&self.cursor, dir, &needle, count).map(|r| r.start)
@@ -690,8 +690,8 @@ where
                         let dir = ctx.get_search_regex_dir();
                         let dir = flip.resolve(&dir);
 
-                        let lsearch = store.registers.get(&Register::LastSearch)?;
-                        let lsearch = lsearch.value.to_string();
+                        let lsearch = store.registers.get_last_search();
+                        let lsearch = lsearch.to_string();
                         let needle = Regex::new(lsearch.as_ref())?;
 
                         self.find_regex(&self.cursor, dir, &needle, count)
@@ -1610,7 +1610,7 @@ mod tests {
     fn test_search() {
         let (mut list, ctx, mut store) = mklist();
 
-        store.set_last_search("on");
+        store.registers.set_last_search("on");
 
         assert_eq!(list.cursor.position, 0);
 

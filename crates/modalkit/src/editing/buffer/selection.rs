@@ -1778,7 +1778,7 @@ mod tests {
         assert_eq!(ebuf.get_follower_selections(curid), Some(fsels.clone()));
 
         // Set regex to /he/.
-        store.set_last_search("he");
+        store.registers.set_last_search("he");
 
         // Keep selections matching /he/.
         ebuf.selection_filter(false, ctx!(curid, vwctx, vctx), &mut store).unwrap();
@@ -1830,7 +1830,7 @@ mod tests {
         assert_eq!(ebuf.get_follower_selections(curid), Some(fsels.clone()));
 
         // Set regex to /he/.
-        store.set_last_search("he");
+        store.registers.set_last_search("he");
 
         // Drop selections matching /he/.
         ebuf.selection_filter(true, ctx!(curid, vwctx, vctx), &mut store).unwrap();

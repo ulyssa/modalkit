@@ -22,8 +22,6 @@
 use std::sync::{Arc, RwLock};
 
 use crate::editing::application::ApplicationInfo;
-use crate::editing::history::HistoryList;
-use crate::editing::rope::EditRope;
 
 mod buffer;
 mod complete;
@@ -36,9 +34,6 @@ pub use self::complete::CompletionStore;
 pub use self::cursor::{AdjustStore, CursorStore, GlobalAdjustable};
 pub use self::digraph::DigraphStore;
 pub use self::register::{RegisterCell, RegisterError, RegisterPutFlags, RegisterStore};
-
-const COMMAND_HISTORY_LEN: usize = 50;
-const SEARCH_HISTORY_LEN: usize = 50;
 
 /// Global editing context
 pub struct Store<I: ApplicationInfo> {
@@ -56,12 +51,6 @@ pub struct Store<I: ApplicationInfo> {
 
     /// Tracks globally-relevant cursors and cursor groups.
     pub cursors: CursorStore<I>,
-
-    /// Tracks previous commands.
-    pub commands: HistoryList<EditRope>,
-
-    /// Tracks previous search expressions.
-    pub searches: HistoryList<EditRope>,
 
     /// Application-specific storage.
     pub application: I::Store,
@@ -83,9 +72,6 @@ where
             registers: RegisterStore::default(),
             cursors: CursorStore::default(),
 
-            commands: HistoryList::new("".into(), COMMAND_HISTORY_LEN),
-            searches: HistoryList::new("".into(), SEARCH_HISTORY_LEN),
-
             application,
         }
     }
@@ -98,66 +84,6 @@ where
     /// Get a buffer via its identifier.
     pub fn load_buffer(&mut self, id: I::ContentId) -> SharedBuffer<I> {
         self.buffers.load(id)
-    }
-
-    /// Add a command to the command history after the prompt has been aborted.
-    ///
-    /// This will not update [Register::LastCommand].
-    ///
-    /// [Register::LastCommand]: crate::prelude::Register::LastCommand
-    pub fn set_aborted_cmd<T: Into<EditRope>>(&mut self, text: T) {
-        let rope = text.into();
-
-        if rope.is_empty() {
-            let _ = self.commands.end();
-        } else {
-            self.commands.select(rope);
-        }
-    }
-
-    /// Add a search query to the search history after the prompt has been aborted.
-    ///
-    /// This will not update [Register::LastSearch].
-    ///
-    /// [Register::LastSearch]: crate::prelude::Register::LastSearch
-    pub fn set_aborted_search<T: Into<EditRope>>(&mut self, text: T) {
-        let rope = text.into();
-
-        if rope.is_empty() {
-            let _ = self.searches.end();
-        } else {
-            self.searches.select(rope);
-        }
-    }
-
-    /// Add a command to the command history, and set [Register::LastCommand].
-    ///
-    /// [Register::LastCommand]: crate::prelude::Register::LastCommand
-    pub fn set_last_cmd<T: Into<EditRope>>(&mut self, text: T) {
-        let rope = text.into();
-
-        if rope.is_empty() {
-            // Disallow empty commands.
-            return;
-        }
-
-        self.commands.select(rope.clone());
-        self.registers.set_last_cmd(rope);
-    }
-
-    /// Add a search query to the search history, and set [Register::LastSearch].
-    ///
-    /// [Register::LastSearch]: crate::prelude::Register::LastSearch
-    pub fn set_last_search<T: Into<EditRope>>(&mut self, text: T) {
-        let rope = text.into();
-
-        if rope.is_empty() {
-            // Disallow empty searches.
-            return;
-        }
-
-        self.searches.select(rope.clone());
-        self.registers.set_last_search(rope);
     }
 }
 

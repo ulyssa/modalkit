@@ -681,7 +681,9 @@ impl Editor {
                 None
             },
             Action::Command(act) => {
-                let acts = self.store.application.cmds.command(&act, &ctx)?;
+                let astore = &mut self.store.application;
+                let rstore = &mut self.store.registers;
+                let acts = astore.cmds.command(&act, &ctx, rstore)?;
                 self.action_prepend(acts);
 
                 None

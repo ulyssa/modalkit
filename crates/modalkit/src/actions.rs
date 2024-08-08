@@ -33,6 +33,7 @@ use crate::{
     commands::{Command, CommandMachine},
     editing::application::*,
     editing::context::{EditContext, Resolve},
+    editing::store::RegisterStore,
     errors::{EditResult, UIResult},
     keybindings::SequenceStatus,
     prelude::*,
@@ -203,7 +204,7 @@ pub enum SelectionAction {
     /// what you want with [TargetShape::BlockWise] selections.
     Expand(SelectionBoundary, TargetShapeFilter),
 
-    /// Filter selections using the [Register::LastSearch] regular expression.
+    /// Filter selections using the last regular expression entered for [CommandType::Search].
     ///
     /// The [bool] argument indicates whether we should drop selections that match instead of
     /// keeping them.
@@ -318,13 +319,13 @@ impl CursorAction {
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[non_exhaustive]
 pub enum CommandAction {
-    /// Execute a command string.
+    /// Run a command string.
     ///
     /// This should update [Register::LastCommand].
-    Execute(String),
+    Run(String),
 
-    /// Repeat the last executed command [*n* times](Count).
-    Repeat(Count),
+    /// Execute the last [CommandType::Command] entry [*n* times](Count).
+    Execute(Count),
 }
 
 /// Trait for objects which can process [CommandActions](CommandAction).
@@ -338,6 +339,7 @@ where
         &mut self,
         action: &CommandAction,
         ctx: &C::Context,
+        rstore: &mut RegisterStore,
     ) -> UIResult<Vec<(C::Action, C::Context)>, I>;
 }
 
@@ -350,11 +352,12 @@ where
         &mut self,
         action: &CommandAction,
         ctx: &C::Context,
+        rstore: &mut RegisterStore,
     ) -> UIResult<Vec<(Action<I>, C::Context)>, I> {
         match action {
-            CommandAction::Repeat(count) => {
+            CommandAction::Execute(count) => {
                 let count = ctx.resolve(count);
-                let cmd = self.get_last_command();
+                let cmd = rstore.get_last_cmd().to_string();
                 let msg = format!(":{cmd}");
                 let msg = Action::ShowInfoMessage(msg.into());
                 let mut acts = vec![(msg, ctx.clone())];
@@ -367,7 +370,8 @@ where
 
                 Ok(acts)
             },
-            CommandAction::Execute(cmd) => {
+            CommandAction::Run(cmd) => {
+                rstore.set_last_cmd(cmd.as_str());
                 let acts = self.input_cmd(cmd, ctx.clone())?;
 
                 Ok(acts)
@@ -378,9 +382,9 @@ where
 
 /// Command bar actions
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub enum CommandBarAction {
+pub enum CommandBarAction<I: ApplicationInfo> {
     /// Focus the command bar
-    Focus(CommandType),
+    Focus(String, CommandType, Box<Action<I>>),
 
     /// Unfocus the command bar.
     Unfocus,
@@ -735,7 +739,7 @@ pub enum Action<I: ApplicationInfo = EmptyInfo> {
     Command(CommandAction),
 
     /// Perform a command bar-related action.
-    CommandBar(CommandBarAction),
+    CommandBar(CommandBarAction<I>),
 
     /// Perform a prompt-related action.
     Prompt(PromptAction),
@@ -905,8 +909,8 @@ impl<I: ApplicationInfo> From<CommandAction> for Action<I> {
     }
 }
 
-impl<I: ApplicationInfo> From<CommandBarAction> for Action<I> {
-    fn from(act: CommandBarAction) -> Self {
+impl<I: ApplicationInfo> From<CommandBarAction<I>> for Action<I> {
+    fn from(act: CommandBarAction<I>) -> Self {
         Action::CommandBar(act)
     }
 }

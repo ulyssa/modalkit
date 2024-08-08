@@ -137,7 +137,7 @@ where
 
     fn _redraw_wrap(
         &mut self,
-        prompt: &Option<String>,
+        prompt: Option<&str>,
         off: u16,
         context: &mut EditorContext,
     ) -> Result<u16, io::Error> {
@@ -265,7 +265,7 @@ where
 
     fn _redraw_nowrap(
         &mut self,
-        _: &Option<String>,
+        _: Option<&str>,
         _: u16,
         _: &mut EditorContext,
     ) -> Result<u16, io::Error> {
@@ -278,7 +278,7 @@ where
 
     pub fn redraw(
         &mut self,
-        prompt: &Option<String>,
+        prompt: Option<&str>,
         off: u16,
         context: &mut EditorContext,
     ) -> Result<u16, io::Error> {

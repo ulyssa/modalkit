@@ -2241,6 +2241,12 @@ impl EditRope {
     }
 }
 
+impl Default for EditRope {
+    fn default() -> Self {
+        EditRope::empty()
+    }
+}
+
 impl Add for EditRope {
     type Output = Self;
 
