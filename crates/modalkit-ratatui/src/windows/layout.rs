@@ -1941,6 +1941,7 @@ pub struct WindowLayout<'a, W: Window<I>, I: ApplicationInfo> {
 
     borders: bool,
     border_style: Style,
+    border_style_focused: Style,
     border_type: BorderType,
 
     _pw: PhantomData<(W, I)>,
@@ -1958,6 +1959,7 @@ where
             focused: false,
             borders: false,
             border_style: Style::default(),
+            border_style_focused: Style::default(),
             border_type: BorderType::Plain,
             _pw: PhantomData,
         }
@@ -1966,6 +1968,12 @@ where
     /// What [Style] should be used when drawing borders.
     pub fn border_style(mut self, style: Style) -> Self {
         self.border_style = style;
+        self
+    }
+
+    /// What [Style] should be used when drawing the border of the selected window.
+    pub fn border_style_focused(mut self, style: Style) -> Self {
+        self.border_style_focused = style;
         self
     }
 
@@ -2010,7 +2018,11 @@ where
                         let block = Block::default()
                             .title(title)
                             .borders(Borders::ALL)
-                            .border_style(self.border_style)
+                            .border_style(if focused {
+                                self.border_style_focused
+                            } else {
+                                self.border_style
+                            })
                             .border_type(self.border_type);
                         let inner = block.inner(info.area);
 
