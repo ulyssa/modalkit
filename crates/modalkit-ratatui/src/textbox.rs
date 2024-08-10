@@ -1176,6 +1176,7 @@ where
 mod tests {
     use super::*;
     use modalkit::editing::store::Store;
+    use modalkit::env::vim::VimState;
 
     macro_rules! mv {
         ($mt: expr) => {
@@ -1217,7 +1218,7 @@ mod tests {
 
     fn mkboxstr(s: &str) -> (TextBoxState, EditContext, Store<EmptyInfo>) {
         let (mut b, mut store) = mkbox();
-        let ctx = EditContext::default();
+        let ctx = EditContext::from(VimState::<EmptyInfo>::default());
 
         b.set_text(s);
         b.editor_command(&HistoryAction::Checkpoint.into(), &ctx, &mut store)

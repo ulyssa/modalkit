@@ -43,7 +43,7 @@ impl Default for EditContext {
             cursor_end: CursorEnd::Auto,
             target_shape: None,
             insert_style: None,
-            last_column: false,
+            last_column: true,
             register: None,
             register_append: false,
             search_regex_dir: MoveDir1D::Next,
@@ -155,30 +155,40 @@ impl EditContextBuilder {
     }
 
     /// Set the [CursorEnd].
+    ///
+    /// Defaults to [CursorEnd::Auto].
     pub fn cursor_end(mut self, v: CursorEnd) -> Self {
         self.0.cursor_end = v;
         self
     }
 
     /// Set the [TargetShape].
+    ///
+    /// Defaults to [None].
     pub fn target_shape(mut self, v: Option<TargetShape>) -> Self {
         self.0.target_shape = v;
         self
     }
 
     /// Set the [InsertStyle].
+    ///
+    /// Defaults to [None].
     pub fn insert_style(mut self, v: Option<InsertStyle>) -> Self {
         self.0.insert_style = v;
         self
     }
 
     /// Set whether it's okay to move the cursor into the last column.
+    ///
+    /// Defaults to [true].
     pub fn last_column(mut self, v: bool) -> Self {
         self.0.last_column = v;
         self
     }
 
     /// Set the [Register].
+    ///
+    /// Defaults to [None].
     pub fn register(mut self, v: Option<Register>) -> Self {
         self.0.register = v;
         self
@@ -186,54 +196,72 @@ impl EditContextBuilder {
 
     /// Set whether this operation should append contents to the register or replace the existing
     /// ones.
+    ///
+    /// Defaults to [false].
     pub fn register_append(mut self, v: bool) -> Self {
         self.0.register_append = v;
         self
     }
 
     /// Set the direction the regular expression should search in.
+    ///
+    /// Defaults to [MoveDir1D::Next].
     pub fn search_regex_dir(mut self, v: MoveDir1D) -> Self {
         self.0.search_regex_dir = v;
         self
     }
 
     /// Set a character to search for.
+    ///
+    /// Defaults to [None].
     pub fn search_char(mut self, v: Option<(MoveDir1D, bool, Char)>) -> Self {
         self.0.search_char = v;
         self
     }
 
     /// Set a [Char] to replace existing characters with.
+    ///
+    /// Defaults to [None].
     pub fn replace_char(mut self, v: Option<Char>) -> Self {
         self.0.replace_char = v;
         self
     }
 
     /// Set whether we should do an incremental search.
+    ///
+    /// Defaults to [false].
     pub fn search_incremental(mut self, v: bool) -> Self {
         self.0.search_incremental = v;
         self
     }
 
     /// Set the contextual [Mark].
+    ///
+    /// Defaults to [None].
     pub fn mark(mut self, mark: Option<Mark>) -> Self {
         self.0.mark = mark;
         self
     }
 
     /// Set the contextual [Mark].
+    ///
+    /// Defaults to [None].
     pub fn typed_char(mut self, ch: Option<Char>) -> Self {
         self.0.typed = ch;
         self
     }
 
     /// Set the contextual [Mark].
+    ///
+    /// Defaults to [EditAction::Motion].
     pub fn operation(mut self, op: EditAction) -> Self {
         self.0.operation = op;
         self
     }
 
     /// Set the contextual count.
+    ///
+    /// Defaults to [None].
     pub fn count(mut self, n: Option<usize>) -> Self {
         self.0.count = n;
         self

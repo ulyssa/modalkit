@@ -2758,6 +2758,13 @@ mod tests {
         };
     }
 
+    fn mkctx_vim() -> EditContext {
+        use crate::editing::application::EmptyInfo;
+        use crate::env::vim::VimState;
+
+        VimState::<EmptyInfo>::default().into()
+    }
+
     #[test]
     fn test_max_line_idx() {
         let r = EditRope::from("a\nbc\n\ndefg\nhijkl\n");
@@ -3996,7 +4003,7 @@ mod tests {
     fn test_motion_char_line() {
         let rope = EditRope::from("hello\nworld\na b c d e\n");
         let vwctx = ViewportContext::<Cursor>::default();
-        let mut vctx = EditContext::default();
+        let mut vctx = mkctx_vim();
         let mut cursor = rope.first();
         let count = Count::Contextual;
 
@@ -4089,7 +4096,7 @@ mod tests {
     fn test_motion_column_wrap() {
         let rope = EditRope::from("hello\nworld\na b c d e\n");
         let vwctx = ViewportContext::<Cursor>::default();
-        let mut vctx = EditContext::default();
+        let mut vctx = mkctx_vim();
         let mut cursor = rope.first();
         let count = Count::Contextual;
 
@@ -4134,7 +4141,7 @@ mod tests {
     fn test_motion_word_accents() {
         let rope = EditRope::from("árvíztűrő tükörfúrógép");
         let vwctx = ViewportContext::<Cursor>::default();
-        let vctx = EditContext::default();
+        let vctx = mkctx_vim();
         let mut cursor = rope.first();
         let count = Count::Contextual;
 
@@ -4155,7 +4162,7 @@ mod tests {
     fn test_motion_word() {
         let rope = EditRope::from("hello world\na,b,c,d e,f,g,h\n");
         let vwctx = ViewportContext::<Cursor>::default();
-        let vctx = EditContext::default();
+        let vctx = mkctx_vim();
         let mut cursor = rope.first();
         let count = Count::Contextual;
 
@@ -4333,7 +4340,7 @@ mod tests {
     fn test_motion_word_begin_nonalphanum() {
         let rope = EditRope::from("hello   world  \nhow,are ,, you,doing\n today\n");
         let vwctx = ViewportContext::<Cursor>::default();
-        let mut vctx = EditContext::default();
+        let mut vctx = mkctx_vim();
         let mut cursor = rope.first();
         let count = Count::Contextual;
 
@@ -4429,7 +4436,7 @@ mod tests {
     fn test_motion_word_alphanum() {
         let rope = EditRope::from("hello   world  \nhow,are ,, you,doing\n today\n");
         let vwctx = ViewportContext::<Cursor>::default();
-        let mut vctx = EditContext::default();
+        let mut vctx = mkctx_vim();
         let mut cursor = rope.first();
         let count = Count::Contextual;
 
@@ -4528,7 +4535,7 @@ mod tests {
     fn test_final_non_blank() {
         let rope = EditRope::from("hello world       \na b c d e  \n12345\n");
         let vwctx = ViewportContext::<Cursor>::default();
-        let vctx = EditContext::default();
+        let vctx = mkctx_vim();
         let mut cursor = rope.first();
 
         assert_eq!(cursor, Cursor::new(0, 0));
@@ -4574,7 +4581,7 @@ mod tests {
     fn test_first_word() {
         let rope = EditRope::from("       hello world\n  a b c d e\n    first\n");
         let vwctx = ViewportContext::<Cursor>::default();
-        let vctx = EditContext::default();
+        let vctx = mkctx_vim();
         let mut cursor = rope.first();
 
         assert_eq!(cursor, Cursor::new(0, 0));
@@ -4607,7 +4614,7 @@ mod tests {
     fn test_motion_line_pos() {
         let rope = EditRope::from("1234567890\nabcde\n");
         let vwctx = ViewportContext::<Cursor>::default();
-        let mut vctx = EditContext::default();
+        let mut vctx = mkctx_vim();
         let mut cursor = rope.first();
 
         assert_eq!(cursor, Cursor::new(0, 0));
@@ -4653,7 +4660,7 @@ mod tests {
             klmnopqrst\n",
         );
         let vwctx = ViewportContext::<Cursor>::default();
-        let vctx = EditContext::default();
+        let vctx = mkctx_vim();
         let mut cursor = rope.first();
 
         let mov = MoveType::LineColumnOffset;
@@ -4688,7 +4695,7 @@ mod tests {
     fn test_motion_line_percent() {
         let rope = EditRope::from("abcdefghijklmnopqrstuvwxyz\n");
         let vwctx = ViewportContext::<Cursor>::default();
-        let vctx = EditContext::default();
+        let vctx = mkctx_vim();
         let mut cursor = rope.first();
 
         let mov = MoveType::LinePercent;
@@ -4723,7 +4730,7 @@ mod tests {
             klmnopqrst\n",
         );
         let vwctx = ViewportContext::<Cursor>::default();
-        let vctx = EditContext::default();
+        let vctx = mkctx_vim();
         let mut cursor = rope.first();
 
         let mov = MoveType::BufferByteOffset;
@@ -4771,7 +4778,7 @@ mod tests {
             1234567890\n",
         );
         let vwctx = ViewportContext::<Cursor>::default();
-        let vctx = EditContext::default();
+        let vctx = mkctx_vim();
         let mut cursor = rope.first();
 
         // Move to end of buffer ("8G")
@@ -4812,7 +4819,7 @@ mod tests {
             abcdefghij\n",
         );
         let vwctx = ViewportContext::<Cursor>::default();
-        let vctx = EditContext::default();
+        let vctx = mkctx_vim();
         let mut cursor = rope.first();
 
         // Move to end of buffer ("100%")
@@ -4856,7 +4863,7 @@ mod tests {
             1234567890\n",
         );
         let vwctx = ViewportContext::<Cursor>::default();
-        let vctx = EditContext::default();
+        let vctx = mkctx_vim();
         let mut cursor = rope.first();
         let count = Count::Contextual;
 
@@ -4892,7 +4899,7 @@ mod tests {
             KLMNO\n",
         );
         let mut vwctx = ViewportContext::<Cursor>::default();
-        let mut vctx = EditContext::default();
+        let mut vctx = mkctx_vim();
         let count = Count::Contextual;
 
         /*
@@ -4964,7 +4971,7 @@ mod tests {
     fn test_motion_screen_wrap() {
         let rope = EditRope::from("abcdefghij\nklmnopqrstuvwxyz\n");
         let mut vwctx = ViewportContext::<Cursor>::default();
-        let vctx = EditContext::default();
+        let vctx = mkctx_vim();
 
         vwctx.corner = Cursor::new(0, 0);
         vwctx.set_wrap(true);
@@ -5023,7 +5030,7 @@ mod tests {
     fn test_motion_screen_nowrap() {
         let rope = EditRope::from("abcdefghij\nklmnopqrstuvwxyz\n");
         let mut vwctx = ViewportContext::<Cursor>::default();
-        let vctx = EditContext::default();
+        let vctx = mkctx_vim();
 
         vwctx.corner = Cursor::new(0, 5);
         vwctx.set_wrap(false);
@@ -5076,7 +5083,7 @@ mod tests {
     fn test_motion_screen_first_word_wrap() {
         let rope = EditRope::from("abcde  f g  hij\n  klm  nop\n");
         let mut vwctx = ViewportContext::<Cursor>::default();
-        let vctx = EditContext::default();
+        let vctx = mkctx_vim();
 
         vwctx.set_wrap(true);
         vwctx.corner = Cursor::new(0, 5);
@@ -5108,7 +5115,7 @@ mod tests {
     fn test_motion_screen_first_word_nowrap() {
         let rope = EditRope::from("abcde  f g  hij\n  klm  nop\n");
         let mut vwctx = ViewportContext::<Cursor>::default();
-        let vctx = EditContext::default();
+        let vctx = mkctx_vim();
 
         vwctx.set_wrap(false);
         vwctx.corner = Cursor::new(0, 5);
@@ -5133,7 +5140,7 @@ mod tests {
     fn test_range_buffer() {
         let rope = EditRope::from("abcdef\nghijklmn\n");
         let vwctx = ViewportContext::<Cursor>::default();
-        let vctx = EditContext::default();
+        let vctx = mkctx_vim();
         let cw = TargetShape::LineWise;
         let count = Count::Contextual;
         let rt = RangeType::Buffer;
@@ -5160,7 +5167,7 @@ mod tests {
     fn test_range_number_base2() {
         let rope = EditRope::from("abc103g-458\n");
         let vwctx = ViewportContext::<Cursor>::default();
-        let vctx = EditContext::default();
+        let vctx = mkctx_vim();
         let cw = TargetShape::CharWise;
         let count = Count::Contextual;
 
@@ -5190,7 +5197,7 @@ mod tests {
     fn test_range_number_base8() {
         let rope = EditRope::from("abc103g-458\n");
         let vwctx = ViewportContext::<Cursor>::default();
-        let vctx = EditContext::default();
+        let vctx = mkctx_vim();
         let cw = TargetShape::CharWise;
         let count = Count::Contextual;
 
@@ -5228,7 +5235,7 @@ mod tests {
     fn test_range_number_base10() {
         let rope = EditRope::from("abc103g-458\n");
         let vwctx = ViewportContext::<Cursor>::default();
-        let vctx = EditContext::default();
+        let vctx = mkctx_vim();
         let cw = TargetShape::CharWise;
         let count = Count::Contextual;
 
@@ -5260,7 +5267,7 @@ mod tests {
     fn test_range_number_base16() {
         let rope = EditRope::from("abc103g-458\n");
         let vwctx = ViewportContext::<Cursor>::default();
-        let vctx = EditContext::default();
+        let vctx = mkctx_vim();
         let cw = TargetShape::CharWise;
         let count = Count::Contextual;
 
@@ -5288,7 +5295,7 @@ mod tests {
     fn test_range_whitespace() {
         let rope = EditRope::from("a   \t   b\nc  \t\n\n    d");
         let vwctx = ViewportContext::<Cursor>::default();
-        let vctx = EditContext::default();
+        let vctx = mkctx_vim();
         let cw = TargetShape::CharWise;
         let count = Count::Contextual;
         let inc = true;
@@ -5344,7 +5351,7 @@ mod tests {
     fn test_range_line() {
         let rope = EditRope::from("1 2 3\nhello world\n    foo bar\na b c d e f\n");
         let vwctx = ViewportContext::<Cursor>::default();
-        let mut vctx = EditContext::default();
+        let mut vctx = mkctx_vim();
         let cw = TargetShape::LineWise;
         let count = Count::Contextual;
         let rt = RangeType::Line;
@@ -5376,7 +5383,7 @@ mod tests {
     fn test_range_bracketed_start_at_paren() {
         let rope = EditRope::from("foo (1 ( (a) \")\" (b) ')' (c) ) 2 3) bar");
         let vwctx = ViewportContext::<Cursor>::default();
-        let mut vctx = EditContext::default();
+        let mut vctx = mkctx_vim();
         let cw = TargetShape::CharWise;
         let count = Count::Contextual;
         let rt = RangeType::Bracketed('(', ')');
@@ -5428,7 +5435,7 @@ mod tests {
     fn test_range_bracketed_forward() {
         let rope = EditRope::from("foo (1 ( (a) \")\" (b) ')' (c) ) 2 3) bar");
         let vwctx = ViewportContext::<Cursor>::default();
-        let mut vctx = EditContext::default();
+        let mut vctx = mkctx_vim();
         let cw = TargetShape::CharWise;
         let count = Count::Contextual;
         let rt = RangeType::Bracketed('(', ')');
@@ -5468,7 +5475,7 @@ mod tests {
     fn test_range_bracketed_backward() {
         let rope = EditRope::from("foo (1 ( (a) \")\" (b) ')' (c) ) 2 3) bar");
         let vwctx = ViewportContext::<Cursor>::default();
-        let mut vctx = EditContext::default();
+        let mut vctx = mkctx_vim();
         let cw = TargetShape::CharWise;
         let count = Count::Contextual;
         let rt = RangeType::Bracketed('(', ')');
@@ -5508,7 +5515,7 @@ mod tests {
     fn test_range_bracketed_no_surrounding_parens() {
         let rope = EditRope::from("foo (1 ( (a) \")\" (b) ')' (c) ) 2 3) bar");
         let vwctx = ViewportContext::<Cursor>::default();
-        let vctx = EditContext::default();
+        let vctx = mkctx_vim();
         let count = Count::Contextual;
         let rt = RangeType::Bracketed('(', ')');
         let inc = true;
@@ -5528,7 +5535,7 @@ mod tests {
     fn test_range_bracketed_exclusive() {
         let rope = EditRope::from("foo (1 ( (a) \")\" (b) ')' (c) ) 2 3) bar");
         let vwctx = ViewportContext::<Cursor>::default();
-        let mut vctx = EditContext::default();
+        let mut vctx = mkctx_vim();
         let cw = TargetShape::CharWise;
         let count = Count::Contextual;
         let rt = RangeType::Bracketed('(', ')');
@@ -5568,7 +5575,7 @@ mod tests {
     fn test_range_quoted() {
         let rope = EditRope::from("a b c 'd e f \\'g h i\\' j k' l m n 'o p' q");
         let vwctx = ViewportContext::<Cursor>::default();
-        let vctx = EditContext::default();
+        let vctx = mkctx_vim();
         let count = Count::Contextual;
         let rt = RangeType::Quote('\'');
         let cw = TargetShape::CharWise;

@@ -1410,6 +1410,7 @@ where
 mod tests {
     pub use super::*;
     pub use crate::editing::application::EmptyInfo;
+    pub use crate::editing::context::EditContextBuilder;
     pub use crate::editing::store::{RegisterCell, RegisterPutFlags, Store};
     pub use crate::prelude::TargetShape::{BlockWise, CharWise, LineWise};
 
@@ -1426,7 +1427,7 @@ mod tests {
     }
 
     pub(super) fn mkctx() -> EditContext {
-        EditContext::default()
+        EditContextBuilder::default().last_column(false).build()
     }
 
     pub(super) fn mkbuf() -> EditBuffer<EmptyInfo> {
