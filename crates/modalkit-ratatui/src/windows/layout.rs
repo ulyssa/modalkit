@@ -1429,6 +1429,7 @@ where
             .collapse(target)
             .and_then(AxisTree::singleton);
         self._clamp_focus();
+        self.clear_sizes();
 
         return self.root.size() == 0;
     }
@@ -2548,6 +2549,32 @@ mod tests {
             assert_eq!(tree.root.size(), 1);
             assert_eq!(tree.get().unwrap().id, Some(idx.saturating_sub(1)));
         }
+    }
+
+    #[test]
+    fn test_window_close_allbut_resize_lens() {
+        let (mut tree, mut store, ctx) = mktree();
+        window_split!(tree, Axis::Horizontal, MoveDir1D::Previous, Count::Exact(1), &ctx, store);
+        let mut buffer = Buffer::empty(Rect::new(0, 0, 100, 100));
+        let area = Rect::new(0, 0, 100, 100);
+        let idx = 1;
+
+        // Draw so that everything gets an initial area.
+        WindowLayout::new(&mut store).render(area, &mut buffer, &mut tree);
+
+        // Resize the tree so we have lengths in ResizeInfo.
+        tree.resize(idx, Axis::Horizontal, SizeChange::Increase(10));
+        assert!(tree.info.resized.lengths.is_some());
+
+        // Now close, which should reset the ResizeInfo.
+        let target = WindowTarget::AllBut(fc!(idx + 1));
+        assert!(window_close!(tree, target, CloseFlags::NONE, &ctx, store).is_none());
+        assert!(tree.info.resized.lengths.is_none());
+        assert_eq!(tree.root.size(), 1);
+        assert_eq!(tree.focused, 0);
+
+        // Now draw again, which shouldn't trip our assertions.
+        WindowLayout::new(&mut store).render(area, &mut buffer, &mut tree);
     }
 
     #[test]
