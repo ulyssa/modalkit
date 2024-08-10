@@ -51,6 +51,7 @@
 #![allow(clippy::needless_return)]
 #![allow(clippy::too_many_arguments)]
 #![allow(clippy::type_complexity)]
+use std::collections::VecDeque;
 use std::io::{self, Write};
 use std::process;
 use std::time::Duration;
@@ -101,8 +102,9 @@ fn is_newline(c: char) -> bool {
     c == '\n' || c == '\r'
 }
 
-enum InternalResult {
+enum InternalResult<I: ApplicationInfo> {
     Submitted(EditRope),
+    Actions(Vec<(Action<I>, EditContext)>),
     Nothing,
 }
 
@@ -181,6 +183,7 @@ pub struct ReadLine<I = ReadLineInfo>
 where
     I: ApplicationInfo<ContentId = ReadLineId>,
 {
+    actstack: VecDeque<(Action<I>, EditContext)>,
     bindings: KeyManager<TerminalKey, Action<I>, RepeatType>,
     store: Store<I>,
 
@@ -188,8 +191,10 @@ where
 
     context: EditorContext,
     dimensions: (u16, u16),
+
     ct: Option<CommandType>,
-    sd: MoveDir1D,
+    act: Option<(Action<I>, EditContext)>,
+    cprompt: String,
 
     line: Editor<I>,
     cmd: Editor<I>,
@@ -219,10 +224,12 @@ where
         cmd.resize(dimensions.0, dimensions.1);
         search.resize(dimensions.0, dimensions.1);
 
+        let actstack = VecDeque::default();
         let bindings = KeyManager::new(bindings);
         let history = HistoryList::new("".into(), HISTORY_LENGTH);
 
-        let rl = ReadLine {
+        Ok(ReadLine {
+            actstack,
             bindings,
             store,
 
@@ -230,15 +237,15 @@ where
 
             context,
             dimensions,
+
             ct: None,
-            sd: MoveDir1D::Next,
+            act: None,
+            cprompt: String::new(),
 
             line,
             cmd,
             search,
-        };
-
-        return Ok(rl);
+        })
     }
 
     /// Prompt the user for input.
@@ -252,9 +259,13 @@ where
 
             self.bindings.input_key(key);
 
-            while let Some((action, ctx)) = self.bindings.pop() {
+            while let Some((action, ctx)) = self.action_pop() {
                 match self.act(action, ctx) {
                     Ok(InternalResult::Nothing) => continue,
+                    Ok(InternalResult::Actions(acts)) => {
+                        self.action_prepend(acts);
+                        continue;
+                    },
                     Ok(InternalResult::Submitted(res)) => {
                         self.linebreak()?;
 
@@ -274,9 +285,23 @@ where
         }
     }
 
+    fn action_prepend(&mut self, acts: Vec<(Action<I>, EditContext)>) {
+        let mut acts = VecDeque::from(acts);
+        acts.append(&mut self.actstack);
+        self.actstack = acts;
+    }
+
+    fn action_pop(&mut self) -> Option<(Action<I>, EditContext)> {
+        if let res @ Some(_) = self.actstack.pop_front() {
+            res
+        } else {
+            self.bindings.pop()
+        }
+    }
+
     fn step(&mut self, prompt: &Option<String>) -> Result<TerminalKey, ReadLineError<I>> {
         loop {
-            self.redraw(prompt)?;
+            self.redraw(prompt.as_deref())?;
 
             if !poll(Duration::from_millis(500))? {
                 continue;
@@ -306,7 +331,7 @@ where
         }
     }
 
-    fn suspend(&mut self) -> Result<InternalResult, ReadLineError<I>> {
+    fn suspend(&mut self) -> Result<InternalResult<I>, ReadLineError<I>> {
         // Restore old terminal state.
         crossterm::terminal::disable_raw_mode()?;
         self.context.stdout.queue(CursorShow)?.flush()?;
@@ -332,13 +357,14 @@ where
 
     fn command_bar(
         &mut self,
-        act: &CommandBarAction,
+        act: &CommandBarAction<I>,
         ctx: EditContext,
-    ) -> Result<InternalResult, ReadLineError<I>> {
+    ) -> Result<InternalResult<I>, ReadLineError<I>> {
         match act {
-            CommandBarAction::Focus(ct) => {
+            CommandBarAction::Focus(s, ct, act) => {
                 self.ct = Some(*ct);
-                self.sd = ctx.get_search_regex_dir();
+                self.act = Some((act.as_ref().clone(), ctx));
+                self.cprompt = s.clone();
 
                 Ok(InternalResult::Nothing)
             },
@@ -354,13 +380,13 @@ where
         &mut self,
         act: PromptAction,
         ctx: EditContext,
-    ) -> Result<InternalResult, ReadLineError<I>> {
+    ) -> Result<InternalResult<I>, ReadLineError<I>> {
         match act {
             PromptAction::Submit => {
                 let res = self.submit();
                 self.ct = None;
 
-                return res;
+                Ok(res)
             },
             PromptAction::Abort(empty) => {
                 self.abort(empty);
@@ -376,26 +402,14 @@ where
     }
 
     fn abort(&mut self, empty: bool) {
-        match self.ct {
-            None => {},
-            Some(CommandType::Search) => {
-                if empty && !self.cmd.is_blank() {
-                    return;
-                }
+        if empty && !self.cmd.is_blank() {
+            return;
+        }
 
-                let txt = self.reset_cmd();
-                self.store.set_aborted_search(txt);
-                self.ct = None;
-            },
-            Some(CommandType::Command) => {
-                if empty && !self.cmd.is_blank() {
-                    return;
-                }
-
-                let txt = self.reset_cmd();
-                self.store.set_aborted_cmd(txt);
-                self.ct = None;
-            },
+        if let Some(ct) = self.ct {
+            let txt = self.reset_cmd();
+            self.store.registers.set_aborted_command(ct, txt);
+            self.ct = None;
         }
     }
 
@@ -408,17 +422,13 @@ where
                     self.line.set_text(text);
                 }
             },
-            Some(CommandType::Search) => {
-                let text = self.cmd.recall(&mut self.store.searches, dir, prefixed, count);
+            Some(ct) => {
+                let hist = self.store.registers.get_command_history(ct);
+                let text = self.cmd.recall(hist, dir, prefixed, count);
 
                 if let Some(text) = text {
                     self.cmd.set_text(text);
                 }
-            },
-            Some(CommandType::Command) => {
-                // Does nothing for now.
-
-                return;
             },
         }
     }
@@ -435,9 +445,10 @@ where
         // If the search bar is focused, but nothing has been typed, we move backwards to the
         // previously typed search and use that.
 
+        let hist = self.store.registers.get_command_history(CommandType::Search);
         let text = self
             .cmd
-            .recall(&mut self.store.searches, MoveDir1D::Previous, false, 1)
+            .recall(hist, MoveDir1D::Previous, false, 1)
             .ok_or(EditError::NoSearch)?;
 
         let re = Regex::new(text.to_string().as_ref())?;
@@ -451,7 +462,7 @@ where
         let re = if let Some(CommandType::Search) = self.ct {
             self.get_cmd_regex()?
         } else {
-            let text = self.store.registers.get(&Register::LastSearch)?.value;
+            let text = self.store.registers.get_last_search();
 
             Regex::new(text.to_string().as_ref())?
         };
@@ -485,18 +496,21 @@ where
         Ok(None)
     }
 
-    fn incsearch(&mut self, ctx: &EditContext) -> Result<(), EditError<I>> {
-        if let Some(CommandType::Search) = self.ct {
-            if !ctx.is_search_incremental() {
-                return Ok(());
-            }
+    fn incsearch(&mut self, ctx: &EditContext) -> EditResult<(), I> {
+        let Some(CommandType::Search) = self.ct else {
+            return Ok(());
+        };
 
-            let needle = self.cmd.get_trim().to_string();
-            let needle = Regex::new(needle.as_ref())?;
+        if !ctx.is_search_incremental() {
+            return Ok(());
+        }
 
-            if let Some(text) = self.line.find(&mut self.history, &needle, self.sd, true) {
-                self.line.set_text(text);
-            }
+        let needle = self.cmd.get_trim().to_string();
+        let needle = Regex::new(needle.as_ref())?;
+        let dir = ctx.get_search_regex_dir();
+
+        if let Some(text) = self.line.find(&mut self.history, &needle, dir, true) {
+            self.line.set_text(text);
         }
 
         Ok(())
@@ -535,49 +549,24 @@ where
         }
     }
 
-    fn submit(&mut self) -> Result<InternalResult, ReadLineError<I>> {
-        match self.ct {
-            None => {
-                let text = focused_mut!(self).reset();
+    fn submit(&mut self) -> InternalResult<I> {
+        if let Some(ct) = self.ct {
+            let text = self.reset_cmd();
+            self.store.registers.set_last_command(ct, text);
 
-                self.history.select(text.clone());
-
-                return Ok(InternalResult::Submitted(text));
-            },
-            Some(CommandType::Search) => {
-                let text = self.reset_cmd();
-                let needle = match Regex::new(text.to_string().as_ref()) {
-                    Err(e) => return Err(EditError::from(e).into()),
-                    Ok(r) => r,
-                };
-
-                self.store.set_last_search(text);
-
-                if let Some(text) = self.line.find(&mut self.history, &needle, self.sd, false) {
-                    self.line.set_text(text);
-                }
-
-                return Ok(InternalResult::Nothing);
-            },
-            Some(CommandType::Command) => {
-                let cmd = self.reset_cmd().trim().to_string();
-                let err = ReadLineError::UnknownCommand(cmd);
-
-                return Err(err);
-            },
+            if let Some(act) = self.act.take() {
+                InternalResult::Actions(vec![act])
+            } else {
+                InternalResult::Nothing
+            }
+        } else {
+            let text = self.line.reset();
+            self.history.select(text.clone());
+            InternalResult::Submitted(text)
         }
     }
 
-    fn cmd_prompt(&self) -> Option<String> {
-        match (&self.ct, &self.sd) {
-            (Some(CommandType::Search), MoveDir1D::Next) => Some("/".into()),
-            (Some(CommandType::Search), MoveDir1D::Previous) => Some("?".into()),
-            (Some(CommandType::Command), _) => Some(":".into()),
-            (None, _) => None,
-        }
-    }
-
-    fn redraw(&mut self, prompt: &Option<String>) -> Result<(), io::Error> {
+    fn redraw(&mut self, prompt: Option<&str>) -> Result<(), io::Error> {
         self.context.stdout.queue(CursorHide)?;
 
         self.context
@@ -588,8 +577,8 @@ where
         let lines = self.line.redraw(prompt, 0, &mut self.context)?;
 
         if self.ct.is_some() {
-            let p = self.cmd_prompt();
-            let _ = self.cmd.redraw(&p, lines, &mut self.context);
+            let p = Some(self.cprompt.as_str());
+            let _ = self.cmd.redraw(p, lines, &mut self.context);
         }
 
         self.context.stdout.queue(CursorShow)?;
@@ -646,7 +635,7 @@ where
         &mut self,
         action: Action<I>,
         ctx: EditContext,
-    ) -> Result<InternalResult, ReadLineError<I>> {
+    ) -> Result<InternalResult<I>, ReadLineError<I>> {
         let store = &mut self.store;
 
         let _ = match action {

@@ -16,6 +16,7 @@ use bitflags::bitflags;
 use crate::{
     actions::{
         Action,
+        CommandAction,
         CommandBarAction,
         EditAction,
         EditorAction,
@@ -371,8 +372,8 @@ macro_rules! just_one_space {
 }
 
 macro_rules! cmdbar_focus {
-    ($type: expr, $nm: expr) => {
-        cmdbar!(CommandBarAction::Focus($type), $nm)
+    ($type: expr, $nm: expr, $act: expr) => {
+        cmdbar!(CommandBarAction::Focus(":".into(), $type, Box::new(Action::from($act))), $nm)
     };
 }
 
@@ -380,7 +381,20 @@ macro_rules! cmdbar_search {
     ($dir: expr) => {
         is!(
             InternalAction::SetSearchRegexParams($dir, true),
-            Action::CommandBar(CommandBarAction::Focus(CommandType::Search)),
+            Action::CommandBar(CommandBarAction::Focus(
+                match $dir {
+                    MoveDir1D::Next => "/".into(),
+                    MoveDir1D::Previous => "?".into(),
+                },
+                CommandType::Search,
+                Box::new(
+                    EditorAction::Edit(
+                        Specifier::Contextual,
+                        EditTarget::Search(SearchType::Regex, MoveDirMod::Same, Count::Contextual)
+                    )
+                    .into()
+                )
+            )),
             EmacsMode::Search
         )
     };
@@ -577,7 +591,7 @@ fn default_keys<I: ApplicationInfo>() -> Vec<(MappedModes, &'static str, InputSt
         ( IMAP, "<M-s>.", search_word!(WordStyle::Big) ),
         ( IMAP, "<M-t>", unmapped!() ),
         ( IMAP, "<M-v>", scroll2d!(MoveDir2D::Up, ScrollSize::Page) ),
-        ( IMAP, "<M-x>", cmdbar_focus!(CommandType::Command, EmacsMode::Command) ),
+        ( IMAP, "<M-x>", cmdbar_focus!(CommandType::Command, EmacsMode::Command, CommandAction::Execute(1.into())) ),
         ( IMAP, "<M-z>{char}", kill_target!(EditTarget::Search(SearchType::Char(true), MoveDirMod::Same, Count::Contextual)) ),
         ( IMAP, "<M-S>.", search_word!(WordStyle::Big) ),
         ( IMAP, "<M-\\>", erase_range!(RangeType::Word(WordStyle::Whitespace(false))) ),
@@ -769,7 +783,16 @@ mod tests {
     }
 
     const CMDBAR_ABORT: Action = Action::Prompt(PromptAction::Abort(false));
-    const CMDBAR_SEARCH: Action = Action::CommandBar(CommandBarAction::Focus(CommandType::Search));
+
+    fn cmdbar_focus(s: &str, ct: CommandType, act: Action) -> Action {
+        Action::CommandBar(CommandBarAction::Focus(s.into(), ct, act.into()))
+    }
+
+    fn cmdbar_search(s: &str) -> Action {
+        let search = EditTarget::Search(SearchType::Regex, MoveDirMod::Same, Count::Contextual);
+        let search = EditorAction::Edit(Specifier::Contextual, search);
+        cmdbar_focus(s, CommandType::Search, search.into())
+    }
 
     fn mkctx() -> EditContext {
         EditContextBuilder::default()
@@ -840,7 +863,7 @@ mod tests {
         // ^R moves to Search mode.
         ctx.search_regex_dir = MoveDir1D::Previous;
         vm.input_key(ctl!('r'));
-        assert_pop2!(vm, CMDBAR_SEARCH, ctx);
+        assert_pop2!(vm, cmdbar_search("?"), ctx);
         assert_eq!(vm.mode(), EmacsMode::Search);
 
         // Unmapped, typable character types a character.
@@ -870,7 +893,7 @@ mod tests {
 
         // ^S moves to Search mode.
         vm.input_key(ctl!('s'));
-        assert_pop2!(vm, CMDBAR_SEARCH, ctx);
+        assert_pop2!(vm, cmdbar_search("/"), ctx);
         assert_eq!(vm.mode(), EmacsMode::Search);
 
         // ^G leaves Search mode.

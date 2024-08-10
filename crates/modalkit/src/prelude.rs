@@ -4,7 +4,7 @@
 //!
 //! These types are used to specify the details of [actions].
 //!
-//! [actions]: crate::action
+//! [actions]: crate::actions
 use std::fmt::{self, Debug, Display, Formatter};
 use std::hash::Hash;
 
@@ -265,12 +265,12 @@ pub enum SearchType {
     /// Search for a regular expression.
     Regex,
 
-    /// Search for the word currently under the cursor, and update [Register::LastSearch] via
-    /// [Store::set_last_search].
+    /// Search for the word currently under the cursor, and update the last [CommandType::Search].
+    /// via [RegisterStore::set_last_search].
     ///
     /// [bool] controls whether matches should be checked for using word boundaries.
     ///
-    /// [Store::set_last_search]: crate::editing::store::Store::set_last_search
+    /// [RegisterStore::set_last_search]: crate::editing::store::RegisterStore::set_last_search
     Word(WordStyle, bool),
 }
 
@@ -1373,20 +1373,15 @@ pub enum Register {
     /// For example, `"-` in Vim.
     SmallDelete,
 
-    /// A register containing the last executed command.
-    ///
-    /// For example, `":` in Vim.
-    LastCommand,
-
     /// A register containing the last inserted text.
     ///
     /// For example, `".` in Vim.
     LastInserted,
 
-    /// A register containing the last search expression.
+    /// A register containing the last value entered for a [CommandType].
     ///
-    /// For example, `"/` in Vim.
-    LastSearch,
+    /// For example, `":` and `"/` in Vim.
+    LastCommand(CommandType),
 
     /// A register containing the last copied text.
     ///
@@ -1440,9 +1435,8 @@ impl Register {
             Register::UnnamedMacro => false,
             Register::RecentlyDeleted(_) => false,
             Register::SmallDelete => false,
-            Register::LastCommand => false,
+            Register::LastCommand(_) => false,
             Register::LastInserted => false,
-            Register::LastSearch => false,
             Register::LastYanked => false,
             Register::AltBufName => false,
             Register::CurBufName => false,
@@ -1521,7 +1515,7 @@ pub enum RangeEndingType {
     /// The position of a given [Mark].
     Mark(Specifier<Mark>),
 
-    /// The line matching a search using the value of [Register::LastSearch].
+    /// The line matching a search using the last value of [CommandType::Search].
     Search(MoveDir1D),
 
     /// Perform a search using the last substitution pattern.

@@ -9,9 +9,10 @@ use arboard::{GetExtLinux, LinuxClipboardKind, SetExtLinux};
 #[cfg(feature = "clipboard")]
 use std::cell::{RefCell, RefMut};
 
+use crate::editing::history::HistoryList;
 use crate::editing::rope::EditRope;
-use crate::prelude::Register;
 use crate::prelude::TargetShape::{self, BlockWise, CharWise, LineWise};
+use crate::prelude::{CommandType, Register};
 
 #[cfg(all(feature = "clipboard", target_os = "linux"))]
 mod clipboard {
@@ -102,6 +103,12 @@ pub struct RegisterCell {
     pub value: EditRope,
 }
 
+#[derive(Default)]
+struct CommandHistory {
+    history: HistoryList<EditRope>,
+    last_used: EditRope,
+}
+
 /// Storage for [Register] values.
 ///
 /// Registers are used to save different types of values during editing:
@@ -114,12 +121,12 @@ pub struct RegisterCell {
 /// [EditAction::Yank]: crate::actions::EditAction::Yank
 /// [MacroAction::ToggleRecording]: crate::actions::MacroAction::ToggleRecording
 pub struct RegisterStore {
+    last_commands: HashMap<CommandType, CommandHistory>,
+
     altbufname: RegisterCell,
     curbufname: RegisterCell,
 
-    last_command: RegisterCell,
     last_inserted: RegisterCell,
-    last_search: RegisterCell,
     last_yanked: RegisterCell,
     last_deleted: Vec<RegisterCell>,
     last_macro: Option<Register>,
@@ -219,12 +226,12 @@ impl From<(TargetShape, &str)> for RegisterCell {
 impl RegisterStore {
     fn new() -> Self {
         RegisterStore {
+            last_commands: HashMap::default(),
+
             altbufname: RegisterCell::default(),
             curbufname: RegisterCell::default(),
 
-            last_command: RegisterCell::default(),
             last_inserted: RegisterCell::default(),
-            last_search: RegisterCell::default(),
             last_yanked: RegisterCell::default(),
             last_deleted: vec![RegisterCell::default(); 9],
             last_macro: None,
@@ -268,7 +275,6 @@ impl RegisterStore {
             Register::SmallDelete => self.small_delete.clone(),
             Register::Named(name) => self.named.get(name).cloned().unwrap_or_default(),
             Register::AltBufName => self.altbufname.clone(),
-            Register::LastSearch => self.last_search.clone(),
             Register::LastYanked => self.last_yanked.clone(),
 
             /*
@@ -317,7 +323,7 @@ impl RegisterStore {
              * Read-only registers.
              */
             Register::CurBufName => self.curbufname.clone(),
-            Register::LastCommand => self.last_command.clone(),
+            Register::LastCommand(ct) => self._get_last_cmd(*ct).into(),
             Register::LastInserted => self.last_inserted.clone(),
 
             /*
@@ -420,9 +426,8 @@ impl RegisterStore {
              * Read-only registers don't write anywhere.
              */
             Register::CurBufName => cell,
-            Register::LastCommand => cell,
+            Register::LastCommand(_) => cell,
             Register::LastInserted => cell,
-            Register::LastSearch => cell,
         };
 
         if !flags.contains(RegisterPutFlags::NOTEXT) {
@@ -450,12 +455,66 @@ impl RegisterStore {
         }
     }
 
-    pub(super) fn set_last_cmd<T: Into<EditRope>>(&mut self, rope: T) {
-        self.last_command = RegisterCell::from(rope.into());
+    #[inline]
+    pub(crate) fn _get_last_cmd(&self, ct: CommandType) -> EditRope {
+        if let Some(hist) = self.last_commands.get(&ct) {
+            hist.last_used.clone()
+        } else {
+            EditRope::empty()
+        }
     }
 
-    pub(super) fn set_last_search<T: Into<EditRope>>(&mut self, rope: T) {
-        self.last_search = RegisterCell::from(rope.into());
+    /// Update the value and history of [Register::LastCommand] for the given [CommandType].
+    pub fn get_command_history(&mut self, ct: CommandType) -> &mut HistoryList<EditRope> {
+        &mut self.last_commands.entry(ct).or_default().history
+    }
+
+    /// Update the value and history of [Register::LastCommand] for the given [CommandType].
+    pub fn set_last_command<T: Into<EditRope>>(&mut self, ct: CommandType, rope: T) {
+        let rope = rope.into();
+
+        if rope.is_empty() {
+            // Disallow updating with an empty value.
+            return;
+        }
+
+        let hist = self.last_commands.entry(ct).or_default();
+        hist.history.select(rope.clone());
+        hist.last_used = rope;
+    }
+
+    /// Add an item to the history for [CommandType] without updating the last used value.
+    pub fn set_aborted_command<T: Into<EditRope>>(&mut self, ct: CommandType, text: T) {
+        let rope = text.into();
+        let hist = self.last_commands.entry(ct).or_default();
+
+        if rope.is_empty() {
+            let _ = hist.history.end();
+        } else {
+            hist.history.select(rope);
+        }
+    }
+
+    /// Get the value of `Register::LastCommand(CommandType::Command)`.
+    pub fn get_last_cmd(&self) -> EditRope {
+        self._get_last_cmd(CommandType::Command)
+    }
+
+    /// Add a command to the command history, and set
+    /// `Register::LastCommand(CommandType::Command)`.
+    pub fn set_last_cmd<T: Into<EditRope>>(&mut self, rope: T) {
+        self.set_last_command(CommandType::Command, rope);
+    }
+
+    /// Add a command to the command history, and set
+    /// `Register::LastCommand(CommandType::Search)`.
+    pub fn set_last_search<T: Into<EditRope>>(&mut self, rope: T) {
+        self.set_last_command(CommandType::Search, rope);
+    }
+
+    /// Get the value of `Register::LastCommand(CommandType::Search)`.
+    pub fn get_last_search(&self) -> EditRope {
+        self._get_last_cmd(CommandType::Search)
     }
 }
 

@@ -558,9 +558,9 @@ fn register_to_char((reg, append): &(Register, bool)) -> Option<String> {
         Register::UnnamedMacro => '@',
         Register::UnnamedCursorGroup => return None,
         Register::SmallDelete => '-',
-        Register::LastCommand => ':',
+        Register::LastCommand(CommandType::Command) => ':',
+        Register::LastCommand(CommandType::Search) => '/',
         Register::LastInserted => '.',
-        Register::LastSearch => '/',
         Register::LastYanked => '0',
         Register::AltBufName => '#',
         Register::CurBufName => '%',
@@ -598,9 +598,9 @@ fn char_to_register(c: char) -> Option<(Register, bool)> {
         '#' => Register::AltBufName,
         '_' => Register::Blackhole,
         '%' => Register::CurBufName,
-        ':' => Register::LastCommand,
+        ':' => Register::LastCommand(CommandType::Command),
+        '/' => Register::LastCommand(CommandType::Search),
         '.' => Register::LastInserted,
-        '/' => Register::LastSearch,
         '*' => Register::SelectionPrimary,
         '+' => Register::SelectionClipboard,
 
@@ -698,7 +698,10 @@ mod tests {
         assert_eq!(char_to_register('1'), Some((Register::RecentlyDeleted(0), false)));
         assert_eq!(char_to_register('3'), Some((Register::RecentlyDeleted(2), false)));
         assert_eq!(char_to_register('"'), Some((Register::Unnamed, false)));
-        assert_eq!(char_to_register('/'), Some((Register::LastSearch, false)));
+        assert_eq!(
+            char_to_register('/'),
+            Some((Register::LastCommand(CommandType::Search), false))
+        );
 
         // Unmapped names.
         assert_eq!(char_to_register('['), None);
@@ -712,7 +715,10 @@ mod tests {
         assert_eq!(register_to_char(&(Register::RecentlyDeleted(0), false)).unwrap(), "1");
         assert_eq!(register_to_char(&(Register::RecentlyDeleted(2), false)).unwrap(), "3");
         assert_eq!(register_to_char(&(Register::Unnamed, false)).unwrap(), "\"");
-        assert_eq!(register_to_char(&(Register::LastSearch, false)).unwrap(), "/");
+        assert_eq!(
+            register_to_char(&(Register::LastCommand(CommandType::Search), false)).unwrap(),
+            "/"
+        );
 
         // Registers that don't have names.
         assert_eq!(register_to_char(&(Register::UnnamedCursorGroup, false)), None);

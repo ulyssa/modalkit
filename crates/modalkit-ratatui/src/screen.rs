@@ -345,10 +345,16 @@ where
         self.last_message = false;
     }
 
-    fn focus_command(&mut self, ct: CommandType, dir: MoveDir1D) -> EditResult<EditInfo, I> {
+    fn focus_command(
+        &mut self,
+        prompt: &str,
+        ct: CommandType,
+        act: &Action<I>,
+        ctx: &EditContext,
+    ) -> EditResult<EditInfo, I> {
         self.focused = CurrentFocus::Command;
         self.cmdbar.reset();
-        self.cmdbar.set_type(ct, dir);
+        self.cmdbar.set_type(prompt, ct, act, ctx);
         self.clear_message();
 
         Ok(None)
@@ -364,11 +370,11 @@ where
     /// Perform a command bar action.
     pub fn command_bar(
         &mut self,
-        act: &CommandBarAction,
+        act: &CommandBarAction<I>,
         ctx: &EditContext,
     ) -> EditResult<EditInfo, I> {
         match act {
-            CommandBarAction::Focus(ct) => self.focus_command(*ct, ctx.get_search_regex_dir()),
+            CommandBarAction::Focus(s, ct, act) => self.focus_command(s, *ct, act, ctx),
             CommandBarAction::Unfocus => self.focus_window(),
         }
     }

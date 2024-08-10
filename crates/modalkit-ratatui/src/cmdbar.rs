@@ -13,14 +13,7 @@ use std::ops::{Deref, DerefMut};
 
 use ratatui::{buffer::Buffer, layout::Rect, text::Span, widgets::StatefulWidget};
 
-use modalkit::actions::{
-    Action,
-    CommandAction,
-    CommandBarAction,
-    EditorAction,
-    PromptAction,
-    Promptable,
-};
+use modalkit::actions::{Action, CommandBarAction, PromptAction, Promptable};
 use modalkit::editing::{
     application::ApplicationInfo,
     completion::CompletionList,
@@ -41,7 +34,8 @@ use super::{
 /// Persistent state for rendering [CommandBar].
 pub struct CommandBarState<I: ApplicationInfo> {
     scrollback: ScrollbackState,
-    searchdir: MoveDir1D,
+    prompt: String,
+    action: Option<(Action<I>, EditContext)>,
     cmdtype: CommandType,
     tbox_cmd: TextBoxState<I>,
     tbox_search: TextBoxState<I>,
@@ -58,7 +52,8 @@ where
 
         CommandBarState {
             scrollback: ScrollbackState::Pending,
-            searchdir: MoveDir1D::Next,
+            prompt: String::new(),
+            action: None,
             cmdtype: CommandType::Command,
             tbox_cmd: TextBoxState::new(buffer_cmd),
             tbox_search: TextBoxState::new(buffer_search),
@@ -71,9 +66,10 @@ where
     }
 
     /// Set the type of command that the bar is being used for.
-    pub fn set_type(&mut self, ct: CommandType, dir: MoveDir1D) {
+    pub fn set_type(&mut self, prompt: &str, ct: CommandType, act: &Action<I>, ctx: &EditContext) {
+        self.prompt = prompt.into();
+        self.action = Some((act.clone(), ctx.clone()));
         self.cmdtype = ct;
-        self.searchdir = dir;
     }
 
     /// Reset the contents of the bar, and return the contents as an [EditRope].
@@ -124,31 +120,13 @@ where
         ctx: &EditContext,
         store: &mut Store<I>,
     ) -> EditResult<Vec<(Action<I>, EditContext)>, I> {
-        let unfocus = CommandBarAction::Unfocus.into();
+        let rope = self.reset().trim_end_matches(|c| c == '\n');
+        store.registers.set_last_command(self.cmdtype, rope);
 
-        let action = match self.cmdtype {
-            CommandType::Command => {
-                let rope = self.reset();
-                let text = rope.to_string();
+        let mut acts = vec![(CommandBarAction::Unfocus.into(), ctx.clone())];
+        acts.extend(self.action.take());
 
-                store.set_last_cmd(rope);
-
-                CommandAction::Execute(text).into()
-            },
-            CommandType::Search => {
-                let text = self.reset().trim();
-
-                store.set_last_search(text);
-
-                let dir = MoveDirMod::Same;
-                let count = Count::Contextual;
-                let target = EditTarget::Search(SearchType::Regex, dir, count);
-
-                EditorAction::Edit(Default::default(), target).into()
-            },
-        };
-
-        Ok(vec![(unfocus, ctx.clone()), (action, ctx.clone())])
+        Ok(acts)
     }
 
     fn abort(
@@ -161,15 +139,7 @@ where
         let act = Action::CommandBar(CommandBarAction::Unfocus);
 
         let text = self.reset().trim();
-
-        match self.cmdtype {
-            CommandType::Search => {
-                store.set_aborted_search(text);
-            },
-            CommandType::Command => {
-                store.set_aborted_cmd(text);
-            },
-        }
+        store.registers.set_aborted_command(self.cmdtype, text);
 
         Ok(vec![(act, ctx.clone())])
     }
@@ -185,14 +155,8 @@ where
         let count = ctx.resolve(count);
         let rope = self.deref().get();
 
-        let text = match self.cmdtype {
-            CommandType::Search => {
-                store.searches.recall(&rope, &mut self.scrollback, *dir, prefixed, count)
-            },
-            CommandType::Command => {
-                store.commands.recall(&rope, &mut self.scrollback, *dir, prefixed, count)
-            },
-        };
+        let hist = store.registers.get_command_history(self.cmdtype);
+        let text = hist.recall(&rope, &mut self.scrollback, *dir, prefixed, count);
 
         if let Some(text) = text {
             self.set_text(text);
@@ -261,13 +225,7 @@ where
 
     fn render(self, area: Rect, buf: &mut Buffer, state: &mut Self::State) {
         if self.focused {
-            let prompt = match (state.cmdtype, state.searchdir) {
-                (CommandType::Command, _) => ":",
-                (CommandType::Search, MoveDir1D::Next) => "/",
-                (CommandType::Search, MoveDir1D::Previous) => "?",
-            };
-
-            let tbox = TextBox::new().prompt(prompt).oneline();
+            let tbox = TextBox::new().prompt(&state.prompt).oneline();
             let tbox_state = match state.cmdtype {
                 CommandType::Command => &mut state.tbox_cmd,
                 CommandType::Search => &mut state.tbox_search,
@@ -286,5 +244,45 @@ where
 {
     fn default() -> Self {
         CommandBar::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use modalkit::editing::application::EmptyInfo;
+    use modalkit::editing::context::EditContextBuilder;
+
+    #[test]
+    fn test_set_type_submit() {
+        let mut store = Store::<EmptyInfo>::default();
+        let mut cmdbar = CommandBarState::new(&mut store);
+
+        // Verify that set_type() action and context are returned when the bar is submitted.
+        let act = Action::Suspend;
+        let ctx = EditContextBuilder::default().search_regex_dir(MoveDir1D::Previous).build();
+        cmdbar.set_type(":", CommandType::Command, &act, &ctx);
+
+        let res = cmdbar.submit(&EditContext::default(), &mut store).unwrap();
+        assert_eq!(res.len(), 2);
+        assert_eq!(res[0].0, Action::from(CommandBarAction::Unfocus));
+        assert_eq!(res[0].1, EditContext::default());
+        assert_eq!(res[1].0, act);
+        assert_eq!(res[1].1, ctx);
+
+        // Verify that the most recent set_type() call wins.
+        let act1 = Action::Suspend;
+        let ctx1 = EditContextBuilder::default().search_regex_dir(MoveDir1D::Previous).build();
+        cmdbar.set_type(":", CommandType::Command, &act1, &ctx1);
+        let act2 = Action::KeywordLookup;
+        let ctx2 = EditContextBuilder::default().search_regex_dir(MoveDir1D::Next).build();
+        cmdbar.set_type(":", CommandType::Command, &act2, &ctx2);
+
+        let res = cmdbar.submit(&EditContext::default(), &mut store).unwrap();
+        assert_eq!(res.len(), 2);
+        assert_eq!(res[0].0, Action::from(CommandBarAction::Unfocus));
+        assert_eq!(res[0].1, EditContext::default());
+        assert_eq!(res[1].0, act2);
+        assert_eq!(res[1].1, ctx2);
     }
 }
