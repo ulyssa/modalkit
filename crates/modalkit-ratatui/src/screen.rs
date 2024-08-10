@@ -244,33 +244,33 @@ fn bold<'a>(s: String) -> Span<'a> {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(bound(deserialize = "I::WindowId: Deserialize<'de>"))]
 #[serde(bound(serialize = "I::WindowId: Serialize"))]
-pub struct TabLayoutDescription<I: ApplicationInfo> {
+pub struct TabbedLayoutDescription<I: ApplicationInfo> {
     /// The description of the window layout for each tab.
     pub tabs: Vec<WindowLayoutStorage<I>>,
     /// The index of the last focused tab
     pub focused: usize,
 }
 
-impl<I: ApplicationInfo> TabLayoutDescription<I> {
+impl<I: ApplicationInfo> TabbedLayoutDescription<I> {
     /// Create a new collection of tabs from this description.
     pub fn to_layout<W: Window<I>>(
         self,
         area: Option<Rect>,
         store: &mut Store<I>,
     ) -> UIResult<FocusList<WindowLayoutState<W, I>>, I> {
-        let focused = self.focused;
-        self.tabs
+        let mut tabs = self
+            .tabs
             .into_iter()
             .map(|desc| desc.to_layout(area, store))
             .collect::<UIResult<Vec<_>, I>>()
-            .map(|layout| {
-                let mut focus = FocusList::new(layout);
-                let ctx = EditContext::default();
-                // Count starts at 1
-                let change = FocusChange::Offset(Count::Exact(focused + 1), true);
-                focus.focus(&change, &ctx);
-                focus
-            })
+            .map(FocusList::new)?;
+
+        // Count starts at 1
+        let change = FocusChange::Offset(Count::Exact(self.focused + 1), true);
+        let ctx = EditContext::default();
+        tabs.focus(&change, &ctx);
+
+        Ok(tabs)
     }
 }
 
@@ -324,8 +324,8 @@ where
     }
 
     /// Get a description of the open tabs and their window layouts.
-    pub fn as_description(&self) -> TabLayoutDescription<I> {
-        TabLayoutDescription {
+    pub fn as_description(&self) -> TabbedLayoutDescription<I> {
+        TabbedLayoutDescription {
             tabs: self.tabs.iter().map(WindowLayoutState::as_description).collect(),
             focused: self.tabs.pos(),
         }

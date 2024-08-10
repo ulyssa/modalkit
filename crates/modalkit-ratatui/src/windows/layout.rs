@@ -1124,11 +1124,12 @@ where
         store: &mut Store<I>,
     ) -> UIResult<WindowLayoutState<W, I>, I> {
         let mut layout = self.layout.to_layout(area, store)?;
-        layout.focused = self.focused;
+        layout._focus(self.focused);
         layout.zoom = self.zoomed;
         Ok(layout)
     }
 }
+
 /// A description of a window layout.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(bound(deserialize = "I::WindowId: Deserialize<'de>"))]
@@ -2845,6 +2846,7 @@ mod tests {
         let (mut tree, mut store, _) = three_by_three();
         let mut buffer = Buffer::empty(Rect::new(0, 0, 60, 60));
         let area = Rect::new(0, 0, 60, 60);
+        tree._focus(3);
 
         // Draw so that everything gets an initial area.
         WindowLayout::new(&mut store).render(area, &mut buffer, &mut tree);
@@ -2893,6 +2895,8 @@ mod tests {
             length: None,
         };
         assert_eq!(desc1.layout, exp);
+        assert_eq!(desc1.focused, 3);
+        assert_eq!(desc1.zoomed, false);
 
         // Turn back into a layout, and then generate a new description to show it's the same.
         let tree = desc1
