@@ -22,7 +22,7 @@ use ratatui::{
 use super::{
     cmdbar::{CommandBar, CommandBarState},
     util::{rect_down, rect_zero_height},
-    windows::{WindowActions, WindowLayout, WindowLayoutState, WindowLayoutStorage},
+    windows::{WindowActions, WindowLayout, WindowLayoutRoot, WindowLayoutState},
     TerminalCursor,
     Window,
     WindowOps,
@@ -246,7 +246,7 @@ fn bold<'a>(s: String) -> Span<'a> {
 #[serde(bound(serialize = "I::WindowId: Serialize"))]
 pub struct TabbedLayoutDescription<I: ApplicationInfo> {
     /// The description of the window layout for each tab.
-    pub tabs: Vec<WindowLayoutStorage<I>>,
+    pub tabs: Vec<WindowLayoutRoot<I>>,
     /// The index of the last focused tab
     pub focused: usize,
 }

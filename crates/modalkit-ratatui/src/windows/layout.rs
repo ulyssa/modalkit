@@ -1106,14 +1106,14 @@ where
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(bound(deserialize = "I::WindowId: Deserialize<'de>"))]
 #[serde(bound(serialize = "I::WindowId: Serialize"))]
-#[serde(rename_all = "lowercase", tag = "type")]
-pub struct WindowLayoutStorage<I: ApplicationInfo> {
+#[serde(rename_all = "lowercase")]
+pub struct WindowLayoutRoot<I: ApplicationInfo> {
     layout: WindowLayoutDescription<I>,
     focused: usize,
     zoomed: bool,
 }
 
-impl<I> WindowLayoutStorage<I>
+impl<I> WindowLayoutRoot<I>
 where
     I: ApplicationInfo,
 {
@@ -1310,13 +1310,13 @@ where
     }
 
     /// Convert this layout to a serializable summary of its windows and splits.
-    pub fn as_description(&self) -> WindowLayoutStorage<I> {
+    pub fn as_description(&self) -> WindowLayoutRoot<I> {
         let mut children = vec![];
         let focused = self.focused;
         let zoomed = self.zoom;
 
         let Some(root) = &self.root else {
-            return WindowLayoutStorage {
+            return WindowLayoutRoot {
                 layout: WindowLayoutDescription::Split { children, length: None },
                 focused,
                 zoomed,
@@ -1327,7 +1327,7 @@ where
             children.push(w.into());
         }
 
-        return WindowLayoutStorage {
+        return WindowLayoutRoot {
             layout: WindowLayoutDescription::Split { children, length: None },
             focused,
             zoomed,
@@ -2904,5 +2904,10 @@ mod tests {
             .to_layout::<TestWindow>(tree.info.area.into(), &mut store)
             .unwrap();
         assert_eq!(tree.as_description(), desc1);
+
+        // Test against an example JSON serialization to test naming.
+        let serialized = serde_json::to_string_pretty(&desc1).unwrap();
+        let exp = include_str!("../../tests/window-layout.json");
+        assert_eq!(serialized, exp.trim_end());
     }
 }

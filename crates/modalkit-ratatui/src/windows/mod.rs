@@ -33,8 +33,8 @@ mod tree;
 pub use self::layout::{
     WindowLayout,
     WindowLayoutDescription,
+    WindowLayoutRoot,
     WindowLayoutState,
-    WindowLayoutStorage,
 };
 
 struct AxisTreeNode<W, X: AxisT, Y: AxisT> {
