@@ -30,7 +30,12 @@ mod size;
 mod slot;
 mod tree;
 
-pub use self::layout::{WindowLayout, WindowLayoutDescription, WindowLayoutState};
+pub use self::layout::{
+    WindowLayout,
+    WindowLayoutDescription,
+    WindowLayoutRoot,
+    WindowLayoutState,
+};
 
 struct AxisTreeNode<W, X: AxisT, Y: AxisT> {
     value: Value<W, X, Y>,

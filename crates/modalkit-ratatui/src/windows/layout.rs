@@ -1102,6 +1102,34 @@ where
     }
 }
 
+/// Data structure holding layout description and state
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(bound(deserialize = "I::WindowId: Deserialize<'de>"))]
+#[serde(bound(serialize = "I::WindowId: Serialize"))]
+#[serde(rename_all = "lowercase")]
+pub struct WindowLayoutRoot<I: ApplicationInfo> {
+    layout: WindowLayoutDescription<I>,
+    focused: usize,
+    zoomed: bool,
+}
+
+impl<I> WindowLayoutRoot<I>
+where
+    I: ApplicationInfo,
+{
+    /// Restore a layout from a description of windows and splits.
+    pub fn to_layout<W: Window<I>>(
+        self,
+        area: Option<Rect>,
+        store: &mut Store<I>,
+    ) -> UIResult<WindowLayoutState<W, I>, I> {
+        let mut layout = self.layout.to_layout(area, store)?;
+        layout._focus(self.focused);
+        layout.zoom = self.zoomed;
+        Ok(layout)
+    }
+}
+
 /// A description of a window layout.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(bound(deserialize = "I::WindowId: Deserialize<'de>"))]
@@ -1282,18 +1310,28 @@ where
     }
 
     /// Convert this layout to a serializable summary of its windows and splits.
-    pub fn as_description(&self) -> WindowLayoutDescription<I> {
+    pub fn as_description(&self) -> WindowLayoutRoot<I> {
         let mut children = vec![];
+        let focused = self.focused;
+        let zoomed = self.zoom;
 
         let Some(root) = &self.root else {
-            return WindowLayoutDescription::Split { children, length: None };
+            return WindowLayoutRoot {
+                layout: WindowLayoutDescription::Split { children, length: None },
+                focused,
+                zoomed,
+            };
         };
 
         for w in root.iter() {
             children.push(w.into());
         }
 
-        return WindowLayoutDescription::Split { children, length: None };
+        return WindowLayoutRoot {
+            layout: WindowLayoutDescription::Split { children, length: None },
+            focused,
+            zoomed,
+        };
     }
 
     /// Create a new instance containing a single [Window] displaying some content.
@@ -2808,6 +2846,7 @@ mod tests {
         let (mut tree, mut store, _) = three_by_three();
         let mut buffer = Buffer::empty(Rect::new(0, 0, 60, 60));
         let area = Rect::new(0, 0, 60, 60);
+        tree._focus(3);
 
         // Draw so that everything gets an initial area.
         WindowLayout::new(&mut store).render(area, &mut buffer, &mut tree);
@@ -2855,7 +2894,9 @@ mod tests {
             }],
             length: None,
         };
-        assert_eq!(desc1, exp);
+        assert_eq!(desc1.layout, exp);
+        assert_eq!(desc1.focused, 3);
+        assert_eq!(desc1.zoomed, false);
 
         // Turn back into a layout, and then generate a new description to show it's the same.
         let tree = desc1
@@ -2863,5 +2904,10 @@ mod tests {
             .to_layout::<TestWindow>(tree.info.area.into(), &mut store)
             .unwrap();
         assert_eq!(tree.as_description(), desc1);
+
+        // Test against an example JSON serialization to test naming.
+        let serialized = serde_json::to_string_pretty(&desc1).unwrap();
+        let exp = include_str!("../../tests/window-layout.json");
+        assert_eq!(serialized, exp.trim_end());
     }
 }

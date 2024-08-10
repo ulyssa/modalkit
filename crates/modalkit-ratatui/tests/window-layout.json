@@ -1,0 +1,91 @@
+{
+  "layout": {
+    "type": "split",
+    "children": [
+      {
+        "type": "split",
+        "children": [
+          {
+            "type": "split",
+            "children": [
+              {
+                "type": "split",
+                "children": [
+                  {
+                    "type": "window",
+                    "window": 0,
+                    "length": 20
+                  },
+                  {
+                    "type": "window",
+                    "window": 1,
+                    "length": 20
+                  }
+                ],
+                "length": 20
+              },
+              {
+                "type": "split",
+                "children": [
+                  {
+                    "type": "window",
+                    "window": 2,
+                    "length": 20
+                  },
+                  {
+                    "type": "window",
+                    "window": 3,
+                    "length": 20
+                  }
+                ],
+                "length": 20
+              },
+              {
+                "type": "split",
+                "children": [
+                  {
+                    "type": "window",
+                    "window": 4,
+                    "length": 20
+                  },
+                  {
+                    "type": "window",
+                    "window": 5,
+                    "length": 20
+                  }
+                ],
+                "length": 20
+              }
+            ],
+            "length": 40
+          },
+          {
+            "type": "split",
+            "children": [
+              {
+                "type": "window",
+                "window": 6,
+                "length": 20
+              },
+              {
+                "type": "window",
+                "window": 7,
+                "length": 20
+              },
+              {
+                "type": "window",
+                "window": 8,
+                "length": 20
+              }
+            ],
+            "length": 20
+          }
+        ],
+        "length": 60
+      }
+    ],
+    "length": null
+  },
+  "focused": 3,
+  "zoomed": false
+}
