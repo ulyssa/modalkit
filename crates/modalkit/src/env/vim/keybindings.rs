@@ -2278,10 +2278,14 @@ mod tests {
         cmdbar_focus(s, CommandType::Search, search.into())
     }
 
+    fn mkctx() -> EditContext {
+        VimState::<EmptyInfo>::default().into()
+    }
+
     #[test]
     fn test_transitions_normal() {
         let mut vm: VimMachine<TerminalKey> = default_vim_keys();
-        let mut ctx = EditContext::default();
+        let mut ctx = mkctx();
 
         let op = EditAction::Motion;
 
@@ -2407,7 +2411,7 @@ mod tests {
     #[test]
     fn test_transitions_command() {
         let mut vm: VimMachine<TerminalKey> = default_vim_keys();
-        let mut ctx = EditContext::default();
+        let mut ctx = mkctx();
 
         // Starts in Normal mode
         assert_eq!(vm.mode(), VimMode::Normal);
@@ -2583,7 +2587,7 @@ mod tests {
     #[test]
     fn test_transitions_visual() {
         let mut vm: VimMachine<TerminalKey> = default_vim_keys();
-        let mut ctx = EditContext::default();
+        let mut ctx = mkctx();
 
         // Move to Visual mode (charwise) and back using "v".
         ctx.target_shape = Some(TargetShape::CharWise);
@@ -2645,7 +2649,7 @@ mod tests {
     #[test]
     fn test_transitions_visual_select() {
         let mut vm: VimMachine<TerminalKey> = default_vim_keys();
-        let mut ctx = EditContext::default();
+        let mut ctx = mkctx();
 
         // Test charwise shapes.
         ctx.target_shape = Some(TargetShape::CharWise);
@@ -2710,7 +2714,7 @@ mod tests {
     #[test]
     fn test_transitions_select() {
         let mut vm: VimMachine<TerminalKey> = default_vim_keys();
-        let mut ctx = EditContext::default();
+        let mut ctx = mkctx();
 
         // Enter Select mode (charwise) via "gh".
         ctx.target_shape = Some(TargetShape::CharWise);
@@ -2789,7 +2793,7 @@ mod tests {
     #[test]
     fn test_count() {
         let mut vm: VimMachine<TerminalKey> = default_vim_keys();
-        let mut ctx = EditContext::default();
+        let mut ctx = mkctx();
 
         let mov = mv!(MoveType::WordBegin(WordStyle::Little, MoveDir1D::Next));
 
@@ -2877,7 +2881,7 @@ mod tests {
     #[test]
     fn test_register() {
         let mut vm: VimMachine<TerminalKey> = default_vim_keys();
-        let mut ctx = EditContext::default();
+        let mut ctx = mkctx();
 
         let op = EditAction::Yank;
         let mov = rangeop!(op, RangeType::Line);
@@ -2944,7 +2948,7 @@ mod tests {
     #[test]
     fn test_mark() {
         let mut vm: VimMachine<TerminalKey> = default_vim_keys();
-        let mut ctx = EditContext::default();
+        let mut ctx = mkctx();
 
         // Create local mark 'c.
         let act = EditorAction::Mark(Specifier::Contextual);
@@ -2984,7 +2988,7 @@ mod tests {
     #[test]
     fn test_normal_ops() {
         let mut vm: VimMachine<TerminalKey> = default_vim_keys();
-        let mut ctx = EditContext::default();
+        let mut ctx = mkctx();
 
         let mov = mv!(MoveType::WordBegin(WordStyle::Little, MoveDir1D::Next));
 
@@ -3099,7 +3103,7 @@ mod tests {
     #[test]
     fn test_delete_ops() {
         let mut vm: VimMachine<TerminalKey> = default_vim_keys();
-        let mut ctx = EditContext::default();
+        let mut ctx = mkctx();
 
         let op = EditAction::Delete;
 
@@ -3136,7 +3140,7 @@ mod tests {
     #[test]
     fn test_change_ops() {
         let mut vm: VimMachine<TerminalKey> = default_vim_keys();
-        let mut ctx = EditContext::default();
+        let mut ctx = mkctx();
 
         // Change a word around the cursor with "caw".
         let mov = range!(RangeType::Word(WordStyle::Little));
@@ -3241,7 +3245,7 @@ mod tests {
     #[test]
     fn test_normal_motion_charsearch() {
         let mut vm: VimMachine<TerminalKey> = default_vim_keys();
-        let mut ctx = EditContext::default();
+        let mut ctx = mkctx();
 
         let same_target =
             EditTarget::Search(SearchType::Char(false), MoveDirMod::Same, Count::Contextual);
@@ -3313,7 +3317,7 @@ mod tests {
     #[test]
     fn test_normal_motion_special_key() {
         let mut vm: VimMachine<TerminalKey> = default_vim_keys();
-        let mut ctx = EditContext::default();
+        let mut ctx = mkctx();
 
         // <C-H>
         let mov = mv!(MoveType::Column(MoveDir1D::Previous, true));
@@ -3422,7 +3426,7 @@ mod tests {
     #[test]
     fn test_visual_ops() {
         let mut vm: VimMachine<TerminalKey> = default_vim_keys();
-        let mut ctx = EditContext::default();
+        let mut ctx = mkctx();
 
         // Move into Visual mode (charwise)
         ctx.target_shape = Some(TargetShape::CharWise);
@@ -3639,7 +3643,7 @@ mod tests {
     #[test]
     fn test_visual_block_insert() {
         let mut vm: VimMachine<TerminalKey> = default_vim_keys();
-        let mut ctx = EditContext::default();
+        let mut ctx = mkctx();
 
         // Move into Visual mode (blockwise)
         ctx.target_shape = Some(TargetShape::BlockWise);
@@ -3717,7 +3721,7 @@ mod tests {
     #[test]
     fn test_visual_motion() {
         let mut vm: VimMachine<TerminalKey> = default_vim_keys();
-        let mut ctx = EditContext::default();
+        let mut ctx = mkctx();
 
         ctx.target_shape = Some(TargetShape::CharWise);
         vm.input_key(key!('v'));
@@ -3794,7 +3798,7 @@ mod tests {
     #[test]
     fn test_force_motion() {
         let mut vm: VimMachine<TerminalKey> = default_vim_keys();
-        let mut ctx = EditContext::default();
+        let mut ctx = mkctx();
 
         let mov = mv!(MoveType::WordBegin(WordStyle::Little, MoveDir1D::Next));
 
@@ -3849,7 +3853,7 @@ mod tests {
     #[test]
     fn test_insert_mode() {
         let mut vm: VimMachine<TerminalKey> = default_vim_keys();
-        let mut ctx = EditContext::default();
+        let mut ctx = mkctx();
 
         ctx.insert_style = Some(InsertStyle::Insert);
         ctx.last_column = true;
@@ -3960,7 +3964,7 @@ mod tests {
     #[test]
     fn test_insert_jk() {
         let mut vm: VimMachine<TerminalKey> = default_vim_keys();
-        let mut ctx = EditContext::default();
+        let mut ctx = mkctx();
 
         ctx.insert_style = Some(InsertStyle::Insert);
         ctx.last_column = true;
@@ -3984,7 +3988,7 @@ mod tests {
     #[test]
     fn test_custom_operators() {
         let mut vm: VimMachine<TerminalKey> = default_vim_keys();
-        let mut ctx = EditContext::default();
+        let mut ctx = mkctx();
 
         let step = InputStep::new().operator(EditAction::Delete, Some(VimMode::Insert));
         add_mapping(&mut vm, &NMAP, "R", &step);
@@ -4004,7 +4008,7 @@ mod tests {
     #[test]
     fn test_override() {
         let mut vm: VimMachine<TerminalKey> = default_vim_keys();
-        let mut ctx = EditContext::default();
+        let mut ctx = mkctx();
 
         // Check the original Normal mode mapping.
         let mov = mv!(MoveType::ScreenLine(MoveDir1D::Next));
@@ -4053,7 +4057,7 @@ mod tests {
     #[test]
     fn test_count_alters_motion() {
         let mut vm: VimMachine<TerminalKey> = default_vim_keys();
-        let mut ctx = EditContext::default();
+        let mut ctx = mkctx();
 
         // Without a count, "%" is ItemMatch.
         let mot = mv!(MoveType::ItemMatch);
@@ -4101,7 +4105,7 @@ mod tests {
     #[test]
     fn test_count_alters_window() {
         let mut vm: VimMachine<TerminalKey> = default_vim_keys();
-        let mut ctx = EditContext::default();
+        let mut ctx = mkctx();
 
         // Without a count, ^Wo closes all windows besides the currently focused one.
         let target = WindowTarget::AllBut(FocusChange::Current);
@@ -4171,7 +4175,7 @@ mod tests {
     #[test]
     fn test_scrollcp() {
         let mut vm: VimMachine<TerminalKey> = default_vim_keys();
-        let mut ctx = EditContext::default();
+        let mut ctx = mkctx();
 
         // Place cursored line at the top of the screen with "zt".
         let act = Action::Scroll(ScrollStyle::CursorPos(MovePosition::Beginning, Axis::Vertical));
@@ -4221,7 +4225,7 @@ mod tests {
     #[test]
     fn test_literal() {
         let mut vm: VimMachine<TerminalKey> = default_vim_keys();
-        let mut ctx = EditContext::default();
+        let mut ctx = mkctx();
 
         ctx.insert_style = Some(InsertStyle::Insert);
         ctx.last_column = true;
@@ -4340,7 +4344,7 @@ mod tests {
     #[test]
     fn test_unmapped_reset() {
         let mut vm: VimMachine<TerminalKey> = default_vim_keys();
-        let mut ctx = EditContext::default();
+        let mut ctx = mkctx();
 
         /*
          * The key "z" is not mapped in Operator Pending mode, so the action context should be
@@ -4367,7 +4371,7 @@ mod tests {
     #[test]
     fn test_count_nullifies() {
         let mut vm: VimMachine<TerminalKey> = default_vim_keys();
-        let mut ctx = EditContext::default();
+        let mut ctx = mkctx();
 
         // Without a count, Delete deletes one character.
         let op = EditAction::Delete;
@@ -4390,7 +4394,7 @@ mod tests {
     #[test]
     fn test_macro_toggle() {
         let mut vm: VimMachine<TerminalKey> = default_vim_keys();
-        let mut ctx = EditContext::default();
+        let mut ctx = mkctx();
 
         let toggle = Action::from(MacroAction::ToggleRecording);
 
@@ -4428,7 +4432,7 @@ mod tests {
     #[test]
     fn test_edit_repeat() {
         let mut vm: VimMachine<TerminalKey> = default_vim_keys();
-        let mut ctx = EditContext::default();
+        let mut ctx = mkctx();
 
         let col = MoveType::Column(MoveDir1D::Next, false);
 
@@ -4557,7 +4561,7 @@ mod tests {
     #[test]
     fn test_edit_repeat_append_line() {
         let mut vm: VimMachine<TerminalKey> = default_vim_keys();
-        let mut ctx = EditContext::default();
+        let mut ctx = mkctx();
 
         let op = EditAction::Motion;
         let mov = mvop!(op, MoveType::LinePos(MovePosition::End), 0);

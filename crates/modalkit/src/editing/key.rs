@@ -457,7 +457,7 @@ mod tests {
     #[test]
     fn test_macro_run() {
         let (mut bindings, mut store) = setup_bindings(true);
-        let ctx = EditContext::default();
+        let ctx = EditContext::from(VimState::<EmptyInfo>::default());
 
         // Run a sequence of key presses twice.
         let run = MacroAction::Run("flif<Esc>fi".into(), 2.into());
