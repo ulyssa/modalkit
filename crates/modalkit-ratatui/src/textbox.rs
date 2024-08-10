@@ -41,6 +41,7 @@ use ratatui::{
     buffer::Buffer,
     layout::Rect,
     style::{Modifier, Style},
+    text::Span,
     widgets::{Block, StatefulWidget, Widget},
 };
 
@@ -106,8 +107,9 @@ pub struct TextBoxState<I: ApplicationInfo = EmptyInfo> {
 /// Widget for rendering a multi-line text box.
 pub struct TextBox<'a, I: ApplicationInfo = EmptyInfo> {
     block: Option<Block<'a>>,
-    prompt: &'a str,
+    prompt: Span<'a>,
     oneline: bool,
+    style: Style,
 
     lgutter_width: u16,
     rgutter_width: u16,
@@ -619,14 +621,21 @@ where
     pub fn new() -> Self {
         TextBox {
             block: None,
-            prompt: "",
+            prompt: Span::default(),
             oneline: false,
+            style: Style::default(),
 
             lgutter_width: 0,
             rgutter_width: 0,
 
             _pc: PhantomData,
         }
+    }
+
+    /// Set the style to use for rendering text within the [TextBoxState].
+    pub fn style(mut self, style: Style) -> Self {
+        self.style = style;
+        self
     }
 
     /// Wrap this text box in a [Block].
@@ -645,8 +654,8 @@ where
     }
 
     /// Display a prompt in the top left of the text box when focused.
-    pub fn prompt(mut self, prompt: &'a str) -> Self {
-        self.prompt = prompt;
+    pub fn prompt(mut self, prompt: impl Into<Span<'a>>) -> Self {
+        self.prompt = prompt.into();
         self
     }
 
@@ -672,7 +681,7 @@ where
         followers: &FollowersInfo,
         buf: &mut Buffer,
     ) {
-        let hlstyled = Style::default().add_modifier(Modifier::REVERSED);
+        let hlstyled = self.style.add_modifier(Modifier::REVERSED);
         let cs = (line, start);
         let ce = (line, end);
 
@@ -688,7 +697,7 @@ where
         let tx: u16 = x + (h1 - start) as u16;
         let selwidth: u16 = (h2 - h1 + 1).try_into().unwrap();
 
-        let hlstyled = Style::default().add_modifier(Modifier::REVERSED);
+        let hlstyled = self.style.add_modifier(Modifier::REVERSED);
         let selarea = Rect::new(tx, y, selwidth, 1);
 
         buf.set_style(selarea, hlstyled);
@@ -724,7 +733,7 @@ where
                     }
                 },
                 TargetShape::LineWise => {
-                    let hlstyled = Style::default().add_modifier(Modifier::REVERSED);
+                    let hlstyled = self.style.add_modifier(Modifier::REVERSED);
                     let selwidth: u16 = (end - start).try_into().unwrap();
                     let selarea = Rect::new(x, y, selwidth, 1);
 
@@ -772,8 +781,6 @@ where
 
         let cby = state.viewctx.corner.y;
         let cbx = state.viewctx.corner.x;
-
-        let unstyled = Style::default();
 
         let text = state.buffer.read().unwrap();
 
@@ -852,7 +859,7 @@ where
                 }
             }
 
-            let _ = buf.set_stringn(x, y, s, width, unstyled);
+            let _ = buf.set_stringn(x, y, s, width, self.style);
 
             if cursor_line {
                 let coff = (cursor.x - start) as u16;
@@ -886,8 +893,6 @@ where
 
         let cby = state.viewctx.corner.y;
         let cbx = state.viewctx.corner.x;
-
-        let unstyled = Style::default();
 
         let text = state.buffer.read().unwrap();
 
@@ -997,7 +1002,7 @@ where
 
             let s = s.to_string();
             let w = (right - x) as usize;
-            let (xres, _) = buf.set_stringn(x, y, s, w, unstyled);
+            let (xres, _) = buf.set_stringn(x, y, s, w, self.style);
 
             if cursor_line {
                 let coff = cursor.x.saturating_sub(start) as u16;
@@ -1034,8 +1039,6 @@ where
         let cby = state.viewctx.corner.y;
         let cbx = state.viewctx.corner.x;
 
-        let unstyled = Style::default();
-
         let text = state.buffer.read().unwrap();
         let mut line = cby;
         let mut lines = text.lines(line);
@@ -1060,7 +1063,7 @@ where
                         y,
                         s.slice(CharOff::from(start)..CharOff::from(end)).to_string(),
                         width,
-                        unstyled,
+                        self.style,
                     );
                 }
 
@@ -1151,7 +1154,7 @@ where
             None => area,
         };
 
-        let plen = self.prompt.len() as u16;
+        let plen = self.prompt.width() as u16;
         let gutter = Rect::new(area.x, area.y, plen, area.height);
 
         let text_area =
@@ -1162,13 +1165,7 @@ where
         }
 
         // First, draw the prompt in the gutter.
-        let _ = buf.set_stringn(
-            gutter.left(),
-            gutter.top(),
-            self.prompt,
-            gutter.width as usize,
-            Style::default(),
-        );
+        let _ = buf.set_span(gutter.left(), gutter.top(), &self.prompt, gutter.width);
 
         // Now draw the text.
         self._render_lines(text_area, buf, state);

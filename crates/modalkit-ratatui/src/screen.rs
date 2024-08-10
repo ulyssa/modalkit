@@ -702,7 +702,13 @@ where
 
     borders: bool,
     border_style: Style,
+    border_style_focused: Style,
     border_type: BorderType,
+    cmdbar_style: Style,
+    cmdbar_prompt_style: Option<Style>,
+    tab_style: Style,
+    tab_style_focused: Style,
+    divider: Span<'a>,
     focused: bool,
 
     _p: PhantomData<(W, I)>,
@@ -721,7 +727,13 @@ where
             showmode: None,
             borders: false,
             border_style: Style::default(),
+            border_style_focused: Style::default(),
             border_type: BorderType::Plain,
+            cmdbar_style: Style::default(),
+            cmdbar_prompt_style: None,
+            tab_style: Style::default(),
+            tab_style_focused: Style::default(),
+            divider: Span::raw("|"),
             focused: true,
             _p: PhantomData,
         }
@@ -730,6 +742,12 @@ where
     /// What [Style] should be used when drawing borders.
     pub fn border_style(mut self, style: Style) -> Self {
         self.border_style = style;
+        self
+    }
+
+    /// What [Style] should be used when drawing the border of the selected window.
+    pub fn border_style_focused(mut self, style: Style) -> Self {
+        self.border_style_focused = style;
         self
     }
 
@@ -742,6 +760,38 @@ where
     /// Indicate whether to draw borders around windows.
     pub fn borders(mut self, borders: bool) -> Self {
         self.borders = borders;
+        self
+    }
+
+    /// What [Style] should be used when drawing borders.
+    pub fn cmdbar_style(mut self, style: Style) -> Self {
+        self.cmdbar_style = style;
+        self
+    }
+
+    /// What [Style] should be used when drawing the border of the selected window.
+    pub fn cmdbar_prompt_style(mut self, style: Style) -> Self {
+        self.cmdbar_prompt_style = Some(style);
+        self
+    }
+
+    /// What [Style] should be used for tab names.
+    pub fn tab_style(mut self, style: Style) -> Self {
+        self.tab_style = style;
+        self
+    }
+
+    /// What [Style] should be used for the focused tab name.
+    pub fn tab_style_focused(mut self, style: Style) -> Self {
+        self.tab_style_focused = style;
+        self
+    }
+
+    /// Set the divider [Span] to place in between tab names.
+    ///
+    /// This defaults to an unstyled "|".
+    pub fn divider(mut self, divider: impl Into<Span<'a>>) -> Self {
+        self.divider = divider.into();
         self
     }
 
@@ -838,9 +888,9 @@ where
             .collect();
 
         Tabs::new(titles)
-            .style(Style::default().fg(Color::White))
-            .highlight_style(Style::default().fg(Color::Yellow))
-            .divider("|")
+            .style(self.tab_style)
+            .highlight_style(self.tab_style_focused)
+            .divider(self.divider)
             .select(state.tabs.pos())
             .render(tabarea, buf);
 
@@ -848,6 +898,7 @@ where
             WindowLayout::new(self.store)
                 .focus(self.focused && focused == CurrentFocus::Window)
                 .border_style(self.border_style)
+                .border_style_focused(self.border_style_focused)
                 .border_type(self.border_type)
                 .borders(self.borders)
                 .render(winarea, buf, tab);
@@ -876,6 +927,8 @@ where
         CommandBar::new()
             .focus(focused == CurrentFocus::Command)
             .status(status)
+            .style(self.cmdbar_style)
+            .prompt_style(self.cmdbar_prompt_style.unwrap_or(self.cmdbar_style))
             .render(cmdarea, buf, &mut state.cmdbar);
 
         // Render completion list last so it's drawn on top of the windows.

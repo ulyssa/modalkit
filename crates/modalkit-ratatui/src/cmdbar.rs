@@ -11,7 +11,7 @@
 use std::marker::PhantomData;
 use std::ops::{Deref, DerefMut};
 
-use ratatui::{buffer::Buffer, layout::Rect, text::Span, widgets::StatefulWidget};
+use ratatui::{buffer::Buffer, layout::Rect, style::Style, text::Span, widgets::StatefulWidget};
 
 use modalkit::actions::{Action, CommandBarAction, PromptAction, Promptable};
 use modalkit::editing::{
@@ -190,6 +190,8 @@ where
 pub struct CommandBar<'a, I: ApplicationInfo> {
     focused: bool,
     message: Option<Span<'a>>,
+    style_prompt: Option<Style>,
+    style_text: Style,
 
     _pc: PhantomData<I>,
 }
@@ -200,12 +202,32 @@ where
 {
     /// Create a new widget.
     pub fn new() -> Self {
-        CommandBar { focused: false, message: None, _pc: PhantomData }
+        CommandBar {
+            focused: false,
+            message: None,
+            style_prompt: None,
+            style_text: Style::default(),
+            _pc: PhantomData,
+        }
     }
 
     /// Indicate whether the widget is currently focused.
     pub fn focus(mut self, focused: bool) -> Self {
         self.focused = focused;
+        self
+    }
+
+    /// Set the style to use for the command bar's prompt.
+    ///
+    /// If one isn't provided, then this is the same style specified with [CommandBar::style].
+    pub fn prompt_style(mut self, style: Style) -> Self {
+        self.style_prompt = Some(style);
+        self
+    }
+
+    /// Set the style to use for the contents of the inner [TextBox].
+    pub fn style(mut self, style: Style) -> Self {
+        self.style_text = style;
         self
     }
 
@@ -225,7 +247,9 @@ where
 
     fn render(self, area: Rect, buf: &mut Buffer, state: &mut Self::State) {
         if self.focused {
-            let tbox = TextBox::new().prompt(&state.prompt).oneline();
+            let prompt_style = self.style_prompt.unwrap_or(self.style_text);
+            let prompt = Span::styled(&state.prompt, prompt_style);
+            let tbox = TextBox::new().prompt(prompt).style(self.style_text).oneline();
             let tbox_state = match state.cmdtype {
                 CommandType::Command => &mut state.tbox_cmd,
                 CommandType::Search => &mut state.tbox_search,
