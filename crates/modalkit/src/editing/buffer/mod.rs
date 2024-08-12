@@ -6,7 +6,7 @@
 //! movements. For example:
 //!
 //! - Performing edit operations like text deletion or case changes using content-aware movements
-//! (e.g., by word, up to a specific character or to the start of the line, etc.)
+//!   (e.g., by word, up to a specific character or to the start of the line, etc.)
 //! - Copying and pasting text between registers and the buffer
 //! - Visual selections
 //! - Cursor groups

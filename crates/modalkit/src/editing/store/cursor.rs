@@ -175,7 +175,7 @@ where
                 Err(EditError::WrongBuffer(owner))
             }
         } else if let Some(bstore) = self.buffer.get(&id) {
-            bstore.get(mark).map(Cursor::clone).ok_or(unset)
+            bstore.get(mark).cloned().ok_or(unset)
         } else {
             Err(unset)
         }

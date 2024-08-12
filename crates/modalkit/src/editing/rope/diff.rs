@@ -27,7 +27,6 @@ pub enum DeltaElement<'a> {
 #[derive(Clone, Debug)]
 pub struct Delta<'a> {
     pub els: Vec<DeltaElement<'a>>,
-    pub base_len: usize,
 }
 
 fn find_ne_char_back(
@@ -130,7 +129,7 @@ pub fn compute_delta<'a>(base: &Rope, target: &'a Rope) -> Delta<'a> {
 
     // if our preliminary scan finds no differences we're done
     if start_offset == base.len_chars() && target.len_chars() == base.len_chars() {
-        return builder.into_delta(base, target);
+        return builder.into_delta(target);
     }
 
     let line_hashes = make_line_hashes(base, MIN_SIZE);
@@ -198,7 +197,7 @@ pub fn compute_delta<'a>(base: &Rope, target: &'a Rope) -> Delta<'a> {
         builder.copy(base.len_chars() - diff_end, target.len_chars() - diff_end, diff_end);
     }
 
-    builder.into_delta(base, target)
+    builder.into_delta(target)
 }
 
 /// Given two ropes and the offsets of two equal bytes, finds the largest
@@ -295,7 +294,7 @@ impl DiffBuilder {
         self.ops.push(DiffOp { target_idx: target, base_idx: base, len })
     }
 
-    fn into_delta<'a>(self, base: &Rope, target: &'a Rope) -> Delta<'a> {
+    fn into_delta(self, target: &Rope) -> Delta<'_> {
         let mut els = Vec::with_capacity(self.ops.len() * 2);
         let mut targ_pos = 0;
         for DiffOp { base_idx, target_idx, len } in self.ops {
@@ -312,7 +311,7 @@ impl DiffBuilder {
             els.push(DeltaElement::Insert(slice));
         }
 
-        Delta { els, base_len: base.len_chars() }
+        Delta { els }
     }
 }
 

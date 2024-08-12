@@ -138,8 +138,7 @@ where
             let mut carea = rect_zero_height(area);
 
             let mut f = |value: &mut Value<W, X, Y>| {
-                let (_, h) = value.dimensions();
-                let height = slopped_length(height, h as u16, &mut slop);
+                let height = slopped_length(height, value.height() as u16, &mut slop);
 
                 carea = rect_down(carea, height);
 
@@ -155,8 +154,7 @@ where
             let mut carea = rect_zero_width(area);
 
             let mut f = |value: &mut Value<W, X, Y>| {
-                let (w, _) = value.dimensions();
-                let width = slopped_length(width, w as u16, &mut slop);
+                let width = slopped_length(width, value.width() as u16, &mut slop);
 
                 carea = rect_right(carea, width);
 
