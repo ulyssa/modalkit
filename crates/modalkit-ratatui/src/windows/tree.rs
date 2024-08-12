@@ -81,6 +81,7 @@ where
     fn weight(&self) -> usize;
 
     /// Fetch a mutable reference to the n<sup>th</sup> `Value` in the tree.
+    #[allow(unused)]
     fn val_mut(&mut self, at: usize) -> Option<&mut Value<W, X, Y>>;
 
     /// Iterate over immutable references to each [Value] in this tree.

@@ -4,6 +4,7 @@
 //!
 //! This module contains code for representing and processing keys.
 //!
+use std::fmt::{self, Display};
 use std::hash::Hash;
 use std::str::FromStr;
 
@@ -152,74 +153,72 @@ impl FromStr for TerminalKey {
     }
 }
 
-impl ToString for TerminalKey {
-    fn to_string(&self) -> String {
-        let mut res = String::new();
-
-        let push_mods = |res: &mut String, mods: KeyModifiers| {
+impl Display for TerminalKey {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let push_mods = |f: &mut fmt::Formatter, mods: KeyModifiers| -> fmt::Result {
             if mods.contains(KeyModifiers::CONTROL) {
-                res.push_str("C-");
+                write!(f, "C-")?;
             }
 
             if mods.contains(KeyModifiers::ALT) {
-                res.push_str("A-");
+                write!(f, "A-")?;
             }
 
             if mods.contains(KeyModifiers::SHIFT) {
-                res.push_str("S-");
+                write!(f, "S-")?;
             }
+
+            Ok(())
         };
 
-        let push_named_mods = |res: &mut String, name: &str, mods| {
-            res.push('<');
-            push_mods(res, mods);
-            res.push_str(name);
-            res.push('>');
+        let push_named_mods = |f: &mut fmt::Formatter, name: &str, mods| -> fmt::Result {
+            write!(f, "<")
+                .and_then(|()| push_mods(f, mods))
+                .and_then(|()| write!(f, "{}>", name))
         };
 
-        let push_named = |res: &mut String, name: &str| push_named_mods(res, name, self.modifiers);
+        let push_named =
+            |f: &mut fmt::Formatter, name: &str| push_named_mods(f, name, self.modifiers);
 
         match self.code {
-            KeyCode::Left => push_named(&mut res, "Left"),
-            KeyCode::Right => push_named(&mut res, "Right"),
-            KeyCode::Up => push_named(&mut res, "Up"),
-            KeyCode::Down => push_named(&mut res, "Down"),
-            KeyCode::Backspace => push_named(&mut res, "BS"),
-            KeyCode::Enter => push_named(&mut res, "Enter"),
-            KeyCode::Home => push_named(&mut res, "Home"),
-            KeyCode::End => push_named(&mut res, "End"),
-            KeyCode::PageUp => push_named(&mut res, "PageUp"),
-            KeyCode::PageDown => push_named(&mut res, "PageDown"),
-            KeyCode::Null => push_named(&mut res, "Nul"),
-            KeyCode::Esc => push_named(&mut res, "Esc"),
-            KeyCode::Delete => push_named(&mut res, "Del"),
-            KeyCode::Insert => push_named(&mut res, "Insert"),
-            KeyCode::CapsLock => push_named(&mut res, "CapsLock"),
-            KeyCode::ScrollLock => push_named(&mut res, "ScrollLock"),
-            KeyCode::NumLock => push_named(&mut res, "NumLock"),
-            KeyCode::PrintScreen => push_named(&mut res, "PrintScreen"),
-            KeyCode::Pause => push_named(&mut res, "Pause"),
-            KeyCode::Menu => push_named(&mut res, "Menu"),
-            KeyCode::Tab => push_named(&mut res, "Tab"),
-            KeyCode::BackTab => {
-                push_named_mods(&mut res, "Tab", self.modifiers | KeyModifiers::SHIFT)
-            },
+            KeyCode::Left => push_named(f, "Left"),
+            KeyCode::Right => push_named(f, "Right"),
+            KeyCode::Up => push_named(f, "Up"),
+            KeyCode::Down => push_named(f, "Down"),
+            KeyCode::Backspace => push_named(f, "BS"),
+            KeyCode::Enter => push_named(f, "Enter"),
+            KeyCode::Home => push_named(f, "Home"),
+            KeyCode::End => push_named(f, "End"),
+            KeyCode::PageUp => push_named(f, "PageUp"),
+            KeyCode::PageDown => push_named(f, "PageDown"),
+            KeyCode::Null => push_named(f, "Nul"),
+            KeyCode::Esc => push_named(f, "Esc"),
+            KeyCode::Delete => push_named(f, "Del"),
+            KeyCode::Insert => push_named(f, "Insert"),
+            KeyCode::CapsLock => push_named(f, "CapsLock"),
+            KeyCode::ScrollLock => push_named(f, "ScrollLock"),
+            KeyCode::NumLock => push_named(f, "NumLock"),
+            KeyCode::PrintScreen => push_named(f, "PrintScreen"),
+            KeyCode::Pause => push_named(f, "Pause"),
+            KeyCode::Menu => push_named(f, "Menu"),
+            KeyCode::Tab => push_named(f, "Tab"),
+            KeyCode::BackTab => push_named_mods(f, "Tab", self.modifiers | KeyModifiers::SHIFT),
             KeyCode::F(n) => {
                 let n = n.to_string();
 
-                push_named(&mut res, n.as_str());
+                push_named(f, n.as_str())
             },
             KeyCode::Char(c) => {
                 if c == ' ' {
                     if self.modifiers.is_empty() {
-                        res.push(c);
+                        write!(f, "{c}")
                     } else {
-                        push_named(&mut res, "Space");
+                        push_named(f, "Space")
                     }
                 } else if c == '<' {
-                    push_named(&mut res, "lt");
+                    push_named(f, "lt")
                 } else if (self.modifiers - KeyModifiers::SHIFT).is_empty() {
-                    res.push(c);
+                    write!(f, "{c}")
                 } else {
                     let c =
                         if self.modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::SHIFT) {
@@ -228,7 +227,7 @@ impl ToString for TerminalKey {
                             c.to_string()
                         };
 
-                    push_named(&mut res, c.as_str());
+                    push_named(f, c.as_str())
                 }
             },
             KeyCode::Media(mc) => {
@@ -248,14 +247,13 @@ impl ToString for TerminalKey {
                     MediaKeyCode::MuteVolume => "MediaVolumeMute",
                 };
 
-                push_named(&mut res, name);
+                push_named(f, name)
             },
             KeyCode::Modifier(_) | KeyCode::KeypadBegin => {
                 // Do nothing with these for now.
+                Ok(())
             },
         }
-
-        return res;
     }
 }
 

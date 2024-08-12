@@ -9,7 +9,7 @@
 //! [prelude]: crate::prelude
 use std::borrow::Cow;
 use std::cmp::{Ord, Ordering, PartialOrd};
-use std::fmt::Debug;
+use std::fmt::{self, Debug, Display};
 use std::io::Write;
 use std::ops::{Add, AddAssign, Bound, Range, RangeBounds};
 
@@ -2313,9 +2313,9 @@ impl PartialEq<EditRope> for EditRope {
 
 impl Eq for EditRope {}
 
-impl ToString for EditRope {
-    fn to_string(&self) -> String {
-        self.rope.to_string()
+impl Display for EditRope {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", &self.rope)
     }
 }
 
