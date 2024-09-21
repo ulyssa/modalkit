@@ -20,7 +20,7 @@ version = "0.0.20"
 
 [workspace.dependencies]
 bitflags = "2.4.2"
-crossterm = "0.27"
+crossterm = "0.28.1"
 intervaltree = { version = "0.2.6" }
 libc = "0.2"
 rand = "0.8.4"
