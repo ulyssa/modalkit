@@ -58,6 +58,8 @@ use modalkit::editing::{
 use modalkit::errors::{EditError, EditResult, UIResult};
 use modalkit::prelude::*;
 
+use unicode_width::UnicodeWidthStr;
+
 use super::{ScrollActions, TerminalCursor, WindowOps};
 
 /// Line annotation shown in the left gutter.
@@ -859,12 +861,17 @@ where
                 }
             }
 
-            let _ = buf.set_stringn(x, y, s, width, self.style);
-
             if cursor_line {
-                let coff = (cursor.x - start) as u16;
+                let coff = s[..s
+                    .char_indices()
+                    .map(|(i, _)| i)
+                    .nth(cursor.x.saturating_sub(start))
+                    .unwrap_or(s.len())].width_cjk() as u16;
+
                 state.term_cursor = (x + coff, y);
             }
+
+            let _ = buf.set_stringn(x, y, s, width, self.style);
 
             self._highlight_followers(line, start, end, (x, y), &finfo, buf);
             self._highlight_line(line, start, end, (x, y), &hinfo, buf);
@@ -1002,12 +1009,18 @@ where
 
             let s = s.to_string();
             let w = (right - x) as usize;
-            let (xres, _) = buf.set_stringn(x, y, s, w, self.style);
 
             if cursor_line {
-                let coff = cursor.x.saturating_sub(start) as u16;
+                let coff = s[..s
+                    .char_indices()
+                    .map(|(i, _)| i)
+                    .nth(cursor.x.saturating_sub(start))
+                    .unwrap_or(s.len())].width_cjk() as u16;
+
                 state.term_cursor = (x + coff, y);
             }
+
+            let (xres, _) = buf.set_stringn(x, y, s, w, self.style);
 
             self._highlight_followers(line, start, end, (x, y), &finfo, buf);
             self._highlight_line(line, start, end, (x, y), &hinfo, buf);

@@ -19,6 +19,7 @@ modalkit = { workspace = true }
 ratatui = { version = "0.26" }
 regex = { workspace = true }
 serde = { version = "^1.0", features = ["derive"] }
+unicode-width = "0.2.0"
 
 [dev-dependencies]
 rand = { workspace = true }
