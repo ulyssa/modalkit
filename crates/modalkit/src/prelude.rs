@@ -1266,12 +1266,22 @@ impl BoundaryTest for SelectionBoundary {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[non_exhaustive]
 pub enum SelectionSplitStyle {
-    /// Split a selection into two selections, one at the current cursor position, and the other at
-    /// the anchor.
+    /// Split a selection into two [TargetShape::CharWise] selections, one at the current cursor
+    /// position, and the other at the anchor.
     Anchor,
 
     /// Split a selection at each line boundary it contains.
     Lines,
+
+    /// Split a selection into [TargetShape::CharWise] parts based on the regular expression in
+    /// [Register::LastSearch].
+    ///
+    /// When the [bool] argument is `false`, then text matching the regular expression will be
+    /// selected.
+    ///
+    /// When the [bool] argument is `true`, then text matching the regular expression will be
+    /// removed from the selections.
+    Regex(bool),
 }
 
 /// Different ways to change the boundaries of a visual selection.

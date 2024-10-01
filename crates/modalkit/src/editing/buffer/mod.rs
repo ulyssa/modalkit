@@ -479,36 +479,60 @@ where
         }
     }
 
+    /// Determine the effective shape and character offsets for an operation.
     fn _effective(
         &self,
         range: &CursorRange,
         forced: Option<TargetShape>,
     ) -> (TargetShape, Vec<(CharOff, CharOff, bool)>) {
-        match forced.unwrap_or(range.shape) {
-            TargetShape::CharWise => {
-                let start = self.text.cursor_to_offset(&range.start);
-                let end = self.text.cursor_to_offset(&range.end);
-                let ranges = vec![(start, end, range.inclusive)];
+        let shape = forced.unwrap_or(range.shape);
+        let offsets = self._effective_offsets(&range.start, &range.end, range.inclusive, shape);
+        (shape, offsets)
+    }
 
-                (TargetShape::CharWise, ranges)
+    /// Determine the effective offsets between two cursors given a [TargetShape].
+    fn _effective_offsets(
+        &self,
+        start: &Cursor,
+        end: &Cursor,
+        inclusive: bool,
+        shape: TargetShape,
+    ) -> Vec<(CharOff, CharOff, bool)> {
+        self._effective_cursors(start, end, inclusive, shape)
+            .into_iter()
+            .map(|(l, r, i)| {
+                let l = self.text.cursor_to_offset(&l);
+                let r = self.text.cursor_to_offset(&r);
+                (l, r, i)
+            })
+            .collect()
+    }
+
+    /// Convert a [TargetShape] selection to its effective [Cursor] ends.
+    fn _effective_cursors(
+        &self,
+        start: &Cursor,
+        end: &Cursor,
+        inclusive: bool,
+        shape: TargetShape,
+    ) -> Vec<(Cursor, Cursor, bool)> {
+        match shape {
+            TargetShape::CharWise => {
+                vec![(start.clone(), end.clone(), inclusive)]
             },
             TargetShape::LineWise => {
-                let start = self.text.offset_of_line(range.start.y);
-                let end = self.text.offset_of_line(range.end.y);
-                let ranges = match self.text.newlines(end).next() {
-                    Some(end) => {
-                        vec![(start, end, true)]
-                    },
-                    None => {
-                        vec![(start, self.text.len_offset(), false)]
-                    },
-                };
+                let start = Cursor::new(start.y, 0);
+                let end = self.text.offset_of_line(end.y);
 
-                (TargetShape::LineWise, ranges)
+                if let Some(end) = self.text.newlines(end).next() {
+                    vec![(start, self.text.offset_to_cursor(end), true)]
+                } else {
+                    vec![(start, self.text.last(), false)]
+                }
             },
             TargetShape::BlockWise => {
                 // Determine the left and right borders of the block.
-                let (mut lc, mut rc) = block_cursors(&range.start, &range.end);
+                let (mut lc, mut rc) = block_cursors(start, end);
 
                 let mut ranges = vec![];
                 let min = lc.x;
@@ -516,7 +540,7 @@ where
                 let lctx = &(&self.text, 0, true);
                 let rctx = &(&self.text, 0, false);
 
-                for line in range.start.y..=range.end.y {
+                for line in start.y..=end.y {
                     lc.set_line(line, lctx);
                     rc.set_line(line, rctx);
 
@@ -525,13 +549,10 @@ where
                         continue;
                     }
 
-                    let left = self.text.cursor_to_offset(&lc);
-                    let right = self.text.cursor_to_offset(&rc);
-
-                    ranges.push((left, right, true));
+                    ranges.push((lc.clone(), rc.clone(), true));
                 }
 
-                (TargetShape::BlockWise, ranges)
+                ranges
             },
         }
     }

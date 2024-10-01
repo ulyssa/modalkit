@@ -19,7 +19,7 @@ use ropey::{Rope, RopeSlice};
 use crate::actions::EditAction;
 use crate::editing::{
     context::Resolve,
-    cursor::{Cursor, CursorAdjustment, CursorChoice},
+    cursor::{Cursor, CursorAdjustment, CursorChoice, CursorState},
 };
 use crate::prelude::*;
 
@@ -1554,6 +1554,19 @@ impl EditRope {
         self.offset_to_cursor(self.last_offset())
     }
 
+    /// Convert an [EditRange] into a [CursorState::Selection].
+    pub fn select(&self, range: EditRange<Cursor>) -> CursorState {
+        if range.start >= range.end {
+            CursorState::Selection(range.start.clone(), range.start, range.shape)
+        } else if range.inclusive {
+            CursorState::Selection(range.start, range.end, range.shape)
+        } else {
+            let off = self.cursor_to_offset(&range.end).0.saturating_sub(1);
+            let end = self.offset_to_cursor(off.into());
+            CursorState::Selection(range.start, end, range.shape)
+        }
+    }
+
     /// Compare this rope with a new version, and return a vector of adjustments needed to fix
     /// cursors and marks when moving to the new version.
     pub fn diff(&self, other: &EditRope) -> Vec<CursorAdjustment> {
@@ -2715,9 +2728,9 @@ impl CursorSearch<Cursor> for EditRope {
                 let mso = rope.byte_to_char(m.start());
                 let meo = rope.byte_to_char(m.end());
                 let sc = self.offset_to_cursor(so + CharOff(mso));
-                let ec = self.offset_to_cursor(eo + CharOff(meo));
+                let ec = self.offset_to_cursor(so + CharOff(meo));
 
-                EditRange::inclusive(sc, ec, TargetShape::CharWise)
+                EditRange::exclusive(sc, ec, TargetShape::CharWise)
             })
             .collect()
     }
@@ -2770,6 +2783,114 @@ mod tests {
         let r = EditRope::from("a\nbc\n\ndefg\nhijkl\n");
 
         assert_eq!(r.max_line_idx(), 4);
+    }
+
+    #[test]
+    fn test_select() {
+        let r = EditRope::from("hello world\nhelp\nkelp\n");
+
+        // Select inclusive charwise range.
+        let c = r.select(EditRange::inclusive(
+            Cursor::new(0, 2),
+            Cursor::new(1, 4),
+            TargetShape::CharWise,
+        ));
+        assert_eq!(
+            c,
+            CursorState::Selection(Cursor::new(0, 2), Cursor::new(1, 4), TargetShape::CharWise)
+        );
+
+        // Select exclusive charwise range.
+        let c = r.select(EditRange::exclusive(
+            Cursor::new(0, 2),
+            Cursor::new(1, 4),
+            TargetShape::CharWise,
+        ));
+        assert_eq!(
+            c,
+            CursorState::Selection(Cursor::new(0, 2), Cursor::new(1, 3), TargetShape::CharWise)
+        );
+
+        // Select inclusive linewise range.
+        let c = r.select(EditRange::inclusive(
+            Cursor::new(0, 2),
+            Cursor::new(1, 4),
+            TargetShape::LineWise,
+        ));
+        assert_eq!(
+            c,
+            CursorState::Selection(Cursor::new(0, 2), Cursor::new(1, 4), TargetShape::LineWise)
+        );
+
+        // Select exclusive linewise range.
+        let c = r.select(EditRange::exclusive(
+            Cursor::new(0, 2),
+            Cursor::new(1, 4),
+            TargetShape::LineWise,
+        ));
+        assert_eq!(
+            c,
+            CursorState::Selection(Cursor::new(0, 2), Cursor::new(1, 3), TargetShape::LineWise)
+        );
+    }
+
+    #[test]
+    fn test_find_matches() {
+        let r = EditRope::from("hello world\nhelp\nkelp\n");
+        let needle1 = Regex::new("el").unwrap();
+        let needle2 = Regex::new("ell").unwrap();
+
+        // Search all text for /el/.
+        let ms = r.find_matches(&Cursor::new(0, 0), &Cursor::new(2, 4), &needle1);
+        assert_eq!(ms.len(), 3);
+        assert_eq!(
+            ms[0],
+            EditRange::exclusive(Cursor::new(0, 1), Cursor::new(0, 3), TargetShape::CharWise)
+        );
+        assert_eq!(
+            ms[1],
+            EditRange::exclusive(Cursor::new(1, 1), Cursor::new(1, 3), TargetShape::CharWise)
+        );
+        assert_eq!(
+            ms[2],
+            EditRange::exclusive(Cursor::new(2, 1), Cursor::new(2, 3), TargetShape::CharWise)
+        );
+
+        // Search all text for /ell/.
+        let ms = r.find_matches(&Cursor::new(0, 0), &Cursor::new(2, 4), &needle2);
+        assert_eq!(ms.len(), 1);
+        assert_eq!(
+            ms[0],
+            EditRange::exclusive(Cursor::new(0, 1), Cursor::new(0, 4), TargetShape::CharWise)
+        );
+
+        // Search the second line for /el/.
+        let ms = r.find_matches(&Cursor::new(1, 0), &Cursor::new(1, 4), &needle1);
+        assert_eq!(ms.len(), 1);
+        assert_eq!(
+            ms[0],
+            EditRange::exclusive(Cursor::new(1, 1), Cursor::new(1, 3), TargetShape::CharWise)
+        );
+
+        // Search the second line for /ell/.
+        let ms = r.find_matches(&Cursor::new(1, 0), &Cursor::new(1, 4), &needle2);
+        assert_eq!(ms.len(), 0);
+
+        // Searching the first two characters of the second line for /el/ should find nothing.
+        let ms = r.find_matches(&Cursor::new(1, 0), &Cursor::new(1, 1), &needle1);
+        assert_eq!(ms.len(), 0);
+
+        // Searching the last two characters of the second line for /el/ should find nothing.
+        let ms = r.find_matches(&Cursor::new(1, 2), &Cursor::new(1, 3), &needle1);
+        assert_eq!(ms.len(), 0);
+
+        // Searching the middle two characters of the second line for /el/ should find a match.
+        let ms = r.find_matches(&Cursor::new(1, 1), &Cursor::new(1, 2), &needle1);
+        assert_eq!(ms.len(), 1);
+        assert_eq!(
+            ms[0],
+            EditRange::exclusive(Cursor::new(1, 1), Cursor::new(1, 3), TargetShape::CharWise)
+        );
     }
 
     #[test]
