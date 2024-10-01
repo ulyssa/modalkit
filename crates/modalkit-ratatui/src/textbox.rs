@@ -1072,24 +1072,26 @@ where
                     lgi.render(lga, buf);
                 }
 
+                let s = s.slice(CharOff::from(start)..CharOff::from(end)).to_string();
+
+                if line == cursor.y && (start..=end).contains(&cursor.x) {
+                    let coff = s[..s
+                        .char_indices()
+                        .map(|(i, _)| i)
+                        .nth(cursor.x.saturating_sub(start))
+                        .unwrap_or(s.len())]
+                        .width_cjk() as u16;
+
+                    state.term_cursor = (x + coff, y);
+                }
+
                 if cbx < slen {
-                    let _ = buf.set_stringn(
-                        x,
-                        y,
-                        s.slice(CharOff::from(start)..CharOff::from(end)).to_string(),
-                        width,
-                        self.style,
-                    );
+                    let _ = buf.set_stringn(x, y, s, width, self.style);
                 }
 
                 if let Some(rgi) = rgutter {
                     let rga = Rect::new(gutters.1.x, y, gutters.1.width, 0);
                     rgi.render(rga, buf);
-                }
-
-                if line == cursor.y && (start..=end).contains(&cursor.x) {
-                    let coff = (cursor.x - start) as u16;
-                    state.term_cursor = (x + coff, y);
                 }
 
                 self._highlight_followers(line, start, end, (x, y), &finfo, buf);
@@ -1535,5 +1537,47 @@ mod tests {
         assert_eq!(tbox.viewctx.corner, Cursor::new(0, 0));
         assert_eq!(tbox.get_cursor(), Cursor::new(0, 0));
         assert_eq!(tbox.get_term_cursor(), (2, 8).into());
+    }
+
+    #[test]
+    fn test_wide_char_cursor() {
+        let (mut tbox, ctx, mut store) = mkboxstr("세계를 향한 대화\n");
+
+        let area = Rect::new(0, 0, 20, 20);
+        let mut buffer = Buffer::empty(area);
+
+        // Prompt should push everything right by 2 characters.
+        TextBox::new().prompt("> ").render(area, &mut buffer, &mut tbox);
+
+        assert_eq!(tbox.viewctx.corner, Cursor::new(0, 0));
+        assert_eq!(tbox.get_cursor(), Cursor::new(0, 0));
+        assert_eq!(tbox.get_term_cursor(), (2, 0).into());
+
+        // Move the cursor to be over "대", just before the last character.
+        let mov = mv!(MoveType::Column(MoveDir1D::Next, false), 7);
+        let act = EditorAction::Edit(EditAction::Motion.into(), mov);
+        tbox.editor_command(&act, &ctx, &mut store).unwrap();
+
+        // Draw again to update our terminal cursor using oneline().
+        TextBox::new().prompt("> ").oneline().render(area, &mut buffer, &mut tbox);
+
+        assert_eq!(tbox.viewctx.corner, Cursor::new(0, 0));
+        assert_eq!(tbox.get_cursor(), Cursor::new(0, 7));
+        assert_eq!(tbox.get_term_cursor(), (14, 0).into());
+        // Draw again to update our terminal cursor using set_wrap(true).
+        tbox.set_wrap(true);
+        TextBox::new().prompt("> ").render(area, &mut buffer, &mut tbox);
+
+        assert_eq!(tbox.viewctx.corner, Cursor::new(0, 0));
+        assert_eq!(tbox.get_cursor(), Cursor::new(0, 7));
+        assert_eq!(tbox.get_term_cursor(), (14, 0).into());
+
+        // Draw again to update our terminal cursor using set_wrap(false).
+        tbox.set_wrap(true);
+        TextBox::new().prompt("> ").render(area, &mut buffer, &mut tbox);
+
+        assert_eq!(tbox.viewctx.corner, Cursor::new(0, 0));
+        assert_eq!(tbox.get_cursor(), Cursor::new(0, 7));
+        assert_eq!(tbox.get_term_cursor(), (14, 0).into());
     }
 }
