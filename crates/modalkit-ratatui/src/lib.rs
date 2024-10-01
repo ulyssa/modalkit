@@ -260,7 +260,7 @@ pub fn render_cursor<T: TerminalCursor>(f: &mut Frame, widget: &T, cursor: Optio
             let inner = Rect::new(cx, cy, 1, 1);
             f.render_widget(para, inner)
         }
-        f.set_cursor(cx, cy);
+        f.set_cursor_position((cx, cy));
     }
 }
 
