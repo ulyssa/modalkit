@@ -722,7 +722,7 @@ impl Editor {
         }
 
         term.draw(|f| {
-            let area = f.size();
+            let area = f.area();
 
             let modestr = bindings.show_mode();
             let cursor = bindings.get_cursor_indicator();
