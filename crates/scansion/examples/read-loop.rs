@@ -17,13 +17,15 @@ fn main() -> Result<(), std::io::Error> {
 
     loop {
         match rl.readline(Some("> ".to_string())) {
-            Ok(s) => match s.trim() {
-                "q" | "quit" => {
-                    return Ok(());
-                },
-                _ => {
-                    println!("User typed: {:?}", s);
-                },
+            Ok(s) => {
+                match s.trim() {
+                    "q" | "quit" => {
+                        return Ok(());
+                    },
+                    _ => {
+                        println!("User typed: {:?}", s);
+                    },
+                }
             },
             Err(e) => {
                 // Print out editor error messages.
@@ -38,10 +40,12 @@ fn select_mode() -> MixedChoice {
     let _ = args.next();
 
     match args.next() {
-        Some(arg) => match arg.as_str().trim() {
-            "e" | "emacs" => MixedChoice::Emacs,
-            "v" | "vim" => MixedChoice::Vim,
-            m => panic!("Unknown environment: {:?}", m),
+        Some(arg) => {
+            match arg.as_str().trim() {
+                "e" | "emacs" => MixedChoice::Emacs,
+                "v" | "vim" => MixedChoice::Vim,
+                m => panic!("Unknown environment: {:?}", m),
+            }
         },
         None => MixedChoice::Vim,
     }
@@ -54,7 +58,7 @@ fn create_readline(mode: MixedChoice) -> Result<ReadLine, std::io::Error> {
             EmacsBindings::default().submit_on_enter().setup(&mut emacs);
             ReadLine::new(emacs)
         },
-        MixedChoice::Vim | _ => {
+        _ => {
             let mut vi = VimMachine::<TerminalKey, ReadLineInfo>::empty();
             VimBindings::default().submit_on_enter().setup(&mut vi);
             ReadLine::new(vi)

@@ -51,33 +51,23 @@
 //!
 //! const ESC: char = '\u{1B}';
 //!
-//! #[derive(Clone, Copy, Debug, Hash, Eq, PartialEq)]
+//! #[derive(Clone, Copy, Debug, Default, Hash, Eq, PartialEq)]
 //! enum ProgMode {
+//!     #[default]
 //!     Normal,
 //!     Insert
 //! }
 //!
-//! #[derive(Clone, Debug, Eq, PartialEq)]
+//! #[derive(Clone, Debug, Default, Eq, PartialEq)]
 //! enum ProgAction {
 //!     Type(char),
+//!     #[default]
 //!     NoOp,
 //!     Quit
 //! }
 //!
-//! impl Default for ProgAction {
-//!     fn default() -> Self {
-//!         ProgAction::NoOp
-//!     }
-//! }
-//!
 //! #[derive(Default)]
 //! struct ProgBindings { }
-//!
-//! impl Default for ProgMode {
-//!     fn default() -> ProgMode {
-//!         ProgMode::Normal
-//!     }
-//! }
 //!
 //! impl Mode<ProgAction, EmptyKeyState> for ProgMode { }
 //!
@@ -104,15 +94,15 @@
 //!         use keybindings::EdgeEvent::Key;
 //!
 //!         // Insert mode mappings
-//!         machine.add_mapping(ProgMode::Insert, &vec![
+//!         machine.add_mapping(ProgMode::Insert, &[
 //!             (Once, Key(ESC))
 //!         ], &(None, Some(ProgMode::Normal)));
 //!
 //!         // Normal mode mappings
-//!         machine.add_mapping(ProgMode::Normal, &vec![
+//!         machine.add_mapping(ProgMode::Normal, &[
 //!             (Once, Key('i'))
 //!         ], &(None, Some(ProgMode::Insert)));
-//!         machine.add_mapping(ProgMode::Normal, &vec![
+//!         machine.add_mapping(ProgMode::Normal, &[
 //!             (Once, Key('q')),
 //!             (Once, Key('q')),
 //!         ], &(Some(ProgAction::Quit), None));
@@ -1471,7 +1461,7 @@ mod tests {
 
     macro_rules! keys {
         ($( $k: expr ),*) => {
-            vec![ $( once!(EdgeEvent::Key(key!($k).into())), )* ]
+            [ $( once!(EdgeEvent::Key(key!($k).into())), )* ]
         };
     }
 
@@ -1547,7 +1537,7 @@ mod tests {
         Yank,
     }
 
-    #[derive(Clone, Debug, Eq, PartialEq)]
+    #[derive(Clone, Debug, Default, Eq, PartialEq)]
     enum TestAction {
         EditLine,
         EditTillChar,
@@ -1557,6 +1547,7 @@ mod tests {
         MoveLeft,
         MoveRight,
         MoveUp,
+        #[default]
         NoOp,
         Palaver,
         Paste,
@@ -1564,17 +1555,12 @@ mod tests {
         Type(char),
     }
 
-    #[derive(Copy, Clone, Debug, Hash, Eq, PartialEq)]
+    #[derive(Copy, Clone, Debug, Default, Hash, Eq, PartialEq)]
     enum TestMode {
+        #[default]
         Insert,
         Normal,
         Suffix,
-    }
-
-    impl Default for TestMode {
-        fn default() -> Self {
-            TestMode::Insert
-        }
     }
 
     #[derive(Clone, Debug, Hash, Eq, PartialEq)]
@@ -1616,15 +1602,10 @@ mod tests {
         fall_mode: Option<TestMode>,
     }
 
+    #[derive(Default)]
     struct TestBindings {}
 
     type TestEdgeEvent = EdgeEvent<TestKey, TestKeyClass>;
-
-    impl Default for TestAction {
-        fn default() -> Self {
-            TestAction::NoOp
-        }
-    }
 
     impl InputKeyClass<TestKey> for TestKeyClass {
         fn memberships(ke: &TestKey) -> Vec<Self> {
@@ -1812,12 +1793,6 @@ mod tests {
         }
     }
 
-    impl Default for TestBindings {
-        fn default() -> Self {
-            Self {}
-        }
-    }
-
     impl InputBindings<TestKey, TestStep> for TestBindings {
         fn setup(&self, machine: &mut ModalMachine<TestKey, TestStep>) {
             // Insert mode mappings
@@ -1843,22 +1818,22 @@ mod tests {
             );
             machine.add_mapping(
                 TestMode::Insert,
-                &vec![once!(EdgeEvent::Key(ctl!('l')))],
+                &[once!(EdgeEvent::Key(ctl!('l')))],
                 &goto!(TestMode::Normal),
             );
             machine.add_mapping(
                 TestMode::Insert,
-                &vec![once!(EdgeEvent::Key(ctl!('o')))],
+                &[once!(EdgeEvent::Key(ctl!('o')))],
                 &fall!(TestMode::Normal),
             );
             machine.add_mapping(
                 TestMode::Insert,
-                &vec![once!(EdgeEvent::Key(ctl!('r')))],
+                &[once!(EdgeEvent::Key(ctl!('r')))],
                 &op!(move |ctx| ctx.temp.cursor = Some('^')),
             );
             machine.add_mapping(
                 TestMode::Insert,
-                &vec![
+                &[
                     once!(EdgeEvent::Key(ctl!('r'))),
                     once!(EdgeEvent::Class(TestKeyClass::Register)),
                 ],
@@ -1884,7 +1859,7 @@ mod tests {
             // Normal mode prefixes
             machine.add_prefix(
                 TestMode::Normal,
-                &vec![(EdgeRepeat::Min(1), EdgeEvent::Class(TestKeyClass::Count))],
+                &[(EdgeRepeat::Min(1), EdgeEvent::Class(TestKeyClass::Count))],
                 &None,
             );
 
@@ -1894,7 +1869,7 @@ mod tests {
             machine.add_mapping(TestMode::Suffix, &keys!('w'), &action!(TestAction::EditWord));
             machine.add_mapping(
                 TestMode::Suffix,
-                &vec![
+                &[
                     once!(EdgeEvent::Key(key!('t'))),
                     once!(EdgeEvent::Class(TestKeyClass::TillChar)),
                 ],
@@ -2576,7 +2551,7 @@ mod tests {
         // Prefix Min(3)
         tm.add_prefix(
             TestMode::Suffix,
-            &vec![(EdgeRepeat::Min(3), EdgeEvent::Key(key!('!')))],
+            &[(EdgeRepeat::Min(3), EdgeEvent::Key(key!('!')))],
             &Some(op!(move |ctx| {
                 let count = ctx.temp.count.unwrap_or(0);
                 ctx.temp.count = Some(count.saturating_add(5));
@@ -2652,7 +2627,7 @@ mod tests {
         // Intermediate Min(0)
         tm.add_mapping(
             TestMode::Normal,
-            &vec![
+            &[
                 (EdgeRepeat::Once, EdgeEvent::Key(key!('!'))),
                 (EdgeRepeat::Once, EdgeEvent::Key(key!('a'))),
                 (EdgeRepeat::Min(0), EdgeEvent::Key(key!('?'))),
@@ -2689,7 +2664,7 @@ mod tests {
         // Intermediate Min(3)
         tm.add_mapping(
             TestMode::Normal,
-            &vec![
+            &[
                 (EdgeRepeat::Once, EdgeEvent::Key(key!('!'))),
                 (EdgeRepeat::Once, EdgeEvent::Key(key!('b'))),
                 (EdgeRepeat::Min(3), EdgeEvent::Key(key!('?'))),
@@ -2731,7 +2706,7 @@ mod tests {
         // Final Min(0)
         tm.add_mapping(
             TestMode::Normal,
-            &vec![
+            &[
                 (EdgeRepeat::Once, EdgeEvent::Key(key!('!'))),
                 (EdgeRepeat::Once, EdgeEvent::Key(key!('c'))),
                 (EdgeRepeat::Min(0), EdgeEvent::Key(key!('?'))),
@@ -2770,7 +2745,7 @@ mod tests {
         // Final Min(3)
         tm.add_mapping(
             TestMode::Normal,
-            &vec![
+            &[
                 (EdgeRepeat::Once, EdgeEvent::Key(key!('!'))),
                 (EdgeRepeat::Once, EdgeEvent::Key(key!('e'))),
                 (EdgeRepeat::Min(3), EdgeEvent::Key(key!('?'))),
@@ -2834,14 +2809,14 @@ mod tests {
         // Add "!" to Normal mode so we can detect when we've fallen through.
         tm.add_mapping(
             TestMode::Normal,
-            &vec![(EdgeRepeat::Once, EdgeEvent::Key(key!('!')))],
+            &[(EdgeRepeat::Once, EdgeEvent::Key(key!('!')))],
             &action!(TestAction::Inveigle),
         );
 
         // Prefix Max(2)
         tm.add_prefix(
             TestMode::Suffix,
-            &vec![(EdgeRepeat::Max(2), EdgeEvent::Key(key!('!')))],
+            &[(EdgeRepeat::Max(2), EdgeEvent::Key(key!('!')))],
             &Some(op!(move |ctx| {
                 let count = ctx.temp.count.unwrap_or(0);
                 ctx.temp.count = Some(count.saturating_add(3));
@@ -2918,7 +2893,7 @@ mod tests {
         // Intermediate Max(0)
         tm.add_mapping(
             TestMode::Normal,
-            &vec![
+            &[
                 (EdgeRepeat::Once, EdgeEvent::Key(key!('!'))),
                 (EdgeRepeat::Once, EdgeEvent::Key(key!('a'))),
                 (EdgeRepeat::Max(0), EdgeEvent::Key(key!('?'))),
@@ -2948,7 +2923,7 @@ mod tests {
         // Intermediate Max(2)
         tm.add_mapping(
             TestMode::Normal,
-            &vec![
+            &[
                 (EdgeRepeat::Once, EdgeEvent::Key(key!('!'))),
                 (EdgeRepeat::Once, EdgeEvent::Key(key!('b'))),
                 (EdgeRepeat::Max(2), EdgeEvent::Key(key!('?'))),
@@ -2999,7 +2974,7 @@ mod tests {
         // Final Max(0)
         tm.add_mapping(
             TestMode::Normal,
-            &vec![
+            &[
                 (EdgeRepeat::Once, EdgeEvent::Key(key!('!'))),
                 (EdgeRepeat::Once, EdgeEvent::Key(key!('c'))),
                 (EdgeRepeat::Max(0), EdgeEvent::Key(key!('?'))),
@@ -3026,7 +3001,7 @@ mod tests {
         // Final Max(3)
         tm.add_mapping(
             TestMode::Normal,
-            &vec![
+            &[
                 (EdgeRepeat::Once, EdgeEvent::Key(key!('!'))),
                 (EdgeRepeat::Once, EdgeEvent::Key(key!('d'))),
                 (EdgeRepeat::Max(2), EdgeEvent::Key(key!('?'))),

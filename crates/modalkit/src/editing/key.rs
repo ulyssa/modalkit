@@ -263,16 +263,11 @@ mod tests {
         }
     }
 
-    #[derive(Clone, Copy, Debug, Hash, Eq, PartialEq)]
+    #[derive(Clone, Copy, Debug, Default, Hash, Eq, PartialEq)]
     enum TestMode {
+        #[default]
         Normal,
         Insert,
-    }
-
-    impl Default for TestMode {
-        fn default() -> Self {
-            TestMode::Normal
-        }
     }
 
     impl Mode<TestAction, VimState> for TestMode {}
@@ -298,18 +293,13 @@ mod tests {
         }
     }
 
-    #[derive(Clone, Debug, Eq, PartialEq)]
+    #[derive(Clone, Debug, Default, Eq, PartialEq)]
     enum TestAction {
         Macro(MacroAction),
         SetFlag(bool),
         Type(char),
+        #[default]
         NoOp,
-    }
-
-    impl Default for TestAction {
-        fn default() -> Self {
-            TestAction::NoOp
-        }
     }
 
     fn setup_recursive_bindings() -> (TestKeyManager, TestStore) {
@@ -321,35 +311,35 @@ mod tests {
         // Normal mode mappings
         bindings.add_mapping(
             TestMode::Normal,
-            &vec![(Once, Key("n".parse().unwrap()))],
+            &[(Once, Key("n".parse().unwrap()))],
             &TestAction::NoOp.into(),
         );
         bindings.add_mapping(
             TestMode::Normal,
-            &vec![(Once, Key("a".parse().unwrap()))],
+            &[(Once, Key("a".parse().unwrap()))],
             &TestAction::Macro(MacroAction::Run("n".into(), Count::Contextual)).into(),
         );
         bindings.add_mapping(
             TestMode::Normal,
-            &vec![(Once, Key("b".parse().unwrap()))],
+            &[(Once, Key("b".parse().unwrap()))],
             &TestAction::Macro(MacroAction::Run("aa".into(), Count::Contextual)).into(),
         );
         bindings.add_mapping(
             TestMode::Normal,
-            &vec![(Once, Key("c".parse().unwrap()))],
+            &[(Once, Key("c".parse().unwrap()))],
             &TestAction::Macro(MacroAction::Run("c".into(), Count::Contextual)).into(),
         );
 
         // Normal mode prefixes
         bindings.add_prefix(
             TestMode::Normal,
-            &vec![
+            &[
                 (Once, Key("\"".parse().unwrap())),
                 (Once, Class(CommonKeyClass::Register)),
             ],
             &None,
         );
-        bindings.add_prefix(TestMode::Normal, &vec![(Min(1), Class(CommonKeyClass::Count))], &None);
+        bindings.add_prefix(TestMode::Normal, &[(Min(1), Class(CommonKeyClass::Count))], &None);
 
         (TestKeyManager::new(bindings), store)
     }
@@ -363,7 +353,7 @@ mod tests {
         // Normal mode mappings
         bindings.add_mapping(
             TestMode::Normal,
-            &vec![
+            &[
                 (Once, Key("q".parse().unwrap())),
                 (Once, Key("q".parse().unwrap())),
                 (Once, Key("q".parse().unwrap())),
@@ -372,40 +362,40 @@ mod tests {
         );
         bindings.add_mapping(
             TestMode::Normal,
-            &vec![(Once, Key("@".parse().unwrap()))],
+            &[(Once, Key("@".parse().unwrap()))],
             &TestAction::Macro(MacroAction::Repeat(Count::Contextual)).into(),
         );
         bindings.add_mapping(
             TestMode::Normal,
-            &vec![(Once, Key("Q".parse().unwrap()))],
+            &[(Once, Key("Q".parse().unwrap()))],
             &TestAction::Macro(MacroAction::Execute(Count::Contextual)).into(),
         );
         bindings.add_mapping(
             TestMode::Normal,
-            &vec![(Once, Key("f".parse().unwrap()))],
+            &[(Once, Key("f".parse().unwrap()))],
             &TestAction::SetFlag(skip_confirm).into(),
         );
         bindings.add_mapping(
             TestMode::Normal,
-            &vec![(Once, Key("i".parse().unwrap()))],
+            &[(Once, Key("i".parse().unwrap()))],
             &TestMode::Insert.into(),
         );
 
         // Normal mode prefixes
         bindings.add_prefix(
             TestMode::Normal,
-            &vec![
+            &[
                 (Once, Key("\"".parse().unwrap())),
                 (Once, Class(CommonKeyClass::Register)),
             ],
             &None,
         );
-        bindings.add_prefix(TestMode::Normal, &vec![(Min(1), Class(CommonKeyClass::Count))], &None);
+        bindings.add_prefix(TestMode::Normal, &[(Min(1), Class(CommonKeyClass::Count))], &None);
 
         // Insert mode mappings
         bindings.add_mapping(
             TestMode::Insert,
-            &vec![(Once, Key("<Esc>".parse().unwrap()))],
+            &[(Once, Key("<Esc>".parse().unwrap()))],
             &TestMode::Normal.into(),
         );
 
