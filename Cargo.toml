@@ -29,3 +29,7 @@ temp-dir = "0.1.11"
 thiserror = "^1.0.37"
 unicode-segmentation = "^1.7"
 unicode-width = "0.1.10"
+
+[workspace.lints.clippy]
+bool_assert_comparison = "allow"
+needless_return = "allow"

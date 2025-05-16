@@ -124,7 +124,7 @@ mod tests {
         let c3 = Cursor::new(3, 5);
         let cw = TargetShape::CharWise;
 
-        for end in vec![CursorEnd::Start, CursorEnd::End, CursorEnd::Auto] {
+        for end in [CursorEnd::Start, CursorEnd::End, CursorEnd::Auto] {
             let choice = CursorChoice::Single(c0.clone());
             assert_eq!(choice.resolve(end).unwrap(), CursorState::Location(Cursor::new(0, 1)));
 
