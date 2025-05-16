@@ -15,12 +15,11 @@ license.workspace = true
 rust-version.workspace = true
 
 [features]
-default = ["clipboard"]
+default = []
 clipboard = ["dep:arboard"]
 
 [dependencies]
 anymap2 = "0.13.0"
-arboard = { version = "^3.3.2", optional = true, features = ["wayland-data-control"] }
 bitflags = { workspace = true }
 crossterm = { workspace = true }
 derive_more = "0.99.16"
@@ -33,6 +32,11 @@ ropey = "1.5.0"
 thiserror = { workspace = true }
 unicode-segmentation = { workspace = true }
 unicode-width = { workspace = true }
+
+[dependencies.arboard]
+version = "^3.3.2"
+optional = true
+features = ["wayland-data-control"]
 
 [dev-dependencies]
 rand = { workspace = true }
