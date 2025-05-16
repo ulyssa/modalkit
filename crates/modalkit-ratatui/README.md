@@ -18,7 +18,7 @@ your project's `Cargo.toml`.
 
 ```toml
 [dependencies]
-modalkit-ratatui = "0.0.20"
+modalkit-ratatui = "0.0.21"
 ```
 
 ## License
