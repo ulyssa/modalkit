@@ -527,7 +527,7 @@ where
         let mut matches = vec![];
 
         for (idx, item) in self.items.iter().enumerate() {
-            let s = item.to_string();
+            let s = item.get_word().unwrap_or_else(|| item.to_string());
 
             if needle.is_match(s.as_str()) {
                 matches.push(idx);
