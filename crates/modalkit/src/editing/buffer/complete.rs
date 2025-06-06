@@ -77,7 +77,10 @@ where
 
         let cursor = self.get_leader(gid);
         let mut start = cursor.clone();
-        let list = I::complete(&self.text, &mut start, &self.id, store);
+        let list =
+            store
+                .completer
+                .complete(&self.text, &mut start, &self.id, &mut store.application);
 
         if list.is_empty() {
             let scope = CompletionScope::Global;
@@ -296,7 +299,7 @@ mod tests {
 
     use crate::editing::{
         application::{ApplicationInfo, ApplicationStore},
-        completion::CompletionMap,
+        completion::{Completer, CompletionMap},
     };
 
     struct TestStore {
@@ -325,21 +328,26 @@ mod tests {
         type WindowId = String;
         type ContentId = String;
 
+        fn content_of_command(ct: CommandType) -> String {
+            EmptyInfo::content_of_command(ct)
+        }
+    }
+
+    pub struct TestCompleter;
+
+    impl Completer<TestInfo> for TestCompleter {
         fn complete(
+            &mut self,
             text: &EditRope,
             cursor: &mut Cursor,
-            _: &Self::ContentId,
-            store: &mut Store<Self>,
+            _: &String,
+            store: &mut TestStore,
         ) -> Vec<String> {
             let word = text
                 .get_prefix_word_mut(cursor, &WordStyle::Little)
                 .unwrap_or_else(EditRope::empty);
             let word = Cow::from(&word);
-            store.application.completions.complete(word.as_ref())
-        }
-
-        fn content_of_command(ct: CommandType) -> String {
-            EmptyInfo::content_of_command(ct)
+            store.completions.complete(word.as_ref())
         }
     }
 
@@ -350,6 +358,7 @@ mod tests {
         let vwctx = ViewportContext::default();
         let vctx = EditContext::default();
         let mut store = Store::<TestInfo>::default();
+        store.completer = Box::new(TestCompleter);
         let prev = MoveDir1D::Previous;
         let next = MoveDir1D::Next;
 
@@ -436,8 +445,7 @@ mod tests {
         // create buffer with path to temporary directory.
         let path = tmp.path().as_os_str().to_string_lossy();
         let (mut ebuf, gid, vwctx, mut vctx, mut store) = mkfivestr(path.as_ref());
-        vctx.insert_style = Some(InsertStyle::Insert);
-        vctx.last_column = true;
+        vctx.persist.insert = Some(InsertStyle::Insert);
 
         // Move to end of line.
         ebuf.set_leader(gid, Cursor::new(0, 0));

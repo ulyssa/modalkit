@@ -415,6 +415,8 @@ where
             SelectionResizeStyle::Extend => (false, false),
             SelectionResizeStyle::Object => (false, true),
             SelectionResizeStyle::Restart => (true, false),
+
+            s => return Err(EditError::Unimplemented(format!("unknown resize style: {s:?}"))),
         };
 
         let mut group = self.get_group(gid);
@@ -504,6 +506,8 @@ where
                         TargetShape::CharWise
                     }
                 },
+
+                t => return Err(EditError::Unimplemented(format!("unknown edit target: {t:?}"))),
             };
 
             state.set_shape(shape.unwrap_or(tshape));
@@ -655,6 +659,10 @@ where
                     }
 
                     split
+                },
+
+                (s, _) => {
+                    return Err(EditError::Unimplemented(format!("unknown split style: {s:?}")))
                 },
             };
 
@@ -837,7 +845,7 @@ mod tests {
         // Start out at (0, 0).
         ebuf.set_leader(curid, Cursor::new(0, 0));
 
-        vctx.target_shape = Some(TargetShape::CharWise);
+        vctx.persist.shape = Some(TargetShape::CharWise);
 
         // Extend to the newline.
         let mov = MoveType::BufferByteOffset;
@@ -877,7 +885,7 @@ mod tests {
         // Start out at (2, 6).
         ebuf.set_leader(curid, Cursor::new(2, 6));
 
-        vctx.target_shape = Some(TargetShape::CharWise);
+        vctx.persist.shape = Some(TargetShape::CharWise);
 
         // Create a charwise selection across the three lines.
         let mov = MoveType::FirstWord(MoveDir1D::Next);
@@ -913,7 +921,7 @@ mod tests {
         // Start out at (2, 6).
         ebuf.set_leader(curid, Cursor::new(2, 6));
 
-        vctx.target_shape = Some(TargetShape::BlockWise);
+        vctx.persist.shape = Some(TargetShape::BlockWise);
 
         // Create a blockwise selection across the three lines.
         let mov = MoveType::FirstWord(MoveDir1D::Next);
@@ -952,7 +960,7 @@ mod tests {
         // Start out at (1, 2).
         ebuf.set_leader(curid, Cursor::new(1, 2));
 
-        vctx.target_shape = Some(TargetShape::CharWise);
+        vctx.persist.shape = Some(TargetShape::CharWise);
 
         // Create a charwise selection across the three lines.
         let mov = MoveType::FirstWord(MoveDir1D::Next);
@@ -991,7 +999,7 @@ mod tests {
         // Start out at (1, 0).
         ebuf.set_leader(curid, Cursor::new(1, 0));
 
-        vctx.target_shape = Some(TargetShape::LineWise);
+        vctx.persist.shape = Some(TargetShape::LineWise);
 
         // Create a linewise selection across three lines.
         let mov = MoveType::FirstWord(MoveDir1D::Next);
@@ -1030,7 +1038,7 @@ mod tests {
         // Start out at (1, 0).
         ebuf.set_leader(curid, Cursor::new(1, 0));
 
-        vctx.target_shape = Some(TargetShape::LineWise);
+        vctx.persist.shape = Some(TargetShape::LineWise);
 
         store.registers.set_last_search(",");
 
@@ -1091,7 +1099,7 @@ mod tests {
         // Start out at (1, 0).
         ebuf.set_leader(curid, Cursor::new(1, 0));
 
-        vctx.target_shape = Some(TargetShape::LineWise);
+        vctx.persist.shape = Some(TargetShape::LineWise);
 
         store.registers.set_last_search(",");
 
@@ -1151,7 +1159,7 @@ mod tests {
         // Start out at (0, 6).
         ebuf.set_leader(curid, Cursor::new(0, 6));
 
-        vctx.target_shape = Some(TargetShape::CharWise);
+        vctx.persist.shape = Some(TargetShape::CharWise);
 
         // Create a selection to resize from here to next word beginning.
         let mov = MoveType::FirstWord(MoveDir1D::Next);
@@ -1200,7 +1208,7 @@ mod tests {
         // Start out at (1, 6).
         ebuf.set_leader(curid, Cursor::new(1, 6));
 
-        vctx.target_shape = Some(TargetShape::LineWise);
+        vctx.persist.shape = Some(TargetShape::LineWise);
 
         // Create a linewise selection across the two lines.
         let mov = MoveType::FirstWord(MoveDir1D::Next);
@@ -1245,7 +1253,7 @@ mod tests {
         // Start out at (1, 2).
         ebuf.set_leader(curid, Cursor::new(1, 2));
 
-        vctx.target_shape = Some(TargetShape::BlockWise);
+        vctx.persist.shape = Some(TargetShape::BlockWise);
 
         // Create a block selection across two lines.
         let mov = MoveType::BufferByteOffset;
@@ -1303,7 +1311,7 @@ mod tests {
         // Start out at (0, 0).
         ebuf.set_leader(curid, Cursor::new(0, 0));
 
-        vctx.target_shape = Some(TargetShape::CharWise);
+        vctx.persist.shape = Some(TargetShape::CharWise);
 
         // Create a selection to resize from here to next word beginning.
         let mov = MoveType::WordBegin(WordStyle::Little, MoveDir1D::Next);
@@ -1337,7 +1345,7 @@ mod tests {
         // Start out at (0, 2), over "l".
         ebuf.set_leader(curid, Cursor::new(0, 2));
 
-        vctx.target_shape = Some(cw);
+        vctx.persist.shape = Some(cw);
 
         // Create selection over "ll".
         let right = MoveType::Column(MoveDir1D::Next, false).into();
@@ -1363,7 +1371,7 @@ mod tests {
         // Start out at (4, 2), on the " " in "copy lines".
         ebuf.set_leader(curid, Cursor::new(4, 2));
 
-        vctx.target_shape = Some(TargetShape::CharWise);
+        vctx.persist.shape = Some(TargetShape::CharWise);
 
         // Create a selection from " " to "n".
         let mov = MoveType::Column(MoveDir1D::Next, false);
@@ -1510,7 +1518,7 @@ mod tests {
         // Start out at (0, 0).
         ebuf.set_leader(curid, Cursor::new(0, 0));
 
-        vctx.target_shape = Some(TargetShape::CharWise);
+        vctx.persist.shape = Some(TargetShape::CharWise);
 
         // Create a selection to the end of the line.
         let mov = MoveType::Column(MoveDir1D::Next, false);
@@ -1581,7 +1589,7 @@ mod tests {
         // Start out at (0, 1), on the space after the "a".
         ebuf.set_leader(curid, Cursor::new(0, 1));
 
-        vctx.target_shape = Some(TargetShape::CharWise);
+        vctx.persist.shape = Some(TargetShape::CharWise);
 
         // Create a selection from the space after "a" to "c".
         let mov = MoveType::BufferByteOffset;
@@ -1651,7 +1659,7 @@ mod tests {
         // Start out at (0, 1), on the space after the "a".
         ebuf.set_leader(curid, Cursor::new(0, 1));
 
-        vctx.target_shape = Some(TargetShape::LineWise);
+        vctx.persist.shape = Some(TargetShape::LineWise);
 
         // Create a selection from the space after "a" to "c".
         let mov = MoveType::BufferByteOffset;
@@ -1722,7 +1730,7 @@ mod tests {
         // Start out at (0, 1), on the space after the "a".
         ebuf.set_leader(curid, Cursor::new(0, 0));
 
-        vctx.target_shape = Some(TargetShape::CharWise);
+        vctx.persist.shape = Some(TargetShape::CharWise);
 
         // Create a selection from the first character to "c".
         let mov = MoveType::BufferByteOffset;
@@ -1777,7 +1785,7 @@ mod tests {
         // Start out at (0, 1), on the space after the "a".
         ebuf.set_leader(curid, Cursor::new(0, 1));
 
-        vctx.target_shape = Some(TargetShape::CharWise);
+        vctx.persist.shape = Some(TargetShape::CharWise);
 
         // Create a selection from the space after "a" to the final column.
         let mov = MoveType::BufferByteOffset;
@@ -1841,7 +1849,7 @@ mod tests {
         // Start out at (1, 0), a line of all spaces.
         ebuf.set_leader(curid, Cursor::new(1, 0));
 
-        vctx.target_shape = Some(TargetShape::LineWise);
+        vctx.persist.shape = Some(TargetShape::LineWise);
 
         // Create a selection down to line 6.
         let mov = MoveType::Line(MoveDir1D::Next);
@@ -1884,7 +1892,7 @@ mod tests {
         // Start out at (0, 1), on the space after the "a".
         ebuf.set_leader(curid, Cursor::new(0, 0));
 
-        vctx.target_shape = Some(TargetShape::CharWise);
+        vctx.persist.shape = Some(TargetShape::CharWise);
 
         // Select the whole first line.
         let mov = MoveType::Column(MoveDir1D::Next, true);
@@ -1936,7 +1944,7 @@ mod tests {
         // Start out at (0, 0).
         ebuf.set_leader(curid, Cursor::new(0, 0));
 
-        vctx.target_shape = Some(TargetShape::CharWise);
+        vctx.persist.shape = Some(TargetShape::CharWise);
 
         // Select the whole first line.
         let mov = MoveType::Column(MoveDir1D::Next, true);

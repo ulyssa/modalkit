@@ -10,6 +10,10 @@ license = "Apache-2.0"
 edition = "2018"
 rust-version = "1.74"
 
+[workspace.dependencies.editor-types]
+path = "crates/editor-types"
+version = "0.0.1"
+
 [workspace.dependencies.keybindings]
 path = "crates/keybindings"
 version = "0.0.1"
@@ -30,6 +34,14 @@ thiserror = "^1.0.37"
 unicode-segmentation = "^1.7"
 unicode-width = "0.1.10"
 
+# Allow some overly pedantic warnings.
 [workspace.lints.clippy]
 bool_assert_comparison = "allow"
+bool_to_int_with_if = "allow"
+field_reassign_with_default = "allow"
+len_without_is_empty = "allow"
+manual_range_contains = "allow"
+match_like_matches_macro = "allow"
 needless_return = "allow"
+too_many_arguments = "allow"
+type_complexity = "allow"

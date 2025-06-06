@@ -476,6 +476,8 @@ where
             EditTarget::Range(range, inclusive, count) => {
                 return Ok(self.text.range(&cursor, range, *inclusive, count, ctx));
             },
+
+            t => return Err(EditError::Unimplemented(format!("unknown edit target: {t:?}"))),
         }
     }
 
@@ -676,6 +678,8 @@ where
                         state.set_cursor(r.start);
                     }
                 },
+
+                t => return Err(EditError::Unimplemented(format!("unknown edit target: {t:?}"))),
             }
         }
 
@@ -1178,6 +1182,7 @@ where
                     Ok(None)
                 }
             },
+            _ => Err(EditError::Unimplemented(format!("unknown insert action: {act:?}"))),
         }
     }
 
@@ -1208,6 +1213,8 @@ where
             SelectionAction::Trim(boundary, filter) => {
                 self.selection_trim(boundary, *filter, ctx, store)
             },
+
+            _ => Err(EditError::Unimplemented(format!("unknown selection action: {act:?}"))),
         }
     }
 
@@ -1225,6 +1232,7 @@ where
             CursorAction::Restore(style) => self.cursor_restore(style, ctx, store),
             CursorAction::Rotate(dir, count) => self.cursor_rotate(*dir, count, ctx, store),
             CursorAction::Save(style) => self.cursor_save(style, ctx, store),
+            _ => Err(EditError::Unimplemented(format!("unknown cursor action: {act:?}"))),
         }
     }
 
@@ -1268,6 +1276,8 @@ where
             EditorAction::Selection(act) => self.selection_command(act, ctx, store),
 
             EditorAction::Complete(ct, sel, disp) => self.complete(ct, sel, disp, ctx, store),
+
+            act => Err(EditError::Unimplemented(format!("unknown editor action: {act:?}"))),
         }
     }
 }
@@ -1433,6 +1443,7 @@ mod tests {
     pub use crate::editing::application::EmptyInfo;
     pub use crate::editing::context::EditContextBuilder;
     pub use crate::editing::store::{RegisterCell, RegisterPutFlags, Store};
+    pub use crate::env::vim::VimState;
     pub use crate::prelude::TargetShape::{BlockWise, CharWise, LineWise};
 
     macro_rules! get_mark {
@@ -1447,21 +1458,17 @@ mod tests {
         };
     }
 
-    pub(super) fn mkctx() -> EditContext {
-        EditContextBuilder::default().last_column(false).build()
+    pub(super) fn mkctx() -> VimState {
+        VimState::default()
     }
 
     pub(super) fn mkbuf() -> EditBuffer<EmptyInfo> {
         EditBuffer::new("".to_string())
     }
 
-    pub(super) fn mkfive() -> (
-        EditBuffer<EmptyInfo>,
-        CursorGroupId,
-        ViewportContext<Cursor>,
-        EditContext,
-        Store<EmptyInfo>,
-    ) {
+    pub(super) fn mkfive(
+    ) -> (EditBuffer<EmptyInfo>, CursorGroupId, ViewportContext<Cursor>, VimState, Store<EmptyInfo>)
+    {
         let mut buf = mkbuf();
         let gid = buf.create_group();
         let vwctx = ViewportContext::default();
@@ -1473,13 +1480,8 @@ mod tests {
 
     pub(super) fn mkfivestr(
         s: &str,
-    ) -> (
-        EditBuffer<EmptyInfo>,
-        CursorGroupId,
-        ViewportContext<Cursor>,
-        EditContext,
-        Store<EmptyInfo>,
-    ) {
+    ) -> (EditBuffer<EmptyInfo>, CursorGroupId, ViewportContext<Cursor>, VimState, Store<EmptyInfo>)
+    {
         let (mut buf, gid, vwctx, vctx, mut store) = mkfive();
 
         buf.set_text(s);
@@ -1557,7 +1559,7 @@ mod tests {
 
         // Test that pasting a word adjusts the column for 'd.
         set_named_reg!(store, 's', CharWise, "hello ");
-        vctx.register = Some(Register::Named('s'));
+        vctx.action.register = Some(Register::Named('s'));
         paste_dir!(ebuf, MoveDir1D::Previous, Count::Exact(2), ctx!(gid, vwctx, vctx), store);
         assert_eq!(
             ebuf.get_text(),
@@ -1577,7 +1579,7 @@ mod tests {
 
         // Test that pasting a line adjusts columns.
         set_named_reg!(store, 's', LineWise, "foo\nbar\n");
-        vctx.register = Some(Register::Named('s'));
+        vctx.action.register = Some(Register::Named('s'));
         paste_dir!(ebuf, MoveDir1D::Previous, Count::Exact(3), ctx!(gid, vwctx, vctx), store);
         assert_eq!(
             ebuf.get_text(),
@@ -1597,7 +1599,7 @@ mod tests {
         assert_mark!(store, 'j', Cursor::new(13, 4));
 
         set_named_reg!(store, 's', LineWise, "baz\n");
-        vctx.register = Some(Register::Named('s'));
+        vctx.action.register = Some(Register::Named('s'));
         paste_dir!(ebuf, MoveDir1D::Next, Count::Exact(1), ctx!(gid, vwctx, vctx), store);
         assert_eq!(
             ebuf.get_text(),
@@ -1683,7 +1685,7 @@ mod tests {
 
         // Do a blockwise paste and check that columns get adjusted.
         set_named_reg!(store, 's', BlockWise, "foo\nbar");
-        vctx.register = Some(Register::Named('s'));
+        vctx.action.register = Some(Register::Named('s'));
         paste_dir!(ebuf, MoveDir1D::Next, Count::Exact(1), ctx!(gid, vwctx, vctx), store);
         assert_eq!(ebuf.get_text(), "12345\n67890\nabcq\nfoo\npfooqrst\nubarvwxy\n");
         assert_eq!(ebuf.get_leader(gid), Cursor::new(4, 1));
@@ -1700,7 +1702,7 @@ mod tests {
 
         // Test that marks get adjusted after blockwise deletes.
         let target = EditTarget::CharJump(Specifier::Exact(mark!('b')));
-        vctx.target_shape = Some(TargetShape::BlockWise);
+        vctx.persist.shape = Some(TargetShape::BlockWise);
         edit!(ebuf, EditAction::Delete, target, ctx!(gid, vwctx, vctx), store);
         assert_eq!(ebuf.get_text(), "12345\n60\na\nf\npqrst\nubarvwxy\n");
         assert_eq!(ebuf.get_leader(gid), Cursor::new(1, 1));
@@ -1974,16 +1976,17 @@ mod tests {
 
         // Set cursor to (0, 4), after the first "a".
         ebuf.set_leader(gid, Cursor::new(0, 4));
-        vctx.search_char = Some((MoveDir1D::Next, true, 'a'.into()));
+        vctx.persist.charsearch_params = (MoveDir1D::Next, true);
+        vctx.persist.charsearch = Some('a'.into());
 
         // Delete from cursor to the second "a" ("d2fa").
-        vctx.count = Some(2);
+        vctx.action.count = Some(2);
         edit!(ebuf, EditAction::Delete, same, ctx!(gid, vwctx, vctx), store);
         assert_eq!(ebuf.get_leader(gid), Cursor::new(0, 4));
         assert_eq!(ebuf.get_text(), "a b  b c 1 2 3\na b c a b c 1 2 3 a b c 1 2 3\n");
 
         // Trying to delete to a third "a" should do nothing, since it hits the line ending ("d3;").
-        vctx.count = Some(3);
+        vctx.action.count = Some(3);
         edit!(ebuf, EditAction::Delete, same, ctx!(gid, vwctx, vctx), store);
         assert_eq!(ebuf.get_leader(gid), Cursor::new(0, 4));
         assert_eq!(ebuf.get_text(), "a b  b c 1 2 3\na b c a b c 1 2 3 a b c 1 2 3\n");
@@ -1991,13 +1994,13 @@ mod tests {
         // Using SearchType::Char(true) allows searching onto the next line, like kakoune does.
         let target =
             EditTarget::Search(SearchType::Char(true), MoveDirMod::Same, Count::Contextual);
-        vctx.count = Some(3);
+        vctx.action.count = Some(3);
         edit!(ebuf, EditAction::Delete, target, ctx!(gid, vwctx, vctx), store);
         assert_eq!(ebuf.get_leader(gid), Cursor::new(0, 4));
         assert_eq!(ebuf.get_text(), "a b  b c 1 2 3\n");
 
         // Delete to the previous occurrence of "a" ("d,").
-        vctx.count = Some(1);
+        vctx.action.count = Some(1);
         edit!(ebuf, EditAction::Delete, flip, ctx!(gid, vwctx, vctx), store);
         assert_eq!(ebuf.get_leader(gid), Cursor::new(0, 0));
         assert_eq!(ebuf.get_text(), " b c 1 2 3\n");
@@ -2016,10 +2019,11 @@ mod tests {
 
         // Set cursor to (1, 4), after the first "b" on the line.
         ebuf.set_leader(gid, Cursor::new(1, 4));
-        vctx.search_char = Some((MoveDir1D::Previous, true, 'b'.into()));
+        vctx.persist.charsearch_params = (MoveDir1D::Previous, true);
+        vctx.persist.charsearch = Some('b'.into());
 
         // Trying to delete multiple b's with multiline = false fails ("2dFb").
-        vctx.count = Some(2);
+        vctx.action.count = Some(2);
         edit!(ebuf, EditAction::Delete, same, ctx!(gid, vwctx, vctx), store);
         assert_eq!(ebuf.get_leader(gid), Cursor::new(1, 4));
         assert_eq!(
@@ -2030,19 +2034,19 @@ mod tests {
         // Setting multiline = true allows us to delete across the line boundary.
         let target =
             EditTarget::Search(SearchType::Char(true), MoveDirMod::Same, Count::Contextual);
-        vctx.count = Some(2);
+        vctx.action.count = Some(2);
         edit!(ebuf, EditAction::Delete, target, ctx!(gid, vwctx, vctx), store);
         assert_eq!(ebuf.get_leader(gid), Cursor::new(0, 20));
         assert_eq!(ebuf.get_text(), "a b c a b c 1 2 3 a c a b c 1 2 3 a b c 1 2 3\n");
 
         // Delete backwards for one 'b' ("dFb").
-        vctx.count = None;
+        vctx.action.count = None;
         edit!(ebuf, EditAction::Delete, same, ctx!(gid, vwctx, vctx), store);
         assert_eq!(ebuf.get_leader(gid), Cursor::new(0, 8));
         assert_eq!(ebuf.get_text(), "a b c a c a b c 1 2 3 a b c 1 2 3\n");
 
         // Delete twice in the flipped direction ("2d,").
-        vctx.count = Some(2);
+        vctx.action.count = Some(2);
         edit!(ebuf, EditAction::Delete, flip, ctx!(gid, vwctx, vctx), store);
         assert_eq!(ebuf.get_leader(gid), Cursor::new(0, 8));
         assert_eq!(ebuf.get_text(), "a b c a  c 1 2 3\n");
@@ -2061,25 +2065,25 @@ mod tests {
         // Move to (0, 6) to begin.
         ebuf.set_leader(gid, Cursor::new(0, 6));
 
-        vctx.count = Some(1);
+        vctx.action.count = Some(1);
         edit!(ebuf, op, mv, ctx!(gid, vwctx, vctx), store);
         assert_eq!(ebuf.get_leader(gid), Cursor::new(1, 0));
 
-        vctx.count = Some(3);
+        vctx.action.count = Some(3);
         edit!(ebuf, op, mv, ctx!(gid, vwctx, vctx), store);
         assert_eq!(ebuf.get_leader(gid), Cursor::new(2, 6));
 
-        vctx.count = Some(4);
+        vctx.action.count = Some(4);
         edit!(ebuf, op, mv, ctx!(gid, vwctx, vctx), store);
         assert_eq!(ebuf.get_leader(gid), Cursor::new(1, 14));
 
-        vctx.search_regex_dir = MoveDir1D::Previous;
+        vctx.persist.regexsearch_dir = MoveDir1D::Previous;
 
-        vctx.count = Some(2);
+        vctx.action.count = Some(2);
         edit!(ebuf, op, mv, ctx!(gid, vwctx, vctx), store);
         assert_eq!(ebuf.get_leader(gid), Cursor::new(1, 0));
 
-        vctx.count = Some(1);
+        vctx.action.count = Some(1);
         edit!(ebuf, op, mv, ctx!(gid, vwctx, vctx), store);
         assert_eq!(ebuf.get_leader(gid), Cursor::new(0, 0));
     }
@@ -2100,13 +2104,13 @@ mod tests {
         // Move to (0, 2) to begin, so that we're in the middle of "hello".
         ebuf.set_leader(gid, Cursor::new(0, 2));
 
-        vctx.count = Some(1);
+        vctx.action.count = Some(1);
         edit!(ebuf, op, word, ctx!(gid, vwctx, vctx), store);
         assert_eq!(ebuf.get_leader(gid), Cursor::new(1, 9));
 
-        vctx.search_regex_dir = MoveDir1D::Previous;
+        vctx.persist.regexsearch_dir = MoveDir1D::Previous;
 
-        vctx.count = Some(1);
+        vctx.action.count = Some(1);
         edit!(ebuf, op, next, ctx!(gid, vwctx, vctx), store);
         assert_eq!(ebuf.get_leader(gid), Cursor::new(0, 0));
 
@@ -2114,12 +2118,12 @@ mod tests {
         ebuf.set_leader(gid, Cursor::new(2, 8));
 
         // Doesn't move.
-        vctx.count = Some(1);
+        vctx.action.count = Some(1);
         edit!(ebuf, op, word, ctx!(gid, vwctx, vctx), store);
         assert_eq!(ebuf.get_leader(gid), Cursor::new(2, 6));
 
         // Doesn't move.
-        vctx.count = Some(4);
+        vctx.action.count = Some(4);
         edit!(ebuf, op, next, ctx!(gid, vwctx, vctx), store);
         assert_eq!(ebuf.get_leader(gid), Cursor::new(2, 6));
     }
@@ -2140,24 +2144,24 @@ mod tests {
         // Move to (0, 2) to begin, so that we're in the middle of "hello".
         ebuf.set_leader(gid, Cursor::new(0, 2));
 
-        vctx.count = Some(1);
+        vctx.action.count = Some(1);
         edit!(ebuf, op, word, ctx!(gid, vwctx, vctx), store);
         assert_eq!(ebuf.get_leader(gid), Cursor::new(1, 9));
 
-        vctx.search_regex_dir = MoveDir1D::Previous;
+        vctx.persist.regexsearch_dir = MoveDir1D::Previous;
 
-        vctx.count = Some(1);
+        vctx.action.count = Some(1);
         edit!(ebuf, op, next, ctx!(gid, vwctx, vctx), store);
         assert_eq!(ebuf.get_leader(gid), Cursor::new(0, 0));
 
         // Move to (2, 8) to begin, so that we're in the middle of "hell".
         ebuf.set_leader(gid, Cursor::new(2, 8));
 
-        vctx.count = Some(3);
+        vctx.action.count = Some(3);
         edit!(ebuf, op, word, ctx!(gid, vwctx, vctx), store);
         assert_eq!(ebuf.get_leader(gid), Cursor::new(1, 0));
 
-        vctx.count = Some(4);
+        vctx.action.count = Some(4);
         edit!(ebuf, op, next, ctx!(gid, vwctx, vctx), store);
         assert_eq!(ebuf.get_leader(gid), Cursor::new(1, 9));
     }
@@ -2166,7 +2170,7 @@ mod tests {
     fn test_history() {
         let (mut ebuf, gid, vwctx, mut vctx, mut store) = mkfive();
 
-        vctx.insert_style = Some(InsertStyle::Insert);
+        vctx.persist.insert = Some(InsertStyle::Insert);
 
         // Create several checkpoints.
         type_char!(ebuf, 'h', gid, vwctx, vctx, store);
@@ -2218,7 +2222,7 @@ mod tests {
         let (mut ebuf, gid, vwctx, mut vctx, mut store) = mkfivestr("foo\nbar\nbaz\n");
 
         // Perform CharWise selection.
-        vctx.target_shape = Some(TargetShape::CharWise);
+        vctx.persist.shape = Some(TargetShape::CharWise);
 
         let mov = MoveType::Column(MoveDir1D::Next, false);
         edit!(ebuf, EditAction::Motion, mv!(mov), ctx!(gid, vwctx, vctx), store);
@@ -2238,7 +2242,7 @@ mod tests {
         );
 
         // Changing shape to a LineWise selection keeps anchor and cursor in place.
-        vctx.target_shape = Some(TargetShape::LineWise);
+        vctx.persist.shape = Some(TargetShape::LineWise);
 
         edit!(ebuf, EditAction::Motion, EditTarget::CurrentPosition, ctx!(gid, vwctx, vctx), store);
         assert_eq!(ebuf.get_leader(gid), Cursor::new(1, 1));
@@ -2248,7 +2252,7 @@ mod tests {
         );
 
         // Changing shape to a BlockWise selection keeps anchor and cursor in place.
-        vctx.target_shape = Some(TargetShape::BlockWise);
+        vctx.persist.shape = Some(TargetShape::BlockWise);
 
         edit!(ebuf, EditAction::Motion, EditTarget::CurrentPosition, ctx!(gid, vwctx, vctx), store);
         assert_eq!(ebuf.get_leader(gid), Cursor::new(1, 1));

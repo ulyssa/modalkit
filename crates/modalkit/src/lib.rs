@@ -22,14 +22,6 @@
 
 // Require docs for public APIs, and disable the more annoying clippy lints.
 #![deny(missing_docs)]
-#![allow(clippy::bool_to_int_with_if)]
-#![allow(clippy::field_reassign_with_default)]
-#![allow(clippy::len_without_is_empty)]
-#![allow(clippy::manual_range_contains)]
-#![allow(clippy::match_like_matches_macro)]
-#![allow(clippy::needless_return)]
-#![allow(clippy::too_many_arguments)]
-#![allow(clippy::type_complexity)]
 
 #[macro_use]
 mod util;
@@ -40,8 +32,8 @@ pub mod editing;
 pub mod env;
 pub mod errors;
 pub mod key;
-pub mod prelude;
 pub mod ui;
 
 pub use crossterm;
+pub use editor_types::prelude;
 pub use keybindings;

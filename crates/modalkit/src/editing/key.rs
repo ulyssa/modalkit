@@ -28,7 +28,7 @@ use std::borrow::Cow;
 use std::collections::VecDeque;
 
 use crate::actions::MacroAction;
-use crate::errors::EditResult;
+use crate::errors::{EditError, EditResult};
 use crate::key::MacroError;
 use crate::keybindings::{dialog::Dialog, BindingMachine, InputKey};
 use crate::prelude::*;
@@ -124,6 +124,9 @@ where
                 }
 
                 return Ok(None);
+            },
+            act => {
+                return Err(EditError::Unimplemented(format!("unknown action: {act:?}")));
             },
         };
 

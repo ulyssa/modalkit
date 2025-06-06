@@ -11,21 +11,19 @@
 //! use std::fmt;
 //! use std::path::PathBuf;
 //!
-//! use modalkit::{
-//!     editing::{
-//!         application::{
-//!             ApplicationAction,
-//!             ApplicationError,
-//!             ApplicationWindowId,
-//!             ApplicationContentId,
-//!             ApplicationInfo,
-//!             ApplicationStore,
-//!         },
-//!         context::EditContext,
+//! use editor_types::{
+//!     application::{
+//!         ApplicationAction,
+//!         ApplicationError,
+//!         ApplicationWindowId,
+//!         ApplicationContentId,
+//!         ApplicationInfo,
+//!         ApplicationStore,
 //!     },
-//!     keybindings::SequenceStatus,
+//!     context::EditContext,
 //!     prelude::*,
 //! };
+//! use keybindings::SequenceStatus;
 //!
 //! // Unique identifier for a review.
 //! #[derive(Clone, Debug, Eq, Hash, PartialEq)]
@@ -149,19 +147,17 @@
 use std::fmt::{Debug, Display};
 use std::hash::Hash;
 
-use crate::{
-    editing::{context::EditContext, cursor::Cursor, rope::EditRope, store::Store},
-    keybindings::SequenceStatus,
-    prelude::CommandType,
-};
+use crate::context::EditContext;
+use crate::prelude::CommandType;
+use keybindings::SequenceStatus;
 
 /// Trait for objects that describe application-specific actions.
 ///
 /// Implementors of this trait can be used with [Action::Application]. This can then be used to
-/// create additional keybindings and commands on top of the defaults provided within
-/// [modalkit::env](crate::env).
+/// create additional keybindings and commands on top of the more editing-specific ones provided
+/// by this crate.
 ///
-/// [Action::Application]: crate::actions::Action::Application
+/// [Action::Application]: crate::Action::Application
 pub trait ApplicationAction: Clone + Debug + Eq + PartialEq + Send {
     /// Allows controlling how application-specific actions are included in
     /// [RepeatType::EditSequence](crate::prelude::RepeatType::EditSequence).
@@ -175,9 +171,11 @@ pub trait ApplicationAction: Clone + Debug + Eq + PartialEq + Send {
     /// [RepeatType::LastSelection](crate::prelude::RepeatType::LastSelection).
     fn is_last_selection(&self, ctx: &EditContext) -> SequenceStatus;
 
-    /// Allows controlling whether an application-specific action can cause
-    /// a buffer switch on an
-    /// [EditError::WrongBuffer](crate::errors::EditError::WrongBuffer).
+    /// Allows controlling whether an application-specific action should be retried in
+    /// a new buffer when the currently targeted buffer returns a `WrongBuffer`-style error.
+    ///
+    /// For example, jumping to a mark in a different buffer when the current one doesn't
+    /// contain the mark.
     fn is_switchable(&self, ctx: &EditContext) -> bool;
 }
 
@@ -205,8 +203,6 @@ pub trait ApplicationError: Debug + Display {}
 impl ApplicationError for String {}
 
 /// Trait for objects that hold application-specific information.
-///
-/// Implementors of this trait can be embedded in [Store].
 pub trait ApplicationStore {}
 
 impl ApplicationStore for () {}
@@ -245,20 +241,6 @@ pub trait ApplicationInfo: Clone + Debug + Eq + PartialEq {
     /// The type for application-specific content within a window.
     type ContentId: ApplicationContentId;
 
-    /// Given a [Cursor] position in an [EditRope], and its content identifier, generate a list of
-    /// completion candidates.
-    ///
-    /// By default, this returns an empty list, which causes completion inside buffers to fall back
-    /// to word completion.
-    fn complete(
-        text: &EditRope,
-        cursor: &mut Cursor,
-        content: &Self::ContentId,
-        store: &mut Store<Self>,
-    ) -> Vec<String> {
-        vec![]
-    }
-
     /// Get the [ApplicationContentId] used to show a given command type.
     fn content_of_command(cmdtype: CommandType) -> Self::ContentId;
 }
@@ -273,15 +255,6 @@ impl ApplicationInfo for EmptyInfo {
     type Store = ();
     type WindowId = String;
     type ContentId = String;
-
-    fn complete(
-        _: &EditRope,
-        _: &mut Cursor,
-        _: &Self::ContentId,
-        _: &mut Store<Self>,
-    ) -> Vec<String> {
-        vec![]
-    }
 
     fn content_of_command(cmdtype: CommandType) -> String {
         match cmdtype {

@@ -1,30 +1,36 @@
-//! # Frequently used types
+//! # Common set of types used for describing actions
 //!
 //! ## Overview
 //!
-//! These types are used to specify the details of [actions].
+//! These types are used to specify the details of how to execute [Action] and the
+//! more specific actions that it encompasses.
 //!
-//! [actions]: crate::actions
+//! Usually you will just want to import everything in this module into your application via:
+//!
+//! ```
+//! use editor_types::prelude::*;
+//! ```
+//!
+//! [Action]: crate::Action
 use std::fmt::{self, Debug, Display, Formatter};
 use std::hash::Hash;
 
 use bitflags::bitflags;
 use regex::Regex;
 
-use crate::{
-    actions::EditAction,
-    editing::{application::ApplicationWindowId, context::EditContext},
-    util::{
-        is_filename_char,
-        is_filepath_char,
-        is_horizontal_space,
-        is_keyword,
-        is_newline,
-        is_space_char,
-        is_word_char,
-        sort2,
-    },
+use crate::application::ApplicationWindowId;
+use crate::context::EditContext;
+use crate::util::{
+    is_filename_char,
+    is_filepath_char,
+    is_horizontal_space,
+    is_keyword,
+    is_newline,
+    is_space_char,
+    is_word_char,
+    sort2,
 };
+use crate::EditAction;
 
 /// Specify how to change the case of a string.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -247,7 +253,7 @@ pub enum RepeatType {
     /// A sequence of changes made to a buffer.
     EditSequence,
 
-    /// The last [Action](crate::actions::Action) done.
+    /// The last [Action](crate::Action) done.
     LastAction,
 
     /// The last selection resize made in a buffer.
@@ -265,12 +271,10 @@ pub enum SearchType {
     /// Search for a regular expression.
     Regex,
 
-    /// Search for the word currently under the cursor, and update the last [CommandType::Search].
-    /// via [RegisterStore::set_last_search].
+    /// Search for the word currently under the cursor, and update the last [CommandType::Search]
+    /// value in the application's register store.
     ///
     /// [bool] controls whether matches should be checked for using word boundaries.
-    ///
-    /// [RegisterStore::set_last_search]: crate::editing::store::RegisterStore::set_last_search
     Word(WordStyle, bool),
 }
 
@@ -334,7 +338,8 @@ pub enum WordStyle {
 }
 
 impl WordStyle {
-    pub(crate) fn contains(&self, c: char) -> bool {
+    /// Whether this [WordStyle] can ever contain the character `c`.
+    pub fn contains(&self, c: char) -> bool {
         match self {
             WordStyle::AlphaNum => is_word_char(c),
             WordStyle::NonAlphaNum => !is_word_char(c),
@@ -949,8 +954,8 @@ pub enum NumberChange {
 
 /// Targets for [WindowAction::Open] and [WindowAction::Switch].
 ///
-/// [WindowAction::Open]: crate::actions::WindowAction::Open
-/// [WindowAction::Switch]: crate::actions::WindowAction::Switch
+/// [WindowAction::Open]: crate::WindowAction::Open
+/// [WindowAction::Switch]: crate::WindowAction::Switch
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum OpenTarget<W: ApplicationWindowId> {
     /// An alternate window. This is usually the previous window.
@@ -1273,8 +1278,8 @@ pub enum SelectionSplitStyle {
     /// Split a selection at each line boundary it contains.
     Lines,
 
-    /// Split a selection into [TargetShape::CharWise] parts based on the regular expression in
-    /// [Register::LastSearch].
+    /// Split a selection into [TargetShape::CharWise] parts based on the regular expression
+    /// stored in the register for [CommandType::Search].
     ///
     /// When the [bool] argument is `false`, then text matching the regular expression will be
     /// selected.
@@ -1872,10 +1877,11 @@ pub enum InfoMessage {
 
     /// Use an interactive pager to show the user some information.
     ///
-    /// You can handle this using [Pager] and [BindingMachine::run_dialog].
+    /// If you're using [keybindings], then you can handle this using [Pager] and
+    /// [BindingMachine::run_dialog].
     ///
-    /// [Pager]: crate::keybindings::dialog::Pager
-    /// [BindingMachine::run_dialog]: crate::keybindings::BindingMachine::run_dialog
+    /// [Pager]: keybindings::dialog::Pager
+    /// [BindingMachine::run_dialog]: keybindings::BindingMachine::run_dialog
     Pager(String),
 }
 

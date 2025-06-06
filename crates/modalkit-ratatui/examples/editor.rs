@@ -46,7 +46,7 @@ use modalkit::{
             ApplicationWindowId,
         },
         buffer::EditBuffer,
-        completion::CompletionList,
+        completion::{Completer, CompletionList},
         context::{EditContext, Resolve},
         cursor::Cursor,
         key::KeyManager,
@@ -470,6 +470,29 @@ enum EditorContentId {
 impl ApplicationWindowId for EditorContentId {}
 impl ApplicationContentId for EditorContentId {}
 
+#[derive(Default)]
+struct EditorCompleter;
+
+impl Completer<EditorInfo> for EditorCompleter {
+    fn complete(
+        &mut self,
+        text: &EditRope,
+        cursor: &mut Cursor,
+        content: &EditorContentId,
+        store: &mut EditorStore,
+    ) -> Vec<String> {
+        match content {
+            EditorContentId::Command(CommandType::Command) => {
+                complete_cmdbar(text, cursor, &store.cmds)
+            },
+            EditorContentId::Command(CommandType::Search) => vec![],
+            EditorContentId::Directory(_) => vec![],
+            EditorContentId::File(_) => vec![],
+            EditorContentId::Scratch => vec![],
+        }
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 enum EditorInfo {}
 
@@ -479,23 +502,6 @@ impl ApplicationInfo for EditorInfo {
     type Store = EditorStore;
     type WindowId = EditorContentId;
     type ContentId = EditorContentId;
-
-    fn complete(
-        text: &EditRope,
-        cursor: &mut Cursor,
-        content: &EditorContentId,
-        store: &mut Store<Self>,
-    ) -> Vec<String> {
-        match content {
-            EditorContentId::Command(CommandType::Command) => {
-                complete_cmdbar(text, cursor, &store.application.cmds)
-            },
-            EditorContentId::Command(CommandType::Search) => vec![],
-            EditorContentId::Directory(_) => vec![],
-            EditorContentId::File(_) => vec![],
-            EditorContentId::Scratch => vec![],
-        }
-    }
 
     fn content_of_command(ct: CommandType) -> EditorContentId {
         EditorContentId::Command(ct)

@@ -22,6 +22,7 @@
 use std::sync::{Arc, RwLock};
 
 use crate::editing::application::ApplicationInfo;
+use crate::editing::completion::{Completer, EmptyCompleter};
 
 mod buffer;
 mod complete;
@@ -49,6 +50,9 @@ pub struct Store<I: ApplicationInfo> {
     /// Tracks the current value of each [Register](crate::prelude::Register).
     pub registers: RegisterStore,
 
+    /// An application-specific completer.
+    pub completer: Box<dyn Completer<I>>,
+
     /// Tracks globally-relevant cursors and cursor groups.
     pub cursors: CursorStore<I>,
 
@@ -71,6 +75,7 @@ where
             digraphs: DigraphStore::default(),
             registers: RegisterStore::default(),
             cursors: CursorStore::default(),
+            completer: Box::new(EmptyCompleter),
 
             application,
         }

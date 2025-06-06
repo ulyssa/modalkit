@@ -23,6 +23,7 @@ anymap2 = "0.13.0"
 bitflags = { workspace = true }
 crossterm = { workspace = true }
 derive_more = "0.99.16"
+editor-types = { workspace = true }
 intervaltree = { workspace = true }
 keybindings = { workspace = true }
 nom = "7.0.0"

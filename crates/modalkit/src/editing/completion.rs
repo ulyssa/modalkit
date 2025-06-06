@@ -14,12 +14,48 @@ use unicode_segmentation::UnicodeSegmentation;
 
 use crate::{
     editing::{
+        application::ApplicationInfo,
         cursor::{Adjustable, Cursor, CursorAdjustment},
         rope::EditRope,
     },
     prelude::*,
     util::{common_prefix, completion_keys, idx_offset, MAX_COMPLETIONS},
 };
+
+/// A trait for implementing custom completers for an application.
+pub trait Completer<I: ApplicationInfo> {
+    /// Complete the word just before [Cursor] inside the [EditRope].
+    ///
+    /// When this method returns, the [Cursor] should be updated to point at the
+    /// beginning of the word, so that the resulting range may be replaced by the
+    /// possible completions returned.
+    ///
+    /// The [ApplicationInfo::ContentId] will be the application's identifier for
+    /// the buffer where the completion is happening.
+    fn complete(
+        &mut self,
+        text: &EditRope,
+        cursor: &mut Cursor,
+        content: &I::ContentId,
+        store: &mut I::Store,
+    ) -> Vec<String>;
+}
+
+/// A basic implementation of [Completer] that never returns anything.
+#[derive(Default)]
+pub struct EmptyCompleter;
+
+impl<I: ApplicationInfo> Completer<I> for EmptyCompleter {
+    fn complete(
+        &mut self,
+        _: &EditRope,
+        _: &mut Cursor,
+        _: &I::ContentId,
+        _: &mut I::Store,
+    ) -> Vec<String> {
+        vec![]
+    }
+}
 
 /// List of text completion candidates to show to the user.
 #[derive(Clone)]

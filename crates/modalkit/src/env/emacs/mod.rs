@@ -213,7 +213,7 @@ impl<I: ApplicationInfo> InputState for EmacsState<I> {
         let mut builder = EditContextBuilder::from(original);
 
         // Allow overriding count.
-        if let n @ Some(_) = overrides.count {
+        if let n @ Some(_) = overrides.get_count() {
             builder = builder.count(n);
         }
 

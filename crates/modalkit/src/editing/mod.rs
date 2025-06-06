@@ -9,13 +9,14 @@
 //!
 //! [scansion]: https://docs.rs/scansion/latest/scansion/
 //! [modalkit-ratatui]: https://docs.rs/modalkit-ratatui/latest/modalkit_ratatui/
-pub mod application;
 pub mod buffer;
 pub mod completion;
-pub mod context;
 pub mod cursor;
 pub mod history;
 pub mod key;
 pub mod lineinfo;
 pub mod rope;
 pub mod store;
+
+pub use editor_types::application;
+pub use editor_types::context;
