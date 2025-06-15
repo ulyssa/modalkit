@@ -194,6 +194,10 @@ where
         self.bindings.show_mode()
     }
 
+    fn reset_mode(&mut self) {
+        self.bindings.reset_mode()
+    }
+
     fn get_cursor_indicator(&self) -> Option<char> {
         self.bindings.get_cursor_indicator()
     }
