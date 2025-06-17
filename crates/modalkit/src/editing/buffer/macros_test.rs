@@ -36,7 +36,7 @@ macro_rules! paste_dir {
 
 macro_rules! ctx {
     ($curid: expr, $vwctx: expr, $vctx: expr) => {
-        &($curid, &$vwctx, &$vctx)
+        &($curid, &$vwctx, &EditContext::from($vctx.clone()))
     };
 }
 

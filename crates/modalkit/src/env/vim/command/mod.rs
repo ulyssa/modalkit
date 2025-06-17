@@ -237,6 +237,9 @@ fn sum_mods(mods: &[RangeEndingModifier], ctx: &EditContext) -> Option<(MoveDir1
                     },
                 }
             },
+
+            // Unimplemented:
+            _ => return None,
         }
     }
 

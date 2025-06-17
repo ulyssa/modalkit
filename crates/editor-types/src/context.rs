@@ -3,8 +3,8 @@
 //! ## Overview
 //!
 //! This module contains the contexts used by the editing buffer.
-use crate::actions::EditAction;
 use crate::prelude::*;
+use crate::EditAction;
 
 /// Trait for values that can be converted by the [EditContext].
 pub trait Resolve<T, R> {
@@ -73,6 +73,11 @@ impl EditContext {
     /// Indicates whether it is okay to move the cursor into the last column of a line.
     pub fn get_last_column(&self) -> bool {
         self.last_column
+    }
+
+    /// Indicates a count added to the context (if there is one).
+    pub fn get_count(&self) -> Option<usize> {
+        self.count
     }
 
     /// Indicates which register yanked and deleted text should go to.

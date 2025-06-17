@@ -2541,6 +2541,10 @@ impl CursorMovements<Cursor> for EditRope {
                 nc.set_line(line, cctx);
                 nc.first_word(cctx);
             },
+            (_, _) => {
+                // Catch non-exhaustive pattern for future unimplemented movements.
+                return None;
+            },
         }
 
         return Some(nc);
@@ -2630,6 +2634,10 @@ impl CursorMovements<Cursor> for EditRope {
             (RangeType::Quote(quote), _) => self.find_quoted(cursor, *quote, inclusive),
             (RangeType::XmlTag, _) => {
                 // XXX: implement
+                None
+            },
+            (_, _) => {
+                // Catch non-exhaustive pattern for future unimplemented movements.
                 None
             },
         }
@@ -2758,24 +2766,30 @@ impl CursorSearch<Cursor> for EditRope {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::editing::application::EmptyInfo;
     use crate::editing::context::EditContext;
     use crate::editing::cursor::CursorState;
+    use crate::env::vim::VimState;
 
     macro_rules! cmctx {
         ($vwctx: expr, $vctx: expr) => {
             &CursorMovementsContext {
                 action: &EditAction::Motion,
                 view: &$vwctx,
-                context: &$vctx,
+                context: &EditContext::from($vctx.clone()),
             }
         };
     }
 
-    fn mkctx_vim() -> EditContext {
-        use crate::editing::application::EmptyInfo;
-        use crate::env::vim::VimState;
+    fn mkctx_vim() -> VimState<EmptyInfo> {
+        VimState::default()
+    }
 
-        VimState::<EmptyInfo>::default().into()
+    /// Make an [EditContext] with an [InsertStyle] and `last_column=true`.
+    fn mkctx_last_col() -> EditContext {
+        let mut state = mkctx_vim();
+        state.persist.insert = Some(InsertStyle::Insert);
+        state.into()
     }
 
     #[test]
@@ -4181,34 +4195,34 @@ mod tests {
         assert_eq!(cursor, Cursor::new(2, 2));
 
         // Test moving columns forward with a count.
-        vctx.count = Some(2);
+        vctx.action.count = Some(2);
         cursor = rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(cursor, Cursor::new(2, 0));
 
         // Test moving columns backwards with a count.
         let mov = MoveType::Column(MoveDir1D::Next, false);
-        vctx.count = Some(4);
+        vctx.action.count = Some(4);
         cursor = rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(cursor, Cursor::new(2, 4));
 
-        vctx.count = Some(2);
+        vctx.action.count = Some(2);
         cursor = rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(cursor, Cursor::new(2, 6));
 
         // Can't move past last column when wrap is false.
-        vctx.count = Some(10);
+        vctx.action.count = Some(10);
         cursor = rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(cursor, Cursor::new(2, 8));
 
         // Moving up clamps cursor to a valid column.
         let mov = MoveType::Line(MoveDir1D::Previous);
-        vctx.count = None;
+        vctx.action.count = None;
         cursor = rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(cursor, Cursor::new(1, 4).goal(8));
 
         // Moving down returns to xgoal column.
         let mov = MoveType::Line(MoveDir1D::Next);
-        vctx.count = None;
+        vctx.action.count = None;
         cursor = rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(cursor, Cursor::new(2, 8));
     }
@@ -4225,35 +4239,34 @@ mod tests {
 
         // Can move past last column when wrap is true.
         let mov = MoveType::Column(MoveDir1D::Next, true);
-        vctx.count = Some(5);
+        vctx.action.count = Some(5);
         cursor = rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(cursor, Cursor::new(1, 0));
 
         // Can move past first column when wrap is true.
         let mov = MoveType::Column(MoveDir1D::Previous, true);
-        vctx.count = Some(2);
+        vctx.action.count = Some(2);
         cursor = rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(cursor, Cursor::new(0, 3));
 
         // When inserting text, we can access the last, empty column.
-        vctx.insert_style = Some(InsertStyle::Insert);
-        vctx.last_column = true;
+        vctx.persist.insert = Some(InsertStyle::Insert);
 
         // Move to last column.
         let mov = MoveType::Column(MoveDir1D::Next, true);
-        vctx.count = Some(2);
+        vctx.action.count = Some(2);
         cursor = rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(cursor, Cursor::new(0, 5));
 
         // Moving forward one from the last column moves onto next line.
         let mov = MoveType::Column(MoveDir1D::Next, true);
-        vctx.count = Some(1);
+        vctx.action.count = Some(1);
         cursor = rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(cursor, Cursor::new(1, 0));
 
         // Move back one from the first column moves into the last, empty column.
         let mov = MoveType::Column(MoveDir1D::Previous, true);
-        vctx.count = Some(1);
+        vctx.action.count = Some(1);
         cursor = rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(cursor, Cursor::new(0, 5));
     }
@@ -4461,12 +4474,9 @@ mod tests {
     fn test_motion_word_begin_nonalphanum() {
         let rope = EditRope::from("hello   world  \nhow,are ,, you,doing\n today\n");
         let vwctx = ViewportContext::<Cursor>::default();
-        let mut vctx = mkctx_vim();
+        let vctx = mkctx_last_col();
         let mut cursor = rope.first();
         let count = Count::Contextual;
-
-        vctx.insert_style = Some(InsertStyle::Insert);
-        vctx.last_column = true;
 
         // Emacs' <M-f> movement.
         let mov = MoveType::WordBegin(WordStyle::NonAlphaNum, MoveDir1D::Next);
@@ -4557,12 +4567,9 @@ mod tests {
     fn test_motion_word_alphanum() {
         let rope = EditRope::from("hello   world  \nhow,are ,, you,doing\n today\n");
         let vwctx = ViewportContext::<Cursor>::default();
-        let mut vctx = mkctx_vim();
+        let vctx = mkctx_last_col();
         let mut cursor = rope.first();
         let count = Count::Contextual;
-
-        vctx.insert_style = Some(InsertStyle::Insert);
-        vctx.last_column = true;
 
         // Move forwards with WordStyle::AlphaNum.
         let mov = MoveType::WordBegin(WordStyle::AlphaNum, MoveDir1D::Next);
@@ -4752,7 +4759,7 @@ mod tests {
         assert_eq!(cursor, Cursor::new(0, 9).goal(usize::MAX));
 
         // Using a higher context count allows us to move to the next line ending.
-        vctx.count = Some(2);
+        vctx.action.count = Some(2);
         cursor = rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(cursor, Cursor::new(1, 4).goal(usize::MAX));
 
@@ -4760,7 +4767,7 @@ mod tests {
         assert_eq!(rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)), None);
 
         // Move to middle of line.
-        vctx.count = None;
+        vctx.action.count = None;
         let mov = MoveType::LinePos(MovePosition::Middle);
         let count = Count::MinusOne;
         cursor = rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)).unwrap();
@@ -5045,45 +5052,45 @@ mod tests {
 
         // Navigate to the top of screen (H).
         let mov = MoveType::ViewportPos(MovePosition::Beginning);
-        vctx.count = Some(1);
+        vctx.action.count = Some(1);
         cursor = rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(cursor, Cursor::new(2, 0));
 
         // Navigate to the third line from the top of screen ("3H").
         let mov = MoveType::ViewportPos(MovePosition::Beginning);
-        vctx.count = Some(3);
+        vctx.action.count = Some(3);
         cursor = rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(cursor, Cursor::new(4, 0));
 
         // Attempting to navigate to the seventh line from the top of screen just stops at the
         // bottommost visible line ("7H").
         let mov = MoveType::ViewportPos(MovePosition::Beginning);
-        vctx.count = Some(7);
+        vctx.action.count = Some(7);
         cursor = rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(cursor, Cursor::new(5, 0));
 
         // Navigate to the middle of the screen ("M").
         let mov = MoveType::ViewportPos(MovePosition::Middle);
-        vctx.count = None;
+        vctx.action.count = None;
         cursor = rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(cursor, Cursor::new(4, 0));
 
         // Navigate to the bottom of the screen ("L").
         let mov = MoveType::ViewportPos(MovePosition::End);
-        vctx.count = None;
+        vctx.action.count = None;
         cursor = rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(cursor, Cursor::new(5, 0));
 
         // Navigate to the third line from the bottom of screen ("3L").
         let mov = MoveType::ViewportPos(MovePosition::End);
-        vctx.count = Some(3);
+        vctx.action.count = Some(3);
         cursor = rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(cursor, Cursor::new(3, 0));
 
         // Attempting to navigate to the sixth line from the bottom of the screen just stops at the
         // topmost visible line ("6L").
         let mov = MoveType::ViewportPos(MovePosition::End);
-        vctx.count = Some(6);
+        vctx.action.count = Some(6);
         cursor = rope.movement(&cursor, &mov, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(cursor, Cursor::new(2, 0));
     }
@@ -5480,22 +5487,22 @@ mod tests {
         let inc = true;
 
         // Select a single line.
-        vctx.count = Some(1);
+        vctx.action.count = Some(1);
         let er = rope.range(&cursor, &rt, inc, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(er, EditRange::exclusive(Cursor::new(1, 0), Cursor::new(1, 6), cw));
 
         // End cursor is placed on the first word (important for forced-motion compatibility).
-        vctx.count = Some(2);
+        vctx.action.count = Some(2);
         let er = rope.range(&cursor, &rt, inc, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(er, EditRange::exclusive(Cursor::new(1, 6), Cursor::new(2, 4), cw));
 
         // Select up to the last line.
-        vctx.count = Some(3);
+        vctx.action.count = Some(3);
         let er = rope.range(&cursor, &rt, inc, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(er, EditRange::exclusive(Cursor::new(1, 6), Cursor::new(3, 0), cw));
 
         // Providing a count higher than number of lines stops at the last line.
-        vctx.count = Some(4);
+        vctx.action.count = Some(4);
         let er = rope.range(&cursor, &rt, inc, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(er, EditRange::exclusive(Cursor::new(1, 6), Cursor::new(3, 0), cw));
     }
@@ -5516,38 +5523,38 @@ mod tests {
         let cursor_cr = Cursor::new(0, 27);
 
         // Select parentheses surrounding "a" w/ count = 1.
-        vctx.count = Some(1);
+        vctx.action.count = Some(1);
         let er = rope.range(&cursor_al, &rt, inc, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(er, EditRange::inclusive(Cursor::new(0, 9), Cursor::new(0, 11), cw));
 
-        vctx.count = Some(1);
+        vctx.action.count = Some(1);
         let er = rope.range(&cursor_ar, &rt, inc, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(er, EditRange::inclusive(Cursor::new(0, 9), Cursor::new(0, 11), cw));
 
         // Select parentheses surrounding "a" w/ count = 3.
-        vctx.count = Some(3);
+        vctx.action.count = Some(3);
         let er = rope.range(&cursor_al, &rt, inc, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(er, EditRange::inclusive(Cursor::new(0, 4), Cursor::new(0, 34), cw));
 
-        vctx.count = Some(3);
+        vctx.action.count = Some(3);
         let er = rope.range(&cursor_ar, &rt, inc, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(er, EditRange::inclusive(Cursor::new(0, 4), Cursor::new(0, 34), cw));
 
         // Select the parentheses surrounding "c" w/ count = 1.
-        vctx.count = Some(1);
+        vctx.action.count = Some(1);
         let er = rope.range(&cursor_cl, &rt, inc, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(er, EditRange::inclusive(Cursor::new(0, 25), Cursor::new(0, 27), cw));
 
-        vctx.count = Some(1);
+        vctx.action.count = Some(1);
         let er = rope.range(&cursor_cr, &rt, inc, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(er, EditRange::inclusive(Cursor::new(0, 25), Cursor::new(0, 27), cw));
 
         // Look for the parentheses surrounding "c" w/ count = 3.
-        vctx.count = Some(3);
+        vctx.action.count = Some(3);
         let er = rope.range(&cursor_cl, &rt, inc, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(er, EditRange::inclusive(Cursor::new(0, 4), Cursor::new(0, 34), cw));
 
-        vctx.count = Some(3);
+        vctx.action.count = Some(3);
         let er = rope.range(&cursor_cr, &rt, inc, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(er, EditRange::inclusive(Cursor::new(0, 4), Cursor::new(0, 34), cw));
     }
@@ -5567,27 +5574,27 @@ mod tests {
         let cursor_a = Cursor::new(0, 10);
 
         // Look for the parentheses surrounding "1".
-        vctx.count = Some(1);
+        vctx.action.count = Some(1);
         let er = rope.range(&cursor_1, &rt, inc, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(er, EditRange::inclusive(Cursor::new(0, 4), Cursor::new(0, 34), cw));
 
         // Look for the parentheses surrounding "a" w/ count = 1.
-        vctx.count = Some(1);
+        vctx.action.count = Some(1);
         let er = rope.range(&cursor_a, &rt, inc, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(er, EditRange::inclusive(Cursor::new(0, 9), Cursor::new(0, 11), cw));
 
         // Look for the parentheses surrounding "a" w/ count = 2.
-        vctx.count = Some(2);
+        vctx.action.count = Some(2);
         let er = rope.range(&cursor_a, &rt, inc, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(er, EditRange::inclusive(Cursor::new(0, 7), Cursor::new(0, 29), cw));
 
         // Look for the parentheses surrounding "a" w/ count = 3.
-        vctx.count = Some(3);
+        vctx.action.count = Some(3);
         let er = rope.range(&cursor_a, &rt, inc, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(er, EditRange::inclusive(Cursor::new(0, 4), Cursor::new(0, 34), cw));
 
         // Look for the parentheses surrounding "a" w/ count = 4.
-        vctx.count = Some(4);
+        vctx.action.count = Some(4);
         let er = rope.range(&cursor_a, &rt, inc, &count, cmctx!(vwctx, vctx));
         assert_eq!(er, None);
     }
@@ -5607,27 +5614,27 @@ mod tests {
         let cursor_c = Cursor::new(0, 26);
 
         // Look for the parentheses surrounding "2".
-        vctx.count = Some(1);
+        vctx.action.count = Some(1);
         let er = rope.range(&cursor_2, &rt, inc, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(er, EditRange::inclusive(Cursor::new(0, 4), Cursor::new(0, 34), cw));
 
         // Look for the parentheses surrounding "c" w/ count = 1.
-        vctx.count = Some(1);
+        vctx.action.count = Some(1);
         let er = rope.range(&cursor_c, &rt, inc, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(er, EditRange::inclusive(Cursor::new(0, 25), Cursor::new(0, 27), cw));
 
         // Look for the parentheses surrounding "c" w/ count = 2.
-        vctx.count = Some(2);
+        vctx.action.count = Some(2);
         let er = rope.range(&cursor_c, &rt, inc, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(er, EditRange::inclusive(Cursor::new(0, 7), Cursor::new(0, 29), cw));
 
         // Look for the parentheses surrounding "c" w/ count = 3.
-        vctx.count = Some(3);
+        vctx.action.count = Some(3);
         let er = rope.range(&cursor_c, &rt, inc, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(er, EditRange::inclusive(Cursor::new(0, 4), Cursor::new(0, 34), cw));
 
         // Look for the parentheses surrounding "c" w/ count = 4.
-        vctx.count = Some(4);
+        vctx.action.count = Some(4);
         let er = rope.range(&cursor_c, &rt, inc, &count, cmctx!(vwctx, vctx));
         assert_eq!(er, None);
     }
@@ -5667,27 +5674,27 @@ mod tests {
         let cursor_a = Cursor::new(0, 10);
 
         // Look for the parentheses surrounding "1".
-        vctx.count = Some(1);
+        vctx.action.count = Some(1);
         let er = rope.range(&cursor_1, &rt, inc, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(er, EditRange::inclusive(Cursor::new(0, 5), Cursor::new(0, 33), cw));
 
         // Look for the parentheses surrounding "a" w/ count = 1.
-        vctx.count = Some(1);
+        vctx.action.count = Some(1);
         let er = rope.range(&cursor_a, &rt, inc, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(er, EditRange::inclusive(Cursor::new(0, 10), Cursor::new(0, 10), cw));
 
         // Look for the parentheses surrounding "a" w/ count = 2.
-        vctx.count = Some(2);
+        vctx.action.count = Some(2);
         let er = rope.range(&cursor_a, &rt, inc, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(er, EditRange::inclusive(Cursor::new(0, 8), Cursor::new(0, 28), cw));
 
         // Look for the parentheses surrounding "a" w/ count = 3.
-        vctx.count = Some(3);
+        vctx.action.count = Some(3);
         let er = rope.range(&cursor_a, &rt, inc, &count, cmctx!(vwctx, vctx)).unwrap();
         assert_eq!(er, EditRange::inclusive(Cursor::new(0, 5), Cursor::new(0, 33), cw));
 
         // Look for the parentheses surrounding "a" w/ count = 4.
-        vctx.count = Some(4);
+        vctx.action.count = Some(4);
         let er = rope.range(&cursor_a, &rt, inc, &count, cmctx!(vwctx, vctx));
         assert_eq!(er, None);
     }

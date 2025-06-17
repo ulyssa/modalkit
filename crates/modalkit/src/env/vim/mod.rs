@@ -364,7 +364,7 @@ impl<I: ApplicationInfo> InputState for VimState<I> {
         let mut builder = EditContextBuilder::from(original);
 
         // Allow overriding the two fields that can prefix keybindings.
-        if let n @ Some(_) = overrides.count {
+        if let n @ Some(_) = overrides.get_count() {
             builder = builder.count(n);
         }
 
@@ -567,6 +567,9 @@ fn register_to_char((reg, append): &(Register, bool)) -> Option<String> {
         Register::Blackhole => '_',
         Register::SelectionPrimary => '*',
         Register::SelectionClipboard => '+',
+
+        // Unimplemented:
+        _ => return None,
     };
 
     return c.to_string().into();

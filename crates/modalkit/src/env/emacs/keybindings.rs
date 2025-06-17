@@ -750,7 +750,7 @@ pub fn default_emacs_keys<I: ApplicationInfo>() -> EmacsMachine<TerminalKey, I> 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::editing::context::{EditContext, EditContextBuilder};
+    use crate::editing::context::EditContext;
     use crate::keybindings::BindingMachine;
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
@@ -794,12 +794,8 @@ mod tests {
         cmdbar_focus(s, CommandType::Search, search.into())
     }
 
-    fn mkctx() -> EditContext {
-        EditContextBuilder::default()
-            .last_column(true)
-            .insert_style(Some(InsertStyle::Insert))
-            .search_incremental(true)
-            .build()
+    fn mkctx() -> EmacsState {
+        EmacsState::default()
     }
 
     #[test]
@@ -812,7 +808,7 @@ mod tests {
 
         // <S-Left> begins shift selection.
         let mov = mv!(MoveType::Column(MoveDir1D::Previous, true));
-        ctx.target_shape = Some(TargetShape::CharWise);
+        ctx.persist.shape = Some(TargetShape::CharWise);
 
         vm.input_key(key!(KeyCode::Left, KeyModifiers::SHIFT));
         assert_pop2!(vm, mov, ctx);
@@ -821,7 +817,7 @@ mod tests {
 
         // <Left> ends shift selection
         let mov = mv!(MoveType::Column(MoveDir1D::Previous, true));
-        ctx.target_shape = None;
+        ctx.persist.shape = None;
 
         vm.input_key(key!(KeyCode::Left));
         assert_pop2!(vm, mov, ctx);
@@ -834,7 +830,7 @@ mod tests {
         let mut vm: EmacsMachine<TerminalKey> = default_emacs_keys();
         let mut ctx = mkctx();
 
-        ctx.target_shape = Some(TargetShape::CharWise);
+        ctx.persist.shape = Some(TargetShape::CharWise);
 
         // Start out in Insert mode.
         assert_eq!(vm.mode(), EmacsMode::Insert);
@@ -861,7 +857,7 @@ mod tests {
         assert_eq!(vm.mode(), EmacsMode::Insert);
 
         // ^R moves to Search mode.
-        ctx.search_regex_dir = MoveDir1D::Previous;
+        ctx.persist.regexsearch_dir = MoveDir1D::Previous;
         vm.input_key(ctl!('r'));
         assert_pop2!(vm, cmdbar_search("?"), ctx);
         assert_eq!(vm.mode(), EmacsMode::Search);
@@ -880,7 +876,7 @@ mod tests {
         assert_eq!(vm.mode(), EmacsMode::Search);
 
         // ^S in Search mode results in Action::Search.
-        ctx.search_regex_dir = MoveDir1D::Next;
+        ctx.persist.regexsearch_dir = MoveDir1D::Next;
         let act = Action::Search(MoveDirMod::Exact(MoveDir1D::Next), 1.into());
         vm.input_key(ctl!('s'));
         assert_pop2!(vm, act, ctx);
@@ -923,12 +919,12 @@ mod tests {
         assert_eq!(vm.pop(), None);
 
         // Type space 22 times.
-        ctx.count = Some(22);
+        ctx.action.count = Some(22);
         vm.input_key(key!(' '));
         assert_pop2!(vm, typechar!(' '), ctx);
 
         // We can also type C-U 2 2 SPC.
-        ctx.count = Some(22);
+        ctx.action.count = Some(22);
         vm.input_key(ctl!('u'));
         vm.input_key(key!('2'));
         vm.input_key(key!('2'));
@@ -936,7 +932,7 @@ mod tests {
         assert_pop2!(vm, typechar!(' '), ctx);
 
         // Typing C-U multiple times multiplies by 4 each time.
-        ctx.count = Some(64);
+        ctx.action.count = Some(64);
         vm.input_key(ctl!('u'));
         vm.input_key(ctl!('u'));
         vm.input_key(ctl!('u'));
@@ -967,7 +963,7 @@ mod tests {
         assert_pop2!(vm, Action::Repeat(RepeatType::LastAction), ctx);
 
         // Only 'c' comes back.
-        vm.repeat(RepeatType::LastAction, Some(ctx.clone()));
+        vm.repeat(RepeatType::LastAction, Some(ctx.clone().into()));
         assert_pop2!(vm, typechar!('c'), ctx);
 
         // Pressing 'z' keeps repeating.
@@ -976,7 +972,7 @@ mod tests {
         assert_eq!(vm.state().persist.repeating, true);
 
         // Get back 'c' again.
-        vm.repeat(RepeatType::LastAction, Some(ctx.clone()));
+        vm.repeat(RepeatType::LastAction, Some(ctx.clone().into()));
         assert_pop2!(vm, typechar!('c'), ctx);
 
         // Pressing 'z' keeps repeating.
@@ -985,7 +981,7 @@ mod tests {
         assert_eq!(vm.state().persist.repeating, true);
 
         // Get back 'c' again.
-        vm.repeat(RepeatType::LastAction, Some(ctx.clone()));
+        vm.repeat(RepeatType::LastAction, Some(ctx.clone().into()));
         assert_pop2!(vm, typechar!('c'), ctx);
 
         // Pressing 'd', an unmapped key, interrupts the sequence.
@@ -1005,7 +1001,7 @@ mod tests {
         assert_eq!(vm.state().persist.repeating, true);
 
         // Get back 'z'.
-        vm.repeat(RepeatType::LastAction, Some(ctx.clone()));
+        vm.repeat(RepeatType::LastAction, Some(ctx.clone().into()));
         assert_pop2!(vm, typechar!('z'), ctx);
 
         // Pressing 'z' keeps repeating.
@@ -1014,7 +1010,7 @@ mod tests {
         assert_eq!(vm.state().persist.repeating, true);
 
         // Get back 'z'.
-        vm.repeat(RepeatType::LastAction, Some(ctx.clone()));
+        vm.repeat(RepeatType::LastAction, Some(ctx.clone().into()));
         assert_pop2!(vm, typechar!('z'), ctx);
 
         // Pressing <Right>, a mapped key, interrupts the sequence.

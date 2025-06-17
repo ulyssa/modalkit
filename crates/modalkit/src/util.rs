@@ -1,7 +1,8 @@
+pub use editor_types::util::*;
+
 use std::borrow::Borrow;
 use std::cmp::Ordering;
 use std::ops::Bound;
-use std::path::MAIN_SEPARATOR;
 
 use radix_trie::{SubTrie, Trie, TrieCommon, TrieKey};
 use unicode_segmentation::UnicodeSegmentation;
@@ -56,7 +57,7 @@ macro_rules! ctl {
 #[allow(unused_macros)]
 macro_rules! assert_pop1 {
     ($mm: expr, $act: expr, $ctx: expr) => {
-        assert_eq!($mm.pop(), Some(($act.clone(), $ctx.clone())));
+        assert_eq!($mm.pop(), Some(($act.clone(), EditContext::from($ctx.clone()))));
     };
 }
 
@@ -272,34 +273,6 @@ where
     } else {
         (b, a)
     }
-}
-
-pub fn is_horizontal_space(c: char) -> bool {
-    return c == ' ' || c == '\t';
-}
-
-pub fn is_space_char(c: char) -> bool {
-    return c.is_ascii_whitespace();
-}
-
-pub fn is_newline(c: char) -> bool {
-    c == '\n' || c == '\r'
-}
-
-pub fn is_word_char(c: char) -> bool {
-    return c.is_alphanumeric() || c == '_';
-}
-
-pub fn is_keyword(c: char) -> bool {
-    return c >= '!' && c <= '/' || c >= '[' && c <= '^' || c >= '{' && c <= '~' || c == '`';
-}
-
-pub fn is_filepath_char(c: char) -> bool {
-    return c == MAIN_SEPARATOR || is_filename_char(c);
-}
-
-pub fn is_filename_char(c: char) -> bool {
-    return is_word_char(c) || "@.-_+,#$%~=:".contains(c) || c > '\u{007F}';
 }
 
 pub fn into_range<T>(start: T, end: T, inclusive: bool) -> (Bound<T>, Bound<T>) {

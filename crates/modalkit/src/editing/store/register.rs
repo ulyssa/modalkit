@@ -91,6 +91,10 @@ pub enum RegisterError {
     /// Failure to determine a macro register to use.
     #[error("No macro previously executed")]
     NoLastMacro,
+
+    /// A currently unsupported register was used.
+    #[error("Unsupported register: {0:?}")]
+    Unimplemented(Register),
 }
 
 /// The current values mapped to by a [Register].
@@ -330,6 +334,11 @@ impl RegisterStore {
              * Blackhole register.
              */
             Register::Blackhole => RegisterCell::default(),
+
+            /*
+             * An unimplemented register:
+             */
+            r => return Err(RegisterError::Unimplemented(r.clone())),
         };
 
         Ok(reg)
@@ -428,6 +437,11 @@ impl RegisterStore {
             Register::CurBufName => cell,
             Register::LastCommand(_) => cell,
             Register::LastInserted => cell,
+
+            /*
+             * An unimplemented register:
+             */
+            r => return Err(RegisterError::Unimplemented(r.clone())),
         };
 
         if !flags.contains(RegisterPutFlags::NOTEXT) {

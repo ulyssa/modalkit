@@ -279,6 +279,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "75b325c5dbd37f80359721ad39aca5a29fb04c89279657cffdda8736d0c0b9d2"
 
 [[package]]
+name = "editor-types"
+version = "0.0.1"
+dependencies = [
+ "bitflags 2.4.2",
+ "keybindings",
+ "regex",
+]
+
+[[package]]
 name = "either"
 version = "1.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -607,6 +616,7 @@ dependencies = [
  "bitflags 2.4.2",
  "crossterm",
  "derive_more",
+ "editor-types",
  "intervaltree",
  "keybindings",
  "nom",
