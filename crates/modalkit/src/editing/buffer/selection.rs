@@ -47,7 +47,7 @@ where
     /// Filter selections that match the regular expression in [Register::LastSearch].
     fn selection_filter(
         &mut self,
-        drop: bool,
+        act: MatchAction,
         ctx: &C,
         store: &mut Store<I>,
     ) -> EditResult<EditInfo, I>;
@@ -309,7 +309,7 @@ where
 
     fn selection_filter(
         &mut self,
-        drop: bool,
+        act: MatchAction,
         ictx: &CursorGroupIdContext<'a>,
         store: &mut Store<I>,
     ) -> EditResult<EditInfo, I> {
@@ -318,6 +318,7 @@ where
 
         let needle = self._get_regex(store)?;
         let members = std::mem::take(&mut group.members);
+        let drop = act.is_drop();
 
         let keep = |state: &CursorState| {
             let ms = self.text.find_matches(state.start(), state.end(), &needle);
@@ -612,7 +613,7 @@ where
                         })
                         .collect()
                 },
-                (SelectionSplitStyle::Regex(false), shape) => {
+                (SelectionSplitStyle::Regex(MatchAction::Keep), shape) => {
                     let needle = self._get_regex(store)?;
                     let ctx = &(&self.text, 0, true);
 
@@ -627,7 +628,7 @@ where
                         .map(|m| self.text.select(m))
                         .collect()
                 },
-                (SelectionSplitStyle::Regex(true), shape) => {
+                (SelectionSplitStyle::Regex(MatchAction::Drop), shape) => {
                     let needle = self._get_regex(store)?;
                     let ctx = &(&self.text, 0, true);
 
@@ -1055,7 +1056,7 @@ mod tests {
         selection_split_regex!(
             ebuf,
             TargetShapeFilter::CHAR,
-            false,
+            MatchAction::Keep,
             ctx!(curid, vwctx, vctx),
             store
         );
@@ -1067,7 +1068,7 @@ mod tests {
         selection_split_regex!(
             ebuf,
             TargetShapeFilter::LINE,
-            false,
+            MatchAction::Keep,
             ctx!(curid, vwctx, vctx),
             store
         );
@@ -1116,7 +1117,7 @@ mod tests {
         selection_split_regex!(
             ebuf,
             TargetShapeFilter::CHAR,
-            true,
+            MatchAction::Drop,
             ctx!(curid, vwctx, vctx),
             store
         );
@@ -1128,7 +1129,7 @@ mod tests {
         selection_split_regex!(
             ebuf,
             TargetShapeFilter::LINE,
-            true,
+            MatchAction::Drop,
             ctx!(curid, vwctx, vctx),
             store
         );
@@ -2025,7 +2026,8 @@ mod tests {
         store.registers.set_last_search("he");
 
         // Keep selections matching /he/.
-        ebuf.selection_filter(false, ctx!(curid, vwctx, vctx), &mut store).unwrap();
+        ebuf.selection_filter(MatchAction::Keep, ctx!(curid, vwctx, vctx), &mut store)
+            .unwrap();
 
         let fsels = vec![
             (Cursor::new(2, 0), Cursor::new(2, 3), TargetShape::CharWise), // "help"
@@ -2077,7 +2079,8 @@ mod tests {
         store.registers.set_last_search("he");
 
         // Drop selections matching /he/.
-        ebuf.selection_filter(true, ctx!(curid, vwctx, vctx), &mut store).unwrap();
+        ebuf.selection_filter(MatchAction::Drop, ctx!(curid, vwctx, vctx), &mut store)
+            .unwrap();
 
         let fsels = vec![
             (Cursor::new(1, 0), Cursor::new(1, 4), TargetShape::CharWise), // "world"
