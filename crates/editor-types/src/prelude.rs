@@ -1280,13 +1280,7 @@ pub enum SelectionSplitStyle {
 
     /// Split a selection into [TargetShape::CharWise] parts based on the regular expression
     /// stored in the register for [CommandType::Search].
-    ///
-    /// When the [bool] argument is `false`, then text matching the regular expression will be
-    /// selected.
-    ///
-    /// When the [bool] argument is `true`, then text matching the regular expression will be
-    /// removed from the selections.
-    Regex(bool),
+    Regex(MatchAction),
 }
 
 /// Different ways to change the boundaries of a visual selection.
@@ -1509,6 +1503,37 @@ impl TargetShapeFilter {
             TargetShape::LineWise => self.contains(TargetShapeFilter::LINE),
             TargetShape::BlockWise => self.contains(TargetShapeFilter::BLOCK),
         }
+    }
+}
+
+impl From<TargetShape> for TargetShapeFilter {
+    fn from(shape: TargetShape) -> Self {
+        match shape {
+            TargetShape::CharWise => TargetShapeFilter::CHAR,
+            TargetShape::LineWise => TargetShapeFilter::LINE,
+            TargetShape::BlockWise => TargetShapeFilter::BLOCK,
+        }
+    }
+}
+
+/// Action to take on targets when filtering with a regular expression.
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub enum MatchAction {
+    /// Keep targets of the regular expression.
+    Keep,
+    /// Remove targets of the regular expression.
+    Drop,
+}
+
+impl MatchAction {
+    /// Whether this action is [MatchAction::Keep].
+    pub fn is_keep(&self) -> bool {
+        matches!(self, MatchAction::Keep)
+    }
+
+    /// Whether this action is [MatchAction::Drop].
+    pub fn is_drop(&self) -> bool {
+        matches!(self, MatchAction::Drop)
     }
 }
 

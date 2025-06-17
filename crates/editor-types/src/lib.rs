@@ -128,10 +128,7 @@ pub enum SelectionAction {
     Expand(SelectionBoundary, TargetShapeFilter),
 
     /// Filter selections using the last regular expression entered for [CommandType::Search].
-    ///
-    /// The [bool] argument indicates whether we should drop selections that match instead of
-    /// keeping them.
-    Filter(bool),
+    Filter(MatchAction),
 
     /// Join adjacent selections together.
     Join,
