@@ -700,7 +700,7 @@ impl Editor {
                 None
             },
 
-            Action::KeywordLookup => {
+            Action::KeywordLookup(_) => {
                 // XXX: implement
                 None
             },

@@ -576,6 +576,12 @@ impl BoundaryTest for WordStyle {
     }
 }
 
+impl From<Radix> for WordStyle {
+    fn from(radix: Radix) -> Self {
+        WordStyle::Number(radix)
+    }
+}
+
 /// Specify the base for a number.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Radix {
@@ -950,6 +956,22 @@ pub enum NumberChange {
 
     /// Increase the first number in the targeted text by [*n*](Count).
     Increase(Count),
+}
+
+/// Targets for [Action::KeywordLookup].
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum KeywordTarget {
+    /// Lookup the [word][WordStyle] surrounding the cursor.
+    Word(WordStyle),
+
+    /// Lookup the currently selected text.
+    Selection,
+}
+
+impl From<WordStyle> for KeywordTarget {
+    fn from(style: WordStyle) -> KeywordTarget {
+        KeywordTarget::Word(style)
+    }
 }
 
 /// Targets for [WindowAction::Open] and [WindowAction::Switch].

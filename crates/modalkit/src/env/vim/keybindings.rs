@@ -1574,7 +1574,6 @@ fn default_keys<I: ApplicationInfo>() -> Vec<(MappedModes, &'static str, InputSt
         ( NMAP, "i", insert!(InsertStyle::Insert) ),
         ( NMAP, "I", insert!(InsertStyle::Insert, MoveType::FirstWord(MoveDir1D::Next), 0) ),
         ( NMAP, "J", edit_lines!(EditAction::Join(JoinStyle::OneSpace)) ),
-        ( NMAP, "K", act!(Action::KeywordLookup) ),
         ( NMAP, "o", open_lines!(MoveDir1D::Next) ),
         ( NMAP, "O", open_lines!(MoveDir1D::Previous) ),
         ( NMAP, "p", paste_dir!(MoveDir1D::Next) ),
@@ -1654,7 +1653,6 @@ fn default_keys<I: ApplicationInfo>() -> Vec<(MappedModes, &'static str, InputSt
         ( XMAP, "g<C-X>", edit_selection!(EditAction::ChangeNumber(NumberChange::Decrease(Count::Contextual), true)) ),
         ( XMAP, "I", insert_visual!(SelectionCursorChange::Beginning) ),
         ( XMAP, "J", edit_selection!(EditAction::Join(JoinStyle::OneSpace)) ),
-        ( XMAP, "K", act!(Action::KeywordLookup) ),
         ( XMAP, "o", selection!(SelectionAction::CursorSet(SelectionCursorChange::SwapAnchor(false))) ),
         ( XMAP, "O", selection!(SelectionAction::CursorSet(SelectionCursorChange::SwapAnchor(true))) ),
         ( XMAP, "p", paste!(PasteStyle::Replace, Count::Contextual, VimMode::Normal) ),
@@ -1925,6 +1923,14 @@ fn cursor_open<I: ApplicationInfo>(style: WordStyle) -> Vec<(MappedModes, &'stat
     ].to_vec()
 }
 
+#[rustfmt::skip]
+fn keyword_lookup<I: ApplicationInfo>(style: WordStyle) -> Vec<(MappedModes, &'static str, InputStep<I>)> {
+    [
+        ( NMAP, "K", act!(Action::KeywordLookup(KeywordTarget::Word(style))) ),
+        ( XMAP, "K", act!(Action::KeywordLookup(KeywordTarget::Selection)) ),
+    ].to_vec()
+}
+
 #[inline]
 fn add_prefix<I: ApplicationInfo>(
     machine: &mut VimMachine<TerminalKey, I>,
@@ -1966,6 +1972,7 @@ pub struct VimBindings<I: ApplicationInfo> {
     search: Vec<(MappedModes, &'static str, InputStep<I>)>,
     ctrlcd: Vec<(MappedModes, &'static str, InputStep<I>)>,
     cursor_open: Vec<(MappedModes, &'static str, InputStep<I>)>,
+    kw_lookup: Vec<(MappedModes, &'static str, InputStep<I>)>,
 }
 
 impl<I: ApplicationInfo> VimBindings<I> {
@@ -1993,6 +2000,12 @@ impl<I: ApplicationInfo> VimBindings<I> {
         self.cursor_open = cursor_open(style);
         self
     }
+
+    /// Change what [WordStyle] is used with keys that map to a [KeywordTarget::Word] value.
+    pub fn keyword_lookup(mut self, style: WordStyle) -> Self {
+        self.kw_lookup = keyword_lookup(style);
+        self
+    }
 }
 
 impl<I: ApplicationInfo> ShellBindings for VimBindings<I> {
@@ -2010,6 +2023,7 @@ impl<I: ApplicationInfo> Default for VimBindings<I> {
             search: default_search(),
             ctrlcd: default_ctrlcd(),
             cursor_open: cursor_open(WordStyle::FilePath),
+            kw_lookup: keyword_lookup(WordStyle::Little),
         }
     }
 }
