@@ -609,11 +609,11 @@ fn default_keys<I: ApplicationInfo>() -> Vec<(MappedModes, &'static str, InputSt
 
         // Command mode keybindings.
         ( CMAP, "<C-G>", prompt!(PromptAction::Abort(false), EmacsMode::Insert) ),
-        ( CMAP, "<C-I>", editor!(EditorAction::Complete(CompletionType::Auto, CompletionSelection::Single, CompletionDisplay::Bar)) ),
+        ( CMAP, "<C-I>", editor!(EditorAction::Complete(CompletionStyle::Single, CompletionType::Auto, CompletionDisplay::Bar)) ),
         ( CMAP, "<Up>", prompt!(PromptAction::Recall(RecallFilter::All, MoveDir1D::Previous, Count::Contextual)) ),
         ( CMAP, "<Down>", prompt!(PromptAction::Recall(RecallFilter::All, MoveDir1D::Next, Count::Contextual)) ),
-        ( CMAP, "<Space>", editor!(EditorAction::Complete(CompletionType::Auto, CompletionSelection::Prefix, CompletionDisplay::Bar)) ),
-        ( CMAP, "<Tab>", editor!(EditorAction::Complete(CompletionType::Auto, CompletionSelection::Single, CompletionDisplay::Bar)) ),
+        ( CMAP, "<Space>", editor!(EditorAction::Complete(CompletionStyle::Prefix, CompletionType::Auto, CompletionDisplay::Bar)) ),
+        ( CMAP, "<Tab>", editor!(EditorAction::Complete(CompletionStyle::Single, CompletionType::Auto, CompletionDisplay::Bar)) ),
 
         // Search mode keybindings.
         ( SMAP, "<C-G>", prompt!(PromptAction::Abort(false), EmacsMode::Insert) ),

@@ -48,8 +48,8 @@ where
     /// Complete the text before the cursor group leader.
     fn complete(
         &mut self,
+        style: &CompletionStyle,
         comptype: &CompletionType,
-        selection: &CompletionSelection,
         display: &CompletionDisplay,
         ctx: &C,
         store: &mut S,
