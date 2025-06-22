@@ -26,7 +26,7 @@ derive_more = "0.99.16"
 editor-types = { workspace = true }
 intervaltree = { workspace = true }
 keybindings = { workspace = true }
-nom = "7.0.0"
+nom = { workspace = true }
 radix_trie = "0.2.1"
 regex = { workspace = true }
 ropey = "1.5.0"
