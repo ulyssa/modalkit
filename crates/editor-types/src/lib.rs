@@ -274,7 +274,7 @@ pub enum PromptAction {
     ///
     /// If [bool] is `true`, then this should only move through entries that share an initially
     /// typed prefix.
-    Recall(MoveDir1D, Count, bool),
+    Recall(RecallFilter, MoveDir1D, Count),
 }
 
 /// Actions for recording and running macros.
