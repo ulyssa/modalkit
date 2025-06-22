@@ -1,6 +1,6 @@
 [package]
 name = "editor-types-parser"
-version = "0.0.18"
+version = "0.0.1"
 edition = "2021"
 authors.workspace = true
 repository.workspace = true
