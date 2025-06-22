@@ -30,7 +30,7 @@ use crate::util::{
     is_word_char,
     sort2,
 };
-use crate::EditAction;
+use crate::*;
 
 /// Specify how to change the case of a string.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -253,7 +253,7 @@ pub enum RepeatType {
     /// A sequence of changes made to a buffer.
     EditSequence,
 
-    /// The last [Action](crate::Action) done.
+    /// The last [Action] done.
     LastAction,
 
     /// The last selection resize made in a buffer.
@@ -885,10 +885,20 @@ pub enum SelectionCursorChange {
     End,
 
     /// Swap the cursor with the anchor of the selection.
+    SwapAnchor,
+
+    /// Move the cursor to the other side of the selection.
     ///
-    /// [bool] indicates that, when the selection is [BlockWise](TargetShape::BlockWise), the
-    /// cursor should stay on the same line, and only change the column.
-    SwapAnchor(bool),
+    /// The "other side" of the selection depends on its [shape][TargetShape]:
+    ///
+    /// * When the selection is [BlockWise](TargetShape::BlockWise), the
+    ///   cursor and anchor will stay on their current line, but change
+    ///   columns to be placed on the opposite side of the selection's block.
+    /// * When the selection is [LineWise](TargetShape::LineWise), the
+    ///   other side of the selection is the anchor.
+    /// * When the selection is [CharWise](TargetShape::CharWise), the
+    ///   other side of the selection is the anchor.
+    SwapSide,
 }
 
 /// This represents what UI element is targeted during an Action.

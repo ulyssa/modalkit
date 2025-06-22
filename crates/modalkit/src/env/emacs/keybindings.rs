@@ -556,7 +556,7 @@ fn default_keys<I: ApplicationInfo>() -> Vec<(MappedModes, &'static str, InputSt
         ( IMAP, "<C-X><C-S>", unmapped!() ),
         ( IMAP, "<C-X><C-T>", unmapped!() ),
         ( IMAP, "<C-X><C-W>", unmapped!() ),
-        ( IMAP, "<C-X><C-X>", selection!(SelectionAction::CursorSet(SelectionCursorChange::SwapAnchor(false))) ),
+        ( IMAP, "<C-X><C-X>", selection!(SelectionAction::CursorSet(SelectionCursorChange::SwapAnchor)) ),
         ( IMAP, "<C-X><C-Z>", act!(Action::Suspend) ),
         ( IMAP, "<C-X><Space>", unmapped!() ),
         ( IMAP, "<C-X><Left>", window_switch!(OpenTarget::Offset(MoveDir1D::Previous, Count::Contextual)) ),

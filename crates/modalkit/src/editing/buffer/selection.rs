@@ -104,14 +104,14 @@ where
             match (shape, side) {
                 (
                     TargetShape::CharWise | TargetShape::LineWise,
-                    SelectionCursorChange::SwapAnchor(_),
+                    SelectionCursorChange::SwapAnchor | SelectionCursorChange::SwapSide,
                 ) => {
                     state.swap();
                 },
-                (TargetShape::BlockWise, SelectionCursorChange::SwapAnchor(false)) => {
+                (TargetShape::BlockWise, SelectionCursorChange::SwapAnchor) => {
                     state.swap();
                 },
-                (TargetShape::BlockWise, SelectionCursorChange::SwapAnchor(true)) => {
+                (TargetShape::BlockWise, SelectionCursorChange::SwapSide) => {
                     let cctx = (&self.text, ctx.1.get_width(), true);
                     let cx = cursor.x;
                     let ax = anchor.x;
@@ -1178,7 +1178,7 @@ mod tests {
         // Now swap which side is the anchor, and which side is mobile.
         selection_cursor_set!(
             ebuf,
-            &SelectionCursorChange::SwapAnchor(false),
+            &SelectionCursorChange::SwapAnchor,
             ctx!(curid, vwctx, vctx),
             store
         );
@@ -1222,7 +1222,7 @@ mod tests {
         // Now swap which side is the anchor, and which side is mobile.
         selection_cursor_set!(
             ebuf,
-            &SelectionCursorChange::SwapAnchor(false),
+            &SelectionCursorChange::SwapAnchor,
             ctx!(curid, vwctx, vctx),
             store
         );
@@ -1267,7 +1267,7 @@ mod tests {
         // Now swap which side is the anchor, and which side is mobile.
         selection_cursor_set!(
             ebuf,
-            &SelectionCursorChange::SwapAnchor(false),
+            &SelectionCursorChange::SwapAnchor,
             ctx!(curid, vwctx, vctx),
             store
         );
@@ -1277,7 +1277,7 @@ mod tests {
         // Now swap over to the upper-right corner.
         selection_cursor_set!(
             ebuf,
-            &SelectionCursorChange::SwapAnchor(true),
+            &SelectionCursorChange::SwapSide,
             ctx!(curid, vwctx, vctx),
             store
         );
