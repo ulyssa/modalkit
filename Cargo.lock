@@ -283,8 +283,28 @@ name = "editor-types"
 version = "0.0.1"
 dependencies = [
  "bitflags 2.4.2",
+ "editor-types-macros",
  "keybindings",
  "regex",
+]
+
+[[package]]
+name = "editor-types-macros"
+version = "0.1.0"
+dependencies = [
+ "editor-types-parser",
+ "nom",
+ "proc-macro2",
+ "quote",
+ "syn 2.0.52",
+]
+
+[[package]]
+name = "editor-types-parser"
+version = "0.0.18"
+dependencies = [
+ "nom",
+ "thiserror",
 ]
 
 [[package]]

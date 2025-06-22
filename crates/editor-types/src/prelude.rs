@@ -66,12 +66,49 @@ pub enum JoinStyle {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum PasteStyle {
     /// Paste text before the cursor.
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, InsertTextAction};
+    ///
+    /// let style = PasteStyle::Cursor;
+    /// let paste: Action = action!("insert paste -s cursor");
+    /// assert_eq!(paste, InsertTextAction::Paste(style, Count::Contextual).into());
+    /// ```
     Cursor,
 
     /// Paste text before the selection's start, or after its end.
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, InsertTextAction};
+    ///
+    /// let style = PasteStyle::Side(MoveDir1D::Next);
+    /// let paste: Action = action!("insert paste -s (side -d next)");
+    /// assert_eq!(paste, InsertTextAction::Paste(style, Count::Contextual).into());
+    ///
+    /// let style = PasteStyle::Side(MoveDir1D::Previous);
+    /// let paste: Action = action!("insert paste -s (side -d prev)");
+    /// assert_eq!(paste, InsertTextAction::Paste(style, Count::Contextual).into());
+    /// ```
     Side(MoveDir1D),
 
     /// Replace selected text with register contents.
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, InsertTextAction};
+    ///
+    /// let style = PasteStyle::Replace;
+    /// let paste: Action = action!("insert paste -s replace");
+    /// assert_eq!(paste, InsertTextAction::Paste(style, Count::Contextual).into());
+    /// ```
     Replace,
 }
 
@@ -79,9 +116,35 @@ pub enum PasteStyle {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum CompletionScope {
     /// Only use completion candidates from the current buffer.
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, EditorAction};
+    ///
+    /// let ct = CompletionType::Line(CompletionScope::Buffer);
+    /// let style = CompletionStyle::Prefix;
+    /// let display = CompletionDisplay::List;
+    /// let act: Action = EditorAction::Complete(style, ct, display).into();
+    /// assert_eq!(act, action!("complete -s prefix -T (line buffer) -D list"));
+    /// ```
     Buffer,
 
     /// Use completion candidates available from all buffers.
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, EditorAction};
+    ///
+    /// let ct = CompletionType::Line(CompletionScope::Global);
+    /// let style = CompletionStyle::Prefix;
+    /// let display = CompletionDisplay::List;
+    /// let act: Action = EditorAction::Complete(style, ct, display).into();
+    /// assert_eq!(act, action!("complete -s prefix -T (line global) -D list"));
+    /// ```
     Global,
 }
 
@@ -89,31 +152,145 @@ pub enum CompletionScope {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum CompletionStyle {
     /// Navigate through the list of completion candidates.
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, EditorAction};
+    ///
+    /// let ct = CompletionType::Auto;
+    /// let style = CompletionStyle::List(MoveDir1D::Next);
+    /// let display = CompletionDisplay::List;
+    /// let act: Action = EditorAction::Complete(style, ct, display).into();
+    /// assert_eq!(act, action!("complete -s (list next) -T auto -D list"));
+    /// ```
     List(MoveDir1D),
 
     /// Generate completion candidates, but don't select any from the list.
+    ///
+    /// This is most helpful for keybindings that allow the user to get a
+    /// list of potential candidates that they can read through without
+    /// actually picking any, in case they don't know what the first
+    /// character to type is.
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, EditorAction};
+    ///
+    /// let ct = CompletionType::Auto;
+    /// let style = CompletionStyle::None;
+    /// let display = CompletionDisplay::List;
+    /// let act: Action = EditorAction::Complete(style, ct, display).into();
+    /// assert_eq!(act, action!("complete -s none -T auto -D list"));
+    /// ```
     None,
 
     /// Complete only the longest common prefix from the completion candidates.
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, EditorAction};
+    ///
+    /// let ct = CompletionType::Auto;
+    /// let style = CompletionStyle::Prefix;
+    /// let display = CompletionDisplay::List;
+    /// let act: Action = EditorAction::Complete(style, ct, display).into();
+    /// assert_eq!(act, action!("complete -s prefix -T auto -D list"));
+    /// ```
     Prefix,
 
     /// If there is only a single completion candidate, select it.
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, EditorAction};
+    ///
+    /// let ct = CompletionType::Auto;
+    /// let style = CompletionStyle::Single;
+    /// let display = CompletionDisplay::List;
+    /// let act: Action = EditorAction::Complete(style, ct, display).into();
+    /// assert_eq!(act, action!("complete -s single -T auto -D list"));
+    /// ```
     Single,
 }
 
 /// What type of phrase we are completing.
+///
+/// Typically, most editors use the cursor's context to determine what to
+/// complete. In those cases, [CompletionType::Auto] is sufficient, but other
+/// variants are provided here to accomodate keybindings that specifically
+/// complete context-independent values.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum CompletionType {
     /// Determine what to complete by the buffer context.
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, EditorAction};
+    ///
+    /// let ct = CompletionType::Auto;
+    /// let style = CompletionStyle::Prefix;
+    /// let display = CompletionDisplay::List;
+    /// let act: Action = EditorAction::Complete(style, ct, display).into();
+    /// assert_eq!(act, action!("complete -s prefix -T auto -D list"));
+    /// ```
     Auto,
 
     /// Complete a filename.
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, EditorAction};
+    ///
+    /// let ct = CompletionType::File;
+    /// let style = CompletionStyle::Prefix;
+    /// let display = CompletionDisplay::List;
+    /// let act: Action = EditorAction::Complete(style, ct, display).into();
+    /// assert_eq!(act, action!("complete -s prefix -T file -D list"));
+    /// ```
     File,
 
     /// Complete the rest of the line.
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, EditorAction};
+    ///
+    /// let ct = CompletionType::Line(CompletionScope::Global);
+    /// let style = CompletionStyle::Prefix;
+    /// let display = CompletionDisplay::List;
+    /// let act: Action = EditorAction::Complete(style, ct, display).into();
+    /// assert_eq!(act, action!("complete -s prefix -T (line global) -D list"));
+    /// ```
     Line(CompletionScope),
 
     /// Complete the current word.
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, EditorAction};
+    ///
+    /// let ct = CompletionType::Word(CompletionScope::Buffer);
+    /// let style = CompletionStyle::Prefix;
+    /// let display = CompletionDisplay::List;
+    /// let act: Action = EditorAction::Complete(style, ct, display).into();
+    /// assert_eq!(act, action!("complete -s prefix -T (word buffer) -D list"));
+    /// ```
     Word(CompletionScope),
 }
 
@@ -121,12 +298,55 @@ pub enum CompletionType {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum CompletionDisplay {
     /// Don't display candidates.
+    ///
+    /// This method of displaying completions is most useful for contexts where
+    /// users don't expect to see possible completions and just want to cycle
+    /// through what's available, such as completing filenames in a command bar.
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, EditorAction};
+    ///
+    /// let ct = CompletionType::Auto;
+    /// let style = CompletionStyle::Prefix;
+    /// let display = CompletionDisplay::None;
+    /// let act: Action = EditorAction::Complete(style, ct, display).into();
+    /// assert_eq!(act, action!("complete -s prefix -T auto -D none"));
+    /// ```
     None,
 
     /// Display candidates in a bar above the command bar.
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, EditorAction};
+    ///
+    /// let ct = CompletionType::Auto;
+    /// let style = CompletionStyle::Prefix;
+    /// let display = CompletionDisplay::Bar;
+    /// let act: Action = EditorAction::Complete(style, ct, display).into();
+    /// assert_eq!(act, action!("complete -s prefix -T auto -D bar"));
+    /// ```
     Bar,
 
     /// Display candidates in a pop-up list.
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, EditorAction};
+    ///
+    /// let ct = CompletionType::Auto;
+    /// let style = CompletionStyle::Prefix;
+    /// let display = CompletionDisplay::List;
+    /// let act: Action = EditorAction::Complete(style, ct, display).into();
+    /// assert_eq!(act, action!("complete -s prefix -T auto -D list"));
+    /// ```
     List,
 }
 
@@ -251,12 +471,42 @@ impl<Cursor: Ord> EditRange<Cursor> {
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum RepeatType {
     /// A sequence of changes made to a buffer.
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action};
+    ///
+    /// let rep: Action = action!("repeat -s edit-sequence");
+    /// assert_eq!(rep, Action::Repeat(RepeatType::EditSequence));
+    /// ```
     EditSequence,
 
     /// The last [Action] done.
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action};
+    ///
+    /// let rep: Action = action!("repeat -s last-action");
+    /// assert_eq!(rep, Action::Repeat(RepeatType::LastAction));
+    /// ```
     LastAction,
 
     /// The last selection resize made in a buffer.
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action};
+    ///
+    /// let rep: Action = action!("repeat -s last-selection");
+    /// assert_eq!(rep, Action::Repeat(RepeatType::LastSelection));
+    /// ```
     LastSelection,
 }
 
@@ -303,37 +553,143 @@ impl SearchType {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum WordStyle {
     /// A run of alphanumeric characters.
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action};
+    ///
+    /// let style = WordStyle::AlphaNum;
+    /// let kw: Action = Action::KeywordLookup(style.into());
+    ///
+    /// // All of these are equivalent:
+    /// assert_eq!(kw, action!("keyword-lookup -t (word alphanum)"));
+    /// assert_eq!(kw, action!("keyword-lookup -t (word alpha-num)"));
+    /// ```
     AlphaNum,
 
     /// A sequence of non-blank characters.
     ///
     /// An empty line is also a Big word. Vim calls this a `WORD`.
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action};
+    ///
+    /// let style = WordStyle::Big;
+    /// let kw: Action = Action::KeywordLookup(style.into());
+    /// assert_eq!(kw, action!("keyword-lookup -t (word big)"));
+    /// ```
     Big,
 
     /// A sequence of characters that match a test function.
     CharSet(fn(char) -> bool),
 
     /// A name of a directory or file.
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action};
+    ///
+    /// let style = WordStyle::FileName;
+    /// let kw: Action = Action::KeywordLookup(style.into());
+    ///
+    /// // All of these are equivalent:
+    /// assert_eq!(kw, action!("keyword-lookup -t (word filename)"));
+    /// assert_eq!(kw, action!("keyword-lookup -t (word file-name)"));
+    /// ```
     FileName,
 
     /// A path to a directory or file.
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action};
+    ///
+    /// let style = WordStyle::FilePath;
+    /// let kw: Action = Action::KeywordLookup(style.into());
+    ///
+    /// // All of these are equivalent:
+    /// assert_eq!(kw, action!("keyword-lookup -t (word filepath)"));
+    /// assert_eq!(kw, action!("keyword-lookup -t (word file-path)"));
+    /// ```
     FilePath,
 
     /// Either a sequence of alphanumeric characters and underscores, or a sequence of other
     /// non-blank characters.
     ///
     /// An empty line is also a Little word.
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action};
+    ///
+    /// let style = WordStyle::Little;
+    /// let kw: Action = Action::KeywordLookup(style.into());
+    /// assert_eq!(kw, action!("keyword-lookup -t (word little)"));
+    /// ```
     Little,
 
     /// A run of non-alphanumeric characters.
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action};
+    ///
+    /// let style = WordStyle::NonAlphaNum;
+    /// let kw: Action = Action::KeywordLookup(style.into());
+    ///
+    /// // All of these are equivalent:
+    /// assert_eq!(kw, action!("keyword-lookup -t (word non-alphanum)"));
+    /// assert_eq!(kw, action!("keyword-lookup -t (word non-alphanumeric)"));
+    /// assert_eq!(kw, action!("keyword-lookup -t (word nonalphanum)"));
+    /// assert_eq!(kw, action!("keyword-lookup -t (word nonalphanumeric)"));
+    /// ```
     NonAlphaNum,
 
     /// A run of digits in the given base, with an optional leading hyphen.
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action};
+    ///
+    /// let style = WordStyle::Number(Radix::Decimal);
+    /// let kw: Action = Action::KeywordLookup(style.into());
+    /// assert_eq!(kw, action!("keyword-lookup -t (word radix decimal)"));
+    /// ```
     Number(Radix),
 
     /// A run of blank characters.
     ///
     /// [bool] controls whether this crosses line boundaries.
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action};
+    ///
+    /// let style = WordStyle::Whitespace(true);
+    /// let kw: Action = Action::KeywordLookup(style.into());
+    /// assert_eq!(kw, action!("keyword-lookup -t (word whitespace -w true)"));
+    ///
+    /// let style = WordStyle::Whitespace(false);
+    /// let kw: Action = Action::KeywordLookup(style.into());
+    /// assert_eq!(kw, action!("keyword-lookup -t (word whitespace -w false)"));
+    /// ```
     Whitespace(bool),
 }
 
@@ -586,15 +942,74 @@ impl From<Radix> for WordStyle {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Radix {
     /// A base 2 number.
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action};
+    ///
+    /// let style = WordStyle::Number(Radix::Binary);
+    /// let kw: Action = Action::KeywordLookup(style.into());
+    ///
+    /// // All of these are equivalent:
+    /// assert_eq!(kw, action!("keyword-lookup -t (word radix 2)"));
+    /// assert_eq!(kw, action!("keyword-lookup -t (word radix bin)"));
+    /// assert_eq!(kw, action!("keyword-lookup -t (word radix binary)"));
+    /// ```
     Binary,
 
     /// A base 8 number.
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action};
+    ///
+    /// let style = WordStyle::Number(Radix::Octal);
+    /// let kw: Action = Action::KeywordLookup(style.into());
+    ///
+    /// // All of these are equivalent:
+    /// assert_eq!(kw, action!("keyword-lookup -t (word radix 8)"));
+    /// assert_eq!(kw, action!("keyword-lookup -t (word radix oct)"));
+    /// assert_eq!(kw, action!("keyword-lookup -t (word radix octal)"));
+    /// ```
     Octal,
 
     /// A base 10 number.
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action};
+    ///
+    /// let style = WordStyle::Number(Radix::Decimal);
+    /// let kw: Action = Action::KeywordLookup(style.into());
+    ///
+    /// // All of these are equivalent:
+    /// assert_eq!(kw, action!("keyword-lookup -t (word radix 10)"));
+    /// assert_eq!(kw, action!("keyword-lookup -t (word radix dec)"));
+    /// assert_eq!(kw, action!("keyword-lookup -t (word radix decimal)"));
+    /// ```
     Decimal,
 
     /// A base 16 number.
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action};
+    ///
+    /// let style = WordStyle::Number(Radix::Hexadecimal);
+    /// let kw: Action = Action::KeywordLookup(style.into());
+    ///
+    /// // All of these are equivalent:
+    /// assert_eq!(kw, action!("keyword-lookup -t (word radix 16)"));
+    /// assert_eq!(kw, action!("keyword-lookup -t (word radix hex)"));
+    /// assert_eq!(kw, action!("keyword-lookup -t (word radix hexadecimal)"));
+    /// ```
     Hexadecimal,
 }
 
@@ -770,9 +1185,32 @@ pub enum MoveType {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum MoveDir1D {
     /// Move backwards, or to a previous point.
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, WindowAction};
+    ///
+    /// let act: Action = WindowAction::Rotate(MoveDir1D::Previous).into();
+    ///
+    /// // All of these are equivalent:
+    /// assert_eq!(act, action!("window rotate -d previous"));
+    /// assert_eq!(act, action!("window rotate -d prev"));
+    /// ```
     Previous,
 
     /// Move forwards, or to a following point.
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, WindowAction};
+    ///
+    /// let act: Action = WindowAction::Rotate(MoveDir1D::Next).into();
+    /// assert_eq!(act, action!("window rotate -d next"));
+    /// ```
     Next,
 }
 
@@ -780,15 +1218,55 @@ pub enum MoveDir1D {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum MoveDir2D {
     /// Move leftwards.
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, WindowAction};
+    ///
+    /// let act: Action = WindowAction::MoveSide(MoveDir2D::Left).into();
+    /// assert_eq!(act, action!("window move-side -d left"));
+    /// ```
     Left,
 
     /// Move rightwards.
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, WindowAction};
+    ///
+    /// let act: Action = WindowAction::MoveSide(MoveDir2D::Right).into();
+    /// assert_eq!(act, action!("window move-side -d right"));
+    /// ```
     Right,
 
     /// Move upwards.
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, WindowAction};
+    ///
+    /// let act: Action = WindowAction::MoveSide(MoveDir2D::Up).into();
+    /// assert_eq!(act, action!("window move-side -d up"));
+    /// ```
     Up,
 
     /// Move downwards.
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, WindowAction};
+    ///
+    /// let act: Action = WindowAction::MoveSide(MoveDir2D::Down).into();
+    /// assert_eq!(act, action!("window move-side -d down"));
+    /// ```
     Down,
 }
 
@@ -806,12 +1284,51 @@ pub enum MoveTerminus {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum MovePosition {
     /// Move to the beginning of some range.
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action};
+    ///
+    /// // All of these are equivalent:
+    /// let scroll: Action = Action::Scroll(
+    ///     ScrollStyle::LinePos(MovePosition::Beginning, 1.into()));
+    /// assert_eq!(scroll, action!("scroll -s (line-pos -p b -c 1)"));
+    /// assert_eq!(scroll, action!("scroll -s (line-pos -p beginning -c 1)"));
+    /// ```
     Beginning,
 
     /// Move to the middle of some range.
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action};
+    ///
+    /// // All of these are equivalent:
+    /// let scroll: Action = Action::Scroll(
+    ///     ScrollStyle::LinePos(MovePosition::Middle, 1.into()));
+    /// assert_eq!(scroll, action!("scroll -s (line-pos -p m -c 1)"));
+    /// assert_eq!(scroll, action!("scroll -s (line-pos -p middle -c 1)"));
+    /// ```
     Middle,
 
     /// Move to the end of some range.
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action};
+    ///
+    /// // All of these are equivalent:
+    /// let scroll: Action = Action::Scroll(
+    ///     ScrollStyle::LinePos(MovePosition::End, 1.into()));
+    /// assert_eq!(scroll, action!("scroll -s (line-pos -p e -c 1)"));
+    /// assert_eq!(scroll, action!("scroll -s (line-pos -p end -c 1)"));
+    /// ```
     End,
 }
 
@@ -819,12 +1336,49 @@ pub enum MovePosition {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum MoveDirMod {
     /// Use the same movement previously used.
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, CommandBarAction};
+    ///
+    /// let dir = MoveDirMod::Same;
+    /// let search: Action = action!("search -d same");
+    /// assert_eq!(search, Action::Search(dir, Count::Contextual));
+    /// ```
     Same,
 
     /// Use the opposite of the movement previously used.
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, CommandBarAction};
+    ///
+    /// let dir = MoveDirMod::Flip;
+    /// let search: Action = action!("search -d flip");
+    /// assert_eq!(search, Action::Search(dir, Count::Contextual));
+    /// ```
     Flip,
 
     /// Ignore whatever value was previously used.
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, CommandBarAction};
+    ///
+    /// let dir = MoveDirMod::Exact(MoveDir1D::Previous);
+    /// let search: Action = action!("search -d (exact prev)");
+    /// assert_eq!(search, Action::Search(dir, Count::Contextual));
+    ///
+    /// let dir = MoveDirMod::Exact(MoveDir1D::Next);
+    /// let search: Action = action!("search -d (exact next)");
+    /// assert_eq!(search, Action::Search(dir, Count::Contextual));
+    /// ```
     Exact(MoveDir1D),
 }
 
@@ -832,9 +1386,39 @@ pub enum MoveDirMod {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Axis {
     /// The horizontal axis.
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action};
+    ///
+    /// let axis = Axis::Horizontal;
+    /// let scroll: Action = Action::Scroll(ScrollStyle::CursorPos(MovePosition::End, axis));
+    ///
+    /// // All of these are equivalent:
+    /// assert_eq!(scroll, action!("scroll -s (cursor-pos -p end -x horizontal)"));
+    /// assert_eq!(scroll, action!("scroll -s (cursor-pos -p end -x h)"));
+    /// assert_eq!(scroll, action!("scroll -s (cursor-pos -p end -x {axis})"));
+    /// ```
     Horizontal,
 
     /// The vertical axis.
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action};
+    ///
+    /// let axis = Axis::Vertical;
+    /// let scroll: Action = Action::Scroll(ScrollStyle::CursorPos(MovePosition::End, axis));
+    ///
+    /// // All of these are equivalent:
+    /// assert_eq!(scroll, action!("scroll -s (cursor-pos -p end -x vertical)"));
+    /// assert_eq!(scroll, action!("scroll -s (cursor-pos -p end -x v)"));
+    /// assert_eq!(scroll, action!("scroll -s (cursor-pos -p end -x {axis})"));
+    /// ```
     Vertical,
 }
 
@@ -852,12 +1436,45 @@ impl Axis {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ScrollSize {
     /// Scroll by number of character cells.
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action};
+    ///
+    /// let scroll: Action = action!("scroll -s (dir2d -d up -z cell)");
+    /// let style = ScrollStyle::Direction2D(MoveDir2D::Up, ScrollSize::Cell, Count::Contextual);
+    /// assert_eq!(scroll, Action::Scroll(style));
+    /// ```
     Cell,
 
     /// Scroll by [*n*](Count) times half the page size.
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action};
+    ///
+    /// let scroll: Action = action!("scroll -s (dir2d -d up -z half-page)");
+    /// let style = ScrollStyle::Direction2D(MoveDir2D::Up, ScrollSize::HalfPage, Count::Contextual);
+    /// assert_eq!(scroll, Action::Scroll(style));
+    /// ```
     HalfPage,
 
     /// Scroll by [*n*](Count) times the page size.
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action};
+    ///
+    /// let scroll: Action = action!("scroll -s (dir2d -d up -z page)");
+    /// let style = ScrollStyle::Direction2D(MoveDir2D::Up, ScrollSize::Page, Count::Contextual);
+    /// assert_eq!(scroll, Action::Scroll(style));
+    /// ```
     Page,
 }
 
@@ -865,12 +1482,54 @@ pub enum ScrollSize {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ScrollStyle {
     /// Scroll the viewport in [MoveDir2D] direction by [ScrollSize] units, [*n* times](Count).
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action};
+    ///
+    /// let scroll: Action = action!("scroll -s (dir2d -d up -z half-page)");
+    /// let style = ScrollStyle::Direction2D(MoveDir2D::Up, ScrollSize::HalfPage, Count::Contextual);
+    /// assert_eq!(scroll, Action::Scroll(style));
+    /// ```
+    ///
+    /// See the documentation for [ScrollSize] for how to construct each of its variants with
+    /// [action].
     Direction2D(MoveDir2D, ScrollSize, Count),
 
     /// Scroll the viewport so that the cursor is placed at [MovePosition] relative to [Axis].
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action};
+    ///
+    /// let scroll: Action = action!("scroll -s (cursor-pos -p end -x vertical)");
+    /// let style = ScrollStyle::CursorPos(MovePosition::End, Axis::Vertical);
+    /// assert_eq!(scroll, Action::Scroll(style));
+    /// ```
+    ///
+    /// See the documentation for [Axis] and [MovePosition] for how to construct each of their
+    /// variants with [action].
     CursorPos(MovePosition, Axis),
 
     /// Scroll the viewport so that the [*n*<sup>th</sup> line](Count) is at [MovePosition] on the screen.
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action};
+    ///
+    /// let scroll: Action = action!("scroll -s (line-pos -p end -c 1)");
+    /// let style = ScrollStyle::LinePos(MovePosition::End, 1.into());
+    /// assert_eq!(scroll, Action::Scroll(style));
+    /// ```
+    ///
+    /// See the documentation for [MovePosition] for how to construct each of its variants with
+    /// [action].
     LinePos(MovePosition, Count),
 }
 
@@ -879,12 +1538,45 @@ pub enum ScrollStyle {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum SelectionCursorChange {
     /// Place the cursor in the first line of the selection, in the first column of the selection.
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, SelectionAction};
+    ///
+    /// let change = SelectionCursorChange::Beginning;
+    /// let act: Action = action!("selection cursor-set -f beginning");
+    /// assert_eq!(act, SelectionAction::CursorSet(change).into());
+    /// ```
     Beginning,
 
     /// Place the cursor in the last line of the selection, in the last column of the selection.
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, SelectionAction};
+    ///
+    /// let change = SelectionCursorChange::End;
+    /// let act: Action = action!("selection cursor-set -f end");
+    /// assert_eq!(act, SelectionAction::CursorSet(change).into());
+    /// ```
     End,
 
     /// Swap the cursor with the anchor of the selection.
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, SelectionAction};
+    ///
+    /// let change = SelectionCursorChange::SwapAnchor;
+    /// let act: Action = action!("selection cursor-set -f swap-anchor");
+    /// assert_eq!(act, SelectionAction::CursorSet(change).into());
+    /// ```
     SwapAnchor,
 
     /// Move the cursor to the other side of the selection.
@@ -898,6 +1590,17 @@ pub enum SelectionCursorChange {
     ///   other side of the selection is the anchor.
     /// * When the selection is [CharWise](TargetShape::CharWise), the
     ///   other side of the selection is the anchor.
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, SelectionAction};
+    ///
+    /// let change = SelectionCursorChange::SwapSide;
+    /// let act: Action = action!("selection cursor-set -f swap-side");
+    /// assert_eq!(act, SelectionAction::CursorSet(change).into());
+    /// ```
     SwapSide,
 }
 
@@ -905,27 +1608,103 @@ pub enum SelectionCursorChange {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum FocusChange {
     /// Target the currently focused UI element.
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, TabAction};
+    ///
+    /// let fc = FocusChange::Current;
+    /// let act: Action = TabAction::Focus(fc).into();
+    /// assert_eq!(act, action!("tab focus -f current"));
+    /// ```
     Current,
 
     /// Target the [*n*<sup>th</sup> element](Count) from the beginning. The first element is numbered 1.
     ///
     /// If the specified *n* is greater than the number of elements, and [bool] is `true`, target
     /// the last element. Otherwise, do nothing.
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, TabAction};
+    ///
+    /// let fc = FocusChange::Offset(2.into(), false);
+    /// let act: Action = TabAction::Focus(fc).into();
+    /// assert_eq!(act, action!("tab focus -f (offset -c 2 -l false)"));
+    /// ```
     Offset(Count, bool),
 
     /// Target the element at [MovePosition] in the element list.
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, TabAction};
+    ///
+    /// // All of these are equivalent:
+    /// let fc = FocusChange::Position(MovePosition::End);
+    /// let act: Action = TabAction::Focus(fc).into();
+    /// assert_eq!(act, action!("tab focus -f (pos -p end)"));
+    /// assert_eq!(act, action!("tab focus -f (position -p end)"));
+    /// ```
+    ///
+    /// See the documentation for [MovePosition] for how to construct each of its variants with
+    /// [action].
     Position(MovePosition),
 
     /// Target the previously focused element.
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, TabAction};
+    ///
+    /// // All of these are equivalent:
+    /// let fc = FocusChange::PreviouslyFocused;
+    /// let act: Action = TabAction::Focus(fc).into();
+    /// assert_eq!(act, action!("tab focus -f previously-focused"));
+    /// assert_eq!(act, action!("tab focus -f previous"));
+    /// assert_eq!(act, action!("tab focus -f prev"));
+    /// ```
     PreviouslyFocused,
 
     /// Target the element [*n* times](Count) away in [MoveDir1D] direction.
     ///
     /// If moving [*n* times](Count) would go past the first or last element, and [bool] is `true`, wrap
     /// around to the other end of the element list and continue from there. Otherwise, do nothing.
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, TabAction};
+    ///
+    /// // All of these are equivalent:
+    /// let fc = FocusChange::Direction1D(MoveDir1D::Next, 4.into(), true);
+    /// let act: Action = TabAction::Focus(fc).into();
+    /// assert_eq!(act, action!("tab focus -f (dir1d -d next -c 4 -w true)"));
+    /// ```
     Direction1D(MoveDir1D, Count, bool),
 
     /// Target the element [*n* times](Count) away in [MoveDir2D] direction.
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, TabAction};
+    ///
+    /// // All of these are equivalent:
+    /// let fc = FocusChange::Direction2D(MoveDir2D::Up, 3.into());
+    /// let act: Action = TabAction::Focus(fc).into();
+    /// assert_eq!(act, action!("tab focus -f (dir2d -d up -c 3)"));
+    /// ```
     Direction2D(MoveDir2D, Count),
 }
 
@@ -933,15 +1712,66 @@ pub enum FocusChange {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum SizeChange<I = Count> {
     /// Make the window and others along the specified axis the same size.
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, WindowAction};
+    ///
+    /// let size = SizeChange::Equal;
+    /// let act: Action = WindowAction::Resize(FocusChange::Current, Axis::Vertical, size).into();
+    ///
+    /// // All of these are equivalent:
+    /// assert_eq!(act, action!("window resize -f current -x vertical -z equal"));
+    /// assert_eq!(act, action!("window resize -f current -x vertical -z eq"));
+    /// ```
     Equal,
 
     /// Make the window exactly a specific size along the axis.
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, WindowAction};
+    ///
+    /// let size = SizeChange::Exact(5.into());
+    /// let act: Action = WindowAction::Resize(FocusChange::Current, Axis::Vertical, size).into();
+    /// assert_eq!(act, action!("window resize -f current -x vertical -z (exact 5)"));
+    /// ```
     Exact(I),
 
     /// Decrease the size of the window by a specific amount.
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, WindowAction};
+    ///
+    /// // All of these are equivalent:
+    /// let size = SizeChange::Decrease(5.into());
+    /// let act: Action = WindowAction::Resize(FocusChange::Current, Axis::Vertical, size).into();
+    /// assert_eq!(act, action!("window resize -f current -x vertical -z (decrease 5)"));
+    /// assert_eq!(act, action!("window resize -f current -x vertical -z (dec 5)"));
+    /// ```
     Decrease(I),
 
     /// Increase the size of the window by a specific amount.
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, WindowAction};
+    ///
+    /// // All of these are equivalent:
+    /// let size = SizeChange::Increase(5.into());
+    /// let act: Action = WindowAction::Resize(FocusChange::Current, Axis::Vertical, size).into();
+    /// assert_eq!(act, action!("window resize -f current -x vertical -z (increase 5)"));
+    /// assert_eq!(act, action!("window resize -f current -x vertical -z (inc 5)"));
+    /// ```
     Increase(I),
 }
 
@@ -972,9 +1802,40 @@ pub enum NumberChange {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum KeywordTarget {
     /// Lookup the [word][WordStyle] surrounding the cursor.
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action};
+    ///
+    /// let word = WordStyle::Little;
+    /// let target = KeywordTarget::Word(word.clone());
+    /// let act: Action = Action::KeywordLookup(target.clone());
+    ///
+    /// // All of these are equivalent:
+    /// assert_eq!(act, action!("keyword-lookup -t {target}"));
+    /// assert_eq!(act, action!("keyword-lookup -t (word little)"));
+    /// assert_eq!(act, action!("keyword-lookup -t (word {})", word.clone()));
+    /// assert_eq!(act, action!("keyword-lookup -t {word}", word.clone()));
+    /// ```
     Word(WordStyle),
 
     /// Lookup the currently selected text.
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action};
+    ///
+    /// let target = KeywordTarget::Selection;
+    /// let act: Action = Action::KeywordLookup(target.clone());
+    ///
+    /// // All of these are equivalent:
+    /// assert_eq!(act, action!("keyword-lookup -t {target}"));
+    /// assert_eq!(act, action!("keyword-lookup -t selection"));
+    /// ```
     Selection,
 }
 
@@ -991,30 +1852,121 @@ impl From<WordStyle> for KeywordTarget {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum OpenTarget<W: ApplicationWindowId> {
     /// An alternate window. This is usually the previous window.
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, WindowAction};
+    ///
+    /// let target = OpenTarget::Alternate;
+    /// let switch: Action = WindowAction::Switch(target).into();
+    /// assert_eq!(switch, action!("window switch -t alternate"));
+    /// ```
     Alternate,
 
-    /// An application-specific identifier to switch to.
+    /// An application-specific [identifier][ApplicationWindowId] to switch to.
     Application(W),
 
     /// Use the current window as the target.
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, WindowAction};
+    ///
+    /// let target = OpenTarget::Current;
+    /// let switch: Action = WindowAction::Switch(target).into();
+    /// assert_eq!(switch, action!("window switch -t current"));
+    /// ```
     Current,
 
     /// Use the [word](WordStyle) under the cursor as a target name.
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, WindowAction};
+    ///
+    /// let target = OpenTarget::Cursor(WordStyle::FileName);
+    /// let switch: Action = WindowAction::Switch(target).into();
+    /// assert_eq!(switch, action!("window switch -t (cursor -s filename)"));
+    /// ```
+    ///
+    /// See the documentation for [WordStyle] for how to construct each of its variants with
+    /// [action].
     Cursor(WordStyle),
 
     /// An absolute position in a list of targets.
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, WindowAction};
+    ///
+    /// let target = OpenTarget::List(2.into());
+    /// let switch: Action = WindowAction::Switch(target).into();
+    /// assert_eq!(switch, action!("window switch -t (list -c 2)"));
+    /// ```
     List(Count),
 
     /// A named target (e.g., a filename to open).
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, WindowAction};
+    ///
+    /// let target = OpenTarget::Name("foo bar".into());
+    /// let switch: Action = WindowAction::Switch(target).into();
+    /// assert_eq!(switch, action!(r#"window switch -t (name -i "foo bar")"#));
+    /// ```
     Name(String),
 
     /// A window offset from the current one.
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, WindowAction};
+    ///
+    /// let target = OpenTarget::Offset(MoveDir1D::Next, 5.into());
+    /// let switch: Action = WindowAction::Switch(target).into();
+    /// assert_eq!(switch, action!("window switch -t (offset -d next -c 5)"));
+    /// ```
     Offset(MoveDir1D, Count),
 
     /// Use the selected text as a target name.
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, WindowAction};
+    ///
+    /// let target = OpenTarget::Selection;
+    /// let switch: Action = WindowAction::Switch(target).into();
+    /// assert_eq!(switch, action!("window switch -t selection"));
+    /// ```
     Selection,
 
     /// A default window to open when no target has been specified.
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, WindowAction};
+    ///
+    /// let target = OpenTarget::Unnamed;
+    /// let switch: Action = WindowAction::Switch(target).into();
+    /// assert_eq!(switch, action!("window switch -t unnamed"));
+    /// ```
     Unnamed,
 }
 
@@ -1022,12 +1974,48 @@ pub enum OpenTarget<W: ApplicationWindowId> {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum TabTarget {
     /// Close the tab targeted by FocusChange.
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, TabAction};
+    ///
+    /// let fc = TabTarget::Single(FocusChange::Current);
+    /// let flags = CloseFlags::NONE;
+    /// let act: Action = TabAction::Close(fc, flags).into();
+    /// assert_eq!(act, action!("tab close -t (single current) -F none"));
+    /// ```
     Single(FocusChange),
 
     /// Close all tab *except* for the one targeted by FocusChange.
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, TabAction};
+    ///
+    /// let fc = TabTarget::AllBut(FocusChange::Current);
+    /// let flags = CloseFlags::NONE;
+    /// let act: Action = TabAction::Close(fc, flags).into();
+    /// assert_eq!(act, action!("tab close -t (all-but current) -F none"));
+    /// ```
     AllBut(FocusChange),
 
     /// Close all tabs.
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, TabAction};
+    ///
+    /// let fc = TabTarget::All;
+    /// let flags = CloseFlags::NONE;
+    /// let act: Action = TabAction::Close(fc, flags).into();
+    /// assert_eq!(act, action!("tab close -t all -F none"));
+    /// ```
     All,
 }
 
@@ -1035,12 +2023,48 @@ pub enum TabTarget {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum WindowTarget {
     /// Close the window targeted by [FocusChange].
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, WindowAction};
+    ///
+    /// let fc = WindowTarget::Single(FocusChange::Current);
+    /// let flags = CloseFlags::NONE;
+    /// let act: Action = WindowAction::Close(fc, flags).into();
+    /// assert_eq!(act, action!("window close -t (single current) -F none"));
+    /// ```
     Single(FocusChange),
 
     /// Close all windows *except* for the one targeted by [FocusChange].
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, WindowAction};
+    ///
+    /// let fc = WindowTarget::AllBut(FocusChange::Current);
+    /// let flags = CloseFlags::NONE;
+    /// let act: Action = WindowAction::Close(fc, flags).into();
+    /// assert_eq!(act, action!("window close -t (all-but current) -F none"));
+    /// ```
     AllBut(FocusChange),
 
     /// Close all windows.
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, WindowAction};
+    ///
+    /// let fc = WindowTarget::All;
+    /// let flags = CloseFlags::NONE;
+    /// let act: Action = WindowAction::Close(fc, flags).into();
+    /// assert_eq!(act, action!("window close -t all -F none"));
+    /// ```
     All,
 }
 
@@ -1048,9 +2072,29 @@ pub enum WindowTarget {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum CursorCloseTarget {
     /// Target the cursor group's leader.
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, CursorAction};
+    ///
+    /// let close: Action = action!("cursor close -t leader");
+    /// assert_eq!(close, CursorAction::Close(CursorCloseTarget::Leader).into());
+    /// ```
     Leader,
 
     /// Target the cursor group's followers.
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, CursorAction};
+    ///
+    /// let close: Action = action!("cursor close -t followers");
+    /// assert_eq!(close, CursorAction::Close(CursorCloseTarget::Followers).into());
+    /// ```
     Followers,
 }
 
@@ -1058,14 +2102,50 @@ pub enum CursorCloseTarget {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum CursorGroupCombineStyle {
     /// Use all of the selections from both groups.
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, CursorAction};
+    ///
+    /// let combine = CursorGroupCombineStyle::Append;
+    /// let restore: Action = action!("cursor restore -s append");
+    /// assert_eq!(restore, CursorAction::Restore(combine).into());
+    /// ```
     Append,
 
     /// Merge each member with the matching member in the other group.
     ///
     /// This fails if the groups have a different number of members.
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, CursorAction};
+    ///
+    /// let combine = CursorGroupCombineStyle::Merge(CursorMergeStyle::Union);
+    /// let restore: Action = action!("cursor restore -s (merge union)");
+    /// assert_eq!(restore, CursorAction::Restore(combine).into());
+    /// ```
+    ///
+    /// See the documentation for [CursorMergeStyle] for how to construct each of its
+    /// variants with [action].
     Merge(CursorMergeStyle),
 
     /// Use only the selections in the newer group.
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, CursorAction};
+    ///
+    /// let combine = CursorGroupCombineStyle::Replace;
+    /// let restore: Action = action!("cursor restore -s replace");
+    /// assert_eq!(restore, CursorAction::Restore(combine).into());
+    /// ```
     Replace,
 }
 
@@ -1079,18 +2159,73 @@ impl From<CursorMergeStyle> for CursorGroupCombineStyle {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum CursorMergeStyle {
     /// Merge the two selections to form one long selection.
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, CursorAction};
+    ///
+    /// let merge = CursorMergeStyle::Union;
+    /// let save: Action = action!("cursor save -s (merge union)");
+    /// assert_eq!(save, CursorAction::Save(CursorGroupCombineStyle::Merge(merge)).into());
+    /// ```
     Union,
 
     /// Use the intersecting region of the two selections.
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, CursorAction};
+    ///
+    /// let merge = CursorMergeStyle::Intersect;
+    /// let save: Action = action!("cursor save -s (merge intersect)");
+    /// assert_eq!(save, CursorAction::Save(CursorGroupCombineStyle::Merge(merge)).into());
+    /// ```
     Intersect,
 
     /// Select the one where the cursor is furthest in [MoveDir1D] direction.
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, CursorAction};
+    ///
+    /// let merge = CursorMergeStyle::SelectCursor(MoveDir1D::Previous);
+    /// let save: Action = action!("cursor save -s (merge select-cursor -d prev)");
+    /// assert_eq!(save, CursorAction::Save(CursorGroupCombineStyle::Merge(merge)).into());
+    /// ```
     SelectCursor(MoveDir1D),
 
-    /// Select the shorted selection.
+    /// Select the shortest selection.
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, CursorAction};
+    ///
+    /// let merge = CursorMergeStyle::SelectShort;
+    /// let save: Action = action!("cursor save -s (merge select-short)");
+    /// assert_eq!(save, CursorAction::Save(CursorGroupCombineStyle::Merge(merge)).into());
+    /// ```
     SelectShort,
 
     /// Select the longest selection.
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, CursorAction};
+    ///
+    /// let merge = CursorMergeStyle::SelectLong;
+    /// let save: Action = action!("cursor save -s (merge select-long)");
+    /// assert_eq!(save, CursorAction::Save(CursorGroupCombineStyle::Merge(merge)).into());
+    /// ```
     SelectLong,
 }
 
@@ -1117,11 +2252,33 @@ pub enum Mark {
     /// The position of the cursor in the current buffer when it last exited.
     ///
     /// For example, `'"` in Vim.
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, EditorAction};
+    ///
+    /// let act: Action = action!("mark -m (exact buffer-last-exited)");
+    /// let exp: Action = EditorAction::Mark(Mark::BufferLastExited.into()).into();
+    /// assert_eq!(act, exp);
+    /// ```
     BufferLastExited,
 
     /// A user-named position in the current buffer.
     ///
     /// For example, `'[a-z]` in Vim.
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, EditorAction};
+    ///
+    /// let act: Action = action!("mark -m (exact buffer-named 'c')");
+    /// let exp: Action = EditorAction::Mark(Mark::BufferNamed('c').into()).into();
+    /// assert_eq!(act, exp);
+    /// ```
     BufferNamed(char),
 
     /// The position of the current when the application was previously exited.
@@ -1130,46 +2287,145 @@ pub enum Mark {
     /// second most recent exit, and so on.
     ///
     /// For example, `'[0-9]` in Vim.
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, EditorAction};
+    ///
+    /// let act: Action = action!("mark -m (exact global-last-exited 1)");
+    /// let exp: Action = EditorAction::Mark(Mark::GlobalLastExited(1).into()).into();
+    /// assert_eq!(act, exp);
+    /// ```
     GlobalLastExited(usize),
 
     /// A global, user-named position in some buffer known to the application.
     ///
     /// For example, `'[A-Z]` in Vim.
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, EditorAction};
+    ///
+    /// let act: Action = action!("mark -m (exact global-named 'C')");
+    /// let exp: Action = EditorAction::Mark(Mark::GlobalNamed('C').into()).into();
+    /// assert_eq!(act, exp);
+    /// ```
     GlobalNamed(char),
 
     /// The cursor position where the last change was made.
     ///
     /// For example, `'.` in Vim.
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, EditorAction};
+    ///
+    /// let act: Action = action!("mark -m (exact last-changed)");
+    /// let exp: Action = EditorAction::Mark(Mark::LastChanged.into()).into();
+    /// assert_eq!(act, exp);
+    /// ```
     LastChanged,
 
     /// The cursor position where the last text was inserted.
     ///
     /// For example, `'^` in Vim.
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, EditorAction};
+    ///
+    /// let act: Action = action!("mark -m (exact last-inserted)");
+    /// let exp: Action = EditorAction::Mark(Mark::LastInserted.into()).into();
+    /// assert_eq!(act, exp);
+    /// ```
     LastInserted,
 
     /// The cursor position before the latest jump.
     ///
     /// For example, `''` and `` '` `` in Vim.
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, EditorAction};
+    ///
+    /// let act: Action = action!("mark -m (exact last-jump)");
+    /// let exp: Action = EditorAction::Mark(Mark::LastJump.into()).into();
+    /// assert_eq!(act, exp);
+    /// ```
     LastJump,
 
     /// The position of the beginning of the last text selection.
     ///
     /// For example, `'<` in Vim.
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, EditorAction};
+    ///
+    /// let act: Action = action!("mark -m (exact visual-begin)");
+    /// let exp: Action = EditorAction::Mark(Mark::VisualBegin.into()).into();
+    /// assert_eq!(act, exp);
+    /// ```
     VisualBegin,
 
     /// The position of the end of the last text selection.
     ///
     /// For example, `'>` in Vim.
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, EditorAction};
+    ///
+    /// let act: Action = action!("mark -m (exact visual-end)");
+    /// let exp: Action = EditorAction::Mark(Mark::VisualEnd.into()).into();
+    /// assert_eq!(act, exp);
+    /// ```
     VisualEnd,
 
     /// The position of the beginning of the last yanked text.
     ///
     /// For example, `'[` in Vim.
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, EditorAction};
+    ///
+    /// let act: Action = action!("mark -m (exact last-yanked-begin)");
+    /// let exp: Action = EditorAction::Mark(Mark::LastYankedBegin.into()).into();
+    /// assert_eq!(act, exp);
+    /// ```
     LastYankedBegin,
 
     /// The position of the end of the last yanked text.
     ///
     /// For example, `']` in Vim.
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, EditorAction};
+    ///
+    /// let act: Action = action!("mark -m (exact last-yanked-end)");
+    /// let exp: Action = EditorAction::Mark(Mark::LastYankedEnd.into()).into();
+    /// assert_eq!(act, exp);
+    /// ```
     LastYankedEnd,
 }
 
@@ -1215,15 +2471,39 @@ bitflags! {
     #[derive(Debug, Clone, Copy, Eq, PartialEq)]
     pub struct WriteFlags: u32 {
         /// No flags set.
+        ///
+        /// ## Example: Using `action!`
+        ///
+        /// ```
+        /// use editor_types::prelude::*;
+        /// use editor_types::{action, Action, WindowAction};
+        ///
+        /// let target = WindowTarget::All;
+        /// let flags = WriteFlags::NONE;
+        /// let act: Action = WindowAction::Write(target, None, flags).into();
+        /// assert_eq!(act, action!("window write -t all -F none"));
+        /// ```
         const NONE = 0b00000000;
 
         /// Ignore any issues during closing.
+        ///
+        /// ## Example: Using `action!`
+        ///
+        /// ```
+        /// use editor_types::prelude::*;
+        /// use editor_types::{action, Action, WindowAction};
+        ///
+        /// let target = WindowTarget::All;
+        /// let flags = WriteFlags::FORCE;
+        /// let act: Action = WindowAction::Write(target, None, flags).into();
+        /// assert_eq!(act, action!("window write -t all -F force"));
+        /// ```
         const FORCE = 0b00000001;
     }
 }
 
 bitflags! {
-    /// These flags are used to specify the behaviour while writing a window.
+    /// These flags are used to specify the behaviour while opening a window.
     #[derive(Debug, Clone, Copy, Eq, PartialEq)]
     pub struct OpenFlags: u32 {
         /// No flags set.
@@ -1242,15 +2522,63 @@ bitflags! {
     #[derive(Debug, Clone, Copy, Eq, PartialEq)]
     pub struct CloseFlags: u32 {
         /// No flags set.
+        ///
+        /// ## Example: Using `action!`
+        ///
+        /// ```
+        /// use editor_types::prelude::*;
+        /// use editor_types::{action, Action, TabAction};
+        ///
+        /// let fc = TabTarget::Single(FocusChange::Current);
+        /// let flags = CloseFlags::NONE;
+        /// let act: Action = TabAction::Close(fc, flags).into();
+        /// assert_eq!(act, action!("tab close -t (single current) -F none"));
+        /// ```
         const NONE = 0b00000000;
 
         /// Ignore any issues during closing.
+        ///
+        /// ## Example: Using `action!`
+        ///
+        /// ```
+        /// use editor_types::prelude::*;
+        /// use editor_types::{action, Action, TabAction};
+        ///
+        /// let fc = TabTarget::Single(FocusChange::Current);
+        /// let flags = CloseFlags::FORCE;
+        /// let act: Action = TabAction::Close(fc, flags).into();
+        /// assert_eq!(act, action!("tab close -t (single current) -F force"));
+        /// ```
         const FORCE = 0b00000001;
 
         /// Write while closing.
+        ///
+        /// ## Example: Using `action!`
+        ///
+        /// ```
+        /// use editor_types::prelude::*;
+        /// use editor_types::{action, Action, TabAction};
+        ///
+        /// let fc = TabTarget::Single(FocusChange::Current);
+        /// let flags = CloseFlags::WRITE;
+        /// let act: Action = TabAction::Close(fc, flags).into();
+        /// assert_eq!(act, action!("tab close -t (single current) -F write"));
+        /// ```
         const WRITE = 0b00000010;
 
         /// Quit if this is the last window.
+        ///
+        /// ## Example: Using `action!`
+        ///
+        /// ```
+        /// use editor_types::prelude::*;
+        /// use editor_types::{action, Action, TabAction};
+        ///
+        /// let fc = TabTarget::Single(FocusChange::Current);
+        /// let flags = CloseFlags::QUIT;
+        /// let act: Action = TabAction::Close(fc, flags).into();
+        /// assert_eq!(act, action!("tab close -t (single current) -F quit"));
+        /// ```
         const QUIT  = 0b00000100;
 
         /// Write out the window's contents and quit.
@@ -1266,10 +2594,34 @@ bitflags! {
 #[non_exhaustive]
 pub enum SelectionBoundary {
     /// A selection that starts at the beginning of a line and ends on a newline.
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, SelectionAction};
+    ///
+    /// let style = SelectionBoundary::Line;
+    /// let split: Action = action!("selection trim -b line");
+    /// assert_eq!(split, SelectionAction::Trim(style, TargetShapeFilter::ALL).into());
+    /// ```
     Line,
 
     /// A selection that starts on a non-whitespace character and ends on a non-whitespace
     /// character.
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, SelectionAction};
+    ///
+    /// let style = SelectionBoundary::NonWhitespace;
+    /// let act: Action = SelectionAction::Expand(style, TargetShapeFilter::ALL).into();
+    ///
+    /// assert_eq!(action!("selection expand -b non-whitespace"), act);
+    /// assert_eq!(action!("selection expand -b non-ws"), act);
+    /// ```
     NonWhitespace,
 }
 
@@ -1305,13 +2657,50 @@ impl BoundaryTest for SelectionBoundary {
 pub enum SelectionSplitStyle {
     /// Split a selection into two [TargetShape::CharWise] selections, one at the current cursor
     /// position, and the other at the anchor.
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, SelectionAction};
+    ///
+    /// let style = SelectionSplitStyle::Anchor;
+    /// let split: Action = action!("selection split -s anchor");
+    /// assert_eq!(split, SelectionAction::Split(style, TargetShapeFilter::ALL).into());
+    /// ```
     Anchor,
 
     /// Split a selection at each line boundary it contains.
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, SelectionAction};
+    ///
+    /// let style = SelectionSplitStyle::Lines;
+    /// let split: Action = action!("selection split -s lines");
+    /// assert_eq!(split, SelectionAction::Split(style, TargetShapeFilter::ALL).into());
+    /// ```
     Lines,
 
     /// Split a selection into [TargetShape::CharWise] parts based on the regular expression
     /// stored in the register for [CommandType::Search].
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, SelectionAction};
+    ///
+    /// let style = SelectionSplitStyle::Regex(MatchAction::Keep);
+    /// let split: Action = action!("selection split -s (regex keep)");
+    /// assert_eq!(split, SelectionAction::Split(style, TargetShapeFilter::ALL).into());
+    ///
+    /// let style = SelectionSplitStyle::Regex(MatchAction::Drop);
+    /// let split: Action = action!("selection split -s (regex drop)");
+    /// assert_eq!(split, SelectionAction::Split(style, TargetShapeFilter::ALL).into());
+    /// ```
     Regex(MatchAction),
 }
 
@@ -1323,12 +2712,48 @@ pub enum SelectionResizeStyle {
     ///
     /// When extending with [EditTarget::Range], this may also move the anchor to fully encompass
     /// the [RangeType].
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, SelectionAction};
+    ///
+    /// let style = SelectionResizeStyle::Extend;
+    /// let target = EditTarget::CurrentPosition;
+    /// let act: Action = SelectionAction::Resize(style, target.clone()).into();
+    /// assert_eq!(act, action!("selection resize -s extend -t {target}"));
+    /// ```
     Extend,
 
     /// Interpret the [EditTarget] as the bounds of a text object, and select it.
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, SelectionAction};
+    ///
+    /// let style = SelectionResizeStyle::Object;
+    /// let target = EditTarget::CurrentPosition;
+    /// let act: Action = SelectionAction::Resize(style, target.clone()).into();
+    /// assert_eq!(act, action!("selection resize -s object -t {target}"));
+    /// ```
     Object,
 
     /// Move the anchor to the current cursor position and create a new selection from there.
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, SelectionAction};
+    ///
+    /// let style = SelectionResizeStyle::Restart;
+    /// let target = EditTarget::CurrentPosition;
+    /// let act: Action = SelectionAction::Resize(style, target.clone()).into();
+    /// assert_eq!(act, action!("selection resize -s restart -t {target}"));
+    /// ```
     Restart,
 }
 
@@ -1503,16 +2928,61 @@ pub enum TargetShape {
     /// A series of characters.
     ///
     /// During a selection, the two points indicate the start and end columns.
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, InsertTextAction};
+    ///
+    /// let shape = TargetShape::CharWise;
+    /// let count = Count::Contextual;
+    /// let act: Action = InsertTextAction::OpenLine(shape, MoveDir1D::Next, count).into();
+    ///
+    /// // All of these are equivalent:
+    /// assert_eq!(act, action!("insert open-line -S charwise -d next"));
+    /// assert_eq!(act, action!("insert open-line -S char -d next"));
+    /// ```
     CharWise,
 
     /// A series of lines.
     ///
     /// During a selection, the two points indicate the start and end lines.
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, InsertTextAction};
+    ///
+    /// let shape = TargetShape::LineWise;
+    /// let count = Count::Contextual;
+    /// let act: Action = InsertTextAction::OpenLine(shape, MoveDir1D::Next, count).into();
+    ///
+    /// // All of these are equivalent:
+    /// assert_eq!(act, action!("insert open-line -S linewise -d next"));
+    /// assert_eq!(act, action!("insert open-line -S line -d next"));
+    /// ```
     LineWise,
 
     /// A block of characters.
     ///
     /// During a selection, the two points indicate opposite corners.
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, InsertTextAction};
+    ///
+    /// let shape = TargetShape::BlockWise;
+    /// let count = Count::Contextual;
+    /// let act: Action = InsertTextAction::OpenLine(shape, MoveDir1D::Next, count).into();
+    ///
+    /// // All of these are equivalent:
+    /// assert_eq!(act, action!("insert open-line -S blockwise -d next"));
+    /// assert_eq!(act, action!("insert open-line -S block -d next"));
+    /// ```
     BlockWise,
 }
 
@@ -1562,8 +3032,31 @@ impl From<TargetShape> for TargetShapeFilter {
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum MatchAction {
     /// Keep targets of the regular expression.
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, SelectionAction};
+    ///
+    /// let act = SelectionAction::Filter(MatchAction::Keep);
+    /// let split: Action = action!("selection filter -F keep");
+    /// assert_eq!(split, act.into());
+    /// ```
     Keep,
+
     /// Remove targets of the regular expression.
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, SelectionAction};
+    ///
+    /// let act = SelectionAction::Filter(MatchAction::Drop);
+    /// let split: Action = action!("selection filter -F drop");
+    /// assert_eq!(split, act.into());
+    /// ```
     Drop,
 }
 

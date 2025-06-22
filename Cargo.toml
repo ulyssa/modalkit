@@ -18,6 +18,12 @@ version = "0.0.1"
 path = "crates/keybindings"
 version = "0.0.1"
 
+[workspace.dependencies.editor-types-parser]
+path = "crates/editor-types-parser"
+
+[workspace.dependencies.editor-types-macros]
+path = "crates/editor-types-macros"
+
 [workspace.dependencies.modalkit]
 path = "crates/modalkit"
 version = "0.0.21"
@@ -27,6 +33,7 @@ bitflags = "2.4.2"
 crossterm = "0.28.1"
 intervaltree = { version = "0.2.6" }
 libc = "0.2"
+nom = "7.0.0"
 rand = "0.8.4"
 regex = "^1.5"
 temp-dir = "0.1.11"
