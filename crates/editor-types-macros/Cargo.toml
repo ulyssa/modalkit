@@ -1,10 +1,17 @@
 [package]
 name = "editor-types-macros"
 version = "0.0.1"
+homepage = "https://github.com/ulyssa/modalkit/tree/main/crates/editor-types-macros"
+readme = "README.md"
+description = "A library for parsing the editor-types action syntax"
+exclude = [".github", "CONTRIBUTING.md"]
+keywords = []
+categories = ["text-editors"]
+
+edition.workspace = true
 authors.workspace = true
 repository.workspace = true
 license.workspace = true
-edition.workspace = true
 rust-version.workspace = true
 
 [lib]

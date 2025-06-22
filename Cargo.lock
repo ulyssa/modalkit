@@ -290,7 +290,7 @@ dependencies = [
 
 [[package]]
 name = "editor-types-macros"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "editor-types-parser",
  "nom",
@@ -301,7 +301,7 @@ dependencies = [
 
 [[package]]
 name = "editor-types-parser"
-version = "0.0.18"
+version = "0.0.1"
 dependencies = [
  "nom",
  "thiserror",
