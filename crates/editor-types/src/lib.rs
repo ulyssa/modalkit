@@ -540,7 +540,7 @@ pub enum Action<I: ApplicationInfo = EmptyInfo> {
     Scroll(ScrollStyle),
 
     /// Lookup the keyword under the cursor.
-    KeywordLookup,
+    KeywordLookup(KeywordTarget),
 
     /// Redraw the screen.
     RedrawScreen,
@@ -592,7 +592,7 @@ impl<I: ApplicationInfo> Action<I> {
             Action::Tab(_) => SequenceStatus::Break,
             Action::Window(_) => SequenceStatus::Break,
 
-            Action::KeywordLookup => SequenceStatus::Ignore,
+            Action::KeywordLookup(_) => SequenceStatus::Ignore,
             Action::NoOp => SequenceStatus::Ignore,
             Action::RedrawScreen => SequenceStatus::Ignore,
             Action::Scroll(_) => SequenceStatus::Ignore,
@@ -618,7 +618,7 @@ impl<I: ApplicationInfo> Action<I> {
             Action::Macro(_) => SequenceStatus::Atom,
             Action::Tab(_) => SequenceStatus::Atom,
             Action::Window(_) => SequenceStatus::Atom,
-            Action::KeywordLookup => SequenceStatus::Atom,
+            Action::KeywordLookup(_) => SequenceStatus::Atom,
             Action::NoOp => SequenceStatus::Atom,
             Action::Prompt(_) => SequenceStatus::Atom,
             Action::RedrawScreen => SequenceStatus::Atom,
@@ -643,7 +643,7 @@ impl<I: ApplicationInfo> Action<I> {
             Action::Macro(_) => SequenceStatus::Ignore,
             Action::Tab(_) => SequenceStatus::Ignore,
             Action::Window(_) => SequenceStatus::Ignore,
-            Action::KeywordLookup => SequenceStatus::Ignore,
+            Action::KeywordLookup(_) => SequenceStatus::Ignore,
             Action::NoOp => SequenceStatus::Ignore,
             Action::Prompt(_) => SequenceStatus::Ignore,
             Action::RedrawScreen => SequenceStatus::Ignore,
@@ -663,7 +663,7 @@ impl<I: ApplicationInfo> Action<I> {
 
             Action::CommandBar(_) => false,
             Action::Command(_) => false,
-            Action::KeywordLookup => false,
+            Action::KeywordLookup(_) => false,
             Action::Macro(_) => false,
             Action::NoOp => false,
             Action::Prompt(_) => false,

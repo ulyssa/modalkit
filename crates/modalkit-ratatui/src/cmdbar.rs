@@ -298,7 +298,7 @@ mod tests {
         let act1 = Action::Suspend;
         let ctx1 = EditContextBuilder::default().search_regex_dir(MoveDir1D::Previous).build();
         cmdbar.set_type(":", CommandType::Command, &act1, &ctx1);
-        let act2 = Action::KeywordLookup;
+        let act2 = Action::KeywordLookup(KeywordTarget::Selection);
         let ctx2 = EditContextBuilder::default().search_regex_dir(MoveDir1D::Next).build();
         cmdbar.set_type(":", CommandType::Command, &act2, &ctx2);
 
