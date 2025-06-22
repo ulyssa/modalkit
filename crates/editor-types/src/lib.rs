@@ -376,7 +376,7 @@ pub enum WindowAction<I: ApplicationInfo> {
 #[non_exhaustive]
 pub enum EditorAction {
     /// Complete the text before the cursor group leader.
-    Complete(CompletionType, CompletionSelection, CompletionDisplay),
+    Complete(CompletionStyle, CompletionType, CompletionDisplay),
 
     /// Modify the current cursor group.
     Cursor(CursorAction),

@@ -87,7 +87,7 @@ pub enum CompletionScope {
 
 /// What type of phrase we are completing.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub enum CompletionSelection {
+pub enum CompletionStyle {
     /// Navigate through the list of completion candidates.
     List(MoveDir1D),
 

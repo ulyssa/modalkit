@@ -764,8 +764,8 @@ where
 
     fn complete(
         &mut self,
+        _: &CompletionStyle,
         _: &CompletionType,
-        _: &CompletionSelection,
         _: &CompletionDisplay,
         _: &EditContext,
         _: &mut Store<I>,

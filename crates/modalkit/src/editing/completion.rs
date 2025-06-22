@@ -87,9 +87,9 @@ impl CompletionList {
     }
 
     /// Select a different candidate from the completion list.
-    pub fn select(&mut self, selection: &CompletionSelection) -> Option<String> {
+    pub fn select(&mut self, selection: &CompletionStyle) -> Option<String> {
         match selection {
-            CompletionSelection::List(dir) => {
+            CompletionStyle::List(dir) => {
                 let len = self.candidates.len();
                 let max = len.saturating_sub(1);
                 let idx = match (self.selected, dir) {
@@ -109,10 +109,10 @@ impl CompletionList {
                 self.selected = idx_offset(idx, 1, dir, len, true);
                 self.selected.map(|i| self.candidates[i].clone())
             },
-            CompletionSelection::None => {
+            CompletionStyle::None => {
                 return None;
             },
-            CompletionSelection::Prefix => {
+            CompletionStyle::Prefix => {
                 let mut prefix = None;
 
                 for candidate in self.candidates.iter() {
@@ -131,7 +131,7 @@ impl CompletionList {
 
                 return prefix.map(ToString::to_string);
             },
-            CompletionSelection::Single => {
+            CompletionStyle::Single => {
                 if self.candidates.len() == 1 {
                     return Some(self.candidates[0].clone());
                 } else {

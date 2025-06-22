@@ -1141,21 +1141,17 @@ where
 
     fn complete(
         &mut self,
+        style: &CompletionStyle,
         comptype: &CompletionType,
-        selection: &CompletionSelection,
         display: &CompletionDisplay,
         ctx: &CursorGroupIdContext<'a>,
         store: &mut Store<I>,
     ) -> EditResult<EditInfo, I> {
         match comptype {
-            CompletionType::Auto => self.complete_auto(selection, display, ctx, store),
-            CompletionType::File => self.complete_file(selection, display, ctx, store),
-            CompletionType::Line(scope) => {
-                self.complete_line(scope, selection, display, ctx, store)
-            },
-            CompletionType::Word(scope) => {
-                self.complete_word(scope, selection, display, ctx, store)
-            },
+            CompletionType::Auto => self.complete_auto(style, display, ctx, store),
+            CompletionType::File => self.complete_file(style, display, ctx, store),
+            CompletionType::Line(scope) => self.complete_line(style, scope, display, ctx, store),
+            CompletionType::Word(scope) => self.complete_word(style, scope, display, ctx, store),
         }
     }
 
