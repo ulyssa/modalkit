@@ -1342,6 +1342,16 @@ pub enum CommandType {
     Search,
 }
 
+/// What history items to recall during [PromptAction::Recall].
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum RecallFilter {
+    /// Include all items in the prompt's history.
+    All,
+
+    /// Only include items whose prefix matches the initially typed text.
+    PrefixMatch,
+}
+
 /// This specifies which list of cursors to use when jumping, the change list or the jump list.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum PositionList {

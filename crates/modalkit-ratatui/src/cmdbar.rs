@@ -146,9 +146,9 @@ where
 
     fn recall(
         &mut self,
+        filter: &RecallFilter,
         dir: &MoveDir1D,
         count: &Count,
-        prefixed: bool,
         ctx: &EditContext,
         store: &mut Store<I>,
     ) -> EditResult<Vec<(Action<I>, EditContext)>, I> {
@@ -156,7 +156,7 @@ where
         let rope = self.deref().get();
 
         let hist = store.registers.get_command_history(self.cmdtype);
-        let text = hist.recall(&rope, &mut self.scrollback, *dir, prefixed, count);
+        let text = hist.recall(&rope, &mut self.scrollback, filter, *dir, count);
 
         if let Some(text) = text {
             self.set_text(text);
@@ -178,9 +178,7 @@ where
     ) -> EditResult<Vec<(Action<I>, EditContext)>, I> {
         match act {
             PromptAction::Abort(empty) => self.abort(*empty, ctx, store),
-            PromptAction::Recall(dir, count, prefixed) => {
-                self.recall(dir, count, *prefixed, ctx, store)
-            },
+            PromptAction::Recall(filter, dir, count) => self.recall(filter, dir, count, ctx, store),
             PromptAction::Submit => self.submit(ctx, store),
         }
     }

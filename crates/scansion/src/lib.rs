@@ -393,8 +393,8 @@ where
 
                 Ok(InternalResult::Nothing)
             },
-            PromptAction::Recall(dir, count, prefixed) => {
-                self.recall(dir, ctx.resolve(&count), prefixed);
+            PromptAction::Recall(filter, dir, count) => {
+                self.recall(filter, dir, ctx.resolve(&count));
 
                 Ok(InternalResult::Nothing)
             },
@@ -413,10 +413,10 @@ where
         }
     }
 
-    fn recall(&mut self, dir: MoveDir1D, count: usize, prefixed: bool) {
+    fn recall(&mut self, filter: RecallFilter, dir: MoveDir1D, count: usize) {
         match self.ct {
             None => {
-                let text = self.line.recall(&mut self.history, dir, prefixed, count);
+                let text = self.line.recall(&mut self.history, filter, dir, count);
 
                 if let Some(text) = text {
                     self.line.set_text(text);
@@ -424,7 +424,7 @@ where
             },
             Some(ct) => {
                 let hist = self.store.registers.get_command_history(ct);
-                let text = self.cmd.recall(hist, dir, prefixed, count);
+                let text = self.cmd.recall(hist, filter, dir, count);
 
                 if let Some(text) = text {
                     self.cmd.set_text(text);
@@ -448,7 +448,7 @@ where
         let hist = self.store.registers.get_command_history(CommandType::Search);
         let text = self
             .cmd
-            .recall(hist, MoveDir1D::Previous, false, 1)
+            .recall(hist, RecallFilter::All, MoveDir1D::Previous, 1)
             .ok_or(EditError::NoSearch)?;
 
         let re = Regex::new(text.to_string().as_ref())?;
@@ -527,7 +527,7 @@ where
                     if n > 0 {
                         // If we move by more lines than there are in the buffer, then we
                         // treat the remainder as history recall.
-                        self.recall(dir, n, false);
+                        self.recall(RecallFilter::All, dir, n);
 
                         return Ok(None);
                     }

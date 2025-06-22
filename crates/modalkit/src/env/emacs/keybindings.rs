@@ -610,8 +610,8 @@ fn default_keys<I: ApplicationInfo>() -> Vec<(MappedModes, &'static str, InputSt
         // Command mode keybindings.
         ( CMAP, "<C-G>", prompt!(PromptAction::Abort(false), EmacsMode::Insert) ),
         ( CMAP, "<C-I>", editor!(EditorAction::Complete(CompletionType::Auto, CompletionSelection::Single, CompletionDisplay::Bar)) ),
-        ( CMAP, "<Up>", prompt!(PromptAction::Recall(MoveDir1D::Previous, Count::Contextual, false)) ),
-        ( CMAP, "<Down>", prompt!(PromptAction::Recall(MoveDir1D::Next, Count::Contextual, false)) ),
+        ( CMAP, "<Up>", prompt!(PromptAction::Recall(RecallFilter::All, MoveDir1D::Previous, Count::Contextual)) ),
+        ( CMAP, "<Down>", prompt!(PromptAction::Recall(RecallFilter::All, MoveDir1D::Next, Count::Contextual)) ),
         ( CMAP, "<Space>", editor!(EditorAction::Complete(CompletionType::Auto, CompletionSelection::Prefix, CompletionDisplay::Bar)) ),
         ( CMAP, "<Tab>", editor!(EditorAction::Complete(CompletionType::Auto, CompletionSelection::Single, CompletionDisplay::Bar)) ),
 

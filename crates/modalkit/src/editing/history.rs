@@ -2,9 +2,8 @@
 use std::borrow::Cow;
 use std::collections::vec_deque::{Iter, VecDeque};
 
+use editor_types::prelude::*;
 use regex::Regex;
-
-use crate::prelude::{CursorSearch, MoveDir1D};
 
 use super::{
     application::ApplicationContentId,
@@ -355,13 +354,18 @@ impl HistoryList<EditRope> {
         &mut self,
         current: &EditRope,
         scrollback: &mut ScrollbackState,
+        filter: &RecallFilter,
         dir: MoveDir1D,
-        prefixed: bool,
         count: usize,
     ) -> Option<EditRope> {
         if count == 0 {
             return None;
         }
+
+        let prefixed = match filter {
+            RecallFilter::All => false,
+            RecallFilter::PrefixMatch => true,
+        };
 
         match (*scrollback, dir, prefixed) {
             (ScrollbackState::Pending, MoveDir1D::Previous, prefixed) => {
@@ -664,38 +668,40 @@ mod tests {
         assert_eq!(hlist.current.to_string(), "product");
 
         let typed = EditRope::from("he");
+        let all = RecallFilter::All;
+        let prefixed = RecallFilter::PrefixMatch;
         let mut state = ScrollbackState::Pending;
 
         // Go backwards.
-        hlist.recall(&typed, &mut state, MoveDir1D::Previous, true, 1);
+        hlist.recall(&typed, &mut state, &prefixed, MoveDir1D::Previous, 1);
         assert_eq!(state, ScrollbackState::Typed);
         assert_eq!(hlist.current.to_string(), "helium");
 
-        hlist.recall(&typed, &mut state, MoveDir1D::Previous, true, 1);
+        hlist.recall(&typed, &mut state, &prefixed, MoveDir1D::Previous, 1);
         assert_eq!(state, ScrollbackState::Typed);
         assert_eq!(hlist.current.to_string(), "helm");
 
-        hlist.recall(&typed, &mut state, MoveDir1D::Previous, true, 2);
+        hlist.recall(&typed, &mut state, &prefixed, MoveDir1D::Previous, 2);
         assert_eq!(state, ScrollbackState::Typed);
         assert_eq!(hlist.current.to_string(), "hello");
 
         // Go forwards.
-        hlist.recall(&typed, &mut state, MoveDir1D::Next, true, 1);
+        hlist.recall(&typed, &mut state, &prefixed, MoveDir1D::Next, 1);
         assert_eq!(state, ScrollbackState::Typed);
         assert_eq!(hlist.current.to_string(), "help");
 
         // Do non-prefixed recall forwards.
-        hlist.recall(&typed, &mut state, MoveDir1D::Next, false, 1);
+        hlist.recall(&typed, &mut state, &all, MoveDir1D::Next, 1);
         assert_eq!(state, ScrollbackState::Typed);
         assert_eq!(hlist.current.to_string(), "whisk");
 
         // Do non-prefixed recall forwards again.
-        hlist.recall(&typed, &mut state, MoveDir1D::Next, false, 2);
+        hlist.recall(&typed, &mut state, &all, MoveDir1D::Next, 2);
         assert_eq!(state, ScrollbackState::Typed);
         assert_eq!(hlist.current.to_string(), "aluminum");
 
         // Prefixed recall still works.
-        hlist.recall(&typed, &mut state, MoveDir1D::Next, true, 1);
+        hlist.recall(&typed, &mut state, &prefixed, MoveDir1D::Next, 1);
         assert_eq!(state, ScrollbackState::Typed);
         assert_eq!(hlist.current.to_string(), "helium");
     }

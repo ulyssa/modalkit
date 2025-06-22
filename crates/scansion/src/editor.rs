@@ -319,11 +319,11 @@ where
     pub fn recall(
         &mut self,
         history: &mut HistoryList<EditRope>,
+        filter: RecallFilter,
         dir: MoveDir1D,
-        prefixed: bool,
         count: usize,
     ) -> Option<EditRope> {
-        history.recall(self.buffer.get(), &mut self.scrollback, dir, prefixed, count)
+        history.recall(self.buffer.get(), &mut self.scrollback, &filter, dir, count)
     }
 
     pub fn line_leftover(&mut self, dir: MoveDir1D, count: usize) -> usize {
@@ -518,6 +518,7 @@ mod tests {
     fn test_recall_empty() {
         let mut ed = mkedstr("\n");
         let mut history = HistoryList::new(EditRope::from("hello world"), 100);
+        let all = RecallFilter::All;
 
         history.push("foo".into());
         history.push("help me".into());
@@ -530,17 +531,17 @@ mod tests {
         assert_eq!(ed.scrollback, ScrollbackState::Pending);
         assert_eq!(strs(&history), v);
 
-        let res = ed.recall(&mut history, MoveDir1D::Previous, false, 3).unwrap();
+        let res = ed.recall(&mut history, all.clone(), MoveDir1D::Previous, 3).unwrap();
         assert_eq!(res, EditRope::from("bar"));
         assert_eq!(ed.scrollback, ScrollbackState::Empty);
         assert_eq!(strs(&history), v);
 
-        let res = ed.recall(&mut history, MoveDir1D::Next, false, 1).unwrap();
+        let res = ed.recall(&mut history, all.clone(), MoveDir1D::Next, 1).unwrap();
         assert_eq!(res, EditRope::from("writhe"));
         assert_eq!(ed.scrollback, ScrollbackState::Empty);
         assert_eq!(strs(&history), v);
 
-        let res = ed.recall(&mut history, MoveDir1D::Next, false, 2).unwrap();
+        let res = ed.recall(&mut history, all.clone(), MoveDir1D::Next, 2).unwrap();
         assert_eq!(res, EditRope::from(""));
         assert_eq!(ed.scrollback, ScrollbackState::Pending);
         assert_eq!(strs(&history), v);
@@ -550,6 +551,7 @@ mod tests {
     fn test_recall_typed() {
         let mut ed = mkedstr("quux\n");
         let mut history = HistoryList::new(EditRope::from("hello world"), 100);
+        let all = RecallFilter::All;
 
         history.push("foo".into());
         history.push("help me".into());
@@ -572,17 +574,17 @@ mod tests {
             "quux",
         ];
 
-        let res = ed.recall(&mut history, MoveDir1D::Previous, false, 3).unwrap();
+        let res = ed.recall(&mut history, all.clone(), MoveDir1D::Previous, 3).unwrap();
         assert_eq!(res, EditRope::from("bar"));
         assert_eq!(ed.scrollback, ScrollbackState::Typed);
         assert_eq!(strs(&history), v);
 
-        let res = ed.recall(&mut history, MoveDir1D::Next, false, 1).unwrap();
+        let res = ed.recall(&mut history, all.clone(), MoveDir1D::Next, 1).unwrap();
         assert_eq!(res, EditRope::from("writhe"));
         assert_eq!(ed.scrollback, ScrollbackState::Typed);
         assert_eq!(strs(&history), v);
 
-        let res = ed.recall(&mut history, MoveDir1D::Next, false, 2).unwrap();
+        let res = ed.recall(&mut history, all.clone(), MoveDir1D::Next, 2).unwrap();
         assert_eq!(res, EditRope::from("quux"));
         assert_eq!(ed.scrollback, ScrollbackState::Typed);
         assert_eq!(strs(&history), v);

@@ -181,9 +181,9 @@ where
     /// Recall previously entered text.
     fn recall(
         &mut self,
+        filter: &RecallFilter,
         dir: &MoveDir1D,
         count: &Count,
-        prefixed: bool,
         ctx: &C,
         store: &mut S,
     ) -> EditResult<Vec<(Action<I>, C)>, I>;
