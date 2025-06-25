@@ -380,6 +380,9 @@ where
     /// Returns a user-friendly string to display for the current mode.
     fn show_mode(&self) -> Option<String>;
 
+    /// Resets the current mode to the default.
+    fn reset_mode(&mut self);
+
     /// Returns a character to show for the cursor.
     fn get_cursor_indicator(&self) -> Option<char>;
 
@@ -1359,6 +1362,10 @@ where
         }
     }
 
+    fn reset_mode(&mut self) {
+        self.goto_mode(S::M::default());
+    }
+
     fn show_mode(&self) -> Option<String> {
         self.state.show(&self.ctx)
     }
@@ -2095,12 +2102,16 @@ mod tests {
         assert_eq!(tm.mode(), TestMode::Insert);
 
         // Add an explicit, unmapped step for "?" to Normal mode.
-        tm.add_mapping(TestMode::Normal, &keys!('?'), &TestStep {
-            run: None,
-            action: None,
-            fall_mode: None,
-            goto_mode: None,
-        });
+        tm.add_mapping(
+            TestMode::Normal,
+            &keys!('?'),
+            &TestStep {
+                run: None,
+                action: None,
+                fall_mode: None,
+                goto_mode: None,
+            },
+        );
 
         // Access the explicitly unmapped "?" via ^O?
         tm.input_key(ctl!('o'));
@@ -2536,6 +2547,26 @@ mod tests {
         assert_eq!(tm.show_mode().unwrap(), "-- normal --");
 
         // XXX: it would be nice to support showing fallthrough modes
+    }
+
+    #[test]
+    fn test_reset_mode() {
+        let mut tm = TestMachine::default();
+
+        // Start out in Insert mode.
+        assert_eq!(tm.mode(), TestMode::Insert);
+
+        tm.reset_mode();
+
+        assert_eq!(tm.mode(), TestMode::default());
+
+        // Go to Normal mode.
+        tm.input_key(ctl!('l'));
+        assert_eq!(tm.mode(), TestMode::Normal);
+
+        tm.reset_mode();
+
+        assert_eq!(tm.mode(), TestMode::default());
     }
 
     #[test]
