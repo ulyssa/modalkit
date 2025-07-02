@@ -1241,6 +1241,22 @@ pub enum Action<I: ApplicationInfo = EmptyInfo> {
     ///
     /// If the current window cannot satisfy the given [Count], then this may jump to other
     /// windows.
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, InsertTextAction};
+    ///
+    /// let list = PositionList::JumpList;
+    /// let count = Count::Contextual;
+    ///
+    /// let act: Action = Action::Jump(list, MoveDir1D::Next, count.clone());
+    /// assert_eq!(act, action!("jump -t jump-list -d next -c ctx"));
+    ///
+    /// let act: Action = Action::Jump(list, MoveDir1D::Previous, count);
+    /// assert_eq!(act, action!("jump -t jump-list -d previous -c ctx"));
+    /// ```
     Jump(PositionList, MoveDir1D, Count),
 
     /// Repeat an action sequence with the current context.

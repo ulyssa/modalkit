@@ -277,10 +277,13 @@ impl ActionMacroParser {
                     span
                 )
             },
+            [ActionToken::Word(w), ..] => {
+                self.fail(format!("expected `none`, `bar` or `list`, found `{w}`"), span)
+            },
             [ActionToken::Id(i), rest @ ..] => {
                 id_match_branch!(self, i, ::editor_types::prelude::CompletionDisplay, rest, span)
             },
-            _ => self.fail("expected a valid count argument", span),
+            _ => self.fail("expected a valid completion display", span),
         }
     }
 
@@ -303,6 +306,29 @@ impl ActionMacroParser {
                 id_match_branch!(self, i, ::editor_types::prelude::Count, rest, span)
             },
             _ => self.fail("expected a valid count argument", span),
+        }
+    }
+
+    fn parse_position_list<'a>(&mut self, input: &'a [ActionToken<'a>], span: Span) -> TokenStream {
+        match input {
+            [ActionToken::Word(w @ "jump-list"), rest @ ..] => {
+                enum_no_args_branch!(::editor_types::prelude::PositionList::JumpList, w, rest, span)
+            },
+            [ActionToken::Word(w @ "change-list"), rest @ ..] => {
+                enum_no_args_branch!(
+                    ::editor_types::prelude::PositionList::ChangeList,
+                    w,
+                    rest,
+                    span
+                )
+            },
+            [ActionToken::Word(w), ..] => {
+                self.fail(format!("expected `jump-list` or `change-list`, found `{w}`"), span)
+            },
+            [ActionToken::Id(i), rest @ ..] => {
+                id_match_branch!(self, i, ::editor_types::prelude::PositionList, rest, span)
+            },
+            _ => self.fail("expected a valid position list", span),
         }
     }
 
@@ -1980,6 +2006,22 @@ impl ActionParser for ActionMacroParser {
                     ::editor_types::InsertTextAction::Paste(#style, #count)
                 )
             )
+        }
+    }
+
+    fn visit_jump(
+        &mut self,
+        list: &[ActionToken],
+        dir: &[ActionToken],
+        count: &[ActionToken],
+        span: Self::Span,
+    ) -> Self::Output {
+        let list = self.parse_position_list(list, span);
+        let dir = self.parse_dir1d(dir, span);
+        let count = self.parse_count(count, span);
+
+        quote! {
+            ::editor_types::Action::Jump(#list, #dir, #count)
         }
     }
 
