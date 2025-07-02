@@ -410,6 +410,15 @@ pub trait ActionParser {
         span: Self::Span,
     ) -> Self::Output;
 
+    /// Parse `jump` and its arguments.
+    fn visit_jump(
+        &mut self,
+        list: &[ActionToken],
+        dir: &[ActionToken],
+        count: &[ActionToken],
+        span: Self::Span,
+    ) -> Self::Output;
+
     /// Parse `repeat` and its arguments.
     fn visit_repeat(&mut self, style: &[ActionToken], span: Self::Span) -> Self::Output;
 
@@ -614,6 +623,9 @@ pub trait ActionParserExt: ActionParser {
 
     /// Parse an `insert` action.
     fn parse_action_insert(&mut self, input: &[ActionToken], span: Self::Span) -> Self::Output;
+
+    /// Parse a `jump` action.
+    fn parse_action_jump(&mut self, input: &[ActionToken], span: Self::Span) -> Self::Output;
 
     /// Parse a `macro` action.
     fn parse_action_macro(&mut self, input: &[ActionToken], span: Self::Span) -> Self::Output;
@@ -1091,6 +1103,20 @@ impl<V: ActionParser> ActionParserExt for V {
         }
     }
 
+    fn parse_action_jump(&mut self, input: &[ActionToken], span: Self::Span) -> Self::Output {
+        match parse_flags(
+            [
+                (Flag::Target, None),
+                (Flag::Dir, None),
+                (Flag::Count, Some(&DEFAULT_COUNT[..])),
+            ],
+            input,
+        ) {
+            Ok([list, dir, count]) => self.visit_jump(list, dir, count, span),
+            Err(e) => fail_cmd_flag(self, "jump", e, span),
+        }
+    }
+
     fn parse_action_search(&mut self, input: &[ActionToken], span: Self::Span) -> Self::Output {
         match parse_flags([(Flag::Dir, None), (Flag::Count, Some(&DEFAULT_COUNT[..]))], input) {
             Ok([dir, count]) => self.visit_search(dir, count, span),
@@ -1208,6 +1234,7 @@ impl<V: ActionParser> ActionParserExt for V {
             ActionToken::Word("edit") => self.parse_action_edit(rest, span),
             ActionToken::Word("history") => self.parse_action_history(rest, span),
             ActionToken::Word("insert") => self.parse_action_insert(rest, span),
+            ActionToken::Word("jump") => self.parse_action_jump(rest, span),
             ActionToken::Word("macro") => self.parse_action_macro(rest, span),
             ActionToken::Word("mark") => self.parse_action_mark(rest, span),
             ActionToken::Word("prompt") => self.parse_action_prompt(rest, span),

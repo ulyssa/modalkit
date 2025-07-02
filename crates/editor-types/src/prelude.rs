@@ -2771,9 +2771,35 @@ pub enum CommandType {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum RecallFilter {
     /// Include all items in the prompt's history.
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, PromptAction};
+    ///
+    /// let filter = RecallFilter::All;
+    /// let act: Action = PromptAction::Recall(filter.clone(), MoveDir1D::Next, Count::Contextual).into();
+    /// assert_eq!(act, action!("prompt recall -d next -c ctx -F all"));
+    /// ```
     All,
 
     /// Only include items whose prefix matches the initially typed text.
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, PromptAction};
+    ///
+    /// let filter = RecallFilter::PrefixMatch;
+    /// let act: Action = PromptAction::Recall(filter.clone(), MoveDir1D::Next, Count::Contextual).into();
+    ///
+    /// // All of these are equivalent:
+    /// assert_eq!(act, action!("prompt recall -d next -c ctx -F prefix-match"));
+    /// assert_eq!(act, action!("prompt recall -d next -c ctx -F prefix"));
+    /// assert_eq!(act, action!("prompt recall -d next -c ctx -F {filter}"));
+    /// ```
     PrefixMatch,
 }
 
@@ -2781,10 +2807,34 @@ pub enum RecallFilter {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum PositionList {
     /// The change list contains positions where changes were previously made.
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, InsertTextAction};
+    ///
+    /// let list = PositionList::ChangeList;
+    /// let count = Count::Contextual;
+    /// let act: Action = Action::Jump(list, MoveDir1D::Next, count);
+    /// assert_eq!(act, action!("jump -t change-list -d next"));
+    /// ```
     ChangeList,
 
     /// The jump list contains positions where the cursor was placed before jumping to a new
     /// location in the document.
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, InsertTextAction};
+    ///
+    /// let list = PositionList::JumpList;
+    /// let count = Count::Contextual;
+    /// let act: Action = Action::Jump(list, MoveDir1D::Next, count);
+    /// assert_eq!(act, action!("jump -t jump-list -d next"));
+    /// ```
     JumpList,
 }
 
