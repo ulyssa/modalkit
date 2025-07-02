@@ -380,6 +380,9 @@ where
     /// Returns a user-friendly string to display for the current mode.
     fn show_mode(&self) -> Option<String>;
 
+    /// Resets the current mode to the default.
+    fn reset_mode(&mut self);
+
     /// Returns a character to show for the cursor.
     fn get_cursor_indicator(&self) -> Option<char>;
 
@@ -1053,6 +1056,10 @@ where
         return self.sequence.clone();
     }
 
+    fn sequence_break(&mut self) {
+        self.sequence_break = true;
+    }
+
     fn push(&mut self, status: SequenceStatus, pair: &(A, C)) {
         match status {
             SequenceStatus::Atom => {
@@ -1357,6 +1364,14 @@ where
             Some(dialog) => dialog.render(max_rows, max_cols),
             None => Vec::new(),
         }
+    }
+
+    fn reset_mode(&mut self) {
+        for tracker in self.sequences.values_mut() {
+            tracker.sequence_break();
+        }
+
+        self.goto_mode(S::M::default());
     }
 
     fn show_mode(&self) -> Option<String> {
@@ -2536,6 +2551,26 @@ mod tests {
         assert_eq!(tm.show_mode().unwrap(), "-- normal --");
 
         // XXX: it would be nice to support showing fallthrough modes
+    }
+
+    #[test]
+    fn test_reset_mode() {
+        let mut tm = TestMachine::default();
+
+        // Start out in Insert mode.
+        assert_eq!(tm.mode(), TestMode::Insert);
+
+        tm.reset_mode();
+
+        assert_eq!(tm.mode(), TestMode::default());
+
+        // Go to Normal mode.
+        tm.input_key(ctl!('l'));
+        assert_eq!(tm.mode(), TestMode::Normal);
+
+        tm.reset_mode();
+
+        assert_eq!(tm.mode(), TestMode::default());
     }
 
     #[test]

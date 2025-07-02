@@ -113,6 +113,10 @@ where
         delegate_bindings!(self, BindingMachine::show_mode)
     }
 
+    fn reset_mode(&mut self) {
+        delegate_bindings!(self, BindingMachine::reset_mode)
+    }
+
     fn get_cursor_indicator(&self) -> Option<char> {
         delegate_bindings!(self, BindingMachine::get_cursor_indicator)
     }
