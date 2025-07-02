@@ -2110,16 +2110,12 @@ mod tests {
         assert_eq!(tm.mode(), TestMode::Insert);
 
         // Add an explicit, unmapped step for "?" to Normal mode.
-        tm.add_mapping(
-            TestMode::Normal,
-            &keys!('?'),
-            &TestStep {
-                run: None,
-                action: None,
-                fall_mode: None,
-                goto_mode: None,
-            },
-        );
+        tm.add_mapping(TestMode::Normal, &keys!('?'), &TestStep {
+            run: None,
+            action: None,
+            fall_mode: None,
+            goto_mode: None,
+        });
 
         // Access the explicitly unmapped "?" via ^O?
         tm.input_key(ctl!('o'));
