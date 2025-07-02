@@ -4,7 +4,7 @@ use nom::{
     branch::alt,
     bytes::complete::{escaped_transform, is_not, tag, take_while, take_while1},
     character::complete::{char, digit0, digit1, one_of, space0, space1},
-    combinator::{eof, opt, peek, value},
+    combinator::{cut, eof, opt, peek, value},
     error::{context, ErrorKind, ParseError},
     multi::{many0, separated_list0},
     IResult,
@@ -142,19 +142,19 @@ fn parse_quote(input: &str) -> IResult<&str, String> {
         return Err(err);
     }
 
-    let (input, _) = tag("\"")(input)?;
-    let (input, text) = escaped_transform(
+    let (input, _) = char('\"')(input)?;
+    let (input, text) = cut(escaped_transform(
         is_not("\t\n\\\""),
         '\\',
         alt((
-            value("t", tag("\t")),
-            value("r", tag("\r")),
-            value("n", tag("\n")),
+            value("\t", tag("t")),
+            value("\r", tag("r")),
+            value("\n", tag("n")),
             value("\\", tag("\\")),
             value("\"", tag("\"")),
         )),
-    )(input)?;
-    let (input, _) = tag("\"")(input)?;
+    ))(input)?;
+    let (input, _) = cut(char('\"'))(input)?;
 
     Ok((input, text))
 }
@@ -605,6 +605,10 @@ mod tests {
             "#foo#",
             "%bar%",
         ];
+        assert_eq!(arg.strings().unwrap(), split);
+
+        let arg = arg!(r#" "My Documents/\"foo\t\\file\".txt""#);
+        let split = vec!["My Documents/\"foo\t\\file\".txt"];
         assert_eq!(arg.strings().unwrap(), split);
     }
 
