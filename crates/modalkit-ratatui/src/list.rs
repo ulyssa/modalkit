@@ -126,6 +126,12 @@ where
     fn get_word(&self) -> Option<String> {
         self.to_string().into()
     }
+
+    /// Checks whether this list item contains a given regular expression.
+    fn matches(&self, needle: &Regex) -> bool {
+        let s = self.to_string();
+        needle.is_match(s.as_str())
+    }
 }
 
 impl<I> ListItem<I> for String
@@ -527,9 +533,7 @@ where
         let mut matches = vec![];
 
         for (idx, item) in self.items.iter().enumerate() {
-            let s = item.to_string();
-
-            if needle.is_match(s.as_str()) {
+            if item.matches(needle) {
                 matches.push(idx);
             }
         }
