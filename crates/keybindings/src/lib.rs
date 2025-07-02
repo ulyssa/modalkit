@@ -1056,6 +1056,10 @@ where
         return self.sequence.clone();
     }
 
+    fn sequence_break(&mut self) {
+        self.sequence_break = true;
+    }
+
     fn push(&mut self, status: SequenceStatus, pair: &(A, C)) {
         match status {
             SequenceStatus::Atom => {
@@ -1363,6 +1367,10 @@ where
     }
 
     fn reset_mode(&mut self) {
+        for tracker in self.sequences.values_mut() {
+            tracker.sequence_break();
+        }
+
         self.goto_mode(S::M::default());
     }
 
