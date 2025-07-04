@@ -1,6 +1,6 @@
 [package]
 name = "keybindings"
-version = "0.0.1"
+version = "0.0.2"
 homepage = "https://github.com/ulyssa/modalkit/tree/main/crates/keybindings"
 description = "A library for processing modal input"
 keywords = ["modal", "keybindings"]

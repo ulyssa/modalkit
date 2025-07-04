@@ -17,7 +17,7 @@ used by adding `scansion` to your dependencies in your project's `Cargo.toml`.
 
 ```toml
 [dependencies]
-scansion = "0.0.1"
+scansion = "0.0.2"
 ```
 
 ## License

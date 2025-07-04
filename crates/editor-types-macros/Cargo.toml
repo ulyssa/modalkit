@@ -1,6 +1,6 @@
 [package]
 name = "editor-types-macros"
-version = "0.0.1"
+version = "0.0.2"
 homepage = "https://github.com/ulyssa/modalkit/tree/main/crates/editor-types-macros"
 readme = "README.md"
 description = "A library for parsing the editor-types action syntax"
