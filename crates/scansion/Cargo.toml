@@ -1,6 +1,6 @@
 [package]
 name = "scansion"
-version = "0.0.1"
+version = "0.0.2"
 homepage = "https://github.com/ulyssa/modalkit/tree/main/crates/scansion"
 description = "A readline-style library with Vim and Emacs keybindings"
 keywords = ["modal", "readline", "vim", "emacs"]

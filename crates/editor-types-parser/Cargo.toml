@@ -1,6 +1,6 @@
 [package]
 name = "editor-types-parser"
-version = "0.0.1"
+version = "0.0.2"
 homepage = "https://github.com/ulyssa/modalkit/tree/main/crates/editor-types-parser"
 readme = "README.md"
 description = "Procedural macros for generating editor-types values at compile time"

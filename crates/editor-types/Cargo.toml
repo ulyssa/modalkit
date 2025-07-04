@@ -1,6 +1,6 @@
 [package]
 name = "editor-types"
-version = "0.0.1"
+version = "0.0.2"
 homepage = "https://github.com/ulyssa/modalkit/tree/main/crates/editor-types"
 readme = "README.md"
 description = "A library for working with defunctionalized editor types"
