@@ -19,7 +19,7 @@ use ropey::{Rope, RopeSlice};
 use crate::actions::EditAction;
 use crate::editing::{
     context::Resolve,
-    cursor::{Cursor, CursorAdjustment, CursorChoice, CursorState},
+    cursor::{Adjustable, Cursor, CursorAdjustment, CursorChoice, CursorState},
 };
 use crate::prelude::*;
 
@@ -1079,22 +1079,101 @@ impl EditRope {
         (CursorChoice::Range(start, end, default), adjs)
     }
 
+    /// Replace all of the newlines between `start` and `end` according to
+    /// [JoinStyle].
+    pub fn join_lines(
+        &mut self,
+        start: CharOff,
+        end: CharOff,
+        inclusive: bool,
+        spaces: JoinStyle,
+    ) -> (CursorChoice, Vec<CursorAdjustment>) {
+        let mut cursor = None;
+        let mut adjs = vec![];
+        let mut nls = vec![];
+
+        for nl in self.newlines(start) {
+            if nl > end || (!inclusive && nl == end) {
+                break;
+            }
+
+            nls.push(nl);
+        }
+
+        if nls.len() > 1 {
+            /*
+             * Normally we ignore the final newline in the range since it's the lines *inside*
+             * the range that are being joined together, but since the minimum number of lines
+             * joined is 2, we don't remove the last offset if it's the only offset.
+             */
+            let _ = nls.pop();
+        }
+
+        for nl in nls.into_iter().rev() {
+            // Leave the buffer's final newline alone.
+            if nl == self.last_offset() {
+                continue;
+            }
+
+            let (choice, mut adjustments) = match spaces {
+                JoinStyle::OneSpace => {
+                    let mut iter = self.chars(nl + 1.into());
+                    let mut blank = false;
+
+                    for c in iter.by_ref() {
+                        if c == '\n' {
+                            blank = true;
+                            break;
+                        } else if c.is_ascii_whitespace() {
+                            continue;
+                        } else {
+                            break;
+                        }
+                    }
+
+                    let jtxt = if blank { "" } else { " " };
+
+                    let stop = iter.pos();
+
+                    self.replace(nl..stop, jtxt.into())
+                },
+                JoinStyle::NewSpace => self.replace(nl..=nl, " ".into()),
+                JoinStyle::NoChange => self.replace(nl..=nl, "".into()),
+            };
+
+            cursor
+                .get_or_insert_with(|| choice.get(CursorEnd::Auto).cloned().unwrap_or_default())
+                .adjust(&adjustments);
+            adjs.append(&mut adjustments);
+        }
+
+        let choice = cursor.map(CursorChoice::Single).unwrap_or_default();
+
+        (choice, adjs)
+    }
+
     /// Return the rope repeated *n* times.
     pub fn repeat(&self, shape: TargetShape, times: usize) -> EditRope {
         EditRope { rope: roperepeat(&self.rope, shape, times) }
     }
 
-    /// Transform a range within the rope with function *f*, and return the updated version.
+    /// Transform a range within the rope with function *f*.
     pub fn transform(
-        &self,
+        &mut self,
         start: CharOff,
         end: CharOff,
         inclusive: bool,
         f: impl Fn(EditRope) -> EditRope,
-    ) -> EditRope {
-        let (prefix, middle, suffix) = self.split(start, end, inclusive);
-
-        return prefix + f(middle) + suffix;
+    ) -> (CursorChoice, Vec<CursorAdjustment>) {
+        if inclusive {
+            let range = start..=end;
+            let transformed = f(self.slice(range.clone()));
+            self.replace(range, transformed)
+        } else {
+            let range = start..end;
+            let transformed = f(self.slice(range.clone()));
+            self.replace(range, transformed)
+        }
     }
 
     /// Change the case of this rope.
@@ -1508,7 +1587,9 @@ impl EditRope {
 
     /// Return the line number of the given character offset.
     pub fn line_of_offset(&self, off: CharOff) -> usize {
-        self.rope.char_to_line(off.0)
+        self.rope
+            .try_char_to_line(off.0)
+            .unwrap_or_else(|_| self.rope.len_lines().saturating_sub(1))
     }
 
     /// Return the character offset of the start of a given line.

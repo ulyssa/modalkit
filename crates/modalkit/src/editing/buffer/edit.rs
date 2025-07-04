@@ -3,7 +3,7 @@ use std::borrow::Cow;
 use crate::editing::{
     application::ApplicationInfo,
     context::Resolve,
-    cursor::{Adjustable, Cursor, CursorChoice},
+    cursor::{Adjustable, Cursor, CursorAdjustment, CursorChoice},
     rope::EditRope,
     store::{RegisterCell, RegisterPutFlags, Store},
 };
@@ -22,7 +22,7 @@ where
         range: &CursorRange,
         ctx: &C,
         store: &mut Store<I>,
-    ) -> EditResult<CursorChoice, I>;
+    ) -> EditResult<(CursorChoice, Vec<CursorAdjustment>), I>;
 
     fn yank(
         &mut self,
@@ -38,7 +38,7 @@ where
         range: &CursorRange,
         ctx: &C,
         store: &mut Store<I>,
-    ) -> EditResult<CursorChoice, I>;
+    ) -> EditResult<(CursorChoice, Vec<CursorAdjustment>), I>;
 
     fn changecase(
         &mut self,
@@ -46,14 +46,14 @@ where
         range: &CursorRange,
         ctx: &C,
         store: &mut Store<I>,
-    ) -> EditResult<CursorChoice, I>;
+    ) -> EditResult<(CursorChoice, Vec<CursorAdjustment>), I>;
 
     fn format(
         &mut self,
         range: &CursorRange,
         ctx: &C,
         store: &mut Store<I>,
-    ) -> EditResult<CursorChoice, I>;
+    ) -> EditResult<(CursorChoice, Vec<CursorAdjustment>), I>;
 
     fn changenum(
         &mut self,
@@ -62,7 +62,7 @@ where
         range: &CursorRange,
         ctx: &C,
         store: &mut Store<I>,
-    ) -> EditResult<CursorChoice, I>;
+    ) -> EditResult<(CursorChoice, Vec<CursorAdjustment>), I>;
 
     fn join(
         &mut self,
@@ -70,7 +70,7 @@ where
         range: &CursorRange,
         ctx: &C,
         store: &mut Store<I>,
-    ) -> EditResult<CursorChoice, I>;
+    ) -> EditResult<(CursorChoice, Vec<CursorAdjustment>), I>;
 
     fn indent(
         &mut self,
@@ -78,7 +78,7 @@ where
         range: &CursorRange,
         ctx: &C,
         store: &mut Store<I>,
-    ) -> EditResult<CursorChoice, I>;
+    ) -> EditResult<(CursorChoice, Vec<CursorAdjustment>), I>;
 }
 
 impl<'a, I> EditActions<CursorMovementsContext<'a, Cursor>, I> for EditBuffer<I>
@@ -90,12 +90,13 @@ where
         range: &CursorRange,
         ctx: &CursorMovementsContext<'a, Cursor>,
         store: &mut Store<I>,
-    ) -> EditResult<CursorChoice, I> {
+    ) -> EditResult<(CursorChoice, Vec<CursorAdjustment>), I> {
         let style = ctx.context.get_insert_style().unwrap_or(InsertStyle::Insert);
         let (shape, ranges) = self._effective(range, ctx.context.get_target_shape());
         let mut deleted = EditRope::from("");
         let mut first = true;
         let mut coff = self.text.cursor_to_offset(&range.start);
+        let mut adjs = vec![];
 
         for (start, end, inclusive) in ranges.into_iter().rev() {
             if first {
@@ -126,10 +127,12 @@ where
 
             if tlines == 0 {
                 let cstart = self.text.offset_to_cursor(start);
-                self._adjust_columns(cstart.y, cstart.x, 0, -tlen, store);
+                let adj = self._adjust_columns(cstart.y, cstart.x, 0, -tlen);
+                adjs.push(adj);
             } else {
                 let lend = lstart.saturating_add(tlines - 1);
-                self._adjust_lines(lstart, lend, isize::MAX, -(tlines as isize), store);
+                let adj = self._adjust_lines(lstart, lend, isize::MAX, -(tlines as isize));
+                adjs.push(adj);
             }
 
             coff = start;
@@ -149,7 +152,7 @@ where
 
         let cursor = self.text.offset_to_cursor(coff);
 
-        return Ok(CursorChoice::Single(cursor));
+        return Ok((CursorChoice::Single(cursor), adjs));
     }
 
     fn yank(
@@ -217,38 +220,38 @@ where
         range: &CursorRange,
         ctx: &CursorMovementsContext<'a, Cursor>,
         _: &mut Store<I>,
-    ) -> EditResult<CursorChoice, I> {
+    ) -> EditResult<(CursorChoice, Vec<CursorAdjustment>), I> {
         let (_, ranges) = self._effective(range, ctx.context.get_target_shape());
         let mut cursor = None;
+        let mut adjs = vec![];
 
         // XXX: if this is a blockwise replace, then whitespace needs to be split into individual
-        // spaces first, and then replaced.
+        // spaces first, and then replaced. This will also require updating `adjs`.
 
         for (start, end, inclusive) in ranges.into_iter().rev() {
-            self.text = self.text.transform(start, end, inclusive, |r| {
+            let (choice, mut adjustments) = self.text.transform(start, end, inclusive, |r| {
                 let s: String = r.to_string();
                 let n: String =
                     s.chars().map(|i| if i == '\n' || i == '\r' { i } else { c }).collect();
                 return EditRope::from(n);
             });
 
+            adjs.append(&mut adjustments);
+
             /*
              * Unlike most operations, character replacement puts the cursor on the final character
              * in the affected range, and not immediately after it. This allows the cursor to stay
              * in place when doing a single character replacement (e.g. "ra").
              */
-            let _ = if inclusive || end == 0.into() {
-                cursor.get_or_insert(end)
-            } else {
-                cursor.get_or_insert(end - 1.into())
-            };
+            let _ = cursor.get_or_insert(choice);
         }
 
         let choice = cursor
-            .map(|off| self.text.offset_to_cursor(off).into())
+            .and_then(|c| c.get(CursorEnd::End).cloned())
+            .map(CursorChoice::from)
             .unwrap_or_default();
 
-        Ok(choice)
+        Ok((choice, adjs))
     }
 
     fn changecase(
@@ -257,25 +260,35 @@ where
         range: &CursorRange,
         ctx: &CursorMovementsContext<'a, Cursor>,
         _: &mut Store<I>,
-    ) -> EditResult<CursorChoice, I> {
+    ) -> EditResult<(CursorChoice, Vec<CursorAdjustment>), I> {
         let (shape, ranges) = self._effective(range, ctx.context.get_target_shape());
         let mut cursors = None;
+        let mut adjs = vec![];
 
         for (start, end, inclusive) in ranges.into_iter().rev() {
-            self.text = self.text.transform(start, end, inclusive, |r| r.changecase(case));
+            let (choice, mut adjustments) =
+                self.text.transform(start, end, inclusive, |r| r.changecase(case));
 
-            if let Some((ref mut soff, _)) = cursors {
-                *soff = start;
+            let Some((sc, ec)) = &mut cursors else {
+                // On the first loop.
+                cursors = choice.resolve(CursorEnd::Selection).map(|s| s.sorted());
+                adjs.append(&mut adjustments);
+                continue;
+            };
+
+            ec.adjust(&adjustments);
+
+            if let Some(start) = choice.get(CursorEnd::Start) {
+                *sc = start.clone();
             } else {
-                cursors = Some((start, end));
+                sc.adjust(&adjustments);
             }
+
+            adjs.append(&mut adjustments);
         }
 
         let choice = cursors
             .map(|(start, end)| {
-                let start = self.text.offset_to_cursor(start);
-                let end = self.text.offset_to_cursor(end);
-
                 match shape {
                     TargetShape::CharWise | TargetShape::BlockWise => {
                         CursorChoice::Range(start.clone(), end, start)
@@ -293,7 +306,7 @@ where
             })
             .unwrap_or_default();
 
-        Ok(choice)
+        Ok((choice, adjs))
     }
 
     fn indent(
@@ -302,10 +315,10 @@ where
         _: &CursorRange,
         _: &CursorMovementsContext<'a, Cursor>,
         _: &mut Store<I>,
-    ) -> EditResult<CursorChoice, I> {
+    ) -> EditResult<(CursorChoice, Vec<CursorAdjustment>), I> {
         // XXX: implement (:help <, :help >, :help v_b_<, :help v_b_>)
 
-        return Ok(CursorChoice::Empty);
+        return Ok((CursorChoice::Empty, vec![]));
     }
 
     fn format(
@@ -313,13 +326,13 @@ where
         _: &CursorRange,
         _: &CursorMovementsContext<'a, Cursor>,
         _: &mut Store<I>,
-    ) -> EditResult<CursorChoice, I> {
+    ) -> EditResult<(CursorChoice, Vec<CursorAdjustment>), I> {
         /*
          * Automatically formatting lines requires a whole lot of logic that just doesn't exist
          * in this codebase yet. At some point, if some kind of filetype detection is added, then
          * this function can be made to do something useful.
          */
-        return Ok(CursorChoice::Empty);
+        return Ok((CursorChoice::Empty, vec![]));
     }
 
     fn changenum(
@@ -328,8 +341,8 @@ where
         mul: bool,
         range: &CursorRange,
         ctx: &CursorMovementsContext<'a, Cursor>,
-        store: &mut Store<I>,
-    ) -> EditResult<CursorChoice, I> {
+        _: &mut Store<I>,
+    ) -> EditResult<(CursorChoice, Vec<CursorAdjustment>), I> {
         let mut diff = match change {
             NumberChange::Decrease(count) => -(ctx.context.resolve(count) as isize),
             NumberChange::Increase(count) => ctx.context.resolve(count) as isize,
@@ -338,12 +351,13 @@ where
 
         let mut cursor = range.start.clone();
         let mut res = CursorChoice::Empty;
+        let mut adjs = vec![];
 
         while cursor.y <= range.end.y {
             let style = WordStyle::Number(Radix::Decimal);
             let number = match self.text.get_cursor_word_mut(&mut cursor, &style) {
                 Some(n) => n,
-                None => return Ok(CursorChoice::Empty),
+                None => continue,
             };
 
             if cursor > range.end {
@@ -355,7 +369,7 @@ where
             let n = Cow::from(&number);
             let n = match n.as_ref().parse::<isize>() {
                 Ok(n) => EditRope::from((n + diff).to_string()),
-                Err(_) => return Ok(CursorChoice::Empty),
+                Err(_) => continue,
             };
 
             let mut nend = cursor.clone();
@@ -363,8 +377,8 @@ where
             let start = self.text.cursor_to_offset(&cursor);
             let end = self.text.cursor_to_offset(&nend);
 
-            let (choice, adjs) = self.text.replace(start..end, n);
-            self._adjust_all(adjs, store);
+            let (choice, mut adjustments) = self.text.replace(start..end, n);
+            adjs.append(&mut adjustments);
 
             res = if let CursorChoice::Range(s, e, _) = choice {
                 CursorChoice::Range(s, e.clone(), e)
@@ -378,7 +392,7 @@ where
             cursor.x = 0;
         }
 
-        return Ok(res);
+        return Ok((res, adjs));
     }
 
     fn join(
@@ -386,73 +400,20 @@ where
         spaces: JoinStyle,
         range: &CursorRange,
         _: &CursorMovementsContext<'a, Cursor>,
-        store: &mut Store<I>,
-    ) -> EditResult<CursorChoice, I> {
+        _: &mut Store<I>,
+    ) -> EditResult<(CursorChoice, Vec<CursorAdjustment>), I> {
         // Joining is always forced into a LineWise movement.
         let (_, ranges) = self._effective(range, Some(TargetShape::LineWise));
         let mut cursor = None;
+        let mut adjs = vec![];
 
         for (start, end, inclusive) in ranges.into_iter().rev() {
-            let mut nls = Vec::new();
-
-            for nl in self.text.newlines(start) {
-                if nl > end || (!inclusive && nl == end) {
-                    break;
-                }
-
-                nls.push(nl);
-            }
-
-            if nls.len() > 1 {
-                /*
-                 * Normally we ignore the final newline in the range since it's the lines *inside*
-                 * the range that are being joined together, but since the minimum number of lines
-                 * joined is 2, we don't remove the last offset if it's the only offset.
-                 */
-                let _ = nls.pop();
-            }
-
-            for nl in nls.into_iter().rev() {
-                // Leave the buffer's final newline alone.
-                if nl == self.text.last_offset() {
-                    continue;
-                }
-
-                let (choice, adjs) = match spaces {
-                    JoinStyle::OneSpace => {
-                        let mut iter = self.text.chars(nl + 1.into());
-                        let mut blank = false;
-
-                        for c in iter.by_ref() {
-                            if c == '\n' {
-                                blank = true;
-                                break;
-                            } else if c.is_ascii_whitespace() {
-                                continue;
-                            } else {
-                                break;
-                            }
-                        }
-
-                        let jtxt = if blank { "" } else { " " };
-
-                        let stop = iter.pos();
-
-                        self.text.replace(nl..stop, jtxt.into())
-                    },
-                    JoinStyle::NewSpace => self.text.replace(nl..=nl, " ".into()),
-                    JoinStyle::NoChange => self.text.replace(nl..=nl, "".into()),
-                };
-
-                cursor
-                    .get_or_insert_with(|| choice.get(CursorEnd::Auto).cloned().unwrap_or_default())
-                    .adjust(&adjs);
-
-                self._adjust_all(adjs, store);
-            }
+            let (choice, mut adjustments) = self.text.join_lines(start, end, inclusive, spaces);
+            let _ = cursor.get_or_insert(choice);
+            adjs.append(&mut adjustments);
         }
 
-        return Ok(cursor.map(CursorChoice::Single).unwrap_or_default());
+        return Ok((cursor.unwrap_or_default(), adjs));
     }
 }
 
@@ -672,6 +633,48 @@ mod tests {
     }
 
     #[test]
+    fn test_delete_cursor_group() {
+        let (mut ebuf, curid, vwctx, vctx, mut store) =
+            mkfivestr("hello world\na b c d e f\n\n\n1 2 3 4 5 6\n");
+
+        let leader = CursorState::from(Cursor::new(0, 5));
+        let members = vec![
+            CursorState::from(Cursor::new(0, 9)),
+            CursorState::from(Cursor::new(1, 2)),
+            CursorState::from(Cursor::new(1, 6)),
+            CursorState::from(Cursor::new(3, 0)),
+            CursorState::from(Cursor::new(4, 1)),
+        ];
+        ebuf.set_group(curid, CursorGroup::new(leader, members));
+
+        // Delete previous character ("<BS>").
+        let mov = MoveType::Column(MoveDir1D::Previous, true);
+        edit!(ebuf, EditAction::Delete, mv!(mov), ctx!(curid, vwctx, vctx), store);
+        assert_eq!(ebuf.get_text(), "hell wold\nab cd e f\n\n 2 3 4 5 6\n");
+        assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 4));
+        assert_eq!(ebuf.get_followers(curid), vec![
+            Cursor::new(0, 7),
+            Cursor::new(1, 1),
+            Cursor::new(1, 4),
+            Cursor::new(2, 0),
+            Cursor::new(3, 0),
+        ]);
+
+        // And again:
+        let mov = MoveType::Column(MoveDir1D::Previous, true);
+        edit!(ebuf, EditAction::Delete, mv!(mov), ctx!(curid, vwctx, vctx), store);
+        assert_eq!(ebuf.get_text(), "hel wld\nb d e f 2 3 4 5 6\n");
+        assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 3));
+        assert_eq!(ebuf.get_followers(curid), vec![
+            Cursor::new(0, 5),
+            Cursor::new(1, 0),
+            Cursor::new(1, 2),
+            Cursor::new(1, 6),
+            Cursor::new(1, 7),
+        ]);
+    }
+
+    #[test]
     fn test_delete_blockwise() {
         let (mut ebuf, curid, vwctx, mut vctx, mut store) =
             mkfivestr("hello world\n1 2 3 4 5 6\n  a b c d e f\n");
@@ -829,6 +832,27 @@ mod tests {
         assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 0));
 
         // XXX: cursor should move to first word after g~~/gUU/guu
+    }
+
+    #[test]
+    fn test_changecase_cursor_group() {
+        let (mut ebuf, curid, vwctx, vctx, mut store) = mkfivestr("reißen reißen reißen\n");
+
+        let leader = CursorState::from(Cursor::new(0, 3));
+        let members = vec![
+            CursorState::from(Cursor::new(0, 10)),
+            CursorState::from(Cursor::new(0, 17)),
+        ];
+        ebuf.set_group(curid, CursorGroup::new(leader, members));
+
+        // Test Case::Upper operations that add more columns.
+        let operation = EditAction::ChangeCase(Case::Upper);
+        let mov = MoveType::Column(MoveDir1D::Next, false);
+
+        edit!(ebuf, operation, mv!(mov), ctx!(curid, vwctx, vctx), store);
+        assert_eq!(ebuf.get_text(), "reiSSen reiSSen reiSSen\n");
+        assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 3));
+        assert_eq!(ebuf.get_followers(curid), vec![Cursor::new(0, 11), Cursor::new(0, 19)]);
     }
 
     #[test]
