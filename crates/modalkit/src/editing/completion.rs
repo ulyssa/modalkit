@@ -23,7 +23,7 @@ use crate::{
 };
 
 /// A trait for implementing custom completers for an application.
-pub trait Completer<I: ApplicationInfo> {
+pub trait Completer<I: ApplicationInfo>: Send + Sync {
     /// Complete the word just before [Cursor] inside the [EditRope].
     ///
     /// When this method returns, the [Cursor] should be updated to point at the

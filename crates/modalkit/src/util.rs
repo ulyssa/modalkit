@@ -1,5 +1,3 @@
-pub use editor_types::util::*;
-
 use std::borrow::Borrow;
 use std::cmp::Ordering;
 use std::ops::Bound;
