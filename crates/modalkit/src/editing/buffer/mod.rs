@@ -592,11 +592,8 @@ where
         column_start: usize,
         amt_line: isize,
         amt_col: isize,
-        store: &mut Store<I>,
-    ) {
-        let adj = CursorAdjustment::Column { line, column_start, amt_line, amt_col };
-
-        self._adjust(&[adj], store);
+    ) -> CursorAdjustment {
+        CursorAdjustment::Column { line, column_start, amt_line, amt_col }
     }
 
     fn _adjust_lines(
@@ -605,11 +602,8 @@ where
         line_end: usize,
         amount: isize,
         amount_after: isize,
-        store: &mut Store<I>,
-    ) {
-        let adj = CursorAdjustment::Line { line_start, line_end, amount, amount_after };
-
-        self._adjust(&[adj], store);
+    ) -> CursorAdjustment {
+        CursorAdjustment::Line { line_start, line_end, amount, amount_after }
     }
 
     pub(crate) fn motion(
@@ -1077,42 +1071,44 @@ where
         let gid = ictx.0;
         let end = ctx.context.get_cursor_end();
         let mut group = self.get_group(gid);
+        let mut adjs = vec![];
 
         for state in group.iter_mut() {
-            let choice = match (self._target(state, target, ctx, store)?, action) {
+            state.adjust(adjs.as_slice());
+
+            let (choice, mut adjustments) = match (self._target(state, target, ctx, store)?, action)
+            {
                 (Some(range), EditAction::Delete) => self.delete(&range, ctx, store)?,
-                (Some(range), EditAction::Yank) => self.yank(&range, ctx, store)?,
-                (Some(range), EditAction::Replace(v)) => {
-                    match ctx.context.get_replace_char() {
-                        Some(c) => {
-                            let c = self._char(c, state.cursor(), &store.digraphs)?;
-
-                            self.replace(c, *v, &range, ctx, store)?
-                        },
-                        None => {
-                            let msg = "No replacement character".to_string();
-                            let err = EditError::Failure(msg);
-
-                            return Err(err);
-                        },
-                    }
+                (Some(range), EditAction::Join(spaces)) => {
+                    self.join(*spaces, &range, ctx, store)?
                 },
-                (Some(range), EditAction::Format) => self.format(&range, ctx, store)?,
                 (Some(range), EditAction::ChangeCase(case)) => {
                     self.changecase(case, &range, ctx, store)?
                 },
                 (Some(range), EditAction::ChangeNumber(change, mul)) => {
                     self.changenum(change, *mul, &range, ctx, store)?
                 },
-                (Some(range), EditAction::Join(spaces)) => {
-                    self.join(*spaces, &range, ctx, store)?
+                (Some(range), EditAction::Yank) => (self.yank(&range, ctx, store)?, vec![]),
+                (Some(range), EditAction::Replace(v)) => {
+                    let Some(c) = ctx.context.get_replace_char() else {
+                        let msg = "No replacement character".to_string();
+                        let err = EditError::Failure(msg);
+
+                        return Err(err);
+                    };
+
+                    let c = self._char(c, state.cursor(), &store.digraphs)?;
+                    self.replace(c, *v, &range, ctx, store)?
                 },
+                (Some(range), EditAction::Format) => self.format(&range, ctx, store)?,
                 (Some(range), EditAction::Indent(change)) => {
                     self.indent(change, &range, ctx, store)?
                 },
                 (Some(_), EditAction::Motion) => panic!("Unexpected EditAction::Motion!"),
-                (None, _) => CursorChoice::Empty,
+                (None, _) => (CursorChoice::Empty, vec![]),
             };
+
+            adjs.append(&mut adjustments);
 
             if let Some(cursor) = choice.resolve(end) {
                 state.set(cursor);
@@ -1120,6 +1116,7 @@ where
             }
         }
 
+        self._adjust_all(adjs, store);
         self.push_change(&group);
         self.set_group(gid, group);
 
