@@ -666,6 +666,9 @@ macro_rules! change_range {
     ($rt: expr) => {
         change_target!(EditTarget::Range($rt, true, Count::Contextual))
     };
+    ($rt: expr, $inc: expr) => {
+        change_target!(EditTarget::Range($rt, $inc, Count::Contextual))
+    };
 }
 
 macro_rules! change {
@@ -1536,7 +1539,7 @@ fn default_keys<I: ApplicationInfo>() -> Vec<(MappedModes, &'static str, InputSt
         ( NMAP, "a", insert!(InsertStyle::Insert, MoveType::Column(MoveDir1D::Next, false)) ),
         ( NMAP, "A", insert!(InsertStyle::Insert, MoveType::LinePos(MovePosition::End), 0) ),
         ( NMAP, "c", edit_motion!(EditAction::Delete, VimMode::Insert, InsertStyle::Insert) ),
-        ( NMAP, "cc", change_range!(RangeType::Line) ),
+        ( NMAP, "cc", edit_range_end!(RangeType::Line, false) ),
         ( NMAP, "cw", edit_end!(MoveType::WordEnd(WordStyle::Little, MoveDir1D::Next)) ),
         ( NMAP, "cW", edit_end!(MoveType::WordEnd(WordStyle::Big, MoveDir1D::Next)) ),
         ( NMAP, "C", change!(MoveType::LinePos(MovePosition::End), Count::MinusOne) ),
@@ -1582,7 +1585,7 @@ fn default_keys<I: ApplicationInfo>() -> Vec<(MappedModes, &'static str, InputSt
         ( NMAP, "r", charreplace!(false) ),
         ( NMAP, "R", insert!(InsertStyle::Replace) ),
         ( NMAP, "s", change!(MoveType::Column(MoveDir1D::Next, false)) ),
-        ( NMAP, "S", change_range!(RangeType::Line) ),
+        ( NMAP, "S", change_range!(RangeType::Line, false) ),
         ( NMAP, "u", history!(HistoryAction::Undo(Count::Contextual)) ),
         ( NMAP, "U", unmapped!() ),
         ( NMAP, "x", edit!(EditAction::Delete, MoveType::Column(MoveDir1D::Next, false)) ),
@@ -3199,9 +3202,22 @@ mod tests {
 
         // Change the current line with "S".
         let op = EditAction::Delete;
-        let mov = rangeop!(op, RangeType::Line);
+        let mov = rangeop!(op, RangeType::Line, false);
         ctx.persist.insert = Some(InsertStyle::Insert);
         vm.input_key(key!('S'));
+        assert_pop2!(vm, mov, ctx);
+        assert_eq!(vm.mode(), VimMode::Insert);
+
+        // Move back to Normal mode via ^C.
+        vm.input_key(ctl!('c'));
+        assert_insert_exit!(vm, ctx);
+
+        // Change the current line with "cc".
+        let mov = range!(RangeType::Line, false);
+        ctx.persist.insert = Some(InsertStyle::Insert);
+        ctx.action.operation = EditAction::Delete;
+        vm.input_key(key!('c'));
+        vm.input_key(key!('c'));
         assert_pop2!(vm, mov, ctx);
         assert_eq!(vm.mode(), VimMode::Insert);
 
