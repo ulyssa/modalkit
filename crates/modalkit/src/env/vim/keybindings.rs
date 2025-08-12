@@ -179,6 +179,7 @@ enum InternalAction {
     SetCursorChar(char),
     SetCursorDigraph,
     SetInsertStyle(InsertStyle),
+    SetOrToggleInsertStyle(InsertStyle),
     SetTargetShape(TargetShapeFilter, TargetShape),
     SetOperation(EditAction),
     SetPostMode(VimMode),
@@ -238,6 +239,9 @@ impl InternalAction {
                 }
             },
             InternalAction::SetInsertStyle(style) => {
+                ctx.persist.insert = Some(*style);
+            },
+            InternalAction::SetOrToggleInsertStyle(style) => {
                 match ctx.persist.insert {
                     None => {
                         ctx.persist.insert = Some(*style);
@@ -929,6 +933,18 @@ macro_rules! insert {
                 ),
                 ExternalAction::Something(CursorAction::Split(Count::MinusOne).into()),
             ],
+            VimMode::Insert
+        )
+    };
+}
+
+macro_rules! insert_toggle {
+    ($style: expr) => {
+        isv!(
+            vec![InternalAction::SetOrToggleInsertStyle($style)],
+            vec![ExternalAction::Something(
+                CursorAction::Split(Count::MinusOne).into()
+            )],
             VimMode::Insert
         )
     };
@@ -1747,7 +1763,7 @@ fn default_keys<I: ApplicationInfo>() -> Vec<(MappedModes, &'static str, InputSt
         ( IMAP, "<Esc>", normal!() ),
         ( IMAP, "<Tab>", chartype!(Char::Single('\t')) ),
         ( IMAP, "<C-Home>", edit!(EditAction::Motion, MoveType::BufferPos(MovePosition::Beginning)) ),
-        ( IMAP, "<Insert>", insert!(InsertStyle::Replace) ),
+        ( IMAP, "<Insert>", insert_toggle!(InsertStyle::Replace) ),
         ( IMAP, "<PageDown>", scroll2d!(MoveDir2D::Down, ScrollSize::Page) ),
         ( IMAP, "<PageUp>", scroll2d!(MoveDir2D::Up, ScrollSize::Page) ),
 
@@ -1782,7 +1798,7 @@ fn default_keys<I: ApplicationInfo>() -> Vec<(MappedModes, &'static str, InputSt
         ( CMAP, "<S-Down>", prompt!(PromptAction::Recall(RecallFilter::All, MoveDir1D::Next, Count::Contextual)) ),
         ( CMAP, "<PageUp>", prompt!(PromptAction::Recall(RecallFilter::All, MoveDir1D::Previous, Count::Contextual)) ),
         ( CMAP, "<PageDown>", prompt!(PromptAction::Recall(RecallFilter::All, MoveDir1D::Next, Count::Contextual)) ),
-        ( CMAP, "<Insert>", iact!(InternalAction::SetInsertStyle(InsertStyle::Replace)) ),
+        ( CMAP, "<Insert>", iact!(InternalAction::SetOrToggleInsertStyle(InsertStyle::Replace)) ),
 
         // Operator-Pending mode
         ( OMAP, "gn", unmapped!() ),
