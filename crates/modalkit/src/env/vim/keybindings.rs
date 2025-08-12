@@ -1638,7 +1638,7 @@ fn default_keys<I: ApplicationInfo>() -> Vec<(MappedModes, &'static str, InputSt
         ( NMAP, "<C-6>", window_switch!(OpenTarget::Alternate, OpenTarget::List(Count::Contextual)) ),
         ( NMAP, "<Del>", edit_nocount!(EditAction::Delete, MoveType::Column(MoveDir1D::Next, false)) ),
         ( NMAP, "<Esc>", normal!() ),
-        ( NMAP, "<Insert>", insert_toggle!(InsertStyle::Insert) ),
+        ( NMAP, "<Insert>", insert!(InsertStyle::Insert) ),
         ( NMAP, "<Tab>", jump!(PositionList::JumpList, MoveDir1D::Next) ),
 
         // Visual, Select mode keys
