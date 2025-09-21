@@ -427,6 +427,21 @@ mod tests {
 
     #[test]
     fn test_complete_file() {
+        fn escape(input: &str) -> Cow<'_, str> {
+            if MAIN_SEPARATOR != '\\' {
+                Cow::Borrowed(input)
+            } else {
+                Cow::Owned(input.replace('\\', "\\\\"))
+            }
+        }
+        fn unescape(input: &str) -> Cow<'_, str> {
+            if MAIN_SEPARATOR != '\\' {
+                Cow::Borrowed(input)
+            } else {
+                Cow::Owned(input.replace("\\\\", "\\"))
+            }
+        }
+
         // First, create temporary and files to complete.
         let tmp = TempDir::new().unwrap();
         let file1 = tmp.child("file1");
@@ -442,13 +457,17 @@ mod tests {
         let file2 = file2.to_string_lossy();
         let hidden = hidden.to_string_lossy();
         let mut cur_dir = path.clone().into_owned();
-        cur_dir.push_str("/./");
+        cur_dir.push(MAIN_SEPARATOR);
+        cur_dir.push('.');
+        cur_dir.push(MAIN_SEPARATOR);
         let mut parent = path.clone().into_owned();
-        parent.push_str("/../");
+        parent.push(MAIN_SEPARATOR);
+        parent.push_str("..");
+        parent.push(MAIN_SEPARATOR);
         let next = MoveDir1D::Next;
 
         // create buffer with path to temporary directory.
-        let (mut ebuf, gid, vwctx, mut vctx, mut store) = mkfivestr(path.as_ref());
+        let (mut ebuf, gid, vwctx, mut vctx, mut store) = mkfivestr(escape(path.as_ref()).as_ref());
         vctx.persist.insert = Some(InsertStyle::Insert);
 
         // Move to end of line.
@@ -459,6 +478,9 @@ mod tests {
 
         // Type path separator.
         type_char!(ebuf, MAIN_SEPARATOR, gid, vwctx, vctx, store);
+        if MAIN_SEPARATOR == '\\' {
+            type_char!(ebuf, MAIN_SEPARATOR, gid, vwctx, vctx, store);
+        }
 
         // First, complete to file1.
         ebuf.complete_file(
@@ -468,7 +490,7 @@ mod tests {
             &mut store,
         )
         .unwrap();
-        assert_eq!(ebuf.get_text().trim_end(), file1);
+        assert_eq!(unescape(ebuf.get_text().trim_end()), file1);
 
         // Then complete to file2.
         ebuf.complete_file(
@@ -478,7 +500,7 @@ mod tests {
             &mut store,
         )
         .unwrap();
-        assert_eq!(ebuf.get_text().trim_end(), file2);
+        assert_eq!(unescape(ebuf.get_text().trim_end()), file2);
 
         // Then return to parent.
         ebuf.complete_file(
@@ -489,6 +511,7 @@ mod tests {
         )
         .unwrap();
         let result = ebuf.get_text();
+        let result = unescape(&result);
         let result = Path::new(result.trim_end());
         assert_eq!(result, tmp.path());
 
@@ -506,7 +529,7 @@ mod tests {
             &mut store,
         )
         .unwrap();
-        assert_eq!(ebuf.get_text().trim_end(), &cur_dir);
+        assert_eq!(unescape(ebuf.get_text().trim_end()).as_ref(), &cur_dir);
 
         // Complete to "../".
         ebuf.complete_file(
@@ -516,7 +539,7 @@ mod tests {
             &mut store,
         )
         .unwrap();
-        assert_eq!(ebuf.get_text().trim_end(), &parent);
+        assert_eq!(unescape(ebuf.get_text().trim_end()).as_ref(), &parent);
 
         // Complete to ".hidden".
         ebuf.complete_file(
@@ -526,7 +549,7 @@ mod tests {
             &mut store,
         )
         .unwrap();
-        assert_eq!(ebuf.get_text().trim_end(), hidden);
+        assert_eq!(unescape(ebuf.get_text().trim_end()), hidden);
 
         // Return to parent.
         ebuf.complete_file(
@@ -537,6 +560,7 @@ mod tests {
         )
         .unwrap();
         let result = ebuf.get_text();
+        let result = unescape(&result);
         let result = Path::new(result.trim_end());
         assert_eq!(result, tmp.path());
 
@@ -554,7 +578,7 @@ mod tests {
             &mut store,
         )
         .unwrap();
-        assert_eq!(ebuf.get_text().trim_end(), hidden);
+        assert_eq!(unescape(ebuf.get_text().trim_end()), hidden);
     }
 
     #[test]

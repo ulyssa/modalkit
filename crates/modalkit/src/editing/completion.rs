@@ -358,7 +358,7 @@ impl LineCompleter {
 }
 
 mod parse {
-    use std::borrow::Cow;
+    use std::{borrow::Cow, path::MAIN_SEPARATOR};
 
     use nom::{
         branch::alt,
@@ -417,6 +417,25 @@ mod parse {
 
         filepath_at_end(prefix.as_ref()).ok().map(|(_, path)| path)
     }
+
+    pub fn escape_string(input: &mut String) {
+        for c in ["\\\\", "\\ ", "\\#", "\\%", "\\|", "\\\""] {
+            if input.contains(&c[1..2]) {
+                *input = input.replace(&c[1..2], c);
+            }
+        }
+    }
+
+    pub fn trailing_filename(input: &str) -> &str {
+        let start = input.rfind(MAIN_SEPARATOR).map(|s| s + 1).unwrap_or(0);
+        &input[start..]
+    }
+
+    pub fn trailing_filename_escaped(input: &str) -> String {
+        let mut name = trailing_filename(input).to_string();
+        escape_string(&mut name);
+        name
+    }
 }
 
 /// Complete filenames within a path leading up to the cursor.
@@ -435,7 +454,7 @@ pub fn complete_path(input: &EditRope, cursor: &mut Cursor) -> Vec<String> {
     }
 
     if filepath.is_empty() {
-        filepath = Cow::Borrowed("./");
+        filepath = format!(".{MAIN_SEPARATOR}").into();
     }
 
     let mut res = Vec::<String>::with_capacity(MAX_COMPLETIONS);
@@ -467,10 +486,10 @@ pub fn complete_path(input: &EditRope, cursor: &mut Cursor) -> Vec<String> {
         filepath.strip_suffix('.').is_some_and(|s| s.ends_with(MAIN_SEPARATOR))
     {
         // complete all dotfiles
-
         // The .parent() and .file_name() methods treat . especially, so we
         // have to special-case completion of hidden files here.
-        let _ = input.get_prefix_word_mut(cursor, &WordStyle::CharSet(|c| c != MAIN_SEPARATOR)); // TODO: fix for windows
+
+        cursor.left(parse::trailing_filename_escaped(filepath.as_ref()).len());
 
         if let Ok(dir) = path.read_dir() {
             let filter = |entry: DirEntry| {
@@ -496,8 +515,7 @@ pub fn complete_path(input: &EditRope, cursor: &mut Cursor) -> Vec<String> {
         }
     } else {
         // complete a path
-
-        let _ = input.get_prefix_word_mut(cursor, &WordStyle::CharSet(|c| c != MAIN_SEPARATOR)); // TODO: fix for windows
+        cursor.left(parse::trailing_filename_escaped(filepath.as_ref()).len());
 
         let Some(prefix) = path.components().next_back() else {
             return vec![];
@@ -548,17 +566,19 @@ pub fn complete_path(input: &EditRope, cursor: &mut Cursor) -> Vec<String> {
     }
 
     // Use custom sort to have `.` and `..` at the top
+    let cur = format!(".{MAIN_SEPARATOR}");
+    let parent = format!("..{MAIN_SEPARATOR}");
     res.sort_unstable_by(|a, b| {
-        if a == "./" {
+        if a == &cur {
             return Ordering::Less;
         }
-        if b == "./" {
+        if b == &cur {
             return Ordering::Greater;
         }
-        if a == "../" {
+        if a == &parent {
             return Ordering::Less;
         }
-        if b == "../" {
+        if b == &parent {
             return Ordering::Greater;
         }
 
@@ -566,11 +586,7 @@ pub fn complete_path(input: &EditRope, cursor: &mut Cursor) -> Vec<String> {
     });
 
     for comp in &mut res {
-        for c in ["\\\\", "\\ ", "\\#", "\\%", "\\|", "\\\""] {
-            if comp.contains(&c[1..2]) {
-                *comp = comp.replace(&c[1..2], c);
-            }
-        }
+        parse::escape_string(comp);
     }
 
     return res;
