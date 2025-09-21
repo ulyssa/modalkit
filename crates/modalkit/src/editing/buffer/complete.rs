@@ -437,13 +437,17 @@ mod tests {
         let _ = File::create(file2.as_path()).unwrap();
         let _ = File::create(hidden.as_path()).unwrap();
 
-        let file1 = file1.as_os_str().to_string_lossy();
-        let file2 = file2.as_os_str().to_string_lossy();
-        let hidden = hidden.as_os_str().to_string_lossy();
+        let path = tmp.path().as_os_str().to_string_lossy();
+        let file1 = file1.to_string_lossy();
+        let file2 = file2.to_string_lossy();
+        let hidden = hidden.to_string_lossy();
+        let mut cur_dir = path.clone().into_owned();
+        cur_dir.push_str("/./");
+        let mut parent = path.clone().into_owned();
+        parent.push_str("/../");
         let next = MoveDir1D::Next;
 
         // create buffer with path to temporary directory.
-        let path = tmp.path().as_os_str().to_string_lossy();
         let (mut ebuf, gid, vwctx, mut vctx, mut store) = mkfivestr(path.as_ref());
         vctx.persist.insert = Some(InsertStyle::Insert);
 
@@ -493,6 +497,26 @@ mod tests {
 
         // Type "." so we can see hidden files.
         type_char!(ebuf, '.', gid, vwctx, vctx, store);
+
+        // Complete to "./".
+        ebuf.complete_file(
+            &CompletionStyle::List(next),
+            &CompletionDisplay::None,
+            ctx!(gid, vwctx, vctx),
+            &mut store,
+        )
+        .unwrap();
+        assert_eq!(ebuf.get_text().trim_end(), &cur_dir);
+
+        // Complete to "../".
+        ebuf.complete_file(
+            &CompletionStyle::List(next),
+            &CompletionDisplay::None,
+            ctx!(gid, vwctx, vctx),
+            &mut store,
+        )
+        .unwrap();
+        assert_eq!(ebuf.get_text().trim_end(), &parent);
 
         // Complete to ".hidden".
         ebuf.complete_file(
