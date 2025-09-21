@@ -240,6 +240,11 @@ where
     pub fn complete(&self, prefix: &str) -> Vec<K> {
         completion_keys(&self.trie, prefix).into_iter().map(|k| k.0).collect()
     }
+
+    /// Returns an iterator over the entries
+    pub fn iter(&self) -> impl Iterator<Item = (&K, &V)> {
+        self.trie.iter().map(|(k, v)| (&k.0, v))
+    }
 }
 
 impl<K, V> Default for CompletionMap<K, V>
