@@ -352,10 +352,73 @@ impl LineCompleter {
     }
 }
 
+mod parse {
+    use std::borrow::Cow;
+
+    use nom::{
+        branch::alt,
+        bytes::complete::{escaped_transform, is_not, tag},
+        character::complete::anychar,
+        combinator::{eof, opt, value},
+        IResult,
+    };
+
+    use crate::editing::{cursor::Cursor, rope::EditRope};
+
+    fn filepath_char(input: &str) -> IResult<&str, &str> {
+        is_not("\t\n\\ |\"")(input)
+    }
+
+    fn parse_filepath(input: &str) -> IResult<&str, String> {
+        escaped_transform(
+            filepath_char,
+            '\\',
+            alt((
+                value("\\", tag("\\")),
+                value(" ", tag(" ")),
+                value("#", tag("#")),
+                value("%", tag("%")),
+                value("|", tag("|")),
+                value("\"", tag("\"")),
+            )),
+        )(input)
+    }
+
+    fn parse_filepath_end(input: &str) -> IResult<&str, String> {
+        let (input, res) = parse_filepath(input)?;
+        let (input, _) = eof(input)?;
+
+        Ok((input, res))
+    }
+
+    fn filepath_at_end(mut input: &str) -> IResult<&str, String> {
+        loop {
+            let (i, res) = opt(parse_filepath_end)(input)?;
+            if let Some(res) = res {
+                return Ok((i, res));
+            }
+            while let Ok((i, _)) = filepath_char(input) {
+                input = i;
+            }
+            input = anychar(i)?.0;
+        }
+    }
+
+    pub fn filepath_suffix(input: &EditRope, cursor: &Cursor) -> Option<String> {
+        let mut start = cursor.clone();
+        start.left(4096); // no good way to access NAME_MAX in rust
+        let prefix = input.slice(input.cursor_to_offset(&start)..input.cursor_to_offset(cursor));
+        let prefix = Cow::from(&prefix);
+
+        filepath_at_end(prefix.as_ref()).ok().map(|(_, path)| path)
+    }
+}
+
 /// Complete filenames within a path leading up to the cursor.
 pub fn complete_path(input: &EditRope, cursor: &mut Cursor) -> Vec<String> {
-    let filepath = input.get_prefix_word(cursor, &WordStyle::FilePath);
-    let filepath = filepath.unwrap_or_else(EditRope::empty);
+    let Some(filepath) = parse::filepath_suffix(input, cursor) else {
+        return vec![];
+    };
 
     let filepath = Cow::from(&filepath);
     let Ok(filepath_unexpanded) = shellexpand::env(filepath.as_ref()) else {
@@ -402,7 +465,7 @@ pub fn complete_path(input: &EditRope, cursor: &mut Cursor) -> Vec<String> {
 
         // The .parent() and .file_name() methods treat . especially, so we
         // have to special-case completion of hidden files here.
-        let _ = input.get_prefix_word_mut(cursor, &WordStyle::FileName);
+        let _ = input.get_prefix_word_mut(cursor, &WordStyle::CharSet(|c| c != MAIN_SEPARATOR)); // TODO: fix for windows
 
         if let Ok(dir) = path.read_dir() {
             let filter = |entry: DirEntry| {
@@ -429,7 +492,7 @@ pub fn complete_path(input: &EditRope, cursor: &mut Cursor) -> Vec<String> {
     } else {
         // complete a path
 
-        let _ = input.get_prefix_word_mut(cursor, &WordStyle::FileName);
+        let _ = input.get_prefix_word_mut(cursor, &WordStyle::CharSet(|c| c != MAIN_SEPARATOR)); // TODO: fix for windows
 
         let Some(prefix) = path.components().next_back() else {
             return vec![];
@@ -496,6 +559,14 @@ pub fn complete_path(input: &EditRope, cursor: &mut Cursor) -> Vec<String> {
 
         a.cmp(b)
     });
+
+    for comp in &mut res {
+        for c in ["\\\\", "\\ ", "\\#", "\\%", "\\|", "\\\""] {
+            if comp.contains(&c[1..2]) {
+                *comp = comp.replace(&c[1..2], c);
+            }
+        }
+    }
 
     return res;
 }
