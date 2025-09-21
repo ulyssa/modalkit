@@ -709,7 +709,7 @@ pub struct InputIterator<'a, Key: InputKey, S: Step<Key>> {
     keys: std::vec::IntoIter<Key>,
 }
 
-impl<'a, K, S> Iterator for InputIterator<'a, K, S>
+impl<K, S> Iterator for InputIterator<'_, K, S>
 where
     K: InputKey,
     S: Step<K>,

@@ -814,7 +814,7 @@ where
     }
 }
 
-impl<'a, W, I> StatefulWidget for Screen<'a, W, I>
+impl<W, I> StatefulWidget for Screen<'_, W, I>
 where
     W: Window<I>,
     I: ApplicationInfo,

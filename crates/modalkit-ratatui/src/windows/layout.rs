@@ -2043,7 +2043,7 @@ where
     }
 }
 
-impl<'a, W, I> StatefulWidget for WindowLayout<'a, W, I>
+impl<W, I> StatefulWidget for WindowLayout<'_, W, I>
 where
     W: Window<I>,
     I: ApplicationInfo,
