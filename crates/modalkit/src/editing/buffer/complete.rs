@@ -427,25 +427,27 @@ mod tests {
 
     #[test]
     fn test_complete_file() {
-        fn escape(input: &str) -> Cow<'_, str> {
-            if MAIN_SEPARATOR != '\\' {
+        fn escape(input: &str) -> String {
+            let input = if MAIN_SEPARATOR != '\\' {
                 Cow::Borrowed(input)
             } else {
                 Cow::Owned(input.replace('\\', "\\\\"))
-            }
+            };
+            input.replace(" ", "\\ ")
         }
-        fn unescape(input: &str) -> Cow<'_, str> {
-            if MAIN_SEPARATOR != '\\' {
+        fn unescape(input: &str) -> Cow<'static, str> {
+            let input = if MAIN_SEPARATOR != '\\' {
                 Cow::Borrowed(input)
             } else {
                 Cow::Owned(input.replace("\\\\", "\\"))
-            }
+            };
+            Cow::Owned(input.replace("\\ ", " "))
         }
 
         // First, create temporary and files to complete.
         let tmp = TempDir::new().unwrap();
         let file1 = tmp.child("file1");
-        let file2 = tmp.child("file2");
+        let file2 = tmp.child("file2 space");
         let hidden = tmp.child(".hidden");
 
         let _ = File::create(file1.as_path()).unwrap();
@@ -467,7 +469,7 @@ mod tests {
         let next = MoveDir1D::Next;
 
         // create buffer with path to temporary directory.
-        let (mut ebuf, gid, vwctx, mut vctx, mut store) = mkfivestr(escape(path.as_ref()).as_ref());
+        let (mut ebuf, gid, vwctx, mut vctx, mut store) = mkfivestr(&escape(path.as_ref()));
         vctx.persist.insert = Some(InsertStyle::Insert);
 
         // Move to end of line.
@@ -579,6 +581,33 @@ mod tests {
         )
         .unwrap();
         assert_eq!(unescape(ebuf.get_text().trim_end()), hidden);
+
+        // create buffer with some text and path to temporary directory.
+        let (mut ebuf, gid, vwctx, mut vctx, mut store) =
+            mkfivestr(format!("text {}", escape(path.as_ref())).as_ref());
+        vctx.persist.insert = Some(InsertStyle::Insert);
+
+        // Move to end of line.
+        ebuf.set_leader(gid, Cursor::new(0, 0));
+
+        let mv = mv!(MoveType::LinePos(MovePosition::End), 0);
+        edit!(ebuf, EditAction::Motion, mv, ctx!(gid, vwctx, vctx), store);
+
+        // Type path separator.
+        type_char!(ebuf, MAIN_SEPARATOR, gid, vwctx, vctx, store);
+        if MAIN_SEPARATOR == '\\' {
+            type_char!(ebuf, MAIN_SEPARATOR, gid, vwctx, vctx, store);
+        }
+
+        // First, complete to file1.
+        ebuf.complete_file(
+            &CompletionStyle::List(next),
+            &CompletionDisplay::None,
+            ctx!(gid, vwctx, vctx),
+            &mut store,
+        )
+        .unwrap();
+        assert_eq!(unescape(ebuf.get_text().trim_end()), format!("text {}", file1));
     }
 
     #[test]
