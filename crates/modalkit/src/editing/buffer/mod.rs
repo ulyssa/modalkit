@@ -1434,7 +1434,6 @@ where
 mod tests {
     pub use super::*;
     pub use crate::editing::application::EmptyInfo;
-    pub use crate::editing::context::EditContextBuilder;
     pub use crate::editing::store::{RegisterCell, RegisterPutFlags, Store};
     pub use crate::env::vim::VimState;
     pub use crate::prelude::TargetShape::{BlockWise, CharWise, LineWise};
