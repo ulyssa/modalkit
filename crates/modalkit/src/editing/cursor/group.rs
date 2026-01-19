@@ -44,7 +44,7 @@ impl<'a> Iterator for CursorGroupIter<'a> {
     }
 }
 
-impl<'a> DoubleEndedIterator for CursorGroupIter<'a> {
+impl DoubleEndedIterator for CursorGroupIter<'_> {
     fn next_back(&mut self) -> Option<Self::Item> {
         if let Some(m) = self.members.next_back() {
             if let Some(ref mut l) = self.leader {
@@ -84,7 +84,7 @@ impl<'a> Iterator for CursorGroupIterMut<'a> {
     }
 }
 
-impl<'a> DoubleEndedIterator for CursorGroupIterMut<'a> {
+impl DoubleEndedIterator for CursorGroupIterMut<'_> {
     fn next_back(&mut self) -> Option<Self::Item> {
         if let Some(m) = self.members.next_back() {
             if let Some(ref mut l) = self.leader {

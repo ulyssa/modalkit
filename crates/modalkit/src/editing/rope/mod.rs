@@ -369,7 +369,7 @@ impl<'a> CharacterIterator<'a> {
     }
 }
 
-impl<'a> Iterator for CharacterIterator<'a> {
+impl Iterator for CharacterIterator<'_> {
     type Item = char;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -386,7 +386,7 @@ impl<'a> Iterator for CharacterIterator<'a> {
     }
 }
 
-impl<'a> DoubleEndedIterator for CharacterIterator<'a> {
+impl DoubleEndedIterator for CharacterIterator<'_> {
     fn next_back(&mut self) -> Option<Self::Item> {
         let res = self.rc_end.peek()?;
 
@@ -412,7 +412,7 @@ fn trimnl(slice: RopeSlice<'_>) -> RopeSlice<'_> {
     }
 }
 
-impl<'a> Iterator for LineIterator<'a> {
+impl Iterator for LineIterator<'_> {
     type Item = EditRope;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -420,7 +420,7 @@ impl<'a> Iterator for LineIterator<'a> {
     }
 }
 
-impl<'a> Iterator for NewlineIterator<'a> {
+impl Iterator for NewlineIterator<'_> {
     type Item = CharOff;
 
     fn next(&mut self) -> Option<Self::Item> {

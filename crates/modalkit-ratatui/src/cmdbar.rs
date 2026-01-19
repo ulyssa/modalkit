@@ -237,7 +237,7 @@ where
     }
 }
 
-impl<'a, I> StatefulWidget for CommandBar<'a, I>
+impl<I> StatefulWidget for CommandBar<'_, I>
 where
     I: ApplicationInfo,
 {
@@ -260,7 +260,7 @@ where
     }
 }
 
-impl<'a, I> Default for CommandBar<'a, I>
+impl<I> Default for CommandBar<'_, I>
 where
     I: ApplicationInfo,
 {

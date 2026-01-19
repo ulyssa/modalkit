@@ -1217,7 +1217,7 @@ where
     }
 }
 
-impl<'a, T, I> StatefulWidget for List<'a, T, I>
+impl<T, I> StatefulWidget for List<'_, T, I>
 where
     T: ListItem<I>,
     I: ApplicationInfo,
@@ -1309,6 +1309,8 @@ where
 
 #[cfg(test)]
 mod tests {
+    use std::fmt::Display;
+
     use super::*;
     use ratatui::text::{Line, Span};
 
@@ -1331,9 +1333,9 @@ mod tests {
         }
     }
 
-    impl ToString for TestItem {
-        fn to_string(&self) -> String {
-            self.book.clone()
+    impl Display for TestItem {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.write_str(&self.book)
         }
     }
 

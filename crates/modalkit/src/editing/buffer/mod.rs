@@ -1305,11 +1305,7 @@ where
                     (MoveDir1D::Next, Some(i)) => {
                         let idx = i.to_owned();
 
-                        if idx >= count {
-                            idx - count
-                        } else {
-                            0
-                        }
+                        idx.saturating_sub(count)
                     },
                     (MoveDir1D::Next, None) => {
                         return Ok(0);
@@ -1434,7 +1430,7 @@ where
 mod tests {
     pub use super::*;
     pub use crate::editing::application::EmptyInfo;
-    pub use crate::editing::context::EditContextBuilder;
+
     pub use crate::editing::store::{RegisterCell, RegisterPutFlags, Store};
     pub use crate::env::vim::VimState;
     pub use crate::prelude::TargetShape::{BlockWise, CharWise, LineWise};

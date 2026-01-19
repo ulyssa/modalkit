@@ -1146,7 +1146,7 @@ where
     }
 }
 
-impl<'a, I> Default for TextBox<'a, I>
+impl<I> Default for TextBox<'_, I>
 where
     I: ApplicationInfo,
 {
@@ -1155,7 +1155,7 @@ where
     }
 }
 
-impl<'a, I> StatefulWidget for TextBox<'a, I>
+impl<I> StatefulWidget for TextBox<'_, I>
 where
     I: ApplicationInfo,
 {
