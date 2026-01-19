@@ -1796,6 +1796,10 @@ impl EditRope {
             }
         }
 
+        if let Some(m) = ms.last() {
+            return self._match_to_range(*m).into();
+        }
+
         return None;
     }
 
