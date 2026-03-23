@@ -2025,6 +2025,17 @@ impl<I: ApplicationInfo> VimBindings<I> {
         self.kw_lookup = keyword_lookup(style);
         self
     }
+
+    /// Remove the default Normal/Visual/Operator-pending binding for a lone space key (move one
+    /// column right). Use this when you want `<Space>` as a prefix for custom key chords (e.g.
+    /// leader-style mappings via application macros).
+    ///
+    /// Without this binding, space can participate in multi-key sequences instead of firing
+    /// immediately as a motion.
+    pub fn without_nxo_space_motion(mut self) -> Self {
+        self.mappings.retain(|(_, keys, _)| *keys != " ");
+        self
+    }
 }
 
 impl<I: ApplicationInfo> ShellBindings for VimBindings<I> {
@@ -4627,5 +4638,14 @@ mod tests {
 
         // Read the Checkpoint from pressing "." earlier.
         assert_normal!(vm, ctx);
+    }
+
+    #[test]
+    fn without_nxo_space_motion_removes_space_mapping() {
+        let full = VimBindings::<EmptyInfo>::default();
+        assert!(full.mappings.iter().any(|(_, keys, _)| *keys == " "));
+
+        let stripped = VimBindings::<EmptyInfo>::default().without_nxo_space_motion();
+        assert!(!stripped.mappings.iter().any(|(_, keys, _)| *keys == " "));
     }
 }
