@@ -58,7 +58,7 @@ use modalkit::editing::{
 use modalkit::errors::{EditError, EditResult, UIResult};
 use modalkit::prelude::*;
 
-use unicode_width::UnicodeWidthStr;
+use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use super::{ScrollActions, TerminalCursor, WindowOps};
 
@@ -304,10 +304,18 @@ where
             let mut fline = false;
 
             for line in self.buffer.read().unwrap().lines(0) {
-                let clen = line.len();
                 count += 1;
-                count += clen.saturating_sub(1) / width;
-                fline |= clen > 0 && clen % width == 0;
+                let mut line_width = 0;
+                for c in line.chars(CharOff::from(0)) {
+                    let c_width = c.width_cjk().unwrap_or(1);
+                    if line_width + c_width > width {
+                        count += 1;
+                        line_width = c_width;
+                    } else {
+                        line_width += c_width;
+                    }
+                }
+                fline |= line_width == width;
 
                 if count >= max {
                     return max;
@@ -797,20 +805,35 @@ where
             let base = if loff == 0 { cbx } else { 0 };
             let line = cby + loff;
             let mut first = true;
-            let mut off = 0;
-            let slen = s.len();
+            let mut char_offset = 0;
+            let s_charlen = s.len();
 
-            while off < slen && (wrapped.len() < height || !sawcursor) {
-                let start = off;
-                let end = (start + width).min(slen);
-                let swrapped = s.slice(CharOff::from(start)..CharOff::from(end)).to_string();
-                off = end;
+            while char_offset < s_charlen && (wrapped.len() < height || !sawcursor) {
+                let start_char = char_offset;
 
-                let start = base + start;
-                let end = base + end;
-                let slen = base + slen;
+                let mut full = false;
+                let mut num_chars = 0;
+                let mut cur_width = 0;
+                for (i, c) in s.chars(CharOff::from(start_char)).enumerate() {
+                    let c_width = c.width_cjk().unwrap_or(1);
+                    if cur_width + c_width > width {
+                        full = true;
+                        break;
+                    }
+                    cur_width += c_width;
+                    num_chars = i + 1;
+                }
 
-                let full = end - start == width;
+                let end_char = start_char + num_chars;
+                let swrapped =
+                    s.slice(CharOff::from(start_char)..CharOff::from(end_char)).to_string();
+                char_offset = end_char;
+
+                let start = base + start_char;
+                let end = base + end_char;
+                let slen = base + s_charlen;
+
+                full |= cur_width == width;
                 let last = end == slen && cursor.x == slen;
                 let cursor_line = line == cursor.y && ((start..end).contains(&cursor.x) || last);
 
@@ -826,7 +849,7 @@ where
                 first = false;
             }
 
-            if slen == 0 {
+            if s_charlen == 0 {
                 let cursor_line = line == cursor.y;
                 wrapped.push((line, base, base, s.to_string(), cursor_line, true));
                 sawcursor |= cursor_line;
@@ -1579,5 +1602,62 @@ mod tests {
         assert_eq!(tbox.viewctx.corner, Cursor::new(0, 0));
         assert_eq!(tbox.get_cursor(), Cursor::new(0, 7));
         assert_eq!(tbox.get_term_cursor(), (14, 0).into());
+    }
+
+    #[test]
+    fn test_wide_char_wrap() {
+        let (mut tbox, ctx, mut store) = mkboxstr("세계를 향한대화\n");
+
+        let area = Rect::new(0, 0, 10, 10);
+        let mut buffer = Buffer::empty(area);
+
+        let mut expected = buffer.clone();
+        expected.set_string(0, 0, "> 세계를 ", Style::new());
+        expected.set_string(0, 1, "  향한대화", Style::new());
+
+        // Prompt should push everything right by 2 characters.
+        TextBox::new().prompt("> ").render(area, &mut buffer, &mut tbox);
+
+        assert_eq!(buffer, expected);
+        assert_eq!(tbox.viewctx.corner, Cursor::new(0, 0));
+        assert_eq!(tbox.get_cursor(), Cursor::new(0, 0));
+        assert_eq!(tbox.get_term_cursor(), (2, 0).into());
+        assert_eq!(tbox.has_lines(5), 3);
+
+        // Move the cursor to be on the " " on the end of the first wrapped line.
+        let mov = mv!(MoveType::Column(MoveDir1D::Next, false), 3);
+        let act = EditorAction::Edit(EditAction::Motion.into(), mov);
+        tbox.editor_command(&act, &ctx, &mut store).unwrap();
+
+        TextBox::new().prompt("> ").render(area, &mut buffer, &mut tbox);
+
+        assert_eq!(buffer, expected);
+        assert_eq!(tbox.viewctx.corner, Cursor::new(0, 0));
+        assert_eq!(tbox.get_cursor(), Cursor::new(0, 3));
+        assert_eq!(tbox.get_term_cursor(), (8, 0).into());
+
+        // Move the cursor right to be over "향".
+        let mov = mv!(MoveType::Column(MoveDir1D::Next, false), 1);
+        let act = EditorAction::Edit(EditAction::Motion.into(), mov);
+        tbox.editor_command(&act, &ctx, &mut store).unwrap();
+
+        TextBox::new().prompt("> ").render(area, &mut buffer, &mut tbox);
+
+        assert_eq!(buffer, expected);
+        assert_eq!(tbox.viewctx.corner, Cursor::new(0, 0));
+        assert_eq!(tbox.get_cursor(), Cursor::new(0, 4));
+        assert_eq!(tbox.get_term_cursor(), (2, 1).into());
+
+        // Move the cursor right to be at the end.
+        let mov = mv!(MoveType::Column(MoveDir1D::Next, false), 3);
+        let act = EditorAction::Edit(EditAction::Motion.into(), mov);
+        tbox.editor_command(&act, &ctx, &mut store).unwrap();
+
+        TextBox::new().prompt("> ").render(area, &mut buffer, &mut tbox);
+
+        assert_eq!(buffer, expected);
+        assert_eq!(tbox.viewctx.corner, Cursor::new(0, 0));
+        assert_eq!(tbox.get_cursor(), Cursor::new(0, 7));
+        assert_eq!(tbox.get_term_cursor(), (8, 1).into());
     }
 }
