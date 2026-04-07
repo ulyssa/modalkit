@@ -1788,24 +1788,19 @@ impl EditRope {
         let ms: Vec<_> = needle.find_iter(&text).collect();
         let modulus = ms.len();
 
+        if ms.is_empty() {
+            return None;
+        }
+
+        // Find the first match that comes at or just after our starting cursor,
+        // or fall back to the one at index 0 if all of the matches come before
+        // our starting position.
         let start = char_to_byte_idx(text.as_ref(), start);
+        let i = ms.iter().position(|m| m.start() >= start).unwrap_or(0);
 
-        for (i, m) in ms.iter().enumerate() {
-            let off = m.start();
-
-            if off >= start {
-                let offset = count % modulus;
-                let idx = (modulus + i - offset) % modulus;
-
-                return self._match_to_range(&text, ms[idx]).into();
-            }
-        }
-
-        if let Some(m) = ms.last() {
-            return self._match_to_range(*m).into();
-        }
-
-        return None;
+        let offset = count % modulus;
+        let idx = (modulus + i - offset) % modulus;
+        self._match_to_range(&text, ms[idx]).into()
     }
 
     fn _find_regex_next(
@@ -4162,6 +4157,15 @@ mod tests {
 
         // Wrap around multiple times.
         let res = multi.find_regex(&zero, MoveDir1D::Previous, &needle, 8).unwrap();
+        assert_eq!(res, EditRange::inclusive(Cursor::new(0, 7), Cursor::new(0, 8), cw));
+
+        // Start at the last 'p' in the text, going back once:
+        let last_p = Cursor::new(1, 9);
+        let res = multi.find_regex(&last_p, MoveDir1D::Previous, &needle, 1).unwrap();
+        assert_eq!(res, EditRange::inclusive(Cursor::new(1, 6), Cursor::new(1, 7), cw));
+
+        // Last 'p', going back four times:
+        let res = multi.find_regex(&last_p, MoveDir1D::Previous, &needle, 2).unwrap();
         assert_eq!(res, EditRange::inclusive(Cursor::new(0, 7), Cursor::new(0, 8), cw));
     }
 
