@@ -105,6 +105,11 @@ where
             let adjs = list.replace(&mut self.text, val);
             list.cursor.adjust(&adjs);
             self._adjust_all(adjs, store);
+
+            // apply single completion instantly
+            if list.candidates.len() == 1 {
+                return Ok(None);
+            }
         }
 
         self.completions.insert(gid, list);
@@ -158,6 +163,11 @@ where
             let adjs = list.replace(&mut self.text, val);
             list.cursor.adjust(&adjs);
             self._adjust_all(adjs, store);
+
+            // apply single completion instantly
+            if list.candidates.len() == 1 {
+                return Ok(None);
+            }
         }
 
         self.completions.insert(gid, list);
@@ -219,6 +229,11 @@ where
             let adjs = list.replace(&mut self.text, val);
             list.cursor.adjust(&adjs);
             self._adjust_all(adjs, store);
+
+            // apply single completion instantly
+            if list.candidates.len() == 1 {
+                return Ok(None);
+            }
         }
 
         self.completions.insert(gid, list);
@@ -280,6 +295,11 @@ where
             let adjs = list.replace(&mut self.text, val);
             list.cursor.adjust(&adjs);
             self._adjust_all(adjs, store);
+
+            // apply single completion instantly
+            if list.candidates.len() == 1 {
+                return Ok(None);
+            }
         }
 
         self.completions.insert(gid, list);
@@ -504,22 +524,19 @@ mod tests {
         .unwrap();
         assert_eq!(ebuf.get_text().trim_end(), hidden);
 
-        // Return to parent.
-        ebuf.complete_file(
-            &CompletionStyle::List(next),
-            &CompletionDisplay::None,
-            ctx!(gid, vwctx, vctx),
-            &mut store,
-        )
-        .unwrap();
-        let result = ebuf.get_text();
-        let result = Path::new(result.trim_end());
-        assert_eq!(result, tmp.path());
+        // A single completion is directly applied
+        assert!(!ebuf.completions.contains_key(&gid));
 
-        // Clear completion list.
-        ebuf.completions.remove(&gid);
+        // reset to the directory name
+        let (mut ebuf, gid, vwctx, mut vctx, mut store) = mkfivestr(path.as_ref());
+        vctx.persist.insert = Some(InsertStyle::Insert);
+        ebuf.set_leader(gid, Cursor::new(0, 0));
+        let mv = mv!(MoveType::LinePos(MovePosition::End), 0);
+        edit!(ebuf, EditAction::Motion, mv, ctx!(gid, vwctx, vctx), store);
 
-        // Type "h" so we can complete the filename.
+        // Type "/.h" so we can complete the filename.
+        type_char!(ebuf, MAIN_SEPARATOR, gid, vwctx, vctx, store);
+        type_char!(ebuf, '.', gid, vwctx, vctx, store);
         type_char!(ebuf, 'h', gid, vwctx, vctx, store);
 
         // Complete to ".hidden".
@@ -640,21 +657,11 @@ mod tests {
         assert_eq!(ebuf1.get_text(), "foo bar\nbar\n");
         assert_eq!(ebuf1.get_leader(gid), Cursor::new(0, 7));
 
-        // Completing again returns to "b".
-        ebuf1
-            .complete_word(
-                &CompletionStyle::List(next),
-                &CompletionScope::Buffer,
-                &CompletionDisplay::None,
-                ctx!(gid, vwctx, vctx),
-                &mut store,
-            )
-            .unwrap();
-        assert_eq!(ebuf1.get_text(), "foo b\nbar\n");
-        assert_eq!(ebuf1.get_leader(gid), Cursor::new(0, 5));
+        // A single completion is directly applied
+        assert!(!ebuf1.completions.contains_key(&gid));
 
-        // Clear completion list.
-        ebuf1.completions.remove(&gid);
+        type_char!(ebuf1, ' ', gid, vwctx, vctx, store);
+        type_char!(ebuf1, 'b', gid, vwctx, vctx, store);
 
         // Completion with Global scope first yields "bar".
         ebuf1
@@ -666,8 +673,8 @@ mod tests {
                 &mut store,
             )
             .unwrap();
-        assert_eq!(ebuf1.get_text(), "foo bar\nbar\n");
-        assert_eq!(ebuf1.get_leader(gid), Cursor::new(0, 7));
+        assert_eq!(ebuf1.get_text(), "foo bar bar\nbar\n");
+        assert_eq!(ebuf1.get_leader(gid), Cursor::new(0, 11));
 
         // Doing it again yields "baz".
         ebuf1
@@ -679,8 +686,8 @@ mod tests {
                 &mut store,
             )
             .unwrap();
-        assert_eq!(ebuf1.get_text(), "foo baz\nbar\n");
-        assert_eq!(ebuf1.get_leader(gid), Cursor::new(0, 7));
+        assert_eq!(ebuf1.get_text(), "foo bar baz\nbar\n");
+        assert_eq!(ebuf1.get_leader(gid), Cursor::new(0, 11));
 
         // And then returns to "b".
         ebuf1
@@ -692,8 +699,8 @@ mod tests {
                 &mut store,
             )
             .unwrap();
-        assert_eq!(ebuf1.get_text(), "foo b\nbar\n");
-        assert_eq!(ebuf1.get_leader(gid), Cursor::new(0, 5));
+        assert_eq!(ebuf1.get_text(), "foo bar b\nbar\n");
+        assert_eq!(ebuf1.get_leader(gid), Cursor::new(0, 9));
 
         // Go backwards to "baz".
         ebuf1
@@ -705,7 +712,7 @@ mod tests {
                 &mut store,
             )
             .unwrap();
-        assert_eq!(ebuf1.get_text(), "foo baz\nbar\n");
-        assert_eq!(ebuf1.get_leader(gid), Cursor::new(0, 7));
+        assert_eq!(ebuf1.get_text(), "foo bar baz\nbar\n");
+        assert_eq!(ebuf1.get_leader(gid), Cursor::new(0, 11));
     }
 }
