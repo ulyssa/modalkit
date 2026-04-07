@@ -4,9 +4,9 @@
 //!
 //! This module contains the types and code needed for completing text.
 use std::borrow::{Borrow, Cow};
-use std::ffi::OsStr;
+use std::cmp::Ordering;
 use std::fs::DirEntry;
-use std::path::{Path, MAIN_SEPARATOR};
+use std::path::{Component, Path, MAIN_SEPARATOR};
 use std::sync::Arc;
 
 use radix_trie::{Trie, TrieCommon, TrieKey};
@@ -357,16 +357,112 @@ impl LineCompleter {
     }
 }
 
+mod parse {
+    use std::{borrow::Cow, path::MAIN_SEPARATOR};
+
+    use nom::{
+        branch::alt,
+        bytes::complete::{escaped_transform, is_not, tag},
+        character::complete::anychar,
+        combinator::{eof, opt, value},
+        IResult,
+    };
+
+    use crate::editing::{cursor::Cursor, rope::EditRope};
+
+    fn filepath_char(input: &str) -> IResult<&str, &str> {
+        is_not("\t\n\\ |\"")(input)
+    }
+
+    fn parse_filepath(input: &str) -> IResult<&str, String> {
+        escaped_transform(
+            filepath_char,
+            '\\',
+            alt((
+                value("\\", tag("\\")),
+                value(" ", tag(" ")),
+                value("#", tag("#")),
+                value("%", tag("%")),
+                value("|", tag("|")),
+                value("\"", tag("\"")),
+            )),
+        )(input)
+    }
+
+    fn parse_filepath_end(input: &str) -> IResult<&str, String> {
+        let (input, res) = parse_filepath(input)?;
+        let (input, _) = eof(input)?;
+
+        Ok((input, res))
+    }
+
+    fn filepath_at_end(mut input: &str) -> IResult<&str, String> {
+        loop {
+            let (i, res) = opt(parse_filepath_end)(input)?;
+            if let Some(res) = res {
+                return Ok((i, res));
+            }
+            while let Ok((i, _)) = filepath_char(input) {
+                input = i;
+            }
+            input = anychar(i)?.0;
+        }
+    }
+
+    pub fn filepath_suffix(input: &EditRope, cursor: &Cursor) -> Option<String> {
+        let mut start = cursor.clone();
+        start.left(4096); // no good way to access NAME_MAX in rust
+        let prefix = input.slice(input.cursor_to_offset(&start)..input.cursor_to_offset(cursor));
+        let prefix = Cow::from(&prefix);
+
+        filepath_at_end(prefix.as_ref()).ok().map(|(_, path)| path)
+    }
+
+    pub fn escape_string(input: &mut String) {
+        for c in ["\\\\", "\\ ", "\\#", "\\%", "\\|", "\\\""] {
+            if input.contains(&c[1..2]) {
+                *input = input.replace(&c[1..2], c);
+            }
+        }
+    }
+
+    pub fn trailing_filename(input: &str) -> &str {
+        let start = input.rfind(MAIN_SEPARATOR).map(|s| s + 1).unwrap_or(0);
+        &input[start..]
+    }
+
+    pub fn trailing_filename_escaped(input: &str) -> String {
+        let mut name = trailing_filename(input).to_string();
+        escape_string(&mut name);
+        name
+    }
+}
+
 /// Complete filenames within a path leading up to the cursor.
 pub fn complete_path(input: &EditRope, cursor: &mut Cursor) -> Vec<String> {
-    let filepath = input.get_prefix_word(cursor, &WordStyle::FilePath);
-    let filepath = filepath.unwrap_or_else(EditRope::empty);
+    let Some(filepath) = parse::filepath_suffix(input, cursor) else {
+        return vec![];
+    };
+
     let filepath = Cow::from(&filepath);
+    let Ok(filepath_unexpanded) = shellexpand::env(filepath.as_ref()) else {
+        return vec![];
+    };
+    let mut filepath = shellexpand::tilde(filepath_unexpanded.as_ref());
+    if filepath_unexpanded.as_ref() == "~" {
+        return vec![format!("{}{}", filepath, MAIN_SEPARATOR)];
+    }
+
+    if filepath.is_empty() {
+        filepath = format!(".{MAIN_SEPARATOR}").into();
+    }
 
     let mut res = Vec::<String>::with_capacity(MAX_COMPLETIONS);
     let path = Path::new(filepath.as_ref());
 
     if filepath.as_ref().ends_with(MAIN_SEPARATOR) {
+        // complete all normal files
+
         if let Ok(dir) = path.read_dir() {
             let filter = |entry: DirEntry| {
                 let name = entry.file_name();
@@ -375,16 +471,25 @@ pub fn complete_path(input: &EditRope, cursor: &mut Cursor) -> Vec<String> {
                 if name.starts_with('.') {
                     return None;
                 } else {
-                    return Some(name.to_string());
+                    let is_dir = entry.file_type().is_ok_and(|t| t.is_dir());
+                    if is_dir {
+                        return Some(format!("{name}{MAIN_SEPARATOR}"));
+                    } else {
+                        return Some(name.to_string());
+                    }
                 }
             };
 
             res.extend(dir.flatten().flat_map(filter).take(MAX_COMPLETIONS));
         }
-    } else if filepath.as_ref() == "." || filepath.as_ref().ends_with([MAIN_SEPARATOR, '.']) {
+    } else if filepath.as_ref() == "." ||
+        filepath.strip_suffix('.').is_some_and(|s| s.ends_with(MAIN_SEPARATOR))
+    {
+        // complete all dotfiles
         // The .parent() and .file_name() methods treat . especially, so we
         // have to special-case completion of hidden files here.
-        let _ = input.get_prefix_word_mut(cursor, &WordStyle::FileName);
+
+        cursor.left(parse::trailing_filename_escaped(filepath.as_ref()).len());
 
         if let Ok(dir) = path.read_dir() {
             let filter = |entry: DirEntry| {
@@ -392,20 +497,42 @@ pub fn complete_path(input: &EditRope, cursor: &mut Cursor) -> Vec<String> {
                 let name = name.to_string_lossy();
 
                 if name.starts_with('.') {
-                    return Some(name.to_string());
+                    let is_dir = entry.file_type().is_ok_and(|t| t.is_dir());
+                    if is_dir {
+                        return Some(format!("{}{}", name, MAIN_SEPARATOR));
+                    } else {
+                        return Some(name.to_string());
+                    }
                 } else {
                     return None;
                 }
             };
+
+            res.push(format!(".{MAIN_SEPARATOR}"));
+            res.push(format!("..{MAIN_SEPARATOR}"));
 
             res.extend(dir.flatten().flat_map(filter).take(MAX_COMPLETIONS));
         }
     } else {
-        let prefix = path.file_name().map(OsStr::to_string_lossy).unwrap_or(Cow::Borrowed(""));
-        let _ = input.get_prefix_word_mut(cursor, &WordStyle::FileName);
+        // complete a path
+        cursor.left(parse::trailing_filename_escaped(filepath.as_ref()).len());
 
-        let dir = path
-            .parent()
+        let Some(prefix) = path.components().next_back() else {
+            return vec![];
+        };
+        let prefix = match prefix {
+            Component::Normal(_) | Component::CurDir | Component::ParentDir => {
+                prefix.as_os_str().to_string_lossy()
+            },
+            _ => {
+                return vec![];
+            },
+        };
+
+        let dir = filepath
+            .strip_suffix(prefix.as_ref())
+            .or_else(|| filepath.rsplit_once(MAIN_SEPARATOR).map(|(p, _)| p))
+            .map(Path::new)
             .filter(|p| !p.as_os_str().is_empty())
             .and_then(|p| p.read_dir().ok())
             .or_else(|| std::env::current_dir().and_then(|cwd| cwd.read_dir()).ok());
@@ -415,20 +542,52 @@ pub fn complete_path(input: &EditRope, cursor: &mut Cursor) -> Vec<String> {
                 let name = entry.file_name();
                 let name = name.to_string_lossy();
 
-                if prefix.is_empty() && name.starts_with('.') {
-                    return None;
-                } else if name.starts_with(prefix.as_ref()) {
-                    return Some(name.to_string());
+                if name.starts_with(prefix.as_ref()) {
+                    let is_dir = entry.file_type().is_ok_and(|t| t.is_dir());
+                    if is_dir {
+                        return Some(format!("{}{}", name, MAIN_SEPARATOR));
+                    } else {
+                        return Some(name.to_string());
+                    }
                 } else {
                     return None;
                 }
             };
 
+            if prefix.as_ref() == "." {
+                res.push(format!(".{MAIN_SEPARATOR}"));
+                res.push(format!("..{MAIN_SEPARATOR}"));
+            } else if prefix.as_ref() == ".." {
+                res.push(format!("..{MAIN_SEPARATOR}"));
+            }
+
             res.extend(dir.flatten().flat_map(filter).take(MAX_COMPLETIONS));
         }
     }
 
-    res.sort();
+    // Use custom sort to have `.` and `..` at the top
+    let cur = format!(".{MAIN_SEPARATOR}");
+    let parent = format!("..{MAIN_SEPARATOR}");
+    res.sort_unstable_by(|a, b| {
+        if a == &cur {
+            return Ordering::Less;
+        }
+        if b == &cur {
+            return Ordering::Greater;
+        }
+        if a == &parent {
+            return Ordering::Less;
+        }
+        if b == &parent {
+            return Ordering::Greater;
+        }
+
+        a.cmp(b)
+    });
+
+    for comp in &mut res {
+        parse::escape_string(comp);
+    }
 
     return res;
 }
