@@ -14,6 +14,7 @@ use std::io::Write;
 use std::ops::{Add, AddAssign, Bound, Range, RangeBounds};
 
 use regex::{Match, Regex};
+use ropey::str_utils::{byte_to_char_idx, char_to_byte_idx};
 use ropey::{Rope, RopeSlice};
 
 use crate::actions::EditAction;
@@ -1768,9 +1769,11 @@ impl EditRope {
         return adjs;
     }
 
-    fn _match_to_range(&self, m: Match) -> EditRange<Cursor> {
-        let start = self.offset_to_cursor(m.start().into());
-        let end = self.offset_to_cursor(m.end().saturating_sub(1).into());
+    fn _match_to_range(&self, text: &str, m: Match) -> EditRange<Cursor> {
+        let start = byte_to_char_idx(text, m.start());
+        let start = self.offset_to_cursor(start.into());
+        let end = byte_to_char_idx(text, m.end());
+        let end = self.offset_to_cursor(end.saturating_sub(1).into());
 
         return EditRange::inclusive(start, end, TargetShape::CharWise);
     }
@@ -1785,6 +1788,8 @@ impl EditRope {
         let ms: Vec<_> = needle.find_iter(&text).collect();
         let modulus = ms.len();
 
+        let start = char_to_byte_idx(text.as_ref(), start);
+
         for (i, m) in ms.iter().enumerate() {
             let off = m.start();
 
@@ -1792,7 +1797,7 @@ impl EditRope {
                 let offset = count % modulus;
                 let idx = (modulus + i - offset) % modulus;
 
-                return self._match_to_range(ms[idx]).into();
+                return self._match_to_range(&text, ms[idx]).into();
             }
         }
 
@@ -1809,7 +1814,8 @@ impl EditRope {
 
         // Start search right after the cursor position.
         let mut res: Option<Match> = None;
-        let mut pos = next_utf8(text.as_bytes(), start);
+        let mut pos = char_to_byte_idx(text.as_ref(), start);
+        pos = next_utf8(text.as_bytes(), pos);
 
         macro_rules! advance {
             () => {
@@ -1856,7 +1862,7 @@ impl EditRope {
         }
 
         if count == 0 {
-            return res.map(|m| self._match_to_range(m));
+            return res.map(|m| self._match_to_range(&text, m));
         } else {
             return None;
         }
