@@ -128,6 +128,13 @@ pub trait TerminalCursor {
     /// Returns the current offset of the cursor, relative to the upper left corner of the
     /// terminal.
     fn get_term_cursor(&self) -> Option<TermOffset>;
+
+    /// Returns whether the cursor should be invisible.
+    ///
+    /// Accessibility tools like screen readers need the terminal cursor to be placed in a
+    /// meaningful way to be useful. Consider placing a hidden cursor to make these tools work
+    /// correctly.
+    fn hide_term_cursor(&self) -> bool;
 }
 
 /// A widget whose content can be scrolled in multiple ways.
