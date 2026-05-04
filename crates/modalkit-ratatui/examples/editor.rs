@@ -175,6 +175,13 @@ impl TerminalCursor for EditorWindow {
             EditorWindow::Listing(ls) => ls.get_term_cursor(),
         }
     }
+
+    fn hide_term_cursor(&self) -> bool {
+        match self {
+            EditorWindow::Text(tbox) => tbox.hide_term_cursor(),
+            EditorWindow::Listing(ls) => ls.hide_term_cursor(),
+        }
+    }
 }
 
 impl WindowOps<EditorInfo> for EditorWindow {
@@ -739,6 +746,9 @@ impl Editor {
 
             render_cursor(f, sstate, cursor);
         })?;
+        if sstate.hide_term_cursor() {
+            term.hide_cursor()?;
+        }
 
         Ok(())
     }

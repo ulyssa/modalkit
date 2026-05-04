@@ -159,6 +159,7 @@ where
     items: Vec<T>,
     cursor: ListCursor,
     viewctx: ViewportContext<ListCursor>,
+    term_cursor: (u16, u16),
 
     /// Tracks the jumplist for this window.
     jumped: HistoryList<ListCursor>,
@@ -191,6 +192,7 @@ where
             id,
             items,
             cursor: 0.into(),
+            term_cursor: (0, 0),
             viewctx,
             jumped: HistoryList::new(0.into(), 100),
         }
@@ -1137,8 +1139,10 @@ where
     I: ApplicationInfo,
 {
     fn get_term_cursor(&self) -> Option<(u16, u16)> {
-        // We highlight the selected text, but don't show the cursor.
-        return None;
+        self.term_cursor.into()
+    }
+    fn hide_term_cursor(&self) -> bool {
+        true
     }
 }
 
@@ -1154,6 +1158,7 @@ where
             cursor: self.cursor.clone(),
             viewctx: self.viewctx.clone(),
             jumped: self.jumped.clone(),
+            term_cursor: (0, 0),
         }
     }
 
@@ -1236,6 +1241,7 @@ where
         if state.is_empty() {
             if let Some(msg) = self.empty_message {
                 Paragraph::new(msg).alignment(self.empty_alignment).render(area, buf);
+                state.term_cursor = (area.left(), area.top());
                 return;
             }
         }
@@ -1299,8 +1305,12 @@ where
         let mut y = area.top();
         let x = area.left();
 
-        for (_, _, txt) in lines.into_iter() {
+        for (idx, row, txt) in lines.into_iter() {
             let _ = buf.set_line(x, y, &txt, area.width);
+
+            if row == 0 && idx == state.cursor.position {
+                state.term_cursor = (x, y);
+            }
 
             y += 1;
         }
