@@ -1658,16 +1658,14 @@ mod tests {
     fn test_search_ignorecase() {
         let (mut list, ctx, mut store) = mklist();
 
-        // "MONDAY" does not appear with this casing in any title.
+        // "MONDAY" only matches "Monday Starts on Saturday" (item 7) when case is ignored.
         store.registers.set_last_search("MONDAY");
 
         assert_eq!(list.cursor.position, 0);
 
-        // Case-sensitive by default: no match, so the cursor stays put.
         list.search(MoveDir1D::Next.into(), 1.into(), &ctx, &mut store).unwrap();
         assert_eq!(list.cursor.position, 0);
 
-        // With ignorecase, "MONDAY" matches "Monday Starts on Saturday" (item 7).
         list.set_ignorecase(true);
         list.search(MoveDir1D::Next.into(), 1.into(), &ctx, &mut store).unwrap();
         assert_eq!(list.cursor.position, 7);

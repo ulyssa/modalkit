@@ -223,6 +223,11 @@ where
         self.readonly = readonly;
     }
 
+    /// Set whether regular expression searches ignore case.
+    pub fn set_ignorecase(&mut self, ignorecase: bool) {
+        self.buffer.write().unwrap().set_ignorecase(ignorecase);
+    }
+
     /// Get the contents of the underlying buffer as an [EditRope].
     pub fn get(&self) -> EditRope {
         self.buffer.read().unwrap().get().clone()
