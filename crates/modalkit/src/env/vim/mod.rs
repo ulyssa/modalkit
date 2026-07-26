@@ -9,6 +9,7 @@ use std::marker::PhantomData;
 
 use crate::{
     actions::{Action, CursorAction, EditAction, EditorAction, HistoryAction, InsertTextAction},
+    editing::cursor::CursorStyle,
     key::TerminalKey,
     keybindings::{
         EdgeEvent,
@@ -359,6 +360,14 @@ impl<I: ApplicationInfo> Clone for VimState<I> {
 
 impl<I: ApplicationInfo> InputState for VimState<I> {
     type Output = EditContext;
+    type CursorHint = CursorStyle;
+
+    fn get_cursor_hint(&self) -> Self::CursorHint {
+        CursorStyle {
+            indicator: self.action.cursor,
+            insert: self.persist.insert,
+        }
+    }
 
     fn merge(original: EditContext, overrides: &EditContext) -> EditContext {
         let mut builder = EditContextBuilder::from(original);
@@ -453,10 +462,6 @@ impl<I: ApplicationInfo> InputKeyState<TerminalKey, CommonKeyClass> for VimState
                 }
             },
         }
-    }
-
-    fn get_cursor_indicator(&self) -> Option<char> {
-        self.action.cursor
     }
 }
 

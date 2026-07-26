@@ -263,6 +263,31 @@ pub(crate) fn block_cursors(a: &Cursor, b: &Cursor) -> (Cursor, Cursor) {
     (Cursor::new(lstart, lcol), Cursor::new(lend, rcol).goal(rgoal))
 }
 
+/// The style in which to render the editor's cursor.
+#[derive(Clone, Default)]
+#[non_exhaustive]
+pub struct CursorStyle {
+    pub(crate) indicator: Option<char>,
+    pub(crate) insert: Option<editor_types::prelude::InsertStyle>,
+}
+
+impl CursorStyle {
+    /// Returns whether a specific character should be shown for the cursor.
+    ///
+    /// For example, when pressing `^V` in Vim, a caret (`^`) is used for the cursor.
+    pub fn get_indicator(&self) -> Option<char> {
+        self.indicator
+    }
+
+    /// Returns whether the cursor is being used for inserting text.
+    ///
+    /// This allows consumers to show the cursor differently in their UI if
+    /// they wish, such as using a blinking cursor when in Insert mode.
+    pub fn get_insert_style(&self) -> Option<editor_types::prelude::InsertStyle> {
+        self.insert
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

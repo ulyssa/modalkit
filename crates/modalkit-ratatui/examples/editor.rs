@@ -738,13 +738,13 @@ impl Editor {
             let area = f.area();
 
             let modestr = bindings.show_mode();
-            let cursor = bindings.get_cursor_indicator();
+            let cursor = bindings.get_cursor_hint();
             let dialogstr = bindings.show_dialog(area.width as usize, area.height as usize);
 
             let screen = Screen::new(store).show_dialog(dialogstr).show_mode(modestr).borders(true);
             f.render_stateful_widget(screen, area, sstate);
 
-            render_cursor(f, sstate, cursor);
+            render_cursor(f, sstate, &cursor);
         })?;
         if sstate.hide_term_cursor() {
             term.hide_cursor()?;

@@ -108,7 +108,10 @@ use crossterm::{
 };
 
 use modalkit::actions::Action;
-use modalkit::editing::{application::ApplicationInfo, completion::CompletionList, store::Store};
+use modalkit::editing::application::ApplicationInfo;
+use modalkit::editing::completion::CompletionList;
+use modalkit::editing::cursor::CursorStyle;
+use modalkit::editing::store::Store;
 use modalkit::errors::{EditResult, UIResult};
 use modalkit::prelude::*;
 
@@ -258,9 +261,9 @@ pub trait Window<I: ApplicationInfo>: WindowOps<I> + Sized {
 }
 
 /// Position and draw a terminal cursor.
-pub fn render_cursor<T: TerminalCursor>(f: &mut Frame, widget: &T, cursor: Option<char>) {
+pub fn render_cursor<T: TerminalCursor>(f: &mut Frame, widget: &T, cursor: &CursorStyle) {
     if let Some((cx, cy)) = widget.get_term_cursor() {
-        if let Some(c) = cursor {
+        if let Some(c) = cursor.get_indicator() {
             let style = Style::default().fg(Color::Green);
             let span = Span::styled(c.to_string(), style);
             let para = Paragraph::new(span);
