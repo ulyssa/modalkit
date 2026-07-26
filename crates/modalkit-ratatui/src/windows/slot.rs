@@ -153,6 +153,9 @@ where
     fn get_term_cursor(&self) -> Option<TermOffset> {
         self.current.get_term_cursor()
     }
+    fn hide_term_cursor(&self) -> bool {
+        self.current.hide_term_cursor()
+    }
 }
 
 impl<W, I> WindowOps<I> for WindowSlot<W>
