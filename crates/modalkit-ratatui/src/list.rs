@@ -31,7 +31,7 @@
 use std::cmp::{Ord, Ordering, PartialOrd};
 use std::marker::PhantomData;
 
-use regex::Regex;
+use regex::{Regex, RegexBuilder};
 
 use ratatui::{
     buffer::Buffer,
@@ -159,6 +159,7 @@ where
     items: Vec<T>,
     cursor: ListCursor,
     viewctx: ViewportContext<ListCursor>,
+    ignorecase: bool,
     term_cursor: (u16, u16),
 
     /// Tracks the jumplist for this window.
@@ -194,6 +195,7 @@ where
             cursor: 0.into(),
             term_cursor: (0, 0),
             viewctx,
+            ignorecase: false,
             jumped: HistoryList::new(0.into(), 100),
         }
     }
@@ -324,6 +326,11 @@ where
     /// Set the dimensions and placement within the terminal window for this list.
     pub fn set_term_info(&mut self, area: Rect) {
         self.viewctx.dimensions = (area.width as usize, area.height as usize);
+    }
+
+    /// Set whether regular expression searches ignore case.
+    pub fn set_ignorecase(&mut self, ignorecase: bool) {
+        self.ignorecase = ignorecase;
     }
 }
 
@@ -632,7 +639,9 @@ where
 
                         let lsearch = store.registers.get_last_search();
                         let lsearch = lsearch.to_string();
-                        let needle = Regex::new(lsearch.as_ref())?;
+                        let needle = RegexBuilder::new(lsearch.as_ref())
+                            .case_insensitive(self.ignorecase)
+                            .build()?;
 
                         self.find_regex(&self.cursor, dir, &needle, count).map(|r| r.start)
                     },
@@ -698,7 +707,9 @@ where
 
                         let lsearch = store.registers.get_last_search();
                         let lsearch = lsearch.to_string();
-                        let needle = Regex::new(lsearch.as_ref())?;
+                        let needle = RegexBuilder::new(lsearch.as_ref())
+                            .case_insensitive(self.ignorecase)
+                            .build()?;
 
                         self.find_regex(&self.cursor, dir, &needle, count)
                     },
@@ -1157,6 +1168,7 @@ where
             items: self.items.clone(),
             cursor: self.cursor.clone(),
             viewctx: self.viewctx.clone(),
+            ignorecase: self.ignorecase,
             jumped: self.jumped.clone(),
             term_cursor: (0, 0),
         }
@@ -1649,6 +1661,23 @@ mod tests {
 
         list.search(MoveDir1D::Previous.into(), 2.into(), &ctx, &mut store)
             .unwrap();
+        assert_eq!(list.cursor.position, 7);
+    }
+
+    #[test]
+    fn test_search_ignorecase() {
+        let (mut list, ctx, mut store) = mklist();
+
+        // "MONDAY" only matches "Monday Starts on Saturday" (item 7) when case is ignored.
+        store.registers.set_last_search("MONDAY");
+
+        assert_eq!(list.cursor.position, 0);
+
+        list.search(MoveDir1D::Next.into(), 1.into(), &ctx, &mut store).unwrap();
+        assert_eq!(list.cursor.position, 0);
+
+        list.set_ignorecase(true);
+        list.search(MoveDir1D::Next.into(), 1.into(), &ctx, &mut store).unwrap();
         assert_eq!(list.cursor.position, 7);
     }
 
