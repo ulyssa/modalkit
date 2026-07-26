@@ -108,7 +108,10 @@ use crossterm::{
 };
 
 use modalkit::actions::Action;
-use modalkit::editing::{application::ApplicationInfo, completion::CompletionList, store::Store};
+use modalkit::editing::application::ApplicationInfo;
+use modalkit::editing::completion::CompletionList;
+use modalkit::editing::cursor::CursorStyle;
+use modalkit::editing::store::Store;
 use modalkit::errors::{EditResult, UIResult};
 use modalkit::prelude::*;
 
@@ -128,6 +131,13 @@ pub trait TerminalCursor {
     /// Returns the current offset of the cursor, relative to the upper left corner of the
     /// terminal.
     fn get_term_cursor(&self) -> Option<TermOffset>;
+
+    /// Returns whether the cursor should be invisible.
+    ///
+    /// Accessibility tools like screen readers need the terminal cursor to be placed in a
+    /// meaningful way to be useful. Consider placing a hidden cursor to make these tools work
+    /// correctly.
+    fn hide_term_cursor(&self) -> bool;
 }
 
 /// A widget whose content can be scrolled in multiple ways.
@@ -251,9 +261,9 @@ pub trait Window<I: ApplicationInfo>: WindowOps<I> + Sized {
 }
 
 /// Position and draw a terminal cursor.
-pub fn render_cursor<T: TerminalCursor>(f: &mut Frame, widget: &T, cursor: Option<char>) {
+pub fn render_cursor<T: TerminalCursor>(f: &mut Frame, widget: &T, cursor: &CursorStyle) {
     if let Some((cx, cy)) = widget.get_term_cursor() {
-        if let Some(c) = cursor {
+        if let Some(c) = cursor.get_indicator() {
             let style = Style::default().fg(Color::Green);
             let span = Span::styled(c.to_string(), style);
             let para = Paragraph::new(span);

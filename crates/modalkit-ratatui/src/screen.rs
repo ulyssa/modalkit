@@ -626,6 +626,19 @@ where
             },
         }
     }
+
+    fn hide_term_cursor(&self) -> bool {
+        match self.focused {
+            CurrentFocus::Command => self.cmdbar.hide_term_cursor(),
+            CurrentFocus::Window => {
+                if let Some(w) = self.current_window() {
+                    w.hide_term_cursor()
+                } else {
+                    false
+                }
+            },
+        }
+    }
 }
 
 impl<W, C, I> Jumpable<C, I> for ScreenState<W, I>

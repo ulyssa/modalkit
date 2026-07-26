@@ -2188,6 +2188,10 @@ mod tests {
         fn get_term_cursor(&self) -> Option<(u16, u16)> {
             (self.term_area.left(), self.term_area.top()).into()
         }
+
+        fn hide_term_cursor(&self) -> bool {
+            false
+        }
     }
 
     impl WindowOps<TestApp> for TestWindow {

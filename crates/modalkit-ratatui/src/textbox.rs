@@ -579,6 +579,10 @@ where
 
         self.term_cursor.into()
     }
+
+    fn hide_term_cursor(&self) -> bool {
+        false
+    }
 }
 
 impl<I> WindowOps<I> for TextBoxState<I>

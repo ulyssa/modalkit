@@ -3901,10 +3901,10 @@ mod tests {
 
         // Type a digraph.
         vm.input_key(ctl!('k'));
-        assert_eq!(vm.get_cursor_indicator(), Some('?'));
+        assert_eq!(vm.get_cursor_hint().get_indicator(), Some('?'));
 
         vm.input_key(key!('L'));
-        assert_eq!(vm.get_cursor_indicator(), Some('L'));
+        assert_eq!(vm.get_cursor_hint().get_indicator(), Some('L'));
 
         ctx.ch.digraph1 = Some('L');
         ctx.ch.digraph2 = Some('i');
@@ -3914,7 +3914,7 @@ mod tests {
 
         // Type a literal.
         vm.input_key(ctl!('v'));
-        assert_eq!(vm.get_cursor_indicator(), Some('^'));
+        assert_eq!(vm.get_cursor_hint().get_indicator(), Some('^'));
 
         ctx.ch.digraph1 = None;
         ctx.ch.digraph2 = None;
@@ -3964,20 +3964,20 @@ mod tests {
         ctx.action.register_append = false;
         vm.input_key(ctl!('r'));
         assert_eq!(vm.pop(), None);
-        assert_eq!(vm.get_cursor_indicator(), Some('"'));
+        assert_eq!(vm.get_cursor_hint().get_indicator(), Some('"'));
         vm.input_key(key!('z'));
         assert_pop1!(vm, Action::from(it), ctx);
         assert_eq!(vm.mode(), VimMode::Insert);
-        assert_eq!(vm.get_cursor_indicator(), None);
+        assert_eq!(vm.get_cursor_hint().get_indicator(), None);
 
         // Pressing ^R^C should go back to Normal mode.
         ctx.action.register = None;
         vm.input_key(ctl!('r'));
         assert_eq!(vm.pop(), None);
-        assert_eq!(vm.get_cursor_indicator(), Some('"'));
+        assert_eq!(vm.get_cursor_hint().get_indicator(), Some('"'));
         vm.input_key(ctl!('c'));
         assert_insert_exit!(vm, ctx);
-        assert_eq!(vm.get_cursor_indicator(), None);
+        assert_eq!(vm.get_cursor_hint().get_indicator(), None);
     }
 
     #[test]
@@ -4253,13 +4253,13 @@ mod tests {
         vm.input_key(ctl!('v'));
         assert_eq!(vm.pop(), None);
         assert_eq!(vm.mode(), VimMode::Insert);
-        assert_eq!(vm.get_cursor_indicator(), Some('^'));
+        assert_eq!(vm.get_cursor_hint().get_indicator(), Some('^'));
 
         ctx.ch.hex = Some(0x1B);
         vm.input_key(key!(KeyCode::Esc));
         assert_pop2!(vm, TYPE_CONTEXTUAL, ctx);
         assert_eq!(vm.mode(), VimMode::Insert);
-        assert_eq!(vm.get_cursor_indicator(), None);
+        assert_eq!(vm.get_cursor_hint().get_indicator(), None);
 
         // Test that typing in a full octal sequence works.
         ctx.ch.hex = Some(0x7F);

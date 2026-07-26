@@ -10,6 +10,7 @@ use crate::{
     actions::Action,
     editing::application::{ApplicationInfo, EmptyInfo},
     editing::context::EditContext,
+    editing::cursor::CursorStyle,
     key::TerminalKey,
     keybindings::{dialog::Dialog, BindingMachine, InputKey, Step},
     prelude::RepeatType,
@@ -86,7 +87,8 @@ where
     }
 }
 
-impl<K, I> BindingMachine<K, Action<I>, RepeatType, EditContext> for MixedBindings<K, I>
+impl<K, I> BindingMachine<K, Action<I>, RepeatType, EditContext, CursorStyle>
+    for MixedBindings<K, I>
 where
     K: InputKey,
     I: ApplicationInfo,
@@ -117,8 +119,8 @@ where
         delegate_bindings!(self, BindingMachine::reset_mode)
     }
 
-    fn get_cursor_indicator(&self) -> Option<char> {
-        delegate_bindings!(self, BindingMachine::get_cursor_indicator)
+    fn get_cursor_hint(&self) -> CursorStyle {
+        delegate_bindings!(self, BindingMachine::get_cursor_hint)
     }
 
     fn repeat(&mut self, rt: RepeatType, other: Option<EditContext>) {
