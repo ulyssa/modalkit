@@ -9,6 +9,7 @@ use std::marker::PhantomData;
 
 use crate::{
     actions::{Action, InsertTextAction, PromptAction},
+    editing::cursor::CursorStyle,
     key::TerminalKey,
     keybindings::{
         EdgeEvent,
@@ -208,6 +209,11 @@ impl<I: ApplicationInfo> Clone for EmacsState<I> {
 
 impl<I: ApplicationInfo> InputState for EmacsState<I> {
     type Output = EditContext;
+    type CursorHint = CursorStyle;
+
+    fn get_cursor_hint(&self) -> Self::CursorHint {
+        CursorStyle { indicator: None, insert: Some(self.persist.insert) }
+    }
 
     fn merge(original: EditContext, overrides: &EditContext) -> EditContext {
         let mut builder = EditContextBuilder::from(original);
