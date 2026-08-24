@@ -26,7 +26,7 @@ editor-types = { workspace = true }
 intervaltree = { workspace = true }
 keybindings = { workspace = true }
 nom = { workspace = true }
-radix_trie = "0.2.1"
+radix_trie = "0.3.0"
 regex = { workspace = true }
 ropey = "1.5.0"
 thiserror = { workspace = true }
