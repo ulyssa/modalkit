@@ -41,7 +41,7 @@ regex = "^1.5"
 temp-dir = "0.2.0"
 thiserror = "^1.0.37"
 unicode-segmentation = "^1.7"
-unicode-width = "0.1.10"
+unicode-width = "0.2.0"
 
 # Allow some overly pedantic warnings.
 [workspace.lints.clippy]

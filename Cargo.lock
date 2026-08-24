@@ -538,7 +538,7 @@ version = "0.0.2"
 dependencies = [
  "textwrap",
  "unicode-segmentation",
- "unicode-width 0.1.14",
+ "unicode-width 0.2.0",
 ]
 
 [[package]]
@@ -643,7 +643,7 @@ dependencies = [
  "temp-dir",
  "thiserror 1.0.69",
  "unicode-segmentation",
- "unicode-width 0.1.14",
+ "unicode-width 0.2.0",
 ]
 
 [[package]]
