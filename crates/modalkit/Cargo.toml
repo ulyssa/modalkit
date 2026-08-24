@@ -22,7 +22,6 @@ clipboard = ["dep:arboard"]
 anymap2 = "0.13.0"
 bitflags = { workspace = true }
 crossterm = { workspace = true }
-derive_more = "0.99.16"
 editor-types = { workspace = true }
 intervaltree = { workspace = true }
 keybindings = { workspace = true }
@@ -33,6 +32,10 @@ ropey = "1.5.0"
 thiserror = { workspace = true }
 unicode-segmentation = { workspace = true }
 unicode-width = { workspace = true }
+
+[dependencies.derive_more]
+version = "2.1.1"
+features = ["add", "from", "into"]
 
 [dependencies.arboard]
 version = "^3.3.2"
