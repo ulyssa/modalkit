@@ -508,7 +508,7 @@ mod tests {
 
         // No last macro to repeat.
         input!(key!('@'));
-        assert!(matches!(err, Some(EditError::Register(RegisterError::NoLastMacro))), "{:?}", err);
+        assert!(matches!(err, Some(EditError::Register(RegisterError::NoLastMacro))), "{err:?}");
 
         // Press an unmapped key before recording.
         input!(key!('l'));

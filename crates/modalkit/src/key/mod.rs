@@ -111,7 +111,7 @@ impl TerminalKey {
                         ' ' | '@' => 0x0,
                         '4'..='7' => c as u32 - b'4' as u32 + 0x1C,
                         _ => {
-                            panic!("unknown control key: {:?}", c)
+                            panic!("unknown control key: {c:?}")
                         },
                     };
 
@@ -174,7 +174,7 @@ impl Display for TerminalKey {
         let push_named_mods = |f: &mut fmt::Formatter, name: &str, mods| -> fmt::Result {
             write!(f, "<")
                 .and_then(|()| push_mods(f, mods))
-                .and_then(|()| write!(f, "{}>", name))
+                .and_then(|()| write!(f, "{name}>"))
         };
 
         let push_named =

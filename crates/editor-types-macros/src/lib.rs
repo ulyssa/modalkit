@@ -95,7 +95,7 @@ impl ActionMacroParser {
                 if rest.is_empty() {
                     quote! { #b }
                 } else {
-                    fail(format!("the boolean `{}` takes no arguments", b), span)
+                    fail(format!("the boolean `{b}` takes no arguments"), span)
                 }
             },
             [ActionToken::Id(i), rest @ ..] => id_match_branch!(self, i, ::bool, rest, span),
@@ -109,7 +109,7 @@ impl ActionMacroParser {
                 if rest.is_empty() {
                     quote! { #n }
                 } else {
-                    fail(format!("the number `{}` takes no arguments", n), span)
+                    fail(format!("the number `{n}` takes no arguments"), span)
                 }
             },
             [ActionToken::Id(i), rest @ ..] => id_match_branch!(self, i, ::usize, rest, span),

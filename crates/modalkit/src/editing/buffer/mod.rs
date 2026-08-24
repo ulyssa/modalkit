@@ -1468,9 +1468,13 @@ mod tests {
         EditBuffer::new("".to_string())
     }
 
-    pub(super) fn mkfive(
-    ) -> (EditBuffer<EmptyInfo>, CursorGroupId, ViewportContext<Cursor>, VimState, Store<EmptyInfo>)
-    {
+    pub(super) fn mkfive() -> (
+        EditBuffer<EmptyInfo>,
+        CursorGroupId,
+        ViewportContext<Cursor>,
+        VimState,
+        Store<EmptyInfo>,
+    ) {
         let mut buf = mkbuf();
         let gid = buf.create_group();
         let vwctx = ViewportContext::default();
@@ -1482,8 +1486,13 @@ mod tests {
 
     pub(super) fn mkfivestr(
         s: &str,
-    ) -> (EditBuffer<EmptyInfo>, CursorGroupId, ViewportContext<Cursor>, VimState, Store<EmptyInfo>)
-    {
+    ) -> (
+        EditBuffer<EmptyInfo>,
+        CursorGroupId,
+        ViewportContext<Cursor>,
+        VimState,
+        Store<EmptyInfo>,
+    ) {
         let (mut buf, gid, vwctx, vctx, mut store) = mkfive();
 
         buf.set_text(s);

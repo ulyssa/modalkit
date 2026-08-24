@@ -1962,7 +1962,7 @@ fn add_prefix<I: ApplicationInfo>(
             machine.add_prefix(mode, &evs, action);
         }
     } else {
-        panic!("invalid vim keybinding: {}", keys);
+        panic!("invalid vim keybinding: {keys}");
     }
 }
 
@@ -1978,7 +1978,7 @@ fn add_mapping<I: ApplicationInfo>(
             machine.add_mapping(mode, &evs, action);
         }
     } else {
-        panic!("invalid vim keybinding: {}", keys);
+        panic!("invalid vim keybinding: {keys}");
     }
 }
 
