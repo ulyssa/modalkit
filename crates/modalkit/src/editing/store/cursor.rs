@@ -79,7 +79,7 @@ where
     }
 
     /// Use the [Entry] interface to manipulate the value.
-    pub fn entry(&mut self, id: M) -> Entry<M, C> {
+    pub fn entry(&mut self, id: M) -> Entry<'_, M, C> {
         self.map.entry(id)
     }
 

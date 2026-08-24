@@ -238,12 +238,12 @@ pub trait Window<I: ApplicationInfo>: WindowOps<I> + Sized {
     fn id(&self) -> I::WindowId;
 
     /// Get the title to show in the window layout.
-    fn get_win_title(&self, store: &mut Store<I>) -> Line;
+    fn get_win_title(&self, store: &mut Store<I>) -> Line<'_>;
 
     /// Get the title to show in the tab list when this is the currently focused window.
     ///
     /// The default implementation will use the same title as shown in the window.
-    fn get_tab_title(&self, store: &mut Store<I>) -> Line {
+    fn get_tab_title(&self, store: &mut Store<I>) -> Line<'_> {
         self.get_win_title(store)
     }
 

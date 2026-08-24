@@ -1568,11 +1568,11 @@ impl EditRope {
         }
     }
 
-    pub(crate) fn lines(&self, line: usize) -> LineIterator {
+    pub(crate) fn lines(&self, line: usize) -> LineIterator<'_> {
         self.lines_at(line, 0)
     }
 
-    pub(crate) fn lines_at(&self, line: usize, column: usize) -> LineIterator {
+    pub(crate) fn lines_at(&self, line: usize, column: usize) -> LineIterator<'_> {
         let len = self.rope.len_chars();
         let max = len.saturating_sub(1);
         let off = self.lincol_to_offset(line, column).0;
@@ -1873,7 +1873,7 @@ impl EditRope {
         dir: MoveDir1D,
         count: usize,
         motion: bool,
-    ) -> Option<BoundaryTestIterator> {
+    ) -> Option<BoundaryTestIterator<'_>> {
         let off = self.cursor_to_offset(nc);
 
         let boff = off.0.saturating_sub(1).into();
@@ -2260,21 +2260,21 @@ impl EditRope {
     }
 
     /// Returns an iterator over the newlines within this rope following `offset`.
-    pub fn newlines(&self, offset: CharOff) -> NewlineIterator {
+    pub fn newlines(&self, offset: CharOff) -> NewlineIterator<'_> {
         let rc = self.offset_to_rc(offset);
 
         NewlineIterator { rc }
     }
 
     /// Returns an iterator over the characters within this rope following `position`.
-    pub fn chars(&self, pos: CharOff) -> CharacterIterator {
+    pub fn chars(&self, pos: CharOff) -> CharacterIterator<'_> {
         let end = self.last_offset().0;
 
         CharacterIterator::new(self, pos.0, end)
     }
 
     /// Returns an iterator over the characters within this rope following `position`.
-    pub fn chars_until(&self, pos: CharOff, end: CharOff) -> CharacterIterator {
+    pub fn chars_until(&self, pos: CharOff, end: CharOff) -> CharacterIterator<'_> {
         CharacterIterator::new(self, pos.0, end.0)
     }
 

@@ -2249,7 +2249,7 @@ mod tests {
             self.id
         }
 
-        fn get_win_title(&self, _: &mut Store<TestApp>) -> Line {
+        fn get_win_title(&self, _: &mut Store<TestApp>) -> Line<'_> {
             Line::from("Window Title")
         }
 

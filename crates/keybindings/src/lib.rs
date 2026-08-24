@@ -671,7 +671,7 @@ impl<Key: InputKey, S: Step<Key>> Graph<Key, S> {
         self.edges.get(&id).map(|es| !es.is_empty()).unwrap_or(false)
     }
 
-    fn follow_edge(&self, id: NodeId, ke: &Key) -> FollowResult<Key, S> {
+    fn follow_edge(&self, id: NodeId, ke: &Key) -> FollowResult<'_, Key, S> {
         if let Some(m) = self.edges.get(&id) {
             if let Some(e) = m.get(&EdgeEvent::Key(ke.clone())) {
                 return FollowResult::Successor(e);
