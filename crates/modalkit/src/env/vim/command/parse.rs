@@ -1,7 +1,14 @@
 use std::str::FromStr;
 
 use nom::{
-    IResult, Parser as _, branch::alt, bytes::complete::{escaped_transform, is_not, tag, take_while, take_while1}, character::complete::{char, digit0, digit1, one_of, space0, space1}, combinator::{cut, eof, opt, peek, value}, error::{ErrorKind, ParseError, context}, multi::{many0, separated_list0}
+    branch::alt,
+    bytes::complete::{escaped_transform, is_not, tag, take_while, take_while1},
+    character::complete::{char, digit0, digit1, one_of, space0, space1},
+    combinator::{cut, eof, opt, peek, value},
+    error::{context, ErrorKind, ParseError},
+    multi::{many0, separated_list0},
+    IResult,
+    Parser as _,
 };
 
 use crate::{
@@ -147,7 +154,8 @@ fn parse_quote(input: &str) -> IResult<&str, String> {
             value("\\", tag("\\")),
             value("\"", tag("\"")),
         )),
-    )).parse(input)?;
+    ))
+    .parse(input)?;
     let (input, _) = cut(char('\"')).parse(input)?;
 
     Ok((input, text))
@@ -180,7 +188,8 @@ fn parse_text(input: &str) -> IResult<&str, String> {
             value("|", tag("|")),
             value("\"", tag("\"")),
         )),
-    ).parse(input)
+    )
+    .parse(input)
 }
 
 fn parse_filename_text<W>(input: &str) -> IResult<&str, OpenTarget<W>>
@@ -197,7 +206,8 @@ where
     W: ApplicationWindowId,
 {
     let (input, v) =
-        alt((value(OpenTarget::Alternate, tag("#")), value(OpenTarget::Current, tag("%")))).parse(input)?;
+        alt((value(OpenTarget::Alternate, tag("#")), value(OpenTarget::Current, tag("%"))))
+            .parse(input)?;
     let (input, _) = peek(alt((space1, eof))).parse(input)?;
 
     Ok((input, v))
@@ -291,7 +301,8 @@ fn parse_range_mark(input: &str) -> IResult<&str, Mark> {
             value(Mark::LastChanged, tag(".")),
             value(Mark::BufferLastExited, tag("\"")),
         )),
-    ).parse(input)
+    )
+    .parse(input)
 }
 
 fn parse_range_tick_mark(input: &str) -> IResult<&str, RangeEndingType> {
@@ -311,11 +322,13 @@ fn parse_range_atom(input: &str) -> IResult<&str, RangeEndingType> {
         value(RangeEndingType::Search(MoveDir1D::Previous), tag("\\?")),
         value(RangeEndingType::SubPatSearch(MoveDir1D::Next), tag("\\&")),
         parse_range_tick_mark,
-    )).parse(input)
+    ))
+    .parse(input)
 }
 
 fn parse_range_sep(input: &str) -> IResult<&str, RangeSearchInit> {
-    alt((value(RangeSearchInit::Cursor, tag(",")), value(RangeSearchInit::Start, tag(";")))).parse(input)
+    alt((value(RangeSearchInit::Cursor, tag(",")), value(RangeSearchInit::Start, tag(";"))))
+        .parse(input)
 }
 
 fn parse_range(original: &str) -> IResult<&str, RangeSpec> {

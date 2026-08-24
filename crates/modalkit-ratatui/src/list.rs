@@ -1365,7 +1365,12 @@ mod tests {
     where
         I: ApplicationInfo,
     {
-        fn show(&self, selected: bool, _: &ViewportContext<ListCursor>, _: &mut Store<I>) -> Text<'_> {
+        fn show(
+            &self,
+            selected: bool,
+            _: &ViewportContext<ListCursor>,
+            _: &mut Store<I>,
+        ) -> Text<'_> {
             let style = if selected {
                 Style::default().add_modifier(StyleModifier::REVERSED)
             } else {

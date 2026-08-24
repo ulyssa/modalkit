@@ -2076,7 +2076,7 @@ mod tests {
     use crate::TerminalCursor;
     use modalkit::editing::{completion::CompletionList, store::Store};
     use modalkit::errors::EditError;
-    use rand::{RngExt as _};
+    use rand::RngExt as _;
     use ratatui::text::Line;
 
     macro_rules! fc {
