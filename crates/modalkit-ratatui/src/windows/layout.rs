@@ -2076,7 +2076,7 @@ mod tests {
     use crate::TerminalCursor;
     use modalkit::editing::{completion::CompletionList, store::Store};
     use modalkit::errors::EditError;
-    use rand::Rng;
+    use rand::{RngExt as _};
     use ratatui::text::Line;
 
     macro_rules! fc {
@@ -2375,13 +2375,13 @@ mod tests {
 
         // Generate random insertions and then deletions.
         let mut tree = WindowLayoutState::new(TestWindow::new());
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
 
         assert_eq!(tree.root.size(), 1);
 
         for n in 0..999 {
             let size = tree.root.size();
-            let target = rng.gen_range(1..=size);
+            let target = rng.random_range(1..=size);
             window_focus_off!(tree, target, &ctx, store);
             window_split!(tree, Axis::Horizontal, MoveDir1D::Next, Count::Exact(1), &ctx, store);
             assert_eq!(tree.root.size(), 2 + n);
@@ -2389,7 +2389,7 @@ mod tests {
 
         for n in 0..1000 {
             let size = tree.root.size();
-            let target = rng.gen_range(1..=size);
+            let target = rng.random_range(1..=size);
             window_close!(tree, WindowTarget::Single(fc!(target)), flags, &ctx, store);
             assert_eq!(tree.root.size(), 999 - n);
         }

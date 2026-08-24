@@ -36,7 +36,7 @@ crossterm = "0.29"
 intervaltree = { version = "0.2.6" }
 libc = "0.2"
 nom = "7.0.0"
-rand = "0.8.4"
+rand = "0.10.0"
 regex = "^1.5"
 temp-dir = "0.2.0"
 thiserror = "^1.0.37"
