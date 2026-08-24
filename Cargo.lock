@@ -662,7 +662,7 @@ dependencies = [
  "regex",
  "ropey",
  "temp-dir",
- "thiserror 1.0.69",
+ "thiserror 2.0.20",
  "unicode-segmentation",
  "unicode-width 0.2.0",
 ]
@@ -1074,7 +1074,7 @@ dependencies = [
  "libc",
  "modalkit",
  "regex",
- "thiserror 1.0.69",
+ "thiserror 2.0.20",
 ]
 
 [[package]]

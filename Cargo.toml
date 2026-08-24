@@ -39,7 +39,7 @@ nom = "7.0.0"
 rand = "0.10.0"
 regex = "^1.5"
 temp-dir = "0.2.0"
-thiserror = "^1.0.37"
+thiserror = "2.0.0"
 unicode-segmentation = "^1.7"
 unicode-width = "0.2.0"
 
