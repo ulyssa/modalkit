@@ -35,7 +35,7 @@ bitflags = "2.4.2"
 crossterm = "0.29"
 intervaltree = { version = "0.2.6" }
 libc = "0.2"
-nom = "7.0.0"
+nom = "8.0.0"
 rand = "0.10.0"
 regex = "^1.5"
 temp-dir = "0.2.0"
