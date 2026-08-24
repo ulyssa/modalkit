@@ -454,7 +454,7 @@ name = "editor-types-parser"
 version = "0.0.2"
 dependencies = [
  "nom 8.0.0",
- "thiserror 1.0.69",
+ "thiserror 2.0.20",
 ]
 
 [[package]]
