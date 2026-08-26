@@ -37,7 +37,7 @@ use ratatui::{
     buffer::Buffer,
     layout::{Alignment, Rect},
     style::{Modifier as StyleModifier, Style},
-    text::Text,
+    text::{Line, Text},
     widgets::{Paragraph, StatefulWidget, Widget},
 };
 
@@ -111,6 +111,9 @@ pub trait ListItem<I>: Clone + ToString
 where
     I: ApplicationInfo,
 {
+    /// A optional type used to separate list items into distinct sections.
+    type Section<'a>: Clone + PartialEq + Into<Line<'a>> where Self: 'a;
+
     /// Return a representation of this item to show in the terminal window.
     fn show(
         &self,
@@ -132,12 +135,19 @@ where
         let s = self.to_string();
         needle.is_match(s.as_str())
     }
+
+    /// Get the subsection that contains this list item.
+    fn get_section(&self) -> Option<Self::Section<'_>> {
+        None
+    }
 }
 
 impl<I> ListItem<I> for String
 where
     I: ApplicationInfo,
 {
+    type Section<'a> = String;
+
     fn show(&self, selected: bool, _: &ViewportContext<ListCursor>, _: &mut Store<I>) -> Text<'_> {
         if selected {
             let hl = Style::default().add_modifier(StyleModifier::REVERSED);
@@ -229,6 +239,7 @@ where
                 self.viewctx.corner = idx.into();
             },
             MovePosition::Middle => {
+                let mut section_curr = None;
                 let mut lines = 0;
                 let target = self.viewctx.get_height() / 2;
                 let selidx = self.cursor.position;
@@ -240,6 +251,13 @@ where
                 for (idx, item) in self.items.iter().enumerate().take(idx + 1).rev() {
                     let sel = selidx == idx;
                     let len = item.show(sel, &self.viewctx, store).lines.len();
+                    let section_item = item.get_section();
+
+                    if section_item != section_curr {
+                        // Account for the newly entered section:
+                        section_curr = section_item;
+                        lines += usize::from(section_curr.is_some());
+                    }
 
                     if posidx == idx {
                         lines += len / 2;
@@ -256,6 +274,7 @@ where
                 }
             },
             MovePosition::End => {
+                let mut section_curr = None;
                 let mut lines = 0;
                 let target = self.viewctx.get_height();
                 let pos = self.cursor.position;
@@ -266,6 +285,13 @@ where
                 for (idx, item) in self.items.iter().enumerate().take(idx + 1).rev() {
                     let sel = idx == pos;
                     let len = item.show(sel, &self.viewctx, store).lines.len();
+                    let section_item = item.get_section();
+
+                    if lines > 0 && section_item != section_curr {
+                        // Account for the newly entered section:
+                        section_curr = section_item;
+                        lines += usize::from(section_curr.is_some());
+                    }
 
                     lines += len;
 
@@ -289,12 +315,20 @@ where
         }
 
         // Check whether the cursor is below the viewport.
+        let mut section_curr = None;
         let mut lines = 0;
 
         for (idx, item) in self.items.iter().enumerate().skip(self.viewctx.corner.position) {
             if idx == self.cursor.position {
                 // Cursor is already within the viewport.
                 break;
+            }
+
+            let section_item = item.get_section();
+
+            if section_curr != section_item {
+                section_curr = section_item;
+                lines += usize::from(section_curr.is_some());
             }
 
             lines += item.show(false, &self.viewctx, store).lines.len();
@@ -1018,6 +1052,8 @@ where
 
         match dir {
             MoveDir2D::Up => {
+                let mut section_curr = None;
+
                 while rows > 0 {
                     if corner.text_row >= rows {
                         corner.text_row -= rows;
@@ -1031,20 +1067,40 @@ where
 
                     let pos = corner.position.saturating_sub(1);
                     let sel = pos == self.cursor.position;
-                    let txt = self.items[pos].show(sel, &self.viewctx, store);
+                    let item = &self.items[pos];
+                    let txt = item.show(sel, &self.viewctx, store);
+                    let section_item = item.get_section();
+
+                    let section_height = if section_curr != section_item {
+                        section_curr = section_item;
+                        usize::from(section_curr.is_some())
+                    } else {
+                        0
+                    };
 
                     corner.position = pos;
-                    corner.text_row = txt.height().saturating_sub(1);
+                    corner.text_row = txt.height().saturating_add(section_height).saturating_sub(1);
                 }
             },
             MoveDir2D::Down => {
+                let mut section_curr = None;
                 let last = self.items.len().saturating_sub(1);
 
                 while rows > 0 {
                     let pos = corner.position;
                     let sel = pos == self.cursor.position;
-                    let txt = self.items[pos].show(sel, &self.viewctx, store);
-                    let len = txt.height();
+                    let item = &self.items[pos];
+                    let txt = item.show(sel, &self.viewctx, store);
+                    let section_item = item.get_section();
+
+                    let section_height = if section_curr != section_item {
+                        section_curr = section_item;
+                        usize::from(section_curr.is_some())
+                    } else {
+                        0
+                    };
+
+                    let len = txt.height().saturating_add(section_height);
                     let max = len.saturating_sub(1);
 
                     if pos == last {
@@ -1267,6 +1323,7 @@ where
         let corner = &state.viewctx.corner;
         let mut lines = vec![];
         let mut sawit = false;
+        let mut section_curr = None;
 
         for (idx, item) in state.items.iter().enumerate().skip(corner.position) {
             let sel = idx == state.cursor.position;
@@ -1283,7 +1340,18 @@ where
                 break;
             }
 
+            let section_item = item.get_section();
+
             for (row, line) in txt.lines.into_iter().enumerate() {
+                if section_item != section_curr {
+                    // Transitioning to a different section, include its header:
+                    section_curr = section_item.clone();
+
+                    if let Some(l) = section_curr.as_ref() {
+                        lines.push((idx, row, l.clone().into()));
+                    }
+                }
+
                 if idx == corner.position && row < corner.text_row {
                     continue;
                 }

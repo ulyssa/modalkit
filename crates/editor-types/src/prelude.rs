@@ -3222,7 +3222,9 @@ impl<Cursor: Default> ViewportContext<Cursor> {
             wrap: false,
         }
     }
+}
 
+impl<Cursor> ViewportContext<Cursor> {
     /// Get the viewport height.
     pub fn get_height(&self) -> usize {
         self.dimensions.1
