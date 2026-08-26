@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::collections::VecDeque;
 use std::collections::hash_map::{Entry, HashMap};
 use std::fmt;
@@ -75,9 +76,40 @@ use modalkit_ratatui::{
     textbox::TextBoxState,
 };
 
-#[derive(Clone)]
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+enum DirectoryListSection {
+    Directories,
+    Files,
+}
+
+impl DirectoryListSection {
+    fn is_dir(&self) -> bool {
+        matches!(self, Self::Directories)
+    }
+}
+
+impl From<FileType> for DirectoryListSection {
+    fn from(t: FileType) -> Self {
+        if t.is_dir() {
+            Self::Directories
+        } else {
+            Self::Files
+        }
+    }
+}
+
+impl From<DirectoryListSection> for Line<'static> {
+    fn from(section: DirectoryListSection) -> Self {
+        match section {
+            DirectoryListSection::Directories => Line::raw("Directories"),
+            DirectoryListSection::Files => Line::raw("Files"),
+        }
+    }
+}
+
+#[derive(Clone, Eq, Ord, PartialEq, PartialOrd)]
 struct DirectoryItem {
-    ftype: FileType,
+    ftype: DirectoryListSection,
     entry: String,
 }
 
@@ -110,7 +142,7 @@ impl Promptable<EditContext, Store<EditorInfo>, EditorInfo> for DirectoryItem {
 
 impl DirectoryItem {
     fn new(entry: DirEntry) -> Option<Self> {
-        let ftype = entry.file_type().ok()?;
+        let ftype = entry.file_type().ok()?.into();
         let entry = entry.path().to_str()?.to_owned();
 
         Some(Self { ftype, entry })
@@ -118,6 +150,8 @@ impl DirectoryItem {
 }
 
 impl ListItem<EditorInfo> for DirectoryItem {
+    type Section = DirectoryListSection;
+
     fn show(
         &self,
         selected: bool,
@@ -137,9 +171,13 @@ impl ListItem<EditorInfo> for DirectoryItem {
         };
 
         let entry = Span::styled(self.entry.as_str(), style);
-        let line = Line::from(vec![entry, suffix]);
+        let line = Line::from(vec![Span::raw("  "), entry, suffix]);
 
         return Text::from(line);
+    }
+
+    fn get_section(&self) -> Option<&DirectoryListSection> {
+        Some(&self.ftype)
     }
 }
 
@@ -283,10 +321,11 @@ impl WindowOps<EditorInfo> for EditorWindow {
 }
 
 fn load_file(name: String, store: &mut Store<EditorInfo>) -> UIResult<EditorWindow, EditorInfo> {
+    let name = shellexpand::full(&name).map(Cow::into_owned).unwrap_or(name);
     let path = Path::new(name.as_str());
 
     if path.is_dir() {
-        let ls = path
+        let mut ls: Vec<_> = path
             .read_dir()?
             .filter_map(|entry| {
                 if let Ok(entry) = entry {
@@ -296,9 +335,12 @@ fn load_file(name: String, store: &mut Store<EditorInfo>) -> UIResult<EditorWind
                 }
             })
             .collect();
-        let id = EditorContentId::Directory(name);
+        ls.sort();
 
-        return Ok(ListState::new(id, ls).into());
+        let id = EditorContentId::Directory(name);
+        let list = ListState::new(id, ls).into();
+
+        return Ok(list);
     }
 
     let index = store
