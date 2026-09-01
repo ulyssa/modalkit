@@ -899,7 +899,7 @@ where
                     .map(|(i, _)| i)
                     .nth(cursor.x.saturating_sub(start))
                     .unwrap_or(s.len())]
-                    .width_cjk() as u16;
+                    .width() as u16;
 
                 state.term_cursor = (x + coff, y);
             }
@@ -1049,7 +1049,7 @@ where
                     .map(|(i, _)| i)
                     .nth(cursor.x.saturating_sub(start))
                     .unwrap_or(s.len())]
-                    .width_cjk() as u16;
+                    .width() as u16;
 
                 state.term_cursor = (x + coff, y);
             }
@@ -1112,7 +1112,7 @@ where
                         .map(|(i, _)| i)
                         .nth(cursor.x.saturating_sub(start))
                         .unwrap_or(s.len())]
-                        .width_cjk() as u16;
+                        .width() as u16;
 
                     state.term_cursor = (x + coff, y);
                 }
