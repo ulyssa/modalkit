@@ -31,6 +31,32 @@ pub enum OptionType {
     Positional(String),
 }
 
+impl FromStr for OptionType {
+    type Err = CommandError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        if !s.starts_with("++") {
+            return Ok(OptionType::Positional(s.to_owned()));
+        }
+
+        let mut option = &s[2..];
+
+        let value = if let Some(idx) = option.find('=') {
+            let flag = option[idx + 1..].to_string();
+            option = &option[..idx];
+            Some(flag)
+        } else {
+            None
+        };
+
+        if option.is_empty() {
+            return Err(CommandError::InvalidArgument);
+        }
+
+        Ok(OptionType::Flag(option.to_owned(), value))
+    }
+}
+
 /// Argument text following a command name.
 #[derive(Debug, Eq, PartialEq)]
 pub struct CommandArgument {
@@ -95,25 +121,7 @@ impl CommandArgument {
     /// Interpret the argument text as a series of positional arguments and flags starting with
     /// `++`.
     pub fn options(&self) -> Result<Vec<OptionType>, CommandError> {
-        let res = self
-            .strings()?
-            .into_iter()
-            .map(|mut option| {
-                if !option.starts_with("++") {
-                    return OptionType::Positional(option);
-                }
-
-                let mut option = option.split_off(2);
-                let value = option.find('=').map(|idx| {
-                    let mut flag = option.split_off(idx);
-                    flag.split_off(1)
-                });
-
-                OptionType::Flag(option, value)
-            })
-            .collect();
-
-        Ok(res)
+        self.strings()?.iter().map(|s| OptionType::from_str(s)).collect()
     }
 
     /// Interpret the argument text as a range specification.
@@ -599,6 +607,16 @@ mod tests {
             OptionType::Flag("novalue".into(), Some("".into())),
         ];
         assert_eq!(arg.options().unwrap(), split);
+    }
+
+    #[test]
+    fn test_arg_options_malformed() {
+        let arg = arg!("++");
+        assert_eq!(arg.options(), Err(CommandError::InvalidArgument));
+        let arg = arg!("++=");
+        assert_eq!(arg.options(), Err(CommandError::InvalidArgument));
+        let arg = arg!("++=bar");
+        assert_eq!(arg.options(), Err(CommandError::InvalidArgument));
     }
 
     #[test]
