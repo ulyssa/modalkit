@@ -8,6 +8,7 @@ use nom::{
     error::{context, ErrorKind, ParseError},
     multi::{many0, separated_list0},
     IResult,
+    Parser as _,
 };
 
 use crate::{
@@ -28,6 +29,32 @@ pub enum OptionType {
 
     /// A positional argument.
     Positional(String),
+}
+
+impl FromStr for OptionType {
+    type Err = CommandError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        if !s.starts_with("++") {
+            return Ok(OptionType::Positional(s.to_owned()));
+        }
+
+        let mut option = &s[2..];
+
+        let value = if let Some(idx) = option.find('=') {
+            let flag = option[idx + 1..].to_string();
+            option = &option[..idx];
+            Some(flag)
+        } else {
+            None
+        };
+
+        if option.is_empty() {
+            return Err(CommandError::InvalidArgument);
+        }
+
+        Ok(OptionType::Flag(option.to_owned(), value))
+    }
 }
 
 /// Argument text following a command name.
@@ -94,25 +121,7 @@ impl CommandArgument {
     /// Interpret the argument text as a series of positional arguments and flags starting with
     /// `++`.
     pub fn options(&self) -> Result<Vec<OptionType>, CommandError> {
-        let res = self
-            .strings()?
-            .into_iter()
-            .map(|mut option| {
-                if !option.starts_with("++") {
-                    return OptionType::Positional(option);
-                }
-
-                let mut option = option.split_off(2);
-                let value = option.find('=').map(|idx| {
-                    let mut flag = option.split_off(idx);
-                    flag.split_off(1)
-                });
-
-                OptionType::Flag(option, value)
-            })
-            .collect();
-
-        Ok(res)
+        self.strings()?.iter().map(|s| OptionType::from_str(s)).collect()
     }
 
     /// Interpret the argument text as a range specification.
@@ -142,7 +151,7 @@ fn parse_quote(input: &str) -> IResult<&str, String> {
         return Err(err);
     }
 
-    let (input, _) = char('\"')(input)?;
+    let (input, _) = char('\"').parse(input)?;
     let (input, text) = cut(escaped_transform(
         is_not("\t\n\\\""),
         '\\',
@@ -153,8 +162,9 @@ fn parse_quote(input: &str) -> IResult<&str, String> {
             value("\\", tag("\\")),
             value("\"", tag("\"")),
         )),
-    ))(input)?;
-    let (input, _) = cut(char('\"'))(input)?;
+    ))
+    .parse(input)?;
+    let (input, _) = cut(char('\"')).parse(input)?;
 
     Ok((input, text))
 }
@@ -186,7 +196,8 @@ fn parse_text(input: &str) -> IResult<&str, String> {
             value("|", tag("|")),
             value("\"", tag("\"")),
         )),
-    )(input)
+    )
+    .parse(input)
 }
 
 fn parse_filename_text<W>(input: &str) -> IResult<&str, OpenTarget<W>>
@@ -203,8 +214,9 @@ where
     W: ApplicationWindowId,
 {
     let (input, v) =
-        alt((value(OpenTarget::Alternate, tag("#")), value(OpenTarget::Current, tag("%"))))(input)?;
-    let (input, _) = peek(alt((space1, eof)))(input)?;
+        alt((value(OpenTarget::Alternate, tag("#")), value(OpenTarget::Current, tag("%"))))
+            .parse(input)?;
+    let (input, _) = peek(alt((space1, eof))).parse(input)?;
 
     Ok((input, v))
 }
@@ -213,14 +225,14 @@ fn parse_filename<W>(input: &str) -> IResult<&str, OpenTarget<W>>
 where
     W: ApplicationWindowId,
 {
-    alt((parse_filename_special, parse_filename_quote, parse_filename_text))(input)
+    alt((parse_filename_special, parse_filename_quote, parse_filename_text)).parse(input)
 }
 
 fn parse_filenames<W>(input: &str) -> IResult<&str, Vec<OpenTarget<W>>>
 where
     W: ApplicationWindowId,
 {
-    let (input, args) = separated_list0(space1, parse_filename)(input)?;
+    let (input, args) = separated_list0(space1, parse_filename).parse(input)?;
     let (input, _) = space0(input)?;
     let (input, _) = eof(input)?;
 
@@ -228,11 +240,11 @@ where
 }
 
 fn parse_string(input: &str) -> IResult<&str, String> {
-    alt((parse_quote, parse_text))(input)
+    alt((parse_quote, parse_text)).parse(input)
 }
 
 fn parse_strings(input: &str) -> IResult<&str, Vec<String>> {
-    let (input, args) = separated_list0(space1, parse_string)(input)?;
+    let (input, args) = separated_list0(space1, parse_string).parse(input)?;
     let (input, _) = space0(input)?;
     let (input, _) = eof(input)?;
 
@@ -240,7 +252,7 @@ fn parse_strings(input: &str) -> IResult<&str, Vec<String>> {
 }
 
 fn parse_range_offset(input: &str) -> IResult<&str, MoveDir1D> {
-    alt((value(MoveDir1D::Next, tag("+")), value(MoveDir1D::Previous, tag("-"))))(input)
+    alt((value(MoveDir1D::Next, tag("+")), value(MoveDir1D::Previous, tag("-")))).parse(input)
 }
 
 fn parse_range_modifier(input: &str) -> IResult<&str, RangeEndingModifier> {
@@ -263,19 +275,19 @@ fn parse_range_number(input: &str) -> IResult<&str, RangeEndingType> {
 }
 
 fn parse_range_mark_lc(input: &str) -> IResult<&str, Mark> {
-    let (input, c) = one_of("abcdefghijklmnopqrstuvwxyz")(input)?;
+    let (input, c) = one_of("abcdefghijklmnopqrstuvwxyz").parse(input)?;
 
     Ok((input, Mark::BufferNamed(c)))
 }
 
 fn parse_range_mark_uc(input: &str) -> IResult<&str, Mark> {
-    let (input, c) = one_of("ABCDEFGHIJKLMNOPQRSTUVWXYZ")(input)?;
+    let (input, c) = one_of("ABCDEFGHIJKLMNOPQRSTUVWXYZ").parse(input)?;
 
     Ok((input, Mark::GlobalNamed(c)))
 }
 
 fn parse_range_mark_number(input: &str) -> IResult<&str, Mark> {
-    let (input, n) = one_of("0123456789")(input)?;
+    let (input, n) = one_of("0123456789").parse(input)?;
     let n: usize = n.to_digit(10).unwrap() as usize;
 
     Ok((input, Mark::GlobalLastExited(n)))
@@ -297,11 +309,12 @@ fn parse_range_mark(input: &str) -> IResult<&str, Mark> {
             value(Mark::LastChanged, tag(".")),
             value(Mark::BufferLastExited, tag("\"")),
         )),
-    )(input)
+    )
+    .parse(input)
 }
 
 fn parse_range_tick_mark(input: &str) -> IResult<&str, RangeEndingType> {
-    let (input, _) = char('\'')(input)?;
+    let (input, _) = char('\'').parse(input)?;
     let (input, m) = parse_range_mark(input)?;
 
     Ok((input, RangeEndingType::Mark(Specifier::Exact(m))))
@@ -317,17 +330,19 @@ fn parse_range_atom(input: &str) -> IResult<&str, RangeEndingType> {
         value(RangeEndingType::Search(MoveDir1D::Previous), tag("\\?")),
         value(RangeEndingType::SubPatSearch(MoveDir1D::Next), tag("\\&")),
         parse_range_tick_mark,
-    ))(input)
+    ))
+    .parse(input)
 }
 
 fn parse_range_sep(input: &str) -> IResult<&str, RangeSearchInit> {
-    alt((value(RangeSearchInit::Cursor, tag(",")), value(RangeSearchInit::Start, tag(";"))))(input)
+    alt((value(RangeSearchInit::Cursor, tag(",")), value(RangeSearchInit::Start, tag(";"))))
+        .parse(input)
 }
 
 fn parse_range(original: &str) -> IResult<&str, RangeSpec> {
-    let (input, ltype) = opt(parse_range_atom)(original)?;
-    let (input, lmods) = many0(parse_range_modifier)(input)?;
-    let (input, sep) = opt(parse_range_sep)(input)?;
+    let (input, ltype) = opt(parse_range_atom).parse(original)?;
+    let (input, lmods) = many0(parse_range_modifier).parse(input)?;
+    let (input, sep) = opt(parse_range_sep).parse(input)?;
 
     match (ltype, sep) {
         (None, None) => {
@@ -348,8 +363,8 @@ fn parse_range(original: &str) -> IResult<&str, RangeSpec> {
             Ok((input, RangeSpec::Single(left)))
         },
         (ltype, Some(sep)) => {
-            let (input, rtype) = opt(parse_range_atom)(input)?;
-            let (input, rmods) = many0(parse_range_modifier)(input)?;
+            let (input, rtype) = opt(parse_range_atom).parse(input)?;
+            let (input, rmods) = many0(parse_range_modifier).parse(input)?;
 
             let ltype = ltype.unwrap_or(RangeEndingType::Unspecified);
             let left = RangeEnding(ltype, lmods);
@@ -363,23 +378,23 @@ fn parse_range(original: &str) -> IResult<&str, RangeSpec> {
 }
 
 fn parse_bang(input: &str) -> IResult<&str, &str> {
-    let (input, _) = char('!')(input)?;
+    let (input, _) = char('!').parse(input)?;
 
     Ok((input, "!"))
 }
 
 fn parse_cmd_empty(input: &str) -> IResult<&str, &str> {
-    let (input, _) = alt((eof, tag("\n")))(input)?;
+    let (input, _) = alt((eof, tag("\n"))).parse(input)?;
 
     Ok((input, ""))
 }
 
 fn parse_cmd_string(input: &str) -> IResult<&str, &str> {
-    take_while1(is_cmd_char)(input)
+    take_while1(is_cmd_char).parse(input)
 }
 
 fn parse_cmd_name(input: &str) -> IResult<&str, String> {
-    let (input, name) = alt((parse_bang, parse_cmd_string, parse_cmd_empty))(input)?;
+    let (input, name) = alt((parse_bang, parse_cmd_string, parse_cmd_empty)).parse(input)?;
 
     Ok((input, name.to_string()))
 }
@@ -396,13 +411,13 @@ fn parse_cmd_argument(input: &str) -> IResult<&str, CommandArgument> {
 
 fn parse_cmd_descr(input: &str) -> IResult<&str, CommandDescription> {
     let (input, _) = space0(input)?;
-    let (input, _) = many0(char(':'))(input)?;
+    let (input, _) = many0(char(':')).parse(input)?;
     let (input, _) = space0(input)?;
-    let (input, range) = opt(parse_range)(input)?;
+    let (input, range) = opt(parse_range).parse(input)?;
     let (input, command) = parse_cmd_name(input)?;
-    let (input, bang) = opt(parse_bang)(input)?;
+    let (input, bang) = opt(parse_bang).parse(input)?;
     let (input, arg) = parse_cmd_argument(input)?;
-    let (input, _) = opt(char('\n'))(input)?;
+    let (input, _) = opt(char('\n')).parse(input)?;
 
     let cmd = CommandDescription { range, command, bang: bang.is_some(), arg };
 
@@ -592,6 +607,16 @@ mod tests {
             OptionType::Flag("novalue".into(), Some("".into())),
         ];
         assert_eq!(arg.options().unwrap(), split);
+    }
+
+    #[test]
+    fn test_arg_options_malformed() {
+        let arg = arg!("++");
+        assert_eq!(arg.options(), Err(CommandError::InvalidArgument));
+        let arg = arg!("++=");
+        assert_eq!(arg.options(), Err(CommandError::InvalidArgument));
+        let arg = arg!("++=bar");
+        assert_eq!(arg.options(), Err(CommandError::InvalidArgument));
     }
 
     #[test]

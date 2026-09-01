@@ -99,7 +99,7 @@ impl Promptable<EditContext, Store<EditorInfo>, EditorInfo> for DirectoryItem {
 
             Ok(vec![(act.into(), ctx.clone())])
         } else {
-            let msg = format!("Cannot perform {:?} inside a list", act);
+            let msg = format!("Cannot perform {act:?} inside a list");
             let err = EditError::Unimplemented(msg);
 
             Err(err)
@@ -173,6 +173,13 @@ impl TerminalCursor for EditorWindow {
         match self {
             EditorWindow::Text(tbox) => tbox.get_term_cursor(),
             EditorWindow::Listing(ls) => ls.get_term_cursor(),
+        }
+    }
+
+    fn hide_term_cursor(&self) -> bool {
+        match self {
+            EditorWindow::Text(tbox) => tbox.hide_term_cursor(),
+            EditorWindow::Listing(ls) => ls.hide_term_cursor(),
         }
     }
 }
@@ -707,7 +714,7 @@ impl Editor {
 
             // Handle non-exhaustive pattern.
             _ => {
-                let msg = format!("Unknown action: {:?}", action);
+                let msg = format!("Unknown action: {action:?}");
                 let err = EditError::Unimplemented(msg);
 
                 return Err(err.into());
@@ -731,14 +738,17 @@ impl Editor {
             let area = f.area();
 
             let modestr = bindings.show_mode();
-            let cursor = bindings.get_cursor_indicator();
+            let cursor = bindings.get_cursor_hint();
             let dialogstr = bindings.show_dialog(area.width as usize, area.height as usize);
 
             let screen = Screen::new(store).show_dialog(dialogstr).show_mode(modestr).borders(true);
             f.render_stateful_widget(screen, area, sstate);
 
-            render_cursor(f, sstate, cursor);
+            render_cursor(f, sstate, &cursor);
         })?;
+        if sstate.hide_term_cursor() {
+            term.hide_cursor()?;
+        }
 
         Ok(())
     }
@@ -753,7 +763,7 @@ fn main() -> Result<(), std::io::Error> {
             match arg.as_str().trim() {
                 "e" | "emacs" => MixedChoice::Emacs,
                 "v" | "vim" => MixedChoice::Vim,
-                m => panic!("Unknown environment: {:?}", m),
+                m => panic!("Unknown environment: {m:?}"),
             }
         },
         None => MixedChoice::Vim,

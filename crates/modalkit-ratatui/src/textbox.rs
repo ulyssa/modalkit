@@ -223,6 +223,11 @@ where
         self.readonly = readonly;
     }
 
+    /// Set whether regular expression searches ignore case.
+    pub fn set_ignorecase(&mut self, ignorecase: bool) {
+        self.buffer.write().unwrap().set_ignorecase(ignorecase);
+    }
+
     /// Get the contents of the underlying buffer as an [EditRope].
     pub fn get(&self) -> EditRope {
         self.buffer.read().unwrap().get().clone()
@@ -573,6 +578,10 @@ where
         }
 
         self.term_cursor.into()
+    }
+
+    fn hide_term_cursor(&self) -> bool {
+        false
     }
 }
 
@@ -1093,10 +1102,7 @@ where
 
                 if line == cursor.y && (start..=end).contains(&cursor.x) {
                     let rel = cursor.x.saturating_sub(start);
-                    let prefix = s
-                        .chars()
-                        .take(rel)
-                        .collect::<String>();
+                    let prefix = s.chars().take(rel).collect::<String>();
                     let coff = unicode_width::UnicodeWidthStr::width(prefix.as_str()) as u16;
 
                     state.term_cursor = (x + coff, y);
@@ -1753,6 +1759,4 @@ mod tests {
         assert_eq!(tbox.get_cursor(), Cursor::new(0, 18));
         assert_eq!(tbox.get_term_cursor(), (9, 1).into());
     }
-
 }
-

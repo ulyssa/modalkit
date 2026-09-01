@@ -9,6 +9,7 @@ use nom::{
     combinator::{eof, map_res, value},
     multi::{many0, many1},
     IResult,
+    Parser as _,
 };
 
 use super::TerminalKey;
@@ -26,7 +27,8 @@ fn parse_modifier(input: &str) -> IResult<&str, KeyModifiers> {
         value(KeyModifiers::ALT, tag("M-")),
         value(KeyModifiers::CONTROL, tag("C-")),
         value(KeyModifiers::SHIFT, tag("S-")),
-    ))(input)
+    ))
+    .parse(input)
 }
 
 fn parse_lock(input: &str) -> IResult<&str, KeyCode> {
@@ -34,7 +36,8 @@ fn parse_lock(input: &str) -> IResult<&str, KeyCode> {
         value(KeyCode::CapsLock, tag("CapsLock")),
         value(KeyCode::ScrollLock, tag("ScrollLock")),
         value(KeyCode::NumLock, tag("NumLock")),
-    ))(input)
+    ))
+    .parse(input)
 }
 
 fn parse_media_name(input: &str) -> IResult<&str, MediaKeyCode> {
@@ -52,7 +55,8 @@ fn parse_media_name(input: &str) -> IResult<&str, MediaKeyCode> {
         value(MediaKeyCode::LowerVolume, tag("MediaVolumeUp")),
         value(MediaKeyCode::RaiseVolume, tag("MediaVolumeDown")),
         value(MediaKeyCode::MuteVolume, tag("MediaVolumeMute")),
-    ))(input)
+    ))
+    .parse(input)
 }
 
 fn parse_media(input: &str) -> IResult<&str, KeyCode> {
@@ -67,115 +71,116 @@ fn parse_arrow(input: &str) -> IResult<&str, KeyCode> {
         value(KeyCode::Right, tag("Right")),
         value(KeyCode::Up, tag("Up")),
         value(KeyCode::Down, tag("Down")),
-    ))(input)
+    ))
+    .parse(input)
 }
 
 fn parse_ps(input: &str) -> IResult<&str, KeyCode> {
-    let (input, _) = alt((tag("PS"), tag("PrintScreen"), tag("SysRq")))(input)?;
+    let (input, _) = alt((tag("PS"), tag("PrintScreen"), tag("SysRq"))).parse(input)?;
     Ok((input, KeyCode::PrintScreen))
 }
 
 fn parse_page_up(input: &str) -> IResult<&str, KeyCode> {
-    let (input, _) = tag("PageUp")(input)?;
+    let (input, _) = tag("PageUp").parse(input)?;
     Ok((input, KeyCode::PageUp))
 }
 
 fn parse_page_down(input: &str) -> IResult<&str, KeyCode> {
-    let (input, _) = tag("PageDown")(input)?;
+    let (input, _) = tag("PageDown").parse(input)?;
     Ok((input, KeyCode::PageDown))
 }
 
 fn parse_home(input: &str) -> IResult<&str, KeyCode> {
-    let (input, _) = tag("Home")(input)?;
+    let (input, _) = tag("Home").parse(input)?;
     Ok((input, KeyCode::Home))
 }
 
 fn parse_end(input: &str) -> IResult<&str, KeyCode> {
-    let (input, _) = tag("End")(input)?;
+    let (input, _) = tag("End").parse(input)?;
     Ok((input, KeyCode::End))
 }
 
 fn parse_insert(input: &str) -> IResult<&str, KeyCode> {
-    let (input, _) = alt((tag("Insert"), tag("Ins")))(input)?;
+    let (input, _) = alt((tag("Insert"), tag("Ins"))).parse(input)?;
     Ok((input, KeyCode::Insert))
 }
 
 fn parse_esc(input: &str) -> IResult<&str, KeyCode> {
-    let (input, _) = tag("Esc")(input)?;
+    let (input, _) = tag("Esc").parse(input)?;
     Ok((input, KeyCode::Esc))
 }
 
 fn parse_tab(input: &str) -> IResult<&str, KeyCode> {
-    let (input, _) = tag("Tab")(input)?;
+    let (input, _) = tag("Tab").parse(input)?;
     Ok((input, KeyCode::Tab))
 }
 
 fn parse_bs(input: &str) -> IResult<&str, KeyCode> {
-    let (input, _) = alt((tag("BS"), tag("BackSpace")))(input)?;
+    let (input, _) = alt((tag("BS"), tag("BackSpace"))).parse(input)?;
     Ok((input, KeyCode::Backspace))
 }
 
 fn parse_nl(input: &str) -> IResult<&str, KeyCode> {
-    let (input, _) = alt((tag("NL"), tag("NewLine"), tag("LineFeed"), tag("LF")))(input)?;
+    let (input, _) = alt((tag("NL"), tag("NewLine"), tag("LineFeed"), tag("LF"))).parse(input)?;
     Ok((input, KeyCode::Char('\n')))
 }
 
 fn parse_cr(input: &str) -> IResult<&str, KeyCode> {
-    let (input, _) = alt((tag("CR"), tag("Return"), tag("Enter")))(input)?;
+    let (input, _) = alt((tag("CR"), tag("Return"), tag("Enter"))).parse(input)?;
     Ok((input, KeyCode::Enter))
 }
 
 fn parse_del(input: &str) -> IResult<&str, KeyCode> {
-    let (input, _) = alt((tag("Delete"), tag("Del")))(input)?;
+    let (input, _) = alt((tag("Delete"), tag("Del"))).parse(input)?;
     Ok((input, KeyCode::Delete))
 }
 
 fn parse_nul(input: &str) -> IResult<&str, KeyCode> {
-    let (input, _) = tag("Nul")(input)?;
+    let (input, _) = tag("Nul").parse(input)?;
     Ok((input, KeyCode::Null))
 }
 
 fn parse_pause(input: &str) -> IResult<&str, KeyCode> {
-    let (input, _) = tag("Pause")(input)?;
+    let (input, _) = tag("Pause").parse(input)?;
     Ok((input, KeyCode::Pause))
 }
 
 fn parse_undo(input: &str) -> IResult<&str, KeyCode> {
-    let (input, _) = tag("Undo")(input)?;
+    let (input, _) = tag("Undo").parse(input)?;
     Ok((input, KeyCode::F(14)))
 }
 
 fn parse_help(input: &str) -> IResult<&str, KeyCode> {
-    let (input, _) = tag("Help")(input)?;
+    let (input, _) = tag("Help").parse(input)?;
     Ok((input, KeyCode::F(15)))
 }
 
 fn parse_space(input: &str) -> IResult<&str, KeyCode> {
-    let (input, _) = tag("Space")(input)?;
+    let (input, _) = tag("Space").parse(input)?;
     Ok((input, KeyCode::Char(' ')))
 }
 
 fn parse_bar(input: &str) -> IResult<&str, KeyCode> {
-    let (input, _) = tag("Bar")(input)?;
+    let (input, _) = tag("Bar").parse(input)?;
     Ok((input, KeyCode::Char('|')))
 }
 
 fn parse_bslash(input: &str) -> IResult<&str, KeyCode> {
-    let (input, _) = tag("Bslash")(input)?;
+    let (input, _) = tag("Bslash").parse(input)?;
     Ok((input, KeyCode::Char('\\')))
 }
 
 fn parse_lt(input: &str) -> IResult<&str, KeyCode> {
-    let (input, _) = tag("lt")(input)?;
+    let (input, _) = tag("lt").parse(input)?;
     Ok((input, KeyCode::Char('<')))
 }
 
 fn parse_named_ascii(input: &str) -> IResult<&str, KeyCode> {
-    alt((parse_space, parse_bar, parse_bslash, parse_lt))(input)
+    alt((parse_space, parse_bar, parse_bslash, parse_lt)).parse(input)
 }
 
 fn parse_named_ctl(input: &str) -> IResult<&str, KeyCode> {
-    alt((parse_esc, parse_tab, parse_bs, parse_nl, parse_cr, parse_nul))(input)
+    alt((parse_esc, parse_tab, parse_bs, parse_nl, parse_cr, parse_nul)).parse(input)
 }
 
 fn parse_keyname(input: &str) -> IResult<&str, KeyCode> {
@@ -195,7 +200,8 @@ fn parse_keyname(input: &str) -> IResult<&str, KeyCode> {
         parse_help,
         parse_lock,
         parse_media,
-    ))(input)
+    ))
+    .parse(input)
 }
 
 fn parse_base10_u8(input: &str) -> Result<u8, std::num::ParseIntError> {
@@ -203,8 +209,8 @@ fn parse_base10_u8(input: &str) -> Result<u8, std::num::ParseIntError> {
 }
 
 fn parse_function(input: &str) -> IResult<&str, KeyCode> {
-    let (input, _) = char('F')(input)?;
-    let (input, n) = map_res(digit1, parse_base10_u8)(input)?;
+    let (input, _) = char('F').parse(input)?;
+    let (input, n) = map_res(digit1, parse_base10_u8).parse(input)?;
 
     Ok((input, KeyCode::F(n)))
 }
@@ -226,10 +232,10 @@ pub fn parse_simple(input: &str) -> IResult<&str, TerminalKey> {
 }
 
 pub fn parse_special(input: &str) -> IResult<&str, TerminalKey> {
-    let (input, _) = char('<')(input)?;
-    let (input, m) = many0(parse_modifier)(input)?;
-    let (input, mut k) = alt((parse_keyname, parse_function, parse_anychar))(input)?;
-    let (input, _) = char('>')(input)?;
+    let (input, _) = char('<').parse(input)?;
+    let (input, m) = many0(parse_modifier).parse(input)?;
+    let (input, mut k) = alt((parse_keyname, parse_function, parse_anychar)).parse(input)?;
+    let (input, _) = char('>').parse(input)?;
 
     let m = m.into_iter().fold(KeyModifiers::NONE, BitOr::bitor);
 
@@ -244,14 +250,14 @@ pub fn parse_special(input: &str) -> IResult<&str, TerminalKey> {
 }
 
 pub fn parse_key_str(input: &str) -> IResult<&str, TerminalKey> {
-    let (input, res) = alt((parse_special, parse_simple))(input)?;
+    let (input, res) = alt((parse_special, parse_simple)).parse(input)?;
     let (input, _) = eof(input)?;
 
     Ok((input, res))
 }
 
 pub fn parse_macro_str(input: &str) -> IResult<&str, Vec<TerminalKey>> {
-    let (input, res) = many1(alt((parse_special, parse_simple)))(input)?;
+    let (input, res) = many1(alt((parse_special, parse_simple))).parse(input)?;
     let (input, _) = eof(input)?;
 
     Ok((input, res))

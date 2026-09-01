@@ -3498,7 +3498,7 @@ pub enum InfoMessage {
 impl Display for InfoMessage {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
-            InfoMessage::Message(s) | InfoMessage::Pager(s) => write!(f, "{}", s),
+            InfoMessage::Message(s) | InfoMessage::Pager(s) => write!(f, "{s}"),
         }
     }
 }

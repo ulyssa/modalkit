@@ -23,13 +23,13 @@ fn main() -> Result<(), std::io::Error> {
                         return Ok(());
                     },
                     _ => {
-                        println!("User typed: {:?}", s);
+                        println!("User typed: {s:?}");
                     },
                 }
             },
             Err(e) => {
                 // Print out editor error messages.
-                println!("{}", e);
+                println!("{e}");
             },
         }
     }
@@ -44,7 +44,7 @@ fn select_mode() -> MixedChoice {
             match arg.as_str().trim() {
                 "e" | "emacs" => MixedChoice::Emacs,
                 "v" | "vim" => MixedChoice::Vim,
-                m => panic!("Unknown environment: {:?}", m),
+                m => panic!("Unknown environment: {m:?}"),
             }
         },
         None => MixedChoice::Vim,
