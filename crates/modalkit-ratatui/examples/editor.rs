@@ -99,7 +99,7 @@ impl Promptable<EditContext, Store<EditorInfo>, EditorInfo> for DirectoryItem {
 
             Ok(vec![(act.into(), ctx.clone())])
         } else {
-            let msg = format!("Cannot perform {:?} inside a list", act);
+            let msg = format!("Cannot perform {act:?} inside a list");
             let err = EditError::Unimplemented(msg);
 
             Err(err)
@@ -714,7 +714,7 @@ impl Editor {
 
             // Handle non-exhaustive pattern.
             _ => {
-                let msg = format!("Unknown action: {:?}", action);
+                let msg = format!("Unknown action: {action:?}");
                 let err = EditError::Unimplemented(msg);
 
                 return Err(err.into());
@@ -763,7 +763,7 @@ fn main() -> Result<(), std::io::Error> {
             match arg.as_str().trim() {
                 "e" | "emacs" => MixedChoice::Emacs,
                 "v" | "vim" => MixedChoice::Vim,
-                m => panic!("Unknown environment: {:?}", m),
+                m => panic!("Unknown environment: {m:?}"),
             }
         },
         None => MixedChoice::Vim,

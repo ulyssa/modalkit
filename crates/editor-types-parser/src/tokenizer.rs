@@ -6,20 +6,21 @@ use nom::{
     error::{ErrorKind, ParseError},
     multi::separated_list0,
     IResult,
+    Parser as _,
 };
 
 use super::*;
 
 fn parse_id(input: &str) -> IResult<&str, ActionToken<'_>> {
     let (input, _) = char('{')(input)?;
-    let (input, i) = opt(alphanumeric1)(input)?;
-    let (input, _) = cut(char('}'))(input)?;
+    let (input, i) = opt(alphanumeric1).parse(input)?;
+    let (input, _) = cut(char('}')).parse(input)?;
     Ok((input, ActionToken::Id(i)))
 }
 
 fn parse_flag_long(input: &str) -> IResult<&str, ActionToken<'_>> {
     let (input, _) = tag("--")(input)?;
-    let (input, c) = cut(take_while1(|c: char| c.is_ascii_alphabetic()))(input)?;
+    let (input, c) = cut(take_while1(|c: char| c.is_ascii_alphabetic())).parse(input)?;
 
     let token = match c {
         "count" => ActionToken::Flag(Flag::Count),
@@ -38,7 +39,7 @@ fn parse_flag_long(input: &str) -> IResult<&str, ActionToken<'_>> {
 
 fn parse_flag_short(input: &str) -> IResult<&str, ActionToken<'_>> {
     let (input, _) = char('-')(input)?;
-    let (input, c) = cut(satisfy(|c| c.is_ascii_alphabetic()))(input)?;
+    let (input, c) = cut(satisfy(|c| c.is_ascii_alphabetic())).parse(input)?;
 
     let token = match c {
         'c' => ActionToken::Flag(Flag::Count),
@@ -61,7 +62,7 @@ fn parse_num(input: &str) -> IResult<&str, ActionToken<'_>> {
 }
 
 fn parse_bool(input: &str) -> IResult<&str, ActionToken<'_>> {
-    let (input, b) = alt((value(true, tag("true")), value(false, tag("false"))))(input)?;
+    let (input, b) = alt((value(true, tag("true")), value(false, tag("false")))).parse(input)?;
     Ok((input, ActionToken::Bool(b)))
 }
 
@@ -71,9 +72,9 @@ fn parse_word(input: &str) -> IResult<&str, ActionToken<'_>> {
 }
 
 fn parse_group(input: &str) -> IResult<&str, ActionToken<'_>> {
-    let (input, _) = char('(')(input)?;
+    let (input, _) = char('(').parse(input)?;
     let (input, tokens) = parse_tokens(input)?;
-    let (input, _) = cut(char(')'))(input)?;
+    let (input, _) = cut(char(')')).parse(input)?;
     Ok((input, ActionToken::Group(tokens)))
 }
 
@@ -88,7 +89,8 @@ fn parse_token(input: &str) -> IResult<&str, ActionToken<'_>> {
         parse_word,
         parse_double_quote,
         parse_single_quote,
-    ))(input)
+    ))
+    .parse(input)
 }
 
 fn parse_double_quote(input: &str) -> IResult<&str, ActionToken<'_>> {
@@ -98,7 +100,7 @@ fn parse_double_quote(input: &str) -> IResult<&str, ActionToken<'_>> {
         return Err(err);
     }
 
-    let (input, _) = char('\"')(input)?;
+    let (input, _) = char('\"').parse(input)?;
     let (input, text) = cut(escaped_transform(
         is_not("\t\n\\\""),
         '\\',
@@ -109,8 +111,9 @@ fn parse_double_quote(input: &str) -> IResult<&str, ActionToken<'_>> {
             value("\\", tag("\\")),
             value("\"", tag("\"")),
         )),
-    ))(input)?;
-    let (input, _) = cut(char('\"'))(input)?;
+    ))
+    .parse(input)?;
+    let (input, _) = cut(char('\"')).parse(input)?;
 
     Ok((input, ActionToken::Str(text)))
 }
@@ -123,7 +126,7 @@ fn parse_single_quote(input: &str) -> IResult<&str, ActionToken<'_>> {
     }
 
     let (input, _) = char('\'')(input)?;
-    let (input, c) = cut(anychar)(input)?;
+    let (input, c) = cut(anychar).parse(input)?;
 
     let (input, c) = if c == '\\' {
         cut(alt((
@@ -132,18 +135,19 @@ fn parse_single_quote(input: &str) -> IResult<&str, ActionToken<'_>> {
             value('\n', tag("n")),
             value('\\', tag("\\")),
             value('\"', tag("\"")),
-        )))(input)?
+        )))
+        .parse(input)?
     } else {
         (input, c)
     };
-    let (input, _) = cut(char('\''))(input)?;
+    let (input, _) = cut(char('\'')).parse(input)?;
 
     Ok((input, ActionToken::Char(c)))
 }
 
 pub fn parse_tokens(input: &str) -> IResult<&str, Vec<ActionToken<'_>>> {
     let (input, _) = space0(input)?;
-    let (input, args) = separated_list0(space1, parse_token)(input)?;
+    let (input, args) = separated_list0(space1, parse_token).parse(input)?;
     let (input, _) = space0(input)?;
 
     Ok((input, args))

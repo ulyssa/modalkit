@@ -671,7 +671,7 @@ fn add_prefix<I: ApplicationInfo>(
             machine.add_prefix(mode, &evs, action);
         }
     } else {
-        panic!("invalid Emacs keybinding: {}", keys);
+        panic!("invalid Emacs keybinding: {keys}");
     }
 }
 
@@ -687,7 +687,7 @@ fn add_mapping<I: ApplicationInfo>(
             machine.add_mapping(mode, &evs, action);
         }
     } else {
-        panic!("invalid Emacs keybinding: {}", keys);
+        panic!("invalid Emacs keybinding: {keys}");
     }
 }
 

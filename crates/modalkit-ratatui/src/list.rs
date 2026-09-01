@@ -117,7 +117,7 @@ where
         selected: bool,
         viewport: &ViewportContext<ListCursor>,
         store: &mut Store<I>,
-    ) -> Text;
+    ) -> Text<'_>;
 
     /// Return a word that represents this list item.
     ///
@@ -138,7 +138,7 @@ impl<I> ListItem<I> for String
 where
     I: ApplicationInfo,
 {
-    fn show(&self, selected: bool, _: &ViewportContext<ListCursor>, _: &mut Store<I>) -> Text {
+    fn show(&self, selected: bool, _: &ViewportContext<ListCursor>, _: &mut Store<I>) -> Text<'_> {
         if selected {
             let hl = Style::default().add_modifier(StyleModifier::REVERSED);
 
@@ -1365,7 +1365,12 @@ mod tests {
     where
         I: ApplicationInfo,
     {
-        fn show(&self, selected: bool, _: &ViewportContext<ListCursor>, _: &mut Store<I>) -> Text {
+        fn show(
+            &self,
+            selected: bool,
+            _: &ViewportContext<ListCursor>,
+            _: &mut Store<I>,
+        ) -> Text<'_> {
             let style = if selected {
                 Style::default().add_modifier(StyleModifier::REVERSED)
             } else {
