@@ -574,16 +574,10 @@ mod tests {
         let result = Path::new(result.trim_end());
         assert_eq!(result, tmp.path());
 
-        // reset to the directory name
-        let (mut ebuf, gid, vwctx, mut vctx, mut store) = mkfivestr(path.as_ref());
-        vctx.persist.insert = Some(InsertStyle::Insert);
-        ebuf.set_leader(gid, Cursor::new(0, 0));
-        let mv = mv!(MoveType::LinePos(MovePosition::End), 0);
-        edit!(ebuf, EditAction::Motion, mv, ctx!(gid, vwctx, vctx), store);
+        // Clear completion list.
+        ebuf.completions.remove(&gid);
 
-        // Type "/.h" so we can complete the filename.
-        type_char!(ebuf, MAIN_SEPARATOR, gid, vwctx, vctx, store);
-        type_char!(ebuf, '.', gid, vwctx, vctx, store);
+        // Type "h" so we can complete the filename.
         type_char!(ebuf, 'h', gid, vwctx, vctx, store);
 
         // Complete to ".hidden" with preserve = false.
