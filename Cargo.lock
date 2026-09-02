@@ -432,7 +432,7 @@ checksum = "75b325c5dbd37f80359721ad39aca5a29fb04c89279657cffdda8736d0c0b9d2"
 
 [[package]]
 name = "editor-types"
-version = "0.0.2"
+version = "0.0.3"
 dependencies = [
  "bitflags 2.13.1",
  "editor-types-macros",
@@ -442,7 +442,7 @@ dependencies = [
 
 [[package]]
 name = "editor-types-macros"
-version = "0.0.2"
+version = "0.0.3"
 dependencies = [
  "editor-types-parser",
  "nom 8.0.0",
@@ -453,7 +453,7 @@ dependencies = [
 
 [[package]]
 name = "editor-types-parser"
-version = "0.0.2"
+version = "0.0.3"
 dependencies = [
  "nom 8.0.0",
  "thiserror 2.0.20",
@@ -824,7 +824,7 @@ dependencies = [
 
 [[package]]
 name = "keybindings"
-version = "0.0.2"
+version = "0.0.3"
 dependencies = [
  "textwrap",
  "unicode-segmentation",
@@ -980,7 +980,7 @@ dependencies = [
 
 [[package]]
 name = "modalkit"
-version = "0.0.25"
+version = "0.0.26"
 dependencies = [
  "anymap2",
  "arboard",
@@ -1004,7 +1004,7 @@ dependencies = [
 
 [[package]]
 name = "modalkit-ratatui"
-version = "0.0.25"
+version = "0.0.26"
 dependencies = [
  "crossterm",
  "intervaltree",
@@ -1701,7 +1701,7 @@ checksum = "9774ba4a74de5f7b1c1451ed6cd5285a32eddb5cccb8cc655a4e50009e06477f"
 
 [[package]]
 name = "scansion"
-version = "0.0.2"
+version = "0.0.3"
 dependencies = [
  "crossterm",
  "libc",
