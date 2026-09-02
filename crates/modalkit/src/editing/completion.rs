@@ -92,7 +92,7 @@ impl CompletionList {
     /// Select a different candidate from the completion list.
     pub fn select(&mut self, selection: &CompletionStyle) -> Option<String> {
         match selection {
-            CompletionStyle::List(dir) => {
+            CompletionStyle::List(dir, _) => {
                 let len = self.candidates.len();
                 let max = len.saturating_sub(1);
                 let idx = match (self.selected, dir) {
@@ -140,6 +140,22 @@ impl CompletionList {
                 } else {
                     return None;
                 }
+            },
+        }
+    }
+
+    /// Whether to preserve this list after completing a `selection`.
+    pub fn preserve(&self, selection: &CompletionStyle) -> bool {
+        match selection {
+            // Always save a non-empty list so we can cycle back to the non-completed prefix:
+            CompletionStyle::List(_, true) => !self.candidates.is_empty(),
+
+            // Always save a non-empty list to make sure that `None` can display the candidates:
+            CompletionStyle::None => !self.candidates.is_empty(),
+
+            // If there were multiple candidates available, save the list so it gets displayed:
+            CompletionStyle::List(_, false) | CompletionStyle::Prefix | CompletionStyle::Single => {
+                self.candidates.len() > 1
             },
         }
     }

@@ -15,6 +15,7 @@ use editor_types_parser::{
     ArgError,
     Flag,
     DEFAULT_COUNT,
+    DEFAULT_TRUE,
 };
 
 #[macro_use]
@@ -215,8 +216,20 @@ impl ActionMacroParser {
                 )
             },
             [ActionToken::Word("list"), rest @ ..] => {
-                let dir = self.parse_dir1d(rest, span);
-                quote! { ::editor_types::prelude::CompletionStyle::List(#dir) }
+                match parse_flags(
+                    [
+                        (Flag::Dir, None),
+                        (Flag::Long("toggle".into()), Some(&DEFAULT_TRUE[..])),
+                    ],
+                    rest,
+                ) {
+                    Ok([dir, toggle]) => {
+                        let dir = self.parse_dir1d(dir, span);
+                        let toggle = self.parse_bool(toggle, span);
+                        quote! { ::editor_types::prelude::CompletionStyle::List(#dir, #toggle) }
+                    },
+                    Err(e) => fail_cmd_flag("list", e, span),
+                }
             },
             [ActionToken::Id(i), rest @ ..] => {
                 id_match_branch!(self, i, ::editor_types::prelude::CompletionStyle, rest, span)
