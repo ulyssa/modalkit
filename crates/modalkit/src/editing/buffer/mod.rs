@@ -18,7 +18,7 @@ use std::collections::vec_deque::VecDeque;
 use std::marker::PhantomData;
 use std::ops::Range;
 
-use regex::Regex;
+use regex::{Regex, RegexBuilder};
 
 use crate::errors::{EditError, EditResult, UIResult};
 use crate::prelude::*;
@@ -114,6 +114,8 @@ pub struct EditBuffer<I: ApplicationInfo> {
 
     push_next_change: bool,
 
+    ignorecase: bool,
+
     _p: PhantomData<I>,
 }
 
@@ -163,6 +165,7 @@ where
             completions: HashMap::new(),
             lines: LineCompleter::default(),
             push_next_change: true,
+            ignorecase: false,
             _p: PhantomData,
         }
     }
@@ -180,6 +183,11 @@ where
     /// Get this buffer's content identifier.
     pub fn id(&self) -> I::ContentId {
         self.id.clone()
+    }
+
+    /// Set whether regular expression searches ignore case.
+    pub fn set_ignorecase(&mut self, ignorecase: bool) {
+        self.ignorecase = ignorecase;
     }
 
     fn _char(&self, c: Char, cursor: &Cursor, digraphs: &DigraphStore) -> EditResult<char, I> {
@@ -361,11 +369,14 @@ where
             .ok_or(EditError::NoCursorWord)?;
         let word = regex::escape(word.to_string().as_str());
 
-        let needle = if boundary {
-            Regex::new(format!("\\b{word}\\b").as_str())
+        let pattern = if boundary {
+            format!("\\b{word}\\b")
         } else {
-            Regex::new(word.as_str())
-        }?;
+            word
+        };
+        let needle = RegexBuilder::new(pattern.as_str())
+            .case_insensitive(self.ignorecase)
+            .build()?;
 
         store.registers.set_last_command(CommandType::Search, needle.to_string());
 
@@ -398,7 +409,9 @@ where
 
     fn _get_regex(&self, store: &Store<I>) -> EditResult<Regex, I> {
         let lsearch = store.registers.get_last_search();
-        let regex = Regex::new(lsearch.to_string().as_ref())?;
+        let regex = RegexBuilder::new(lsearch.to_string().as_ref())
+            .case_insensitive(self.ignorecase)
+            .build()?;
 
         return Ok(regex);
     }
@@ -2075,6 +2088,27 @@ mod tests {
         vctx.action.count = Some(1);
         edit!(ebuf, op, mv, ctx!(gid, vwctx, vctx), store);
         assert_eq!(ebuf.get_leader(gid), Cursor::new(0, 0));
+    }
+
+    #[test]
+    fn test_search_regex_ignorecase() {
+        let (mut ebuf, gid, vwctx, mut vctx, mut store) =
+            mkfivestr("hello world\nhelp helm writhe\nwhisk helium\n");
+
+        let op = EditAction::Motion;
+        let mv = EditTarget::Search(SearchType::Regex, MoveDirMod::Same, Count::Contextual);
+
+        // "HE" only matches "he" when case is ignored.
+        store.registers.set_last_search("HE");
+        ebuf.set_leader(gid, Cursor::new(0, 6));
+        vctx.action.count = Some(1);
+
+        edit!(ebuf, op, mv, ctx!(gid, vwctx, vctx), store);
+        assert_eq!(ebuf.get_leader(gid), Cursor::new(0, 6));
+
+        ebuf.set_ignorecase(true);
+        edit!(ebuf, op, mv, ctx!(gid, vwctx, vctx), store);
+        assert_eq!(ebuf.get_leader(gid), Cursor::new(1, 0));
     }
 
     #[test]

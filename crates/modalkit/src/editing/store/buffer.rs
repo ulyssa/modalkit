@@ -35,7 +35,7 @@ where
     }
 
     /// Get a buffer for storing the sub-content of a window.
-    pub fn entry(&mut self, id: I::ContentId) -> Entry<I::ContentId, SharedBuffer<I>> {
+    pub fn entry(&mut self, id: I::ContentId) -> Entry<'_, I::ContentId, SharedBuffer<I>> {
         self.buffers.entry(id)
     }
 

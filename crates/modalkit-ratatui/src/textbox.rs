@@ -223,6 +223,11 @@ where
         self.readonly = readonly;
     }
 
+    /// Set whether regular expression searches ignore case.
+    pub fn set_ignorecase(&mut self, ignorecase: bool) {
+        self.buffer.write().unwrap().set_ignorecase(ignorecase);
+    }
+
     /// Get the contents of the underlying buffer as an [EditRope].
     pub fn get(&self) -> EditRope {
         self.buffer.read().unwrap().get().clone()
@@ -307,7 +312,7 @@ where
                 count += 1;
                 let mut line_width = 0;
                 for c in line.chars(CharOff::from(0)) {
-                    let c_width = c.width_cjk().unwrap_or(1);
+                    let c_width = unicode_width::UnicodeWidthChar::width(c).unwrap_or(1);
                     if line_width + c_width > width {
                         count += 1;
                         line_width = c_width;
@@ -574,6 +579,10 @@ where
 
         self.term_cursor.into()
     }
+
+    fn hide_term_cursor(&self) -> bool {
+        false
+    }
 }
 
 impl<I> WindowOps<I> for TextBoxState<I>
@@ -815,7 +824,7 @@ where
                 let mut num_chars = 0;
                 let mut cur_width = 0;
                 for (i, c) in s.chars(CharOff::from(start_char)).enumerate() {
-                    let c_width = c.width_cjk().unwrap_or(1);
+                    let c_width = unicode_width::UnicodeWidthChar::width(c).unwrap_or(1);
                     if cur_width + c_width > width {
                         full = true;
                         break;
@@ -885,12 +894,9 @@ where
             }
 
             if cursor_line {
-                let coff = s[..s
-                    .char_indices()
-                    .map(|(i, _)| i)
-                    .nth(cursor.x.saturating_sub(start))
-                    .unwrap_or(s.len())]
-                    .width_cjk() as u16;
+                let rel = cursor.x.saturating_sub(start);
+                let prefix = s.chars().take(rel).collect::<String>();
+                let coff = unicode_width::UnicodeWidthStr::width(prefix.as_str()) as u16;
 
                 state.term_cursor = (x + coff, y);
             }
@@ -1035,12 +1041,9 @@ where
             let w = (right - x) as usize;
 
             if cursor_line {
-                let coff = s[..s
-                    .char_indices()
-                    .map(|(i, _)| i)
-                    .nth(cursor.x.saturating_sub(start))
-                    .unwrap_or(s.len())]
-                    .width_cjk() as u16;
+                let rel = cursor.x.saturating_sub(start);
+                let prefix = s.chars().take(rel).collect::<String>();
+                let coff = unicode_width::UnicodeWidthStr::width(prefix.as_str()) as u16;
 
                 state.term_cursor = (x + coff, y);
             }
@@ -1098,12 +1101,9 @@ where
                 let s = s.slice(CharOff::from(start)..CharOff::from(end)).to_string();
 
                 if line == cursor.y && (start..=end).contains(&cursor.x) {
-                    let coff = s[..s
-                        .char_indices()
-                        .map(|(i, _)| i)
-                        .nth(cursor.x.saturating_sub(start))
-                        .unwrap_or(s.len())]
-                        .width_cjk() as u16;
+                    let rel = cursor.x.saturating_sub(start);
+                    let prefix = s.chars().take(rel).collect::<String>();
+                    let coff = unicode_width::UnicodeWidthStr::width(prefix.as_str()) as u16;
 
                     state.term_cursor = (x + coff, y);
                 }
@@ -1659,5 +1659,104 @@ mod tests {
         assert_eq!(tbox.viewctx.corner, Cursor::new(0, 0));
         assert_eq!(tbox.get_cursor(), Cursor::new(0, 7));
         assert_eq!(tbox.get_term_cursor(), (8, 1).into());
+    }
+
+    #[test]
+    fn test_other_unicode_char_cursor() {
+        let (mut tbox, ctx, mut store) = mkboxstr("Using cur’ly quotes\n");
+
+        let area = Rect::new(0, 0, 30, 30);
+        let mut buffer = Buffer::empty(area);
+
+        // Prompt should push everything right by 2 characters.
+        TextBox::new().prompt("> ").render(area, &mut buffer, &mut tbox);
+
+        assert_eq!(tbox.viewctx.corner, Cursor::new(0, 0));
+        assert_eq!(tbox.get_cursor(), Cursor::new(0, 0));
+        assert_eq!(tbox.get_term_cursor(), (2, 0).into());
+
+        // Move the cursor to be over the curly quote.
+        let mov = mv!(MoveType::Column(MoveDir1D::Next, false), 9);
+        let act = EditorAction::Edit(EditAction::Motion.into(), mov);
+        tbox.editor_command(&act, &ctx, &mut store).unwrap();
+
+        // Draw again to update our terminal cursor using oneline().
+        TextBox::new().prompt("> ").oneline().render(area, &mut buffer, &mut tbox);
+
+        assert_eq!(tbox.viewctx.corner, Cursor::new(0, 0));
+        assert_eq!(tbox.get_cursor(), Cursor::new(0, 9));
+        assert_eq!(tbox.get_term_cursor(), (11, 0).into());
+        // Draw again to update our terminal cursor using set_wrap(true).
+        tbox.set_wrap(true);
+        TextBox::new().prompt("> ").render(area, &mut buffer, &mut tbox);
+
+        assert_eq!(tbox.viewctx.corner, Cursor::new(0, 0));
+        assert_eq!(tbox.get_cursor(), Cursor::new(0, 9));
+        assert_eq!(tbox.get_term_cursor(), (11, 0).into());
+
+        // Draw again to update our terminal cursor using set_wrap(false).
+        tbox.set_wrap(true);
+        TextBox::new().prompt("> ").render(area, &mut buffer, &mut tbox);
+
+        assert_eq!(tbox.viewctx.corner, Cursor::new(0, 0));
+        assert_eq!(tbox.get_cursor(), Cursor::new(0, 9));
+        assert_eq!(tbox.get_term_cursor(), (11, 0).into());
+    }
+
+    #[test]
+    fn test_other_unicode_char_wrap() {
+        let (mut tbox, ctx, mut store) = mkboxstr("Using cur’ly quotes\n");
+
+        let area = Rect::new(0, 0, 13, 13);
+        let mut buffer = Buffer::empty(area);
+
+        let mut expected = buffer.clone();
+        expected.set_string(0, 0, "> Using cur’l", Style::new());
+        expected.set_string(0, 1, "  y quotes", Style::new());
+
+        // Prompt should push everything right by 2 characters.
+        TextBox::new().prompt("> ").render(area, &mut buffer, &mut tbox);
+
+        assert_eq!(buffer, expected);
+        assert_eq!(tbox.viewctx.corner, Cursor::new(0, 0));
+        assert_eq!(tbox.get_cursor(), Cursor::new(0, 0));
+        assert_eq!(tbox.get_term_cursor(), (2, 0).into());
+        assert_eq!(tbox.has_lines(5), 2);
+
+        // Move the cursor to be on the "l" on the end of the first wrapped line.
+        let mov = mv!(MoveType::Column(MoveDir1D::Next, false), 10);
+        let act = EditorAction::Edit(EditAction::Motion.into(), mov);
+        tbox.editor_command(&act, &ctx, &mut store).unwrap();
+
+        TextBox::new().prompt("> ").render(area, &mut buffer, &mut tbox);
+
+        assert_eq!(buffer, expected);
+        assert_eq!(tbox.viewctx.corner, Cursor::new(0, 0));
+        assert_eq!(tbox.get_cursor(), Cursor::new(0, 10));
+        assert_eq!(tbox.get_term_cursor(), (12, 0).into());
+
+        // Move the cursor right to be over "y".
+        let mov = mv!(MoveType::Column(MoveDir1D::Next, false), 1);
+        let act = EditorAction::Edit(EditAction::Motion.into(), mov);
+        tbox.editor_command(&act, &ctx, &mut store).unwrap();
+
+        TextBox::new().prompt("> ").render(area, &mut buffer, &mut tbox);
+
+        assert_eq!(buffer, expected);
+        assert_eq!(tbox.viewctx.corner, Cursor::new(0, 0));
+        assert_eq!(tbox.get_cursor(), Cursor::new(0, 11));
+        assert_eq!(tbox.get_term_cursor(), (2, 1).into());
+
+        // Move the cursor right to be at the end.
+        let mov = mv!(MoveType::Column(MoveDir1D::Next, false), 7);
+        let act = EditorAction::Edit(EditAction::Motion.into(), mov);
+        tbox.editor_command(&act, &ctx, &mut store).unwrap();
+
+        TextBox::new().prompt("> ").render(area, &mut buffer, &mut tbox);
+
+        assert_eq!(buffer, expected);
+        assert_eq!(tbox.viewctx.corner, Cursor::new(0, 0));
+        assert_eq!(tbox.get_cursor(), Cursor::new(0, 18));
+        assert_eq!(tbox.get_term_cursor(), (9, 1).into());
     }
 }

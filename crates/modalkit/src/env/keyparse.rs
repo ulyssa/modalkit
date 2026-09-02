@@ -5,6 +5,7 @@ use nom::{
     combinator::{eof, map_res, opt, value},
     multi::many1,
     IResult,
+    Parser as _,
 };
 
 use super::{CommonEdgeEvent, CommonEdgePath, CommonEdgePathPart, CommonKeyClass};
@@ -23,7 +24,7 @@ fn parse_special(input: &str) -> IResult<&str, CommonEdgePathPart> {
 }
 
 fn parse_count(input: &str) -> IResult<&str, CommonEdgePathPart> {
-    let (input, _) = tag("{count}")(input)?;
+    let (input, _) = tag("{count}").parse(input)?;
 
     let rep = EdgeRepeat::Min(1);
     let evt = EdgeEvent::Class(CommonKeyClass::Count);
@@ -32,15 +33,15 @@ fn parse_count(input: &str) -> IResult<&str, CommonEdgePathPart> {
 }
 
 fn parse_repetition_min(input: &str) -> IResult<&str, EdgeRepeat> {
-    let (input, _) = tag(">=")(input)?;
-    let (input, n) = map_res(digit1, parse_base10_usize)(input)?;
+    let (input, _) = tag(">=").parse(input)?;
+    let (input, n) = map_res(digit1, parse_base10_usize).parse(input)?;
 
     Ok((input, EdgeRepeat::Min(n)))
 }
 
 fn parse_repetition_max(input: &str) -> IResult<&str, EdgeRepeat> {
-    let (input, _) = tag("<=")(input)?;
-    let (input, n) = map_res(digit1, parse_base10_usize)(input)?;
+    let (input, _) = tag("<=").parse(input)?;
+    let (input, n) = map_res(digit1, parse_base10_usize).parse(input)?;
 
     Ok((input, EdgeRepeat::Max(n)))
 }
@@ -51,11 +52,12 @@ fn parse_repetition(input: &str) -> IResult<&str, EdgeRepeat> {
         value(EdgeRepeat::Min(1), tag("+")),
         parse_repetition_min,
         parse_repetition_max,
-    ))(input)
+    ))
+    .parse(input)
 }
 
 fn parse_edgename(input: &str) -> IResult<&str, CommonEdgePathPart> {
-    let (input, _) = char('{')(input)?;
+    let (input, _) = char('{').parse(input)?;
     let (input, e) = alt((
         value(EdgeEvent::Any, tag("any")),
         value(EdgeEvent::Class(CommonKeyClass::Count), tag("count")),
@@ -66,9 +68,10 @@ fn parse_edgename(input: &str) -> IResult<&str, CommonEdgePathPart> {
         value(EdgeEvent::Class(CommonKeyClass::Hexadecimal), tag("hex")),
         value(EdgeEvent::Class(CommonKeyClass::Digraph1), tag("digraph1")),
         value(EdgeEvent::Class(CommonKeyClass::Digraph2), tag("digraph2")),
-    ))(input)?;
-    let (input, rep) = opt(parse_repetition)(input)?;
-    let (input, _) = char('}')(input)?;
+    ))
+    .parse(input)?;
+    let (input, rep) = opt(parse_repetition).parse(input)?;
+    let (input, _) = char('}').parse(input)?;
 
     let rep = rep.unwrap_or(EdgeRepeat::Once);
 
@@ -84,11 +87,11 @@ fn parse_key_simple(input: &str) -> IResult<&str, CommonEdgePathPart> {
 }
 
 fn parse_key(input: &str) -> IResult<&str, (EdgeRepeat, CommonEdgeEvent)> {
-    alt((parse_special, parse_count, parse_edgename, parse_key_simple))(input)
+    alt((parse_special, parse_count, parse_edgename, parse_key_simple)).parse(input)
 }
 
 pub fn parse(input: &str) -> IResult<&str, CommonEdgePath> {
-    let (input, res) = many1(parse_key)(input)?;
+    let (input, res) = many1(parse_key).parse(input)?;
     let (input, _) = eof(input)?;
 
     Ok((input, res))

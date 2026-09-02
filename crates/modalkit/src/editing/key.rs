@@ -28,9 +28,11 @@ use std::borrow::Cow;
 use std::collections::VecDeque;
 
 use crate::actions::MacroAction;
+use crate::editing::cursor::CursorStyle;
 use crate::errors::{EditError, EditResult};
 use crate::key::MacroError;
-use crate::keybindings::{dialog::Dialog, BindingMachine, InputKey};
+use crate::keybindings::dialog::Dialog;
+use crate::keybindings::{BindingMachine, InputKey};
 use crate::prelude::*;
 
 use super::{
@@ -47,7 +49,7 @@ pub struct KeyManager<K, A, S>
 where
     K: InputKey,
 {
-    bindings: Box<dyn BindingMachine<K, A, S, EditContext>>,
+    bindings: Box<dyn BindingMachine<K, A, S, EditContext, CursorStyle>>,
     keystack: VecDeque<K>,
 
     recording: Option<(Register, bool)>,
@@ -62,7 +64,9 @@ where
     K: InputKey,
 {
     /// Create a new instance.
-    pub fn new<B: BindingMachine<K, A, S, EditContext> + 'static>(bindings: B) -> Self {
+    pub fn new<B: BindingMachine<K, A, S, EditContext, CursorStyle> + 'static>(
+        bindings: B,
+    ) -> Self {
         let bindings = Box::new(bindings);
 
         Self {
@@ -147,7 +151,7 @@ where
     }
 }
 
-impl<K, A, S> BindingMachine<K, A, S, EditContext> for KeyManager<K, A, S>
+impl<K, A, S> BindingMachine<K, A, S, EditContext, CursorStyle> for KeyManager<K, A, S>
 where
     K: InputKey + ToString,
 {
@@ -201,8 +205,8 @@ where
         self.bindings.reset_mode()
     }
 
-    fn get_cursor_indicator(&self) -> Option<char> {
-        self.bindings.get_cursor_indicator()
+    fn get_cursor_hint(&self) -> CursorStyle {
+        self.bindings.get_cursor_hint()
     }
 
     fn repeat(&mut self, seq: S, other: Option<EditContext>) {
@@ -504,7 +508,7 @@ mod tests {
 
         // No last macro to repeat.
         input!(key!('@'));
-        assert!(matches!(err, Some(EditError::Register(RegisterError::NoLastMacro))), "{:?}", err);
+        assert!(matches!(err, Some(EditError::Register(RegisterError::NoLastMacro))), "{err:?}");
 
         // Press an unmapped key before recording.
         input!(key!('l'));

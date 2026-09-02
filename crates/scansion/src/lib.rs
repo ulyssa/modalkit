@@ -79,6 +79,7 @@ use modalkit::actions::{
 use modalkit::editing::{
     application::{ApplicationContentId, ApplicationInfo, ApplicationWindowId},
     context::{EditContext, Resolve},
+    cursor::CursorStyle,
     history::HistoryList,
     key::KeyManager,
     rope::EditRope,
@@ -206,7 +207,9 @@ where
     I: ApplicationInfo<ContentId = ReadLineId>,
 {
     /// Create a new instance.
-    pub fn new<B: BindingMachine<TerminalKey, Action<I>, RepeatType, EditContext> + 'static>(
+    pub fn new<
+        B: BindingMachine<TerminalKey, Action<I>, RepeatType, EditContext, CursorStyle> + 'static,
+    >(
         bindings: B,
     ) -> Result<Self, std::io::Error>
     where

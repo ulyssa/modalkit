@@ -153,6 +153,9 @@ where
     fn get_term_cursor(&self) -> Option<TermOffset> {
         self.current.get_term_cursor()
     }
+    fn hide_term_cursor(&self) -> bool {
+        self.current.hide_term_cursor()
+    }
 }
 
 impl<W, I> WindowOps<I> for WindowSlot<W>
@@ -227,11 +230,11 @@ where
         self.current.id()
     }
 
-    fn get_win_title(&self, store: &mut Store<I>) -> Line {
+    fn get_win_title(&self, store: &mut Store<I>) -> Line<'_> {
         self.current.get_win_title(store)
     }
 
-    fn get_tab_title(&self, store: &mut Store<I>) -> Line {
+    fn get_tab_title(&self, store: &mut Store<I>) -> Line<'_> {
         self.current.get_tab_title(store)
     }
 

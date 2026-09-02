@@ -8,7 +8,7 @@ authors = ["Ulyssa <git@ulyssa.dev>"]
 repository = "https://github.com/ulyssa/modalkit"
 license = "Apache-2.0"
 edition = "2021"
-rust-version = "1.75"
+rust-version = "1.88"
 
 [workspace.dependencies.editor-types]
 path = "crates/editor-types"
@@ -35,13 +35,13 @@ bitflags = "2.4.2"
 crossterm = "0.29"
 intervaltree = { version = "0.2.6" }
 libc = "0.2"
-nom = "7.0.0"
-rand = "0.8.4"
+nom = "8.0.0"
+rand = "0.10.0"
 regex = "^1.5"
-temp-dir = "0.1.11"
-thiserror = "^1.0.37"
+temp-dir = "0.2.0"
+thiserror = "2.0.0"
 unicode-segmentation = "^1.7"
-unicode-width = "0.1.10"
+unicode-width = "0.2.0"
 
 # Allow some overly pedantic warnings.
 [workspace.lints.clippy]

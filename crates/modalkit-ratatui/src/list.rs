@@ -31,7 +31,7 @@
 use std::cmp::{Ord, Ordering, PartialOrd};
 use std::marker::PhantomData;
 
-use regex::Regex;
+use regex::{Regex, RegexBuilder};
 
 use ratatui::{
     buffer::Buffer,
@@ -117,7 +117,7 @@ where
         selected: bool,
         viewport: &ViewportContext<ListCursor>,
         store: &mut Store<I>,
-    ) -> Text;
+    ) -> Text<'_>;
 
     /// Return a word that represents this list item.
     ///
@@ -138,7 +138,7 @@ impl<I> ListItem<I> for String
 where
     I: ApplicationInfo,
 {
-    fn show(&self, selected: bool, _: &ViewportContext<ListCursor>, _: &mut Store<I>) -> Text {
+    fn show(&self, selected: bool, _: &ViewportContext<ListCursor>, _: &mut Store<I>) -> Text<'_> {
         if selected {
             let hl = Style::default().add_modifier(StyleModifier::REVERSED);
 
@@ -159,6 +159,8 @@ where
     items: Vec<T>,
     cursor: ListCursor,
     viewctx: ViewportContext<ListCursor>,
+    ignorecase: bool,
+    term_cursor: (u16, u16),
 
     /// Tracks the jumplist for this window.
     jumped: HistoryList<ListCursor>,
@@ -191,7 +193,9 @@ where
             id,
             items,
             cursor: 0.into(),
+            term_cursor: (0, 0),
             viewctx,
+            ignorecase: false,
             jumped: HistoryList::new(0.into(), 100),
         }
     }
@@ -322,6 +326,11 @@ where
     /// Set the dimensions and placement within the terminal window for this list.
     pub fn set_term_info(&mut self, area: Rect) {
         self.viewctx.dimensions = (area.width as usize, area.height as usize);
+    }
+
+    /// Set whether regular expression searches ignore case.
+    pub fn set_ignorecase(&mut self, ignorecase: bool) {
+        self.ignorecase = ignorecase;
     }
 }
 
@@ -630,7 +639,9 @@ where
 
                         let lsearch = store.registers.get_last_search();
                         let lsearch = lsearch.to_string();
-                        let needle = Regex::new(lsearch.as_ref())?;
+                        let needle = RegexBuilder::new(lsearch.as_ref())
+                            .case_insensitive(self.ignorecase)
+                            .build()?;
 
                         self.find_regex(&self.cursor, dir, &needle, count).map(|r| r.start)
                     },
@@ -696,7 +707,9 @@ where
 
                         let lsearch = store.registers.get_last_search();
                         let lsearch = lsearch.to_string();
-                        let needle = Regex::new(lsearch.as_ref())?;
+                        let needle = RegexBuilder::new(lsearch.as_ref())
+                            .case_insensitive(self.ignorecase)
+                            .build()?;
 
                         self.find_regex(&self.cursor, dir, &needle, count)
                     },
@@ -1137,8 +1150,10 @@ where
     I: ApplicationInfo,
 {
     fn get_term_cursor(&self) -> Option<(u16, u16)> {
-        // We highlight the selected text, but don't show the cursor.
-        return None;
+        self.term_cursor.into()
+    }
+    fn hide_term_cursor(&self) -> bool {
+        true
     }
 }
 
@@ -1153,7 +1168,9 @@ where
             items: self.items.clone(),
             cursor: self.cursor.clone(),
             viewctx: self.viewctx.clone(),
+            ignorecase: self.ignorecase,
             jumped: self.jumped.clone(),
+            term_cursor: (0, 0),
         }
     }
 
@@ -1236,6 +1253,7 @@ where
         if state.is_empty() {
             if let Some(msg) = self.empty_message {
                 Paragraph::new(msg).alignment(self.empty_alignment).render(area, buf);
+                state.term_cursor = (area.left(), area.top());
                 return;
             }
         }
@@ -1299,8 +1317,12 @@ where
         let mut y = area.top();
         let x = area.left();
 
-        for (_, _, txt) in lines.into_iter() {
+        for (idx, row, txt) in lines.into_iter() {
             let _ = buf.set_line(x, y, &txt, area.width);
+
+            if row == 0 && idx == state.cursor.position {
+                state.term_cursor = (x, y);
+            }
 
             y += 1;
         }
@@ -1343,7 +1365,12 @@ mod tests {
     where
         I: ApplicationInfo,
     {
-        fn show(&self, selected: bool, _: &ViewportContext<ListCursor>, _: &mut Store<I>) -> Text {
+        fn show(
+            &self,
+            selected: bool,
+            _: &ViewportContext<ListCursor>,
+            _: &mut Store<I>,
+        ) -> Text<'_> {
             let style = if selected {
                 Style::default().add_modifier(StyleModifier::REVERSED)
             } else {
@@ -1639,6 +1666,23 @@ mod tests {
 
         list.search(MoveDir1D::Previous.into(), 2.into(), &ctx, &mut store)
             .unwrap();
+        assert_eq!(list.cursor.position, 7);
+    }
+
+    #[test]
+    fn test_search_ignorecase() {
+        let (mut list, ctx, mut store) = mklist();
+
+        // "MONDAY" only matches "Monday Starts on Saturday" (item 7) when case is ignored.
+        store.registers.set_last_search("MONDAY");
+
+        assert_eq!(list.cursor.position, 0);
+
+        list.search(MoveDir1D::Next.into(), 1.into(), &ctx, &mut store).unwrap();
+        assert_eq!(list.cursor.position, 0);
+
+        list.set_ignorecase(true);
+        list.search(MoveDir1D::Next.into(), 1.into(), &ctx, &mut store).unwrap();
         assert_eq!(list.cursor.position, 7);
     }
 

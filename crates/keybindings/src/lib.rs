@@ -174,6 +174,14 @@ pub trait InputState {
     /// The output context type returned along with actions.
     type Output: Clone + Default;
 
+    /// Implementation-specific type for indicating how to render the cursor.
+    type CursorHint: Default;
+
+    /// Return a hint for how to render the cursor.
+    fn get_cursor_hint(&self) -> Self::CursorHint {
+        Self::CursorHint::default()
+    }
+
     /// Reset any action-specific state.
     fn reset(&mut self);
 
@@ -225,11 +233,6 @@ impl InputKey for char {
 pub trait InputKeyState<Key, C: InputKeyClass<Key>>: InputState {
     /// Update the context as needed after a `Key` has matched an [EdgeEvent].
     fn event(&mut self, event: &EdgeEvent<Key, C>, key: &Key) {}
-
-    /// Return a character to show at the current cursor position.
-    fn get_cursor_indicator(&self) -> Option<char> {
-        None
-    }
 }
 
 /// Trait for the input modes specific to a consumer.
@@ -358,7 +361,7 @@ pub trait InputBindings<Key: InputKey, S: Step<Key>> {
 }
 
 /// Trait for objects that can process input keys using previously mapped bindings.
-pub trait BindingMachine<K, A, S, C>
+pub trait BindingMachine<K, A, S, C, H>
 where
     K: InputKey,
 {
@@ -384,7 +387,7 @@ where
     fn reset_mode(&mut self);
 
     /// Returns a character to show for the cursor.
-    fn get_cursor_indicator(&self) -> Option<char>;
+    fn get_cursor_hint(&self) -> H;
 
     /// Repeat a recent sequence of tracked actions, and optionally override their original
     /// contexts using [InputState::merge]. The repeated sequence will be inserted at
@@ -427,6 +430,7 @@ pub struct EmptyKeyState {}
 
 impl InputState for EmptyKeyState {
     type Output = Self;
+    type CursorHint = ();
 
     fn merge(original: Self, _: &Self) -> Self {
         original
@@ -667,7 +671,7 @@ impl<Key: InputKey, S: Step<Key>> Graph<Key, S> {
         self.edges.get(&id).map(|es| !es.is_empty()).unwrap_or(false)
     }
 
-    fn follow_edge(&self, id: NodeId, ke: &Key) -> FollowResult<Key, S> {
+    fn follow_edge(&self, id: NodeId, ke: &Key) -> FollowResult<'_, Key, S> {
         if let Some(m) = self.edges.get(&id) {
             if let Some(e) = m.get(&EdgeEvent::Key(ke.clone())) {
                 return FollowResult::Successor(e);
@@ -1254,6 +1258,11 @@ where
         self.actions.push_back(pair);
     }
 
+    /// Returns an implementation-defined hint for how to render the input cursor.
+    pub fn get_cursor_hint(&self) -> <S::State as InputState>::CursorHint {
+        self.ctx.get_cursor_hint()
+    }
+
     /// Returns the mode we've most recently entered.
     ///
     /// Modes reached via [Fallthrough](EdgeEvent::Fallthrough) will not change what this returns.
@@ -1267,8 +1276,14 @@ where
     }
 }
 
-impl<Key, S> BindingMachine<Key, S::A, S::Sequence, <S::State as InputState>::Output>
-    for ModalMachine<Key, S>
+impl<Key, S>
+    BindingMachine<
+        Key,
+        S::A,
+        S::Sequence,
+        <S::State as InputState>::Output,
+        <S::State as InputState>::CursorHint,
+    > for ModalMachine<Key, S>
 where
     Key: InputKey,
     S: Step<Key>,
@@ -1378,8 +1393,8 @@ where
         self.state.show(&self.ctx)
     }
 
-    fn get_cursor_indicator(&self) -> Option<char> {
-        self.ctx.get_cursor_indicator()
+    fn get_cursor_hint(&self) -> <S::State as InputState>::CursorHint {
+        self.ctx.get_cursor_hint()
     }
 
     fn repeat(&mut self, seq: S::Sequence, ctx: Option<<S::State as InputState>::Output>) {
@@ -1710,6 +1725,11 @@ mod tests {
 
     impl InputState for TestContext {
         type Output = Self;
+        type CursorHint = Option<char>;
+
+        fn get_cursor_hint(&self) -> Option<char> {
+            self.temp.cursor
+        }
 
         fn merge(mut original: Self, other: &Self) -> Self {
             if other.temp.count.is_some() {
@@ -1767,10 +1787,6 @@ mod tests {
                     // Do nothing.
                 },
             }
-        }
-
-        fn get_cursor_indicator(&self) -> Option<char> {
-            self.temp.cursor
         }
     }
 
@@ -3113,13 +3129,13 @@ mod tests {
 
         // No cursor indicator yet.
         assert_eq!(tm.mode(), TestMode::Insert);
-        assert_eq!(tm.get_cursor_indicator(), None);
+        assert_eq!(tm.get_cursor_hint(), None);
 
         // Set cursor indicator while we wait for the register.
         tm.input_key(ctl!('r'));
         assert_eq!(tm.pop(), None);
         assert_eq!(tm.mode(), TestMode::Insert);
-        assert_eq!(tm.get_cursor_indicator(), Some('^'));
+        assert_eq!(tm.get_cursor_hint(), Some('^'));
 
         // Set cursor indicator while we wait for the register.
         ctx.temp.register = Some('a');
@@ -3127,6 +3143,6 @@ mod tests {
         tm.input_key(key!('a'));
         assert_pop2!(tm, TestAction::Paste, ctx);
         assert_eq!(tm.mode(), TestMode::Insert);
-        assert_eq!(tm.get_cursor_indicator(), None);
+        assert_eq!(tm.get_cursor_hint(), None);
     }
 }
