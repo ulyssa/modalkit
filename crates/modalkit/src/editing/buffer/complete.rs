@@ -107,7 +107,9 @@ where
             self._adjust_all(adjs, store);
         }
 
-        self.completions.insert(gid, list);
+        if list.preserve(style) {
+            self.completions.insert(gid, list);
+        }
 
         Ok(None)
     }
@@ -160,7 +162,9 @@ where
             self._adjust_all(adjs, store);
         }
 
-        self.completions.insert(gid, list);
+        if list.preserve(style) {
+            self.completions.insert(gid, list);
+        }
 
         Ok(None)
     }
@@ -221,7 +225,9 @@ where
             self._adjust_all(adjs, store);
         }
 
-        self.completions.insert(gid, list);
+        if list.preserve(style) {
+            self.completions.insert(gid, list);
+        }
 
         Ok(None)
     }
@@ -282,7 +288,9 @@ where
             self._adjust_all(adjs, store);
         }
 
-        self.completions.insert(gid, list);
+        if list.preserve(style) {
+            self.completions.insert(gid, list);
+        }
 
         Ok(None)
     }
@@ -364,7 +372,7 @@ mod tests {
 
         // Empty text completes to "dressed" first.
         ebuf.complete_auto(
-            &CompletionStyle::List(next),
+            &CompletionStyle::List(next, true),
             &CompletionDisplay::None,
             ctx!(gid, vwctx, vctx),
             &mut store,
@@ -375,7 +383,7 @@ mod tests {
 
         // Then completes to "pressed".
         ebuf.complete_auto(
-            &CompletionStyle::List(next),
+            &CompletionStyle::List(next, true),
             &CompletionDisplay::None,
             ctx!(gid, vwctx, vctx),
             &mut store,
@@ -386,7 +394,7 @@ mod tests {
 
         // Move backwards to "dressed".
         ebuf.complete_auto(
-            &CompletionStyle::List(prev),
+            &CompletionStyle::List(prev, true),
             &CompletionDisplay::None,
             ctx!(gid, vwctx, vctx),
             &mut store,
@@ -397,7 +405,7 @@ mod tests {
 
         // Move backwards to "".
         ebuf.complete_auto(
-            &CompletionStyle::List(prev),
+            &CompletionStyle::List(prev, true),
             &CompletionDisplay::None,
             ctx!(gid, vwctx, vctx),
             &mut store,
@@ -415,7 +423,7 @@ mod tests {
 
         // Complete to "dressed".
         ebuf.complete_auto(
-            &CompletionStyle::List(prev),
+            &CompletionStyle::List(prev, true),
             &CompletionDisplay::None,
             ctx!(gid, vwctx, vctx),
             &mut store,
@@ -486,7 +494,7 @@ mod tests {
 
         // First, complete to file1.
         ebuf.complete_file(
-            &CompletionStyle::List(next),
+            &CompletionStyle::List(next, true),
             &CompletionDisplay::None,
             ctx!(gid, vwctx, vctx),
             &mut store,
@@ -496,7 +504,7 @@ mod tests {
 
         // Then complete to file2.
         ebuf.complete_file(
-            &CompletionStyle::List(next),
+            &CompletionStyle::List(next, true),
             &CompletionDisplay::None,
             ctx!(gid, vwctx, vctx),
             &mut store,
@@ -506,7 +514,7 @@ mod tests {
 
         // Then return to parent.
         ebuf.complete_file(
-            &CompletionStyle::List(next),
+            &CompletionStyle::List(next, true),
             &CompletionDisplay::None,
             ctx!(gid, vwctx, vctx),
             &mut store,
@@ -525,7 +533,7 @@ mod tests {
 
         // Complete to "./".
         ebuf.complete_file(
-            &CompletionStyle::List(next),
+            &CompletionStyle::List(next, true),
             &CompletionDisplay::None,
             ctx!(gid, vwctx, vctx),
             &mut store,
@@ -535,7 +543,7 @@ mod tests {
 
         // Complete to "../".
         ebuf.complete_file(
-            &CompletionStyle::List(next),
+            &CompletionStyle::List(next, true),
             &CompletionDisplay::None,
             ctx!(gid, vwctx, vctx),
             &mut store,
@@ -545,7 +553,7 @@ mod tests {
 
         // Complete to ".hidden".
         ebuf.complete_file(
-            &CompletionStyle::List(next),
+            &CompletionStyle::List(next, true),
             &CompletionDisplay::None,
             ctx!(gid, vwctx, vctx),
             &mut store,
@@ -555,7 +563,7 @@ mod tests {
 
         // Return to parent.
         ebuf.complete_file(
-            &CompletionStyle::List(next),
+            &CompletionStyle::List(next, true),
             &CompletionDisplay::None,
             ctx!(gid, vwctx, vctx),
             &mut store,
@@ -572,15 +580,18 @@ mod tests {
         // Type "h" so we can complete the filename.
         type_char!(ebuf, 'h', gid, vwctx, vctx, store);
 
-        // Complete to ".hidden".
+        // Complete to ".hidden" with preserve = false.
         ebuf.complete_file(
-            &CompletionStyle::List(next),
+            &CompletionStyle::List(next, false),
             &CompletionDisplay::None,
             ctx!(gid, vwctx, vctx),
             &mut store,
         )
         .unwrap();
         assert_eq!(unescape(ebuf.get_text().trim_end()), hidden);
+
+        // A single completion is directly applied:
+        assert!(!ebuf.completions.contains_key(&gid));
 
         // create buffer with some text and path to temporary directory.
         let (mut ebuf, gid, vwctx, mut vctx, mut store) =
@@ -601,7 +612,7 @@ mod tests {
 
         // First, complete to file1.
         ebuf.complete_file(
-            &CompletionStyle::List(next),
+            &CompletionStyle::List(next, true),
             &CompletionDisplay::None,
             ctx!(gid, vwctx, vctx),
             &mut store,
@@ -627,7 +638,7 @@ mod tests {
         // Completion with Buffer scope does nothing.
         ebuf1
             .complete_line(
-                &CompletionStyle::List(next),
+                &CompletionStyle::List(next, true),
                 &CompletionScope::Buffer,
                 &CompletionDisplay::None,
                 ctx!(gid, vwctx, vctx),
@@ -640,7 +651,7 @@ mod tests {
         // Completion with Global scope results in "foo bar baz".
         ebuf1
             .complete_line(
-                &CompletionStyle::List(next),
+                &CompletionStyle::List(next, true),
                 &CompletionScope::Global,
                 &CompletionDisplay::None,
                 ctx!(gid, vwctx, vctx),
@@ -653,7 +664,7 @@ mod tests {
         // Doing it again results in "foo bar quux".
         ebuf1
             .complete_line(
-                &CompletionStyle::List(next),
+                &CompletionStyle::List(next, true),
                 &CompletionScope::Global,
                 &CompletionDisplay::None,
                 ctx!(gid, vwctx, vctx),
@@ -666,7 +677,7 @@ mod tests {
         // Once more returns to "foo b".
         ebuf1
             .complete_line(
-                &CompletionStyle::List(next),
+                &CompletionStyle::List(next, true),
                 &CompletionScope::Global,
                 &CompletionDisplay::None,
                 ctx!(gid, vwctx, vctx),
@@ -679,7 +690,7 @@ mod tests {
         // Go backwards to "foo bar quux".
         ebuf1
             .complete_line(
-                &CompletionStyle::List(prev),
+                &CompletionStyle::List(prev, true),
                 &CompletionScope::Global,
                 &CompletionDisplay::None,
                 ctx!(gid, vwctx, vctx),
@@ -707,7 +718,7 @@ mod tests {
         // Completion with Buffer scope only completes to bar.
         ebuf1
             .complete_word(
-                &CompletionStyle::List(next),
+                &CompletionStyle::List(next, true),
                 &CompletionScope::Buffer,
                 &CompletionDisplay::None,
                 ctx!(gid, vwctx, vctx),
@@ -720,7 +731,7 @@ mod tests {
         // Completing again returns to "b".
         ebuf1
             .complete_word(
-                &CompletionStyle::List(next),
+                &CompletionStyle::List(next, true),
                 &CompletionScope::Buffer,
                 &CompletionDisplay::None,
                 ctx!(gid, vwctx, vctx),
@@ -736,7 +747,7 @@ mod tests {
         // Completion with Global scope first yields "bar".
         ebuf1
             .complete_word(
-                &CompletionStyle::List(next),
+                &CompletionStyle::List(next, true),
                 &CompletionScope::Global,
                 &CompletionDisplay::None,
                 ctx!(gid, vwctx, vctx),
@@ -749,7 +760,7 @@ mod tests {
         // Doing it again yields "baz".
         ebuf1
             .complete_word(
-                &CompletionStyle::List(next),
+                &CompletionStyle::List(next, true),
                 &CompletionScope::Global,
                 &CompletionDisplay::None,
                 ctx!(gid, vwctx, vctx),
@@ -762,7 +773,7 @@ mod tests {
         // And then returns to "b".
         ebuf1
             .complete_word(
-                &CompletionStyle::List(next),
+                &CompletionStyle::List(next, true),
                 &CompletionScope::Global,
                 &CompletionDisplay::None,
                 ctx!(gid, vwctx, vctx),
@@ -775,7 +786,7 @@ mod tests {
         // Go backwards to "baz".
         ebuf1
             .complete_word(
-                &CompletionStyle::List(prev),
+                &CompletionStyle::List(prev, true),
                 &CompletionScope::Global,
                 &CompletionDisplay::None,
                 ctx!(gid, vwctx, vctx),

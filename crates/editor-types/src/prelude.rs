@@ -153,6 +153,12 @@ pub enum CompletionScope {
 pub enum CompletionStyle {
     /// Navigate through the list of completion candidates.
     ///
+    /// The `bool` argument controls whether to allow toggling back and forth
+    /// between the pre-completion state and completion when there is only a
+    /// single candidate in the completion list. This is usually desired in
+    /// contexts where the user may want to reset back to the prefix if the
+    /// completion was not what they wanted.
+    ///
     /// ## Example: Using `action!`
     ///
     /// ```
@@ -160,12 +166,18 @@ pub enum CompletionStyle {
     /// use editor_types::{action, Action, EditorAction};
     ///
     /// let ct = CompletionType::Auto;
-    /// let style = CompletionStyle::List(MoveDir1D::Next);
+    /// let style = CompletionStyle::List(MoveDir1D::Next, true);
     /// let display = CompletionDisplay::List;
     /// let act: Action = EditorAction::Complete(style, ct, display).into();
-    /// assert_eq!(act, action!("complete -s (list next) -T auto -D list"));
+    /// assert_eq!(act, action!("complete -s (list -d next) -T auto -D list"));
+    ///
+    /// let ct = CompletionType::Auto;
+    /// let style = CompletionStyle::List(MoveDir1D::Next, false);
+    /// let display = CompletionDisplay::List;
+    /// let act: Action = EditorAction::Complete(style, ct, display).into();
+    /// assert_eq!(act, action!("complete -s (list -d next --toggle false) -T auto -D list"));
     /// ```
-    List(MoveDir1D),
+    List(MoveDir1D, bool),
 
     /// Generate completion candidates, but don't select any from the list.
     ///

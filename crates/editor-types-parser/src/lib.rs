@@ -5,6 +5,7 @@ mod tokenizer;
 pub use tokenizer::tokenize;
 
 pub const DEFAULT_FALSE: [ActionToken<'static>; 1] = [ActionToken::Bool(false)];
+pub const DEFAULT_TRUE: [ActionToken<'static>; 1] = [ActionToken::Bool(true)];
 pub const DEFAULT_FILTER: [ActionToken<'static>; 1] = [ActionToken::Word("all")];
 pub const DEFAULT_COMPTYPE: [ActionToken<'static>; 1] = [ActionToken::Word("auto")];
 pub const DEFAULT_COUNT: [ActionToken<'static>; 1] = [ActionToken::Word("ctx")];
