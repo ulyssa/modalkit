@@ -355,9 +355,14 @@ where
 
         while cursor.y <= range.end.y {
             let style = WordStyle::Number(Radix::Decimal);
-            let number = match self.text.get_cursor_word_mut(&mut cursor, &style) {
-                Some(n) => n,
-                None => continue,
+            let Some(number) = self.text.get_cursor_word_mut(&mut cursor, &style) else {
+                // EditRope::get_cursor_word_mut already continues across lines for us,
+                // so getting None back means that it searched to the end of the text
+                // and found nothing.
+                //
+                // TODO: We should probably use a bounded version of this method so
+                // that we don't search past `range.end.y` in large buffers!
+                break;
             };
 
             if cursor > range.end {
@@ -1224,5 +1229,27 @@ mod tests {
         edit!(ebuf, opdec, &range!(RangeType::Buffer), ctx!(curid, vwctx, vctx), &mut store);
         assert_eq!(ebuf.get_text(), "a 4 b 2 c\nd 9 e 4 f\ng 14 h 6 i\nj 19 k 8 l\n");
         assert_eq!(ebuf.get_leader(curid), Cursor::new(3, 3));
+    }
+
+    #[test]
+    fn test_changenum_nomatch() {
+        let (mut ebuf, curid, vwctx, mut vctx, mut store) =
+            mkfivestr("a b c\nd e f\ng h i\nj k l\n");
+
+        assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 0));
+
+        let opdec = EditAction::ChangeNumber(NumberChange::Decrease(Count::Contextual), true);
+        let opinc = EditAction::ChangeNumber(NumberChange::Increase(Count::Contextual), true);
+
+        // Operation should finish without changing the text or cursor position:
+        vctx.action.count = Some(5);
+        edit!(ebuf, opinc, &range!(RangeType::Buffer), ctx!(curid, vwctx, vctx), &mut store);
+        assert_eq!(ebuf.get_text(), "a b c\nd e f\ng h i\nj k l\n");
+        assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 0));
+
+        vctx.action.count = Some(2);
+        edit!(ebuf, opdec, &range!(RangeType::Buffer), ctx!(curid, vwctx, vctx), &mut store);
+        assert_eq!(ebuf.get_text(), "a b c\nd e f\ng h i\nj k l\n");
+        assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 0));
     }
 }
