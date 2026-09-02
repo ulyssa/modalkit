@@ -543,6 +543,8 @@ impl Editor {
         let terminal = Terminal::new(backend)?;
 
         let mut store = Store::default();
+        store.completer = Box::new(EditorCompleter);
+
         let bindings = MixedBindings::<TerminalKey, EditorInfo>::from(env);
         let bindings = KeyManager::new(bindings);
 

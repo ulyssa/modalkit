@@ -22,6 +22,9 @@ use crate::{
     util::{common_prefix, completion_keys, idx_offset, MAX_COMPLETIONS},
 };
 
+const DIR_CURRENT: &str = unsafe { str::from_utf8_unchecked(&[b'.', MAIN_SEPARATOR as u8]) };
+const DIR_PARENT: &str = unsafe { str::from_utf8_unchecked(&[b'.', b'.', MAIN_SEPARATOR as u8]) };
+
 /// A trait for implementing custom completers for an application.
 pub trait Completer<I: ApplicationInfo>: Send + Sync {
     /// Complete the word just before [Cursor] inside the [EditRope].
@@ -366,6 +369,7 @@ mod parse {
         character::complete::anychar,
         combinator::{eof, opt, value},
         IResult,
+        Parser as _,
     };
 
     use crate::editing::{cursor::Cursor, rope::EditRope};
@@ -398,7 +402,7 @@ mod parse {
 
     fn filepath_at_end(mut input: &str) -> IResult<&str, String> {
         loop {
-            let (i, res) = opt(parse_filepath_end)(input)?;
+            let (i, res) = opt(parse_filepath_end).parse(input)?;
             if let Some(res) = res {
                 return Ok((i, res));
             }
@@ -409,7 +413,7 @@ mod parse {
         }
     }
 
-    pub fn filepath_suffix(input: &EditRope, cursor: &Cursor) -> Option<String> {
+    pub fn filepath_prefix(input: &EditRope, cursor: &Cursor) -> Option<String> {
         let mut start = cursor.clone();
         start.left(4096); // no good way to access NAME_MAX in rust
         let prefix = input.slice(input.cursor_to_offset(&start)..input.cursor_to_offset(cursor));
@@ -440,7 +444,7 @@ mod parse {
 
 /// Complete filenames within a path leading up to the cursor.
 pub fn complete_path(input: &EditRope, cursor: &mut Cursor) -> Vec<String> {
-    let Some(filepath) = parse::filepath_suffix(input, cursor) else {
+    let Some(filepath) = parse::filepath_prefix(input, cursor) else {
         return vec![];
     };
 
@@ -454,7 +458,7 @@ pub fn complete_path(input: &EditRope, cursor: &mut Cursor) -> Vec<String> {
     }
 
     if filepath.is_empty() {
-        filepath = format!(".{MAIN_SEPARATOR}").into();
+        filepath = DIR_CURRENT.into();
     }
 
     let mut res = Vec::<String>::with_capacity(MAX_COMPLETIONS);
@@ -471,12 +475,7 @@ pub fn complete_path(input: &EditRope, cursor: &mut Cursor) -> Vec<String> {
                 if name.starts_with('.') {
                     return None;
                 } else {
-                    let is_dir = entry.file_type().is_ok_and(|t| t.is_dir());
-                    if is_dir {
-                        return Some(format!("{name}{MAIN_SEPARATOR}"));
-                    } else {
-                        return Some(name.to_string());
-                    }
+                    return Some(maybe_complete_dir(&name, &entry));
                 }
             };
 
@@ -497,19 +496,14 @@ pub fn complete_path(input: &EditRope, cursor: &mut Cursor) -> Vec<String> {
                 let name = name.to_string_lossy();
 
                 if name.starts_with('.') {
-                    let is_dir = entry.file_type().is_ok_and(|t| t.is_dir());
-                    if is_dir {
-                        return Some(format!("{}{}", name, MAIN_SEPARATOR));
-                    } else {
-                        return Some(name.to_string());
-                    }
+                    return Some(maybe_complete_dir(&name, &entry));
                 } else {
                     return None;
                 }
             };
 
-            res.push(format!(".{MAIN_SEPARATOR}"));
-            res.push(format!("..{MAIN_SEPARATOR}"));
+            res.push(DIR_CURRENT.into());
+            res.push(DIR_PARENT.into());
 
             res.extend(dir.flatten().flat_map(filter).take(MAX_COMPLETIONS));
         }
@@ -543,53 +537,59 @@ pub fn complete_path(input: &EditRope, cursor: &mut Cursor) -> Vec<String> {
                 let name = name.to_string_lossy();
 
                 if name.starts_with(prefix.as_ref()) {
-                    let is_dir = entry.file_type().is_ok_and(|t| t.is_dir());
-                    if is_dir {
-                        return Some(format!("{}{}", name, MAIN_SEPARATOR));
-                    } else {
-                        return Some(name.to_string());
-                    }
+                    return Some(maybe_complete_dir(&name, &entry));
                 } else {
                     return None;
                 }
             };
 
             if prefix.as_ref() == "." {
-                res.push(format!(".{MAIN_SEPARATOR}"));
-                res.push(format!("..{MAIN_SEPARATOR}"));
+                res.push(DIR_CURRENT.into());
+                res.push(DIR_PARENT.into());
             } else if prefix.as_ref() == ".." {
-                res.push(format!("..{MAIN_SEPARATOR}"));
+                res.push(DIR_PARENT.into());
             }
 
             res.extend(dir.flatten().flat_map(filter).take(MAX_COMPLETIONS));
         }
     }
 
-    // Use custom sort to have `.` and `..` at the top
-    let cur = format!(".{MAIN_SEPARATOR}");
-    let parent = format!("..{MAIN_SEPARATOR}");
-    res.sort_unstable_by(|a, b| {
-        if a == &cur {
-            return Ordering::Less;
-        }
-        if b == &cur {
-            return Ordering::Greater;
-        }
-        if a == &parent {
-            return Ordering::Less;
-        }
-        if b == &parent {
-            return Ordering::Greater;
-        }
-
-        a.cmp(b)
-    });
+    sort_paths(&mut res);
 
     for comp in &mut res {
         parse::escape_string(comp);
     }
 
     return res;
+}
+
+/// Add a trailing slash to directory names.
+fn maybe_complete_dir(name: &str, entry: &DirEntry) -> String {
+    if entry.file_type().is_ok_and(|t| t.is_dir()) {
+        format!("{name}{MAIN_SEPARATOR}")
+    } else {
+        name.to_string()
+    }
+}
+
+/// Perform a custom sort to have `.` and `..` at the top.
+fn sort_paths(paths: &mut [String]) {
+    paths.sort_unstable_by(|a, b| {
+        if a == DIR_CURRENT {
+            return Ordering::Less;
+        }
+        if b == DIR_CURRENT {
+            return Ordering::Greater;
+        }
+        if a == DIR_PARENT {
+            return Ordering::Less;
+        }
+        if b == DIR_PARENT {
+            return Ordering::Greater;
+        }
+
+        a.cmp(b)
+    });
 }
 
 #[cfg(test)]
