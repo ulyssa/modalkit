@@ -22,7 +22,7 @@ project's `Cargo.toml`.
 
 ```toml
 [dependencies]
-keybindings = "0.0.2"
+keybindings = "0.0.3"
 ```
 
 ## License

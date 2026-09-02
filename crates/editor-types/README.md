@@ -22,7 +22,7 @@ project's `Cargo.toml`.
 
 ```toml
 [dependencies]
-editor-types = "0.0.2"
+editor-types = "0.0.3"
 ```
 
 ## License
