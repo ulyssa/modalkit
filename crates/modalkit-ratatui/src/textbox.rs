@@ -58,8 +58,6 @@ use modalkit::editing::{
 use modalkit::errors::{EditError, EditResult, UIResult};
 use modalkit::prelude::*;
 
-use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
-
 use super::{ScrollActions, TerminalCursor, WindowOps};
 
 /// Line annotation shown in the left gutter.
