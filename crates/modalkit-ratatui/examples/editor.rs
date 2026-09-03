@@ -1,5 +1,6 @@
 use std::collections::hash_map::{Entry, HashMap};
 use std::collections::VecDeque;
+use std::fmt;
 use std::fs::{DirEntry, File, FileType};
 use std::io::{stdout, Stdout};
 use std::path::Path;
@@ -80,9 +81,9 @@ struct DirectoryItem {
     entry: String,
 }
 
-impl ToString for DirectoryItem {
-    fn to_string(&self) -> String {
-        return self.entry.clone();
+impl fmt::Display for DirectoryItem {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.entry)
     }
 }
 

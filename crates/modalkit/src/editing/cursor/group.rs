@@ -21,6 +21,7 @@ pub enum CursorGroupCombineError {
 }
 
 /// Iterate over references to [CursorState] values within a [CursorGroup].
+#[derive(Default)]
 pub struct CursorGroupIter<'a> {
     members: std::vec::IntoIter<&'a CursorState>,
     leader: Option<&'a CursorState>,

@@ -782,7 +782,7 @@ where
         self.text.chars_until(start, end).collect::<String>().into()
     }
 
-    fn push_change(&mut self, group: &CursorGroup) {
+    fn push_change(&mut self, group: CursorGroup) {
         if !self.push_next_change {
             return;
         }
@@ -794,7 +794,7 @@ where
             }
         }
 
-        self.changed.push_back(group.clone());
+        self.changed.push_back(group);
         self.push_next_change = false;
 
         while self.changed.len() > 100 {
@@ -1084,14 +1084,24 @@ where
         let gid = ictx.0;
         let end = ctx.context.get_cursor_end();
         let mut group = self.get_group(gid);
+        let change_start = group.clone();
         let mut adjs = vec![];
 
+        // Iterate over where the cursors were when editing started:
+        let changed_start = self.changed.back().cloned();
+        let mut changed_iter = changed_start.as_ref().map(CursorGroup::iter).unwrap_or_default();
+
         for state in group.iter_mut() {
+            let changed = changed_iter.next();
+
             state.adjust(adjs.as_slice());
 
             let (choice, mut adjustments) = match (self._target(state, target, ctx, store)?, action)
             {
-                (Some(range), EditAction::Delete) => self.delete(&range, ctx, store)?,
+                (Some(range), EditAction::Delete) => {
+                    let change_start = changed.map(|c| c.cursor());
+                    self.delete(&range, change_start, ctx, store)?
+                },
                 (Some(range), EditAction::Join(spaces)) => {
                     self.join(*spaces, &range, ctx, store)?
                 },
@@ -1130,7 +1140,7 @@ where
         }
 
         self._adjust_all(adjs, store);
-        self.push_change(&group);
+        self.push_change(change_start);
         self.set_group(gid, group);
 
         Ok(None)
@@ -1852,26 +1862,26 @@ mod tests {
         assert_eq!(ebuf.get_leader(gid), Cursor::new(4, 4));
         assert_eq!(ebuf.get_text(), "12345\n   7890\nabce\nfgh1ij\n klmno\n");
 
-        // Go back once to (3, 4).
+        // Go back once to (3, 3).
         let count = ebuf.jump(cl, prev, 1, ctx!(gid, vwctx, vctx)).unwrap();
         assert_eq!(count, 0);
-        assert_eq!(ebuf.get_leader(gid), Cursor::new(3, 4));
+        assert_eq!(ebuf.get_leader(gid), Cursor::new(3, 3));
 
         // Go back once to (1, 3).
         let count = ebuf.jump(cl, prev, 1, ctx!(gid, vwctx, vctx)).unwrap();
         assert_eq!(count, 0);
         assert_eq!(ebuf.get_leader(gid), Cursor::new(1, 3));
 
-        // Go forward once to (3, 4) again.
+        // Go forward once to (3, 3) again.
         let count = ebuf.jump(cl, next, 1, ctx!(gid, vwctx, vctx)).unwrap();
         assert_eq!(count, 0);
-        assert_eq!(ebuf.get_leader(gid), Cursor::new(3, 4));
+        assert_eq!(ebuf.get_leader(gid), Cursor::new(3, 3));
 
         // Can't go forward any more: original position is not saved in changelist, like it is w/
         // the jumplist.
         let count = ebuf.jump(cl, next, 1, ctx!(gid, vwctx, vctx)).unwrap();
         assert_eq!(count, 0);
-        assert_eq!(ebuf.get_leader(gid), Cursor::new(3, 4));
+        assert_eq!(ebuf.get_leader(gid), Cursor::new(3, 3));
     }
 
     #[test]

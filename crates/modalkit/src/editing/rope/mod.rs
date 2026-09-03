@@ -1346,7 +1346,9 @@ impl EditRope {
 
         match style {
             InsertStyle::Replace => {
-                self.rope.remove(ioff.0..ioff.0 + tlen);
+                let offmax = self.lincol_to_offset(cursor.y, colmax);
+                let eoff = offmax.0.min(ioff.0 + tlen);
+                self.rope.remove(ioff.0..eoff);
                 self._insert_at(ioff.0, text.rope);
             },
             InsertStyle::Insert => {
@@ -1612,7 +1614,7 @@ impl EditRope {
         RopeCursor::new(self, off.0)
     }
 
-    fn lincol_to_offset(&self, line: usize, col: usize) -> CharOff {
+    pub(crate) fn lincol_to_offset(&self, line: usize, col: usize) -> CharOff {
         self.offset_of_line(line) + CharOff(col)
     }
 
