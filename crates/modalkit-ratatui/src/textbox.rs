@@ -41,7 +41,7 @@ use ratatui::{
     buffer::Buffer,
     layout::Rect,
     style::{Modifier, Style},
-    text::Span,
+    text::Line,
     widgets::{Block, StatefulWidget, Widget},
 };
 
@@ -107,7 +107,7 @@ pub struct TextBoxState<I: ApplicationInfo = EmptyInfo> {
 /// Widget for rendering a multi-line text box.
 pub struct TextBox<'a, I: ApplicationInfo = EmptyInfo> {
     block: Option<Block<'a>>,
-    prompt: Span<'a>,
+    prompt: Line<'a>,
     oneline: bool,
     style: Style,
 
@@ -638,7 +638,7 @@ where
     pub fn new() -> Self {
         TextBox {
             block: None,
-            prompt: Span::default(),
+            prompt: Line::default(),
             oneline: false,
             style: Style::default(),
 
@@ -671,7 +671,7 @@ where
     }
 
     /// Display a prompt in the top left of the text box when focused.
-    pub fn prompt(mut self, prompt: impl Into<Span<'a>>) -> Self {
+    pub fn prompt(mut self, prompt: impl Into<Line<'a>>) -> Self {
         self.prompt = prompt.into();
         self
     }
@@ -1203,7 +1203,7 @@ where
         }
 
         // First, draw the prompt in the gutter.
-        let _ = buf.set_span(gutter.left(), gutter.top(), &self.prompt, gutter.width);
+        let _ = buf.set_line(gutter.left(), gutter.top(), &self.prompt, gutter.width);
 
         // Now draw the text.
         self._render_lines(text_area, buf, state);
