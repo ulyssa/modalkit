@@ -72,8 +72,7 @@ where
 
         let gid = ctx.0;
         let mut group = self.get_group(gid);
-
-        self.push_change(&group);
+        let change_start = group.clone();
 
         for state in group.iter_mut() {
             let (choice, adjs) = match style {
@@ -115,6 +114,7 @@ where
             }
         }
 
+        self.push_change(change_start);
         self.set_group(gid, group);
 
         Ok(None)
@@ -134,8 +134,7 @@ where
 
         let gid = ctx.0;
         let mut group = self.get_group(gid);
-
-        self.push_change(&group);
+        let change_start = group.clone();
 
         for state in group.iter_mut() {
             let (choice, adjs) = self.text.paste(state.cursor(), dir, text.clone(), shape);
@@ -148,6 +147,7 @@ where
             }
         }
 
+        self.push_change(change_start);
         self.set_group(gid, group);
 
         Ok(None)
@@ -169,9 +169,8 @@ where
         let mut group = self.get_group(gid);
         let mut adjs = vec![];
 
+        let change_start = group.clone();
         let text = EditRope::from(s).repeat(TargetShape::CharWise, count);
-
-        self.push_change(&group);
 
         for state in group.iter_mut() {
             state.adjust(adjs.as_slice());
@@ -189,6 +188,7 @@ where
         }
 
         self._adjust_all(adjs, store);
+        self.push_change(change_start);
         self.set_group(gid, group);
 
         Ok(None)
@@ -208,8 +208,7 @@ where
 
         let gid = ctx.0;
         let mut group = self.get_group(gid);
-
-        self.push_change(&group);
+        let change_start = group.clone();
 
         let mut typed: Vec<&mut CursorState> = vec![];
         let mut adjs = vec![];
@@ -241,6 +240,7 @@ where
         }
 
         self._adjust_all(adjs, store);
+        self.push_change(change_start);
         self.set_group(gid, group);
 
         Ok(None)
@@ -408,10 +408,141 @@ mod tests {
         assert_eq!(ebuf.get_text(), "calyx\n");
         assert_eq!(ebuf.get_leader(gid), Cursor::new(0, 5));
 
+        type_char!(ebuf, 'e', gid, vwctx, vctx, store);
+        assert_eq!(ebuf.get_text(), "calyxe\n");
+        assert_eq!(ebuf.get_leader(gid), Cursor::new(0, 6));
+
+        type_char!(ebuf, 's', gid, vwctx, vctx, store);
+        assert_eq!(ebuf.get_text(), "calyxes\n");
+        assert_eq!(ebuf.get_leader(gid), Cursor::new(0, 7));
+
         let mov = MoveType::WordBegin(WordStyle::Little, MoveDir1D::Previous);
 
         edit!(ebuf, EditAction::Delete, mv!(mov), ctx!(gid, vwctx, vctx), store);
         assert_eq!(ebuf.get_text(), "hello\n");
+        assert_eq!(ebuf.get_leader(gid), Cursor::new(0, 0));
+    }
+
+    #[test]
+    fn test_typing_replace_multiline() {
+        let (mut ebuf, gid, vwctx, mut vctx, mut store) = mkfivestr("hello\nworld");
+
+        vctx.persist.insert = Some(InsertStyle::Replace);
+
+        type_char!(ebuf, 'c', gid, vwctx, vctx, store);
+        assert_eq!(ebuf.get_text(), "cello\nworld\n");
+        assert_eq!(ebuf.get_leader(gid), Cursor::new(0, 1));
+
+        type_char!(ebuf, 'a', gid, vwctx, vctx, store);
+        assert_eq!(ebuf.get_text(), "callo\nworld\n");
+        assert_eq!(ebuf.get_leader(gid), Cursor::new(0, 2));
+
+        type_char!(ebuf, 'l', gid, vwctx, vctx, store);
+        assert_eq!(ebuf.get_text(), "callo\nworld\n");
+        assert_eq!(ebuf.get_leader(gid), Cursor::new(0, 3));
+
+        type_char!(ebuf, 'y', gid, vwctx, vctx, store);
+        assert_eq!(ebuf.get_text(), "calyo\nworld\n");
+        assert_eq!(ebuf.get_leader(gid), Cursor::new(0, 4));
+
+        type_char!(ebuf, 'x', gid, vwctx, vctx, store);
+        assert_eq!(ebuf.get_text(), "calyx\nworld\n");
+        assert_eq!(ebuf.get_leader(gid), Cursor::new(0, 5));
+
+        type_char!(ebuf, 'e', gid, vwctx, vctx, store);
+        assert_eq!(ebuf.get_text(), "calyxe\nworld\n");
+        assert_eq!(ebuf.get_leader(gid), Cursor::new(0, 6));
+
+        type_char!(ebuf, 's', gid, vwctx, vctx, store);
+        assert_eq!(ebuf.get_text(), "calyxes\nworld\n");
+        assert_eq!(ebuf.get_leader(gid), Cursor::new(0, 7));
+
+        type_char!(ebuf, '\n', gid, vwctx, vctx, store);
+        assert_eq!(ebuf.get_text(), "calyxes\n\nworld\n");
+        assert_eq!(ebuf.get_leader(gid), Cursor::new(1, 0));
+
+        type_char!(ebuf, 'a', gid, vwctx, vctx, store);
+        assert_eq!(ebuf.get_text(), "calyxes\na\nworld\n");
+        assert_eq!(ebuf.get_leader(gid), Cursor::new(1, 1));
+
+        type_char!(ebuf, 'b', gid, vwctx, vctx, store);
+        assert_eq!(ebuf.get_text(), "calyxes\nab\nworld\n");
+        assert_eq!(ebuf.get_leader(gid), Cursor::new(1, 2));
+
+        type_char!(ebuf, 'c', gid, vwctx, vctx, store);
+        assert_eq!(ebuf.get_text(), "calyxes\nabc\nworld\n");
+        assert_eq!(ebuf.get_leader(gid), Cursor::new(1, 3));
+
+        type_char!(ebuf, 'd', gid, vwctx, vctx, store);
+        assert_eq!(ebuf.get_text(), "calyxes\nabcd\nworld\n");
+        assert_eq!(ebuf.get_leader(gid), Cursor::new(1, 4));
+
+        type_char!(ebuf, 'e', gid, vwctx, vctx, store);
+        assert_eq!(ebuf.get_text(), "calyxes\nabcde\nworld\n");
+        assert_eq!(ebuf.get_leader(gid), Cursor::new(1, 5));
+
+        type_char!(ebuf, 'f', gid, vwctx, vctx, store);
+        assert_eq!(ebuf.get_text(), "calyxes\nabcdef\nworld\n");
+        assert_eq!(ebuf.get_leader(gid), Cursor::new(1, 6));
+
+        type_char!(ebuf, 'g', gid, vwctx, vctx, store);
+        assert_eq!(ebuf.get_text(), "calyxes\nabcdefg\nworld\n");
+        assert_eq!(ebuf.get_leader(gid), Cursor::new(1, 7));
+
+        type_char!(ebuf, 'h', gid, vwctx, vctx, store);
+        assert_eq!(ebuf.get_text(), "calyxes\nabcdefgh\nworld\n");
+        assert_eq!(ebuf.get_leader(gid), Cursor::new(1, 8));
+
+        type_char!(ebuf, 'i', gid, vwctx, vctx, store);
+        assert_eq!(ebuf.get_text(), "calyxes\nabcdefghi\nworld\n");
+        assert_eq!(ebuf.get_leader(gid), Cursor::new(1, 9));
+
+        type_char!(ebuf, 'j', gid, vwctx, vctx, store);
+        assert_eq!(ebuf.get_text(), "calyxes\nabcdefghij\nworld\n");
+        assert_eq!(ebuf.get_leader(gid), Cursor::new(1, 10));
+
+        let mov = MoveType::WordBegin(WordStyle::Little, MoveDir1D::Previous);
+
+        edit!(ebuf, EditAction::Delete, mv!(mov), ctx!(gid, vwctx, vctx), store);
+        assert_eq!(ebuf.get_text(), "calyxes\n\nworld\n");
+        assert_eq!(ebuf.get_leader(gid), Cursor::new(1, 0));
+
+        let mov = MoveType::Column(MoveDir1D::Previous, true);
+
+        edit!(ebuf, EditAction::Delete, mv!(mov), ctx!(gid, vwctx, vctx), store);
+        assert_eq!(ebuf.get_text(), "calyxes\nworld\n");
+        assert_eq!(ebuf.get_leader(gid), Cursor::new(0, 7));
+
+        edit!(ebuf, EditAction::Delete, mv!(mov), ctx!(gid, vwctx, vctx), store);
+        assert_eq!(ebuf.get_text(), "calyxe\nworld\n");
+        assert_eq!(ebuf.get_leader(gid), Cursor::new(0, 6));
+
+        edit!(ebuf, EditAction::Delete, mv!(mov), ctx!(gid, vwctx, vctx), store);
+        assert_eq!(ebuf.get_text(), "calyx\nworld\n");
+        assert_eq!(ebuf.get_leader(gid), Cursor::new(0, 5));
+
+        edit!(ebuf, EditAction::Delete, mv!(mov), ctx!(gid, vwctx, vctx), store);
+        assert_eq!(ebuf.get_text(), "calyo\nworld\n");
+        assert_eq!(ebuf.get_leader(gid), Cursor::new(0, 4));
+
+        edit!(ebuf, EditAction::Delete, mv!(mov), ctx!(gid, vwctx, vctx), store);
+        assert_eq!(ebuf.get_text(), "callo\nworld\n");
+        assert_eq!(ebuf.get_leader(gid), Cursor::new(0, 3));
+
+        edit!(ebuf, EditAction::Delete, mv!(mov), ctx!(gid, vwctx, vctx), store);
+        assert_eq!(ebuf.get_text(), "callo\nworld\n");
+        assert_eq!(ebuf.get_leader(gid), Cursor::new(0, 2));
+
+        edit!(ebuf, EditAction::Delete, mv!(mov), ctx!(gid, vwctx, vctx), store);
+        assert_eq!(ebuf.get_text(), "cello\nworld\n");
+        assert_eq!(ebuf.get_leader(gid), Cursor::new(0, 1));
+
+        edit!(ebuf, EditAction::Delete, mv!(mov), ctx!(gid, vwctx, vctx), store);
+        assert_eq!(ebuf.get_text(), "hello\nworld\n");
+        assert_eq!(ebuf.get_leader(gid), Cursor::new(0, 0));
+
+        edit!(ebuf, EditAction::Delete, mv!(mov), ctx!(gid, vwctx, vctx), store);
+        assert_eq!(ebuf.get_text(), "hello\nworld\n");
         assert_eq!(ebuf.get_leader(gid), Cursor::new(0, 0));
     }
 

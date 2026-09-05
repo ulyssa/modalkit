@@ -618,7 +618,7 @@ mod tests {
             &mut store,
         )
         .unwrap();
-        assert_eq!(unescape(ebuf.get_text().trim_end()), format!("text {}", file1));
+        assert_eq!(unescape(ebuf.get_text().trim_end()), format!("text {file1}"));
     }
 
     #[test]

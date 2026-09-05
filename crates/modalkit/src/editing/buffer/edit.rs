@@ -20,6 +20,7 @@ where
     fn delete(
         &mut self,
         range: &CursorRange,
+        change_start: Option<&Cursor>,
         ctx: &C,
         store: &mut Store<I>,
     ) -> EditResult<(CursorChoice, Vec<CursorAdjustment>), I>;
@@ -88,6 +89,7 @@ where
     fn delete(
         &mut self,
         range: &CursorRange,
+        change_start: Option<&Cursor>,
         ctx: &CursorMovementsContext<'a, Cursor>,
         store: &mut Store<I>,
     ) -> EditResult<(CursorChoice, Vec<CursorAdjustment>), I> {
@@ -113,15 +115,21 @@ where
 
             deleted = text + deleted;
 
-            match style {
-                InsertStyle::Insert => {
+            match (style, change_start) {
+                (InsertStyle::Insert, _) | (InsertStyle::Replace, None) => {
                     self.text = prefix + suffix;
                 },
-                InsertStyle::Replace => {
+                (InsertStyle::Replace, Some(c)) => {
                     let current = self.history.current();
-                    let restore = current.slice(into_range(start, end, inclusive));
+                    let colmax = current.max_column_idx(c.y, true);
+                    let offmax = current.lincol_to_offset(c.y, colmax);
 
-                    self.text = prefix + restore + suffix;
+                    if c.y == range.end.y && start <= offmax {
+                        let restore = current.slice(into_range(start, end.min(offmax), inclusive));
+                        self.text = prefix + restore + suffix;
+                    } else {
+                        self.text = prefix + suffix;
+                    }
                 },
             }
 
