@@ -12,19 +12,20 @@ use crate::{
     editing::context::EditContext,
     editing::cursor::CursorStyle,
     key::TerminalKey,
-    keybindings::{dialog::Dialog, BindingMachine, InputKey, Step},
+    keybindings::{dialog::Dialog, BindingMachine, InputBindings, InputKey, Step},
     prelude::RepeatType,
 };
 
 use super::{
     emacs::{
-        keybindings::{default_emacs_keys, EmacsMachine, InputStep as EmacsStep},
+        keybindings::{default_emacs_keys, EmacsBindings, EmacsMachine, InputStep as EmacsStep},
         EmacsState,
     },
     vim::{
-        keybindings::{default_vim_keys, InputStep as VimStep, VimMachine},
+        keybindings::{default_vim_keys, InputStep as VimStep, VimBindings, VimMachine},
         VimState,
     },
+    ShellBindings,
 };
 
 /// Multiple keybinding styles that users can select.
@@ -41,27 +42,66 @@ pub enum MixedChoice {
 macro_rules! delegate_bindings {
     ($s: expr, $invoke: expr) => {
         match $s {
-            MixedBindings::Emacs(c) => $invoke(c),
-            MixedBindings::Vim(c) => $invoke(c),
+            MixedMachine::Emacs(c) => $invoke(c),
+            MixedMachine::Vim(c) => $invoke(c),
         }
     };
     ($s: expr, $invoke: expr, $arg: expr) => {
         match $s {
-            MixedBindings::Emacs(c) => $invoke(c, $arg),
-            MixedBindings::Vim(c) => $invoke(c, $arg),
+            MixedMachine::Emacs(c) => $invoke(c, $arg),
+            MixedMachine::Vim(c) => $invoke(c, $arg),
         }
     };
     ($s: expr, $invoke: expr, $arg1: expr, $arg2: expr) => {
         match $s {
-            MixedBindings::Emacs(c) => $invoke(c, $arg1, $arg2),
-            MixedBindings::Vim(c) => $invoke(c, $arg1, $arg2),
+            MixedMachine::Emacs(c) => $invoke(c, $arg1, $arg2),
+            MixedMachine::Vim(c) => $invoke(c, $arg1, $arg2),
         }
     };
 }
 
 /// Type for wrapping different keybindings in contexts where keybindings can be determined
 /// dynamically.
-pub enum MixedBindings<K, I = EmptyInfo>
+#[non_exhaustive]
+pub enum MixedBindings<I = EmptyInfo>
+where
+    I: ApplicationInfo,
+{
+    /// Wrap Emacs bindings.
+    Emacs(EmacsBindings<I>),
+
+    /// Wrap Vim bindings.
+    Vim(VimBindings<I>),
+}
+
+impl<I> ShellBindings for MixedBindings<I>
+where
+    I: ApplicationInfo,
+{
+    fn shell(self) -> Self {
+        match self {
+            MixedBindings::Emacs(b) => MixedBindings::Emacs(b.shell()),
+            MixedBindings::Vim(b) => MixedBindings::Vim(b.shell()),
+        }
+    }
+}
+
+impl<I> From<MixedChoice> for MixedBindings<I>
+where
+    I: ApplicationInfo,
+{
+    fn from(choice: MixedChoice) -> Self {
+        match choice {
+            MixedChoice::Emacs => MixedBindings::Emacs(EmacsBindings::default()),
+            MixedChoice::Vim => MixedBindings::Vim(VimBindings::default()),
+        }
+    }
+}
+
+/// Type for wrapping different [BindingMachine] values in contexts where keybindings can be
+/// determined dynamically.
+#[non_exhaustive]
+pub enum MixedMachine<K, I = EmptyInfo>
 where
     K: InputKey,
     I: ApplicationInfo,
@@ -75,20 +115,41 @@ where
     Vim(VimMachine<K, I>),
 }
 
-impl<I> From<MixedChoice> for MixedBindings<TerminalKey, I>
+impl<I> From<MixedChoice> for MixedMachine<TerminalKey, I>
 where
     I: ApplicationInfo,
 {
     fn from(choice: MixedChoice) -> Self {
         match choice {
-            MixedChoice::Emacs => MixedBindings::Emacs(default_emacs_keys()),
-            MixedChoice::Vim => MixedBindings::Vim(default_vim_keys()),
+            MixedChoice::Emacs => MixedMachine::Emacs(default_emacs_keys()),
+            MixedChoice::Vim => MixedMachine::Vim(default_vim_keys()),
         }
     }
 }
 
-impl<K, I> BindingMachine<K, Action<I>, RepeatType, EditContext, CursorStyle>
-    for MixedBindings<K, I>
+impl<I> From<MixedBindings<I>> for MixedMachine<TerminalKey, I>
+where
+    I: ApplicationInfo,
+{
+    fn from(bindings: MixedBindings<I>) -> Self {
+        match bindings {
+            MixedBindings::Emacs(b) => {
+                let mut machine = EmacsMachine::empty();
+                b.setup(&mut machine);
+
+                MixedMachine::Emacs(machine)
+            },
+            MixedBindings::Vim(b) => {
+                let mut machine = VimMachine::empty();
+                b.setup(&mut machine);
+
+                MixedMachine::Vim(machine)
+            },
+        }
+    }
+}
+
+impl<K, I> BindingMachine<K, Action<I>, RepeatType, EditContext, CursorStyle> for MixedMachine<K, I>
 where
     K: InputKey,
     I: ApplicationInfo,

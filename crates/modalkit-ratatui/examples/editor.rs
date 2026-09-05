@@ -54,7 +54,7 @@ use modalkit::{
         rope::EditRope,
         store::Store,
     },
-    env::mixed::{MixedBindings, MixedChoice},
+    env::mixed::{MixedChoice, MixedMachine},
     env::vim::command::{complete_cmdbar, VimCommandMachine},
     errors::{EditError, EditResult, UIError, UIResult},
     key::TerminalKey,
@@ -546,7 +546,7 @@ impl Editor {
         let mut store = Store::default();
         store.completer = Box::new(EditorCompleter);
 
-        let bindings = MixedBindings::<TerminalKey, EditorInfo>::from(env);
+        let bindings = MixedMachine::<TerminalKey, EditorInfo>::from(env);
         let bindings = KeyManager::new(bindings);
 
         let buf = store.load_buffer(EditorContentId::Scratch);
