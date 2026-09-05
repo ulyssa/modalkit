@@ -89,6 +89,36 @@ impl<W> WindowSlot<W> {
     pub fn get_mut(&mut self) -> &mut W {
         &mut self.current
     }
+
+    fn dup_next<I>(&self, store: &mut Store<I>) -> Vec<W>
+    where
+        W: WindowOps<I>,
+        I: ApplicationInfo,
+    {
+        self.next.iter().map(|w| w.dup(store)).collect()
+    }
+
+    fn dup_prev<I>(&self, store: &mut Store<I>) -> Vec<W>
+    where
+        W: WindowOps<I>,
+        I: ApplicationInfo,
+    {
+        self.prev.iter().map(|w| w.dup(store)).collect()
+    }
+
+    pub fn split<I>(&self, w: W, store: &mut Store<I>) -> Self
+    where
+        W: WindowOps<I>,
+        I: ApplicationInfo,
+    {
+        let mut slot = Self {
+            current: self.current.dup(store),
+            prev: self.dup_prev(store),
+            next: vec![],
+        };
+        slot.open(w);
+        slot
+    }
 }
 
 impl<W> From<W> for WindowSlot<W> {
@@ -166,8 +196,8 @@ where
     fn dup(&self, store: &mut Store<I>) -> Self {
         WindowSlot {
             current: self.current.dup(store),
-            prev: self.prev.iter().map(|w| w.dup(store)).collect(),
-            next: self.next.iter().map(|w| w.dup(store)).collect(),
+            prev: self.dup_prev(store),
+            next: self.dup_next(store),
         }
     }
 
