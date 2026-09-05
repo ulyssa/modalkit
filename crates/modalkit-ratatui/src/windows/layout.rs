@@ -1432,16 +1432,27 @@ where
         return self.root.size() == 0;
     }
 
-    fn open(&mut self, w: W, length: Option<u16>, axis: Axis, rel: MoveDir1D) {
+    fn open(
+        &mut self,
+        w: W,
+        length: Option<u16>,
+        axis: Axis,
+        rel: MoveDir1D,
+        store: &mut Store<I>,
+    ) {
         let windex = self.focused;
 
         if length.is_some() {
             self.freeze(axis);
         }
 
-        let trail = ResizeInfoTrail::new(windex, &mut self.info.resized, None);
+        let slot = match self.get_slot() {
+            Some(s) => s.split(w, store),
+            None => WindowSlot::new(w),
+        };
 
-        let nr = self.root.open(windex, w.into(), length, rel, axis, trail);
+        let trail = ResizeInfoTrail::new(windex, &mut self.info.resized, None);
+        let nr = self.root.open(windex, slot, length, rel, axis, trail);
         self.root.set_area(self.info.area, &self.info.resized);
 
         self._focus(nr);
@@ -1669,7 +1680,7 @@ where
         self.zoom = false;
 
         for _ in 0..count {
-            self.open(w.dup(store), None, axis, rel);
+            self.open(w.dup(store), None, axis, rel, store);
         }
 
         return Ok(None);
@@ -1759,7 +1770,7 @@ where
         let count: u16 = ctx.resolve(count).try_into().map_err(EditError::from)?;
         let w = self._open(target, ctx, store)?;
 
-        self.open(w, Some(count), axis, rel);
+        self.open(w, Some(count), axis, rel, store);
 
         Ok(None)
     }
@@ -2759,7 +2770,7 @@ mod tests {
 
         // Open a window that is 5 columns wide.
         let w = TestWindow::new();
-        tree.open(w, Some(5), Vertical, MoveDir1D::Previous);
+        tree.open(w, Some(5), Vertical, MoveDir1D::Previous, &mut store);
 
         // We should now have one more window.
         assert_eq!(tree.root.size(), 10);
@@ -2814,7 +2825,7 @@ mod tests {
 
         // Open a new window without specifying a height.
         let w = TestWindow::new();
-        tree.open(w, None, Vertical, MoveDir1D::Previous);
+        tree.open(w, None, Vertical, MoveDir1D::Previous, &mut store);
 
         // We should now have one more window.
         assert_eq!(tree.root.size(), 10);
@@ -2878,6 +2889,59 @@ mod tests {
         let count = tree.jump(jl, next, 2, &ctx).unwrap();
         assert_eq!(count, 1);
         assert_eq!(tree.get().unwrap().id, Some(2));
+    }
+
+    #[test]
+    fn test_window_switch_split_and_jump() {
+        let (mut store, ctx) = mkstorectx();
+        let mut tree = WindowLayoutState::new(TestWindow::new());
+        let next = MoveDir1D::Next;
+        let prev = MoveDir1D::Previous;
+        let jl = PositionList::JumpList;
+
+        window_switch!(tree, OpenTarget::Name("1".into()), &ctx, store);
+        assert_eq!(tree.get().unwrap().id, Some(1));
+
+        window_switch!(tree, OpenTarget::Name("2".into()), &ctx, store);
+        assert_eq!(tree.get().unwrap().id, Some(2));
+
+        window_switch!(tree, OpenTarget::Name("3".into()), &ctx, store);
+        assert_eq!(tree.get().unwrap().id, Some(3));
+
+        tree.window_split(
+            &OpenTarget::Name("4".into()),
+            Axis::Vertical,
+            next,
+            &Count::Exact(1),
+            &ctx,
+            &mut store,
+        )
+        .unwrap();
+        assert_eq!(tree.get().unwrap().id, Some(4));
+
+        let count = tree.jump(jl, prev, 1, &ctx).unwrap();
+        assert_eq!(count, 0);
+        assert_eq!(tree.get().unwrap().id, Some(3));
+
+        let count = tree.jump(jl, prev, 1, &ctx).unwrap();
+        assert_eq!(count, 0);
+        assert_eq!(tree.get().unwrap().id, Some(2));
+
+        let count = tree.jump(jl, prev, 1, &ctx).unwrap();
+        assert_eq!(count, 0);
+        assert_eq!(tree.get().unwrap().id, Some(1));
+
+        let count = tree.jump(jl, prev, 1, &ctx).unwrap();
+        assert_eq!(count, 0);
+        assert_eq!(tree.get().unwrap().id, None);
+
+        let count = tree.jump(jl, next, 2, &ctx).unwrap();
+        assert_eq!(count, 0);
+        assert_eq!(tree.get().unwrap().id, Some(2));
+
+        let count = tree.jump(jl, next, 3, &ctx).unwrap();
+        assert_eq!(count, 1);
+        assert_eq!(tree.get().unwrap().id, Some(4));
     }
 
     #[test]
