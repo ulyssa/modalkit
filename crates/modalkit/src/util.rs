@@ -46,6 +46,13 @@ macro_rules! key {
 }
 
 #[allow(unused_macros)]
+macro_rules! alt {
+    ($ch: literal) => {
+        key!(KeyCode::Char($ch.to_ascii_lowercase()), KeyModifiers::ALT)
+    };
+}
+
+#[allow(unused_macros)]
 macro_rules! ctl {
     ($ch: literal) => {
         key!(KeyCode::Char($ch.to_ascii_lowercase()), KeyModifiers::CONTROL)
@@ -55,7 +62,10 @@ macro_rules! ctl {
 #[allow(unused_macros)]
 macro_rules! assert_pop1 {
     ($mm: expr, $act: expr, $ctx: expr) => {
-        assert_eq!($mm.pop(), Some(($act.clone(), EditContext::from($ctx.clone()))));
+        pretty_assertions::assert_eq!(
+            $mm.pop(),
+            Some(($act.clone(), EditContext::from($ctx.clone())))
+        );
     };
 }
 
@@ -63,7 +73,7 @@ macro_rules! assert_pop1 {
 macro_rules! assert_pop2 {
     ($mm: expr, $act: expr, $ctx: expr) => {
         assert_pop1!($mm, $act, $ctx);
-        assert_eq!($mm.pop(), None);
+        pretty_assertions::assert_eq!($mm.pop(), None);
     };
 }
 

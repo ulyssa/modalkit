@@ -21,6 +21,15 @@ use super::{
         keybindings::{default_emacs_keys, EmacsBindings, EmacsMachine, InputStep as EmacsStep},
         EmacsState,
     },
+    kak::{
+        keybindings::{
+            default_kakoune_keys,
+            InputStep as KakouneStep,
+            KakouneBindings,
+            KakouneMachine,
+        },
+        KakouneState,
+    },
     vim::{
         keybindings::{default_vim_keys, InputStep as VimStep, VimBindings, VimMachine},
         VimState,
@@ -35,6 +44,9 @@ pub enum MixedChoice {
     /// Choose Emacs keybindings.
     Emacs,
 
+    /// Choose Kakoune keybindings.
+    Kakoune,
+
     /// Choose Vim keybindings.
     Vim,
 }
@@ -43,18 +55,21 @@ macro_rules! delegate_bindings {
     ($s: expr, $invoke: expr) => {
         match $s {
             MixedMachine::Emacs(c) => $invoke(c),
+            MixedMachine::Kakoune(c) => $invoke(c),
             MixedMachine::Vim(c) => $invoke(c),
         }
     };
     ($s: expr, $invoke: expr, $arg: expr) => {
         match $s {
             MixedMachine::Emacs(c) => $invoke(c, $arg),
+            MixedMachine::Kakoune(c) => $invoke(c, $arg),
             MixedMachine::Vim(c) => $invoke(c, $arg),
         }
     };
     ($s: expr, $invoke: expr, $arg1: expr, $arg2: expr) => {
         match $s {
             MixedMachine::Emacs(c) => $invoke(c, $arg1, $arg2),
+            MixedMachine::Kakoune(c) => $invoke(c, $arg1, $arg2),
             MixedMachine::Vim(c) => $invoke(c, $arg1, $arg2),
         }
     };
@@ -70,6 +85,9 @@ where
     /// Wrap Emacs bindings.
     Emacs(EmacsBindings<I>),
 
+    /// Wrap Kakoune bindings.
+    Kakoune(KakouneBindings<I>),
+
     /// Wrap Vim bindings.
     Vim(VimBindings<I>),
 }
@@ -81,6 +99,7 @@ where
     fn shell(self) -> Self {
         match self {
             MixedBindings::Emacs(b) => MixedBindings::Emacs(b.shell()),
+            MixedBindings::Kakoune(b) => MixedBindings::Kakoune(b.shell()),
             MixedBindings::Vim(b) => MixedBindings::Vim(b.shell()),
         }
     }
@@ -94,6 +113,7 @@ where
         match choice {
             MixedChoice::Emacs => MixedBindings::Emacs(EmacsBindings::default()),
             MixedChoice::Vim => MixedBindings::Vim(VimBindings::default()),
+            MixedChoice::Kakoune => MixedBindings::Kakoune(KakouneBindings::default()),
         }
     }
 }
@@ -106,10 +126,14 @@ where
     K: InputKey,
     I: ApplicationInfo,
     EmacsStep<I>: Step<K>,
+    KakouneStep<I>: Step<K>,
     VimStep<I>: Step<K>,
 {
     /// Wrap Emacs bindings.
     Emacs(EmacsMachine<K, I>),
+
+    /// Wrap Kakoune bindings.
+    Kakoune(KakouneMachine<K, I>),
 
     /// Wrap Vim bindings.
     Vim(VimMachine<K, I>),
@@ -122,6 +146,7 @@ where
     fn from(choice: MixedChoice) -> Self {
         match choice {
             MixedChoice::Emacs => MixedMachine::Emacs(default_emacs_keys()),
+            MixedChoice::Kakoune => MixedMachine::Kakoune(default_kakoune_keys()),
             MixedChoice::Vim => MixedMachine::Vim(default_vim_keys()),
         }
     }
@@ -139,6 +164,12 @@ where
 
                 MixedMachine::Emacs(machine)
             },
+            MixedBindings::Kakoune(b) => {
+                let mut machine = KakouneMachine::empty();
+                b.setup(&mut machine);
+
+                MixedMachine::Kakoune(machine)
+            },
             MixedBindings::Vim(b) => {
                 let mut machine = VimMachine::empty();
                 b.setup(&mut machine);
@@ -154,6 +185,7 @@ where
     K: InputKey,
     I: ApplicationInfo,
     EmacsStep<I>: Step<K, A = Action<I>, Sequence = RepeatType, State = EmacsState<I>>,
+    KakouneStep<I>: Step<K, A = Action<I>, Sequence = RepeatType, State = KakouneState<I>>,
     VimStep<I>: Step<K, A = Action<I>, Sequence = RepeatType, State = VimState<I>>,
 {
     fn input_key(&mut self, key: K) {
