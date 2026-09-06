@@ -170,6 +170,19 @@ pub trait Adjustable {
     fn adjust(&mut self, adj: &[CursorAdjustment]);
 }
 
+impl<T> Adjustable for &mut T
+where
+    T: Adjustable,
+{
+    fn zero(&mut self) {
+        (*self).zero();
+    }
+
+    fn adjust(&mut self, adj: &[CursorAdjustment]) {
+        (*self).adjust(adj);
+    }
+}
+
 impl<T> Adjustable for Vec<T>
 where
     T: Adjustable,

@@ -2,7 +2,7 @@ use crate::editing::{
     application::ApplicationInfo,
     buffer::{CursorGroupIdContext, EditBuffer},
     context::Resolve,
-    cursor::{Adjustable, CursorChoice, CursorState},
+    cursor::{Adjustable, CursorAdjustment, CursorChoice, CursorState},
     rope::EditRope,
     store::Store,
 };
@@ -53,6 +53,56 @@ where
     ) -> EditResult<EditInfo, I>;
 }
 
+impl<I> EditBuffer<I>
+where
+    I: ApplicationInfo,
+{
+    fn cursor_insert<'a, F>(
+        &mut self,
+        clamp: bool,
+        ctx: &CursorGroupIdContext<'a>,
+        store: &mut Store<I>,
+        mut callback: F,
+    ) -> EditResult<(), I>
+    where
+        F: FnMut(
+            &mut CursorState,
+            &mut EditBuffer<I>,
+            &mut Store<I>,
+        ) -> EditResult<(CursorChoice, Vec<CursorAdjustment>), I>,
+    {
+        let gid = ctx.0;
+        let mut group = self.get_group(gid);
+        let change_start = group.clone();
+        let end = ctx.2.get_cursor_end();
+
+        let mut typed: Vec<&mut CursorState> = vec![];
+        let mut adjs = vec![];
+
+        for state in group.iter_mut().rev() {
+            let (choice, mut adj) = callback(state, self, store)?;
+
+            typed.adjust(adj.as_slice());
+            adjs.append(&mut adj);
+
+            if let Some(cursor) = choice.resolve(end) {
+                state.set(cursor);
+                if clamp {
+                    self.clamp_state(state, ctx);
+                }
+            }
+
+            typed.push(state);
+        }
+
+        self._adjust_all(adjs, store);
+        self.push_change(change_start);
+        self.set_group(gid, group);
+
+        Ok(())
+    }
+}
+
 impl<'a, I> InsertTextActions<CursorGroupIdContext<'a>, I> for EditBuffer<I>
 where
     I: ApplicationInfo,
@@ -68,22 +118,17 @@ where
         let insty = ctx.2.get_insert_style();
         let cell = store.registers.get(&ctx.2.get_register().unwrap_or(Register::Unnamed))?;
         let text = cell.value.repeat(cell.shape, count);
-        let end = ctx.2.get_cursor_end();
 
-        let gid = ctx.0;
-        let mut group = self.get_group(gid);
-        let change_start = group.clone();
-
-        for state in group.iter_mut() {
-            let (choice, adjs) = match style {
+        self.cursor_insert(true, ctx, store, |state, buf, _| {
+            let (choice, adj) = match style {
                 PasteStyle::Cursor => {
                     let cursor = state.cursor();
                     let dir = MoveDir1D::Previous;
 
                     if let Some(style) = insty {
-                        self.text.insert(cursor, dir, text.clone(), style)
+                        buf.text.insert(cursor, dir, text.clone(), style)
                     } else {
-                        self.text.paste(cursor, dir, text.clone(), cell.shape)
+                        buf.text.paste(cursor, dir, text.clone(), cell.shape)
                     }
                 },
                 PasteStyle::Side(dir) => {
@@ -93,29 +138,21 @@ where
                     };
 
                     if let Some(style) = insty {
-                        self.text.insert(cursor, *dir, text.clone(), style)
+                        buf.text.insert(cursor, *dir, text.clone(), style)
                     } else {
-                        self.text.paste(cursor, *dir, text.clone(), cell.shape)
+                        buf.text.paste(cursor, *dir, text.clone(), cell.shape)
                     }
                 },
                 PasteStyle::Replace => {
-                    let start = self.text.cursor_to_offset(state.start());
-                    let end = self.text.cursor_to_offset(state.end());
+                    let start = buf.text.cursor_to_offset(state.start());
+                    let end = buf.text.cursor_to_offset(state.end());
 
-                    self.text.replace(start..=end, text.clone())
+                    buf.text.replace(start..=end, text.clone())
                 },
             };
 
-            self._adjust_all(adjs, store);
-
-            if let Some(cursor) = choice.resolve(end) {
-                state.set(cursor);
-                self.clamp_state(state, ctx);
-            }
-        }
-
-        self.push_change(change_start);
-        self.set_group(gid, group);
+            Ok((choice, adj))
+        })?;
 
         Ok(None)
     }
@@ -130,25 +167,10 @@ where
     ) -> EditResult<EditInfo, I> {
         let count = ctx.2.resolve(count);
         let text = EditRope::from("\n").repeat(TargetShape::CharWise, count);
-        let end = ctx.2.get_cursor_end();
 
-        let gid = ctx.0;
-        let mut group = self.get_group(gid);
-        let change_start = group.clone();
-
-        for state in group.iter_mut() {
-            let (choice, adjs) = self.text.paste(state.cursor(), dir, text.clone(), shape);
-
-            self._adjust_all(adjs, store);
-
-            if let Some(cursor) = choice.resolve(end) {
-                state.set(cursor);
-                self.clamp_state(state, ctx);
-            }
-        }
-
-        self.push_change(change_start);
-        self.set_group(gid, group);
+        self.cursor_insert(true, ctx, store, |state, buf, _| {
+            Ok(buf.text.paste(state.cursor(), dir, text.clone(), shape))
+        })?;
 
         Ok(None)
     }
@@ -163,33 +185,11 @@ where
     ) -> EditResult<EditInfo, I> {
         let style = ctx.2.get_insert_style().unwrap_or(InsertStyle::Insert);
         let count = ctx.2.resolve(count);
-        let end = ctx.2.get_cursor_end();
-
-        let gid = ctx.0;
-        let mut group = self.get_group(gid);
-        let mut adjs = vec![];
-
-        let change_start = group.clone();
         let text = EditRope::from(s).repeat(TargetShape::CharWise, count);
 
-        for state in group.iter_mut() {
-            state.adjust(adjs.as_slice());
-
-            let (choice, mut adj) = self.text.insert(state.cursor(), dir, text.clone(), style);
-
-            if let Some(cursor) = choice.resolve(end) {
-                state.set(cursor);
-                self.clamp_state(state, ctx);
-            } else {
-                state.adjust(adj.as_slice());
-            }
-
-            adjs.append(&mut adj);
-        }
-
-        self._adjust_all(adjs, store);
-        self.push_change(change_start);
-        self.set_group(gid, group);
+        self.cursor_insert(true, ctx, store, |state, buf, _| {
+            Ok(buf.text.insert(state.cursor(), dir, text.clone(), style))
+        })?;
 
         Ok(None)
     }
@@ -204,44 +204,24 @@ where
     ) -> EditResult<EditInfo, I> {
         let style = ctx.2.get_insert_style().unwrap_or(InsertStyle::Insert);
         let count = ctx.2.resolve(count);
-        let end = ctx.2.get_cursor_end();
 
-        let gid = ctx.0;
-        let mut group = self.get_group(gid);
-        let change_start = group.clone();
-
-        let mut typed: Vec<&mut CursorState> = vec![];
-        let mut adjs = vec![];
-
-        for state in group.iter_mut().rev() {
+        self.cursor_insert(false, ctx, store, |state, buf, store| {
             let mut choice = CursorChoice::Single(state.cursor().clone());
+            let mut adjs = vec![];
 
             for _ in 0..count {
                 if let Some(cursor) = choice.get(CursorEnd::Auto) {
-                    let s = self._str(ch.clone(), cursor, &store.digraphs)?;
+                    let s = buf._str(ch.clone(), cursor, &store.digraphs)?;
                     let text = EditRope::from(s.as_str());
 
-                    let mut res = self.text.insert(cursor, dir, text, style);
+                    let mut res = buf.text.insert(cursor, dir, text, style);
                     choice = res.0;
-
-                    for typed in typed.iter_mut() {
-                        typed.adjust(res.1.as_slice());
-                    }
-
                     adjs.append(&mut res.1);
                 }
             }
 
-            if let Some(cursor) = choice.resolve(end) {
-                state.set(cursor);
-            }
-
-            typed.push(state);
-        }
-
-        self._adjust_all(adjs, store);
-        self.push_change(change_start);
-        self.set_group(gid, group);
+            Ok((choice, adjs))
+        })?;
 
         Ok(None)
     }
@@ -575,6 +555,41 @@ mod tests {
         open_line!(ebuf, TargetShape::LineWise, MoveDir1D::Previous, ctx!(gid, vwctx, vctx), store);
         assert_eq!(ebuf.get_text(), "hello \n\nworld\nhello \nworld\n");
         assert_eq!(ebuf.get_leader(gid), Cursor::new(1, 0));
+    }
+
+    #[test]
+    fn test_open_line_cursor_group() {
+        let (mut ebuf, gid, vwctx, vctx, mut store) = mkfivestr("hello world\nhello world\n");
+
+        // Start out at (0, 6).
+        ebuf.set_leader(gid, Cursor::new(0, 6));
+
+        // First split the cursor into five cursors.
+        ebuf.cursor_split(&Count::Exact(4), ctx!(gid, vwctx, vctx), &mut store)
+            .unwrap();
+
+        // Insert multiple newlines below current line:
+        open_line!(ebuf, TargetShape::LineWise, MoveDir1D::Next, ctx!(gid, vwctx, vctx), store);
+        assert_eq!(ebuf.get_text(), "hello world\n\n\n\n\n\nhello world\n");
+        assert_eq!(ebuf.get_leader(gid), Cursor::new(1, 0));
+        assert_eq!(ebuf.get_followers(gid), vec![
+            Cursor::new(2, 0),
+            Cursor::new(3, 0),
+            Cursor::new(4, 0),
+            Cursor::new(5, 0),
+        ]);
+
+        // Text should be inserted on each of the new lines:
+        type_char!(ebuf, 'q', gid, vwctx, vctx, store);
+        type_char!(ebuf, '1', gid, vwctx, vctx, store);
+        assert_eq!(ebuf.get_text(), "hello world\nq1\nq1\nq1\nq1\nq1\nhello world\n");
+        assert_eq!(ebuf.get_leader(gid), Cursor::new(1, 2));
+        assert_eq!(ebuf.get_followers(gid), vec![
+            Cursor::new(2, 2),
+            Cursor::new(3, 2),
+            Cursor::new(4, 2),
+            Cursor::new(5, 2),
+        ]);
     }
 
     #[test]
