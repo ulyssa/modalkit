@@ -47,6 +47,7 @@ unicode-width = "0.2.0"
 [workspace.lints.clippy]
 bool_assert_comparison = "allow"
 bool_to_int_with_if = "allow"
+enum_variant_names = "allow"
 field_reassign_with_default = "allow"
 len_without_is_empty = "allow"
 manual_range_contains = "allow"

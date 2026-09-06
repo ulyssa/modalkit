@@ -18,6 +18,7 @@ mod macros;
 mod keyparse;
 
 pub mod emacs;
+pub mod kak;
 pub mod mixed;
 pub mod vim;
 

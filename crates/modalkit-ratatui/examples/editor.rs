@@ -765,6 +765,7 @@ fn main() -> Result<(), std::io::Error> {
         Some(arg) => {
             match arg.as_str().trim() {
                 "e" | "emacs" => MixedChoice::Emacs,
+                "k" | "kak" | "kakoune" => MixedChoice::Kakoune,
                 "v" | "vim" => MixedChoice::Vim,
                 m => panic!("Unknown environment: {m:?}"),
             }

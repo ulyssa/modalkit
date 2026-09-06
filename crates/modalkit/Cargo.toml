@@ -5,7 +5,7 @@ homepage = "https://github.com/ulyssa/modalkit/tree/main/crates/modalkit"
 readme = "README.md"
 description = "A library for building applications that use modal editing"
 exclude = [".github", "CONTRIBUTING.md"]
-keywords = ["modal", "vim", "emacs"]
+keywords = ["modal", "vim", "emacs", "kakoune"]
 categories = ["command-line-interface", "text-editors"]
 
 edition.workspace = true
@@ -45,6 +45,7 @@ features = ["wayland-data-control"]
 
 [dev-dependencies]
 rand = { workspace = true }
+pretty_assertions = "^1.4.1"
 temp-dir = { workspace = true }
 
 [lints]
