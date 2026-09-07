@@ -116,7 +116,11 @@ where
     ) -> EditResult<EditInfo, I> {
         let count = ctx.2.resolve(count);
         let insty = ctx.2.get_insert_style();
-        let cell = store.registers.get(&ctx.2.get_register().unwrap_or(Register::Unnamed))?;
+        let register = ctx
+            .2
+            .get_register()
+            .unwrap_or_else(|| store.registers.get_default_register());
+        let cell = store.registers.get(&register)?;
         let text = cell.value.repeat(cell.shape, count);
 
         self.cursor_insert(true, ctx, store, |state, buf, _| {

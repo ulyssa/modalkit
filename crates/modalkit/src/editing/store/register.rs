@@ -125,6 +125,8 @@ struct CommandHistory {
 /// [EditAction::Yank]: crate::actions::EditAction::Yank
 /// [MacroAction::ToggleRecording]: crate::actions::MacroAction::ToggleRecording
 pub struct RegisterStore {
+    default_text: Register,
+
     last_commands: HashMap<CommandType, CommandHistory>,
 
     altbufname: RegisterCell,
@@ -230,6 +232,8 @@ impl From<(TargetShape, &str)> for RegisterCell {
 impl RegisterStore {
     fn new() -> Self {
         RegisterStore {
+            default_text: Register::Unnamed,
+
             last_commands: HashMap::default(),
 
             altbufname: RegisterCell::default(),
@@ -249,6 +253,16 @@ impl RegisterStore {
             #[cfg(feature = "clipboard")]
             clipboard: Clipboard::new().ok().map(RefCell::new),
         }
+    }
+
+    /// Returns the default register to use for storing text.
+    pub fn get_default_register(&self) -> Register {
+        self.default_text.clone()
+    }
+
+    /// Change the default register to use for storing text.
+    pub fn set_default_register(&mut self, r: Register) {
+        self.default_text = r;
     }
 
     #[cfg(feature = "clipboard")]
