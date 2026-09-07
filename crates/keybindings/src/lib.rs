@@ -713,6 +713,22 @@ pub struct InputIterator<'a, Key: InputKey, S: Step<Key>> {
     keys: std::vec::IntoIter<Key>,
 }
 
+impl<K, S> InputIterator<'_, K, S>
+where
+    K: InputKey,
+    S: Step<K>,
+{
+    /// Return a reference to the inner [ModalMachine].
+    pub fn inner(&self) -> &ModalMachine<K, S> {
+        self.bindings
+    }
+
+    /// Return a mutable reference to the inner [ModalMachine].
+    pub fn inner_mut(&mut self) -> &mut ModalMachine<K, S> {
+        self.bindings
+    }
+}
+
 impl<K, S> Iterator for InputIterator<'_, K, S>
 where
     K: InputKey,
@@ -1720,6 +1736,13 @@ mod tests {
                 TestMode::Normal => (vec![], None),
                 TestMode::Suffix => (vec![], None),
             }
+        }
+    }
+
+    impl TestContext {
+        fn operation(mut self, op: TestOperation) -> Self {
+            self.temp.operation = Some(op);
+            self
         }
     }
 
@@ -3144,5 +3167,47 @@ mod tests {
         assert_pop2!(tm, TestAction::Paste, ctx);
         assert_eq!(tm.mode(), TestMode::Insert);
         assert_eq!(tm.get_cursor_hint(), None);
+    }
+
+    #[test]
+    fn test_execute() {
+        let mut tm = TestMachine::default();
+        let mut acts = vec![];
+
+        let mut iter = tm.execute(vec![
+            key!('c'),
+            key!('b'),
+            ctl!('o'),
+            key!('d'),
+            key!('d'),
+            ctl!('l'),
+            key!('d'),
+            key!('d'),
+            key!('n'),
+        ]);
+
+        while let Some((a, c)) = iter.next() {
+            let mode = iter.inner().mode();
+            acts.push((a, c, mode));
+        }
+
+        // Verify that `InputIterator` gradually feeds keys, which means that we can see the mode
+        // after each input_key(), and not just the mode after they've all been done.
+        assert_eq!(acts, vec![
+            (TestAction::Type('c'), TestContext::default(), TestMode::Insert),
+            (TestAction::Type('b'), TestContext::default(), TestMode::Insert),
+            (
+                TestAction::EditLine,
+                TestContext::default().operation(TestOperation::Delete),
+                TestMode::Insert
+            ),
+            (TestAction::NoOp, TestContext::default(), TestMode::Normal),
+            (
+                TestAction::EditLine,
+                TestContext::default().operation(TestOperation::Delete),
+                TestMode::Normal
+            ),
+            (TestAction::NoOp, TestContext::default(), TestMode::Normal),
+        ]);
     }
 }
