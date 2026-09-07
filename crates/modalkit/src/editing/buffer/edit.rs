@@ -149,7 +149,10 @@ where
         self.text.trailing_newline();
 
         let cell = RegisterCell::new(shape, deleted);
-        let register = ctx.context.get_register().unwrap_or(Register::Unnamed);
+        let register = ctx
+            .context
+            .get_register()
+            .unwrap_or_else(|| store.registers.get_default_register());
         let mut flags = RegisterPutFlags::DELETE;
 
         if ctx.context.get_register_append() {
@@ -191,7 +194,10 @@ where
         }
 
         let cell = RegisterCell::new(shape, yanked);
-        let register = ctx.context.get_register().unwrap_or(Register::Unnamed);
+        let register = ctx
+            .context
+            .get_register()
+            .unwrap_or_else(|| store.registers.get_default_register());
         let mut flags = RegisterPutFlags::NONE;
 
         if ctx.context.get_register_append() {

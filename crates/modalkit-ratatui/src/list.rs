@@ -738,7 +738,9 @@ where
                     }
 
                     let cell = RegisterCell::new(TargetShape::LineWise, yanked);
-                    let register = ctx.get_register().unwrap_or(Register::Unnamed);
+                    let register = ctx
+                        .get_register()
+                        .unwrap_or_else(|| store.registers.get_default_register());
                     let mut flags = RegisterPutFlags::NONE;
 
                     if ctx.get_register_append() {
