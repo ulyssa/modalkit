@@ -830,7 +830,7 @@ dependencies = [
 
 [[package]]
 name = "keybindings"
-version = "0.0.3"
+version = "0.0.4"
 dependencies = [
  "textwrap",
  "unicode-segmentation",
@@ -986,7 +986,7 @@ dependencies = [
 
 [[package]]
 name = "modalkit"
-version = "0.0.26"
+version = "0.0.27"
 dependencies = [
  "anymap2",
  "arboard",
@@ -1011,7 +1011,7 @@ dependencies = [
 
 [[package]]
 name = "modalkit-ratatui"
-version = "0.0.26"
+version = "0.0.27"
 dependencies = [
  "crossterm",
  "intervaltree",
