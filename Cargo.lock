@@ -438,7 +438,7 @@ checksum = "75b325c5dbd37f80359721ad39aca5a29fb04c89279657cffdda8736d0c0b9d2"
 
 [[package]]
 name = "editor-types"
-version = "0.0.3"
+version = "0.0.4"
 dependencies = [
  "bitflags 2.13.1",
  "editor-types-macros",
@@ -448,7 +448,7 @@ dependencies = [
 
 [[package]]
 name = "editor-types-macros"
-version = "0.0.3"
+version = "0.0.4"
 dependencies = [
  "editor-types-parser",
  "nom 8.0.0",
@@ -459,7 +459,7 @@ dependencies = [
 
 [[package]]
 name = "editor-types-parser"
-version = "0.0.3"
+version = "0.0.4"
 dependencies = [
  "nom 8.0.0",
  "thiserror 2.0.20",
