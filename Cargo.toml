@@ -12,7 +12,7 @@ rust-version = "1.88"
 
 [workspace.dependencies.editor-types]
 path = "crates/editor-types"
-version = "0.0.3"
+version = "0.0.4"
 
 [workspace.dependencies.keybindings]
 path = "crates/keybindings"
@@ -20,11 +20,11 @@ version = "0.0.4"
 
 [workspace.dependencies.editor-types-parser]
 path = "crates/editor-types-parser"
-version = "0.0.3"
+version = "0.0.4"
 
 [workspace.dependencies.editor-types-macros]
 path = "crates/editor-types-macros"
-version = "0.0.3"
+version = "0.0.4"
 
 [workspace.dependencies.modalkit]
 path = "crates/modalkit"
