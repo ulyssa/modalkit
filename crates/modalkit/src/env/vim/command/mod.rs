@@ -1151,6 +1151,31 @@ mod tests {
     }
 
     #[test]
+    fn test_alias_overrides() {
+        let (mut cmds, ctx) = mkcmd();
+
+        let exp = vec![(
+            WindowAction::Split(OpenTarget::Current, Horizontal, Previous, 1.into()).into(),
+            ctx.clone(),
+        )];
+
+        // Can overwrite an existing command name ("read") to instead map to an already
+        // existing alias name ("sp"):
+        cmds.add_alias("read", "sp").unwrap();
+        let res = cmds.input_cmd("read", ctx.clone());
+        assert_eq!(res.unwrap(), exp);
+
+        // Can overwrite an existing alias with another command name:
+        cmds.add_alias("r", "split").unwrap();
+        let res = cmds.input_cmd("r", ctx.clone());
+        assert_eq!(res.unwrap(), exp);
+
+        // Fails if the target command doesn't exist:
+        let res = cmds.add_alias("q", "foobar");
+        assert!(res.is_err());
+    }
+
+    #[test]
     fn test_split_direction() {
         let (mut cmds, ctx) = mkcmd();
 
