@@ -34,11 +34,12 @@ mod wayland {
 
     use arboard::ImageData;
     use image::ImageReader;
-    use wl_clipboard_rs::paste::{self, ClipboardType};
+    use wl_clipboard_rs::{copy, paste};
 
     use super::*;
 
     const MIME_VIMENC_NAME: &str = "application/x-vim-enc-text";
+    const MIME_VIM_NAME: &str = "application/x-vim-text";
     const MIME_PNG_NAME: &str = "image/png";
 
     #[derive(Debug, thiserror::Error)]
@@ -83,7 +84,7 @@ mod wayland {
         Some(RegisterCell::new(shape, EditRope::from(text)))
     }
 
-    fn read_clipboard_text(clipboard: ClipboardType) -> Result<RegisterCell, Error> {
+    fn read_clipboard_text(clipboard: paste::ClipboardType) -> Result<RegisterCell, Error> {
         let mime_type = paste::MimeType::TextWithPriority(MIME_VIMENC_NAME);
 
         let (mut reader, mime_type) =
@@ -101,7 +102,7 @@ mod wayland {
         Ok(with_guessed_target_shape(text))
     }
 
-    fn read_clipboard_image(clipboard: ClipboardType) -> Option<ImageData<'static>> {
+    fn read_clipboard_image(clipboard: paste::ClipboardType) -> Option<ImageData<'static>> {
         let mime = paste::MimeType::Specific(MIME_PNG_NAME);
         let (mut pipe, _) = paste::get_contents(clipboard, paste::Seat::Unspecified, mime).ok()?;
 
@@ -134,6 +135,56 @@ mod wayland {
         }
 
         Ok(read_clipboard_text(clipboard).unwrap_or_default())
+    }
+
+    fn prepare_vim_sources(cell: &RegisterCell) -> Vec<copy::MimeSource> {
+        let text = cell.value.to_string();
+
+        let text_bytes = text.into_bytes();
+
+        let mut vim_bytes = Vec::from([0]);
+        vim_bytes.extend_from_slice(&text_bytes);
+
+        let mut vim_enc_bytes = Vec::from(b"\0utf-8\0");
+        vim_enc_bytes.extend_from_slice(&text_bytes);
+
+        match cell.shape {
+            TargetShape::CharWise => {
+                // the bytes are already zeroed
+            },
+            TargetShape::LineWise => {
+                vim_bytes[0] = 1;
+                vim_enc_bytes[0] = 1;
+            },
+            TargetShape::BlockWise => {
+                vim_bytes[0] = 2;
+                vim_enc_bytes[0] = 2;
+            },
+        }
+
+        vec![
+            copy::MimeSource {
+                source: copy::Source::Bytes(vim_enc_bytes.into()),
+                mime_type: copy::MimeType::Specific(MIME_VIMENC_NAME.into()),
+            },
+            copy::MimeSource {
+                source: copy::Source::Bytes(vim_bytes.into()),
+                mime_type: copy::MimeType::Specific(MIME_VIM_NAME.into()),
+            },
+            copy::MimeSource {
+                source: copy::Source::Bytes(text_bytes.into()),
+                mime_type: copy::MimeType::Text,
+            },
+        ]
+    }
+
+    pub fn write_clipboard(kind: LinuxClipboardKind, cell: &RegisterCell) {
+        let clipboard = kind.try_into().unwrap_or_default();
+
+        let mut options = copy::Options::new();
+        options.clipboard(clipboard);
+
+        let _ = options.copy_multi(prepare_vim_sources(cell));
     }
 }
 
@@ -218,7 +269,7 @@ impl Clipboard {
             },
 
             #[cfg(target_os = "linux")]
-            Clipboard::Wayland => todo!(),
+            Clipboard::Wayland => wayland::write_clipboard(kind, cell),
         }
     }
 }
