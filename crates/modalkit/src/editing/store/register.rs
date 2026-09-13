@@ -10,9 +10,9 @@ use crate::prelude::{CommandType, Register};
 #[cfg(feature = "clipboard")]
 use arboard::{ImageData, LinuxClipboardKind};
 #[cfg(feature = "clipboard")]
-use std::cell::{RefCell, RefMut};
-#[cfg(feature = "clipboard")]
 use clipboard::Clipboard;
+#[cfg(feature = "clipboard")]
+use std::cell::{RefCell, RefMut};
 
 #[cfg(feature = "clipboard")]
 mod clipboard;
