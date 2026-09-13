@@ -15,7 +15,7 @@ license.workspace = true
 rust-version.workspace = true
 
 [features]
-default = []
+default = ["clipboard"]
 clipboard = ["dep:arboard"]
 
 [dependencies]
@@ -33,6 +33,8 @@ thiserror = { workspace = true }
 unicode-segmentation = { workspace = true }
 unicode-width = { workspace = true }
 shellexpand = "3.1.1"
+wl-clipboard-rs = "0.9.0"
+image = { version = "0.25.0", default-features = false }
 
 [dependencies.derive_more]
 version = "2.1.1"

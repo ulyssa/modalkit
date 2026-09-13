@@ -2,62 +2,20 @@ use std::collections::HashMap;
 
 use bitflags::bitflags;
 
-#[cfg(feature = "clipboard")]
-use arboard::{Clipboard, Get, ImageData, Set};
-#[cfg(all(feature = "clipboard", target_os = "linux"))]
-use arboard::{GetExtLinux, LinuxClipboardKind, SetExtLinux};
-#[cfg(feature = "clipboard")]
-use std::cell::{RefCell, RefMut};
-
 use crate::editing::history::HistoryList;
 use crate::editing::rope::EditRope;
 use crate::prelude::TargetShape::{self, BlockWise, CharWise, LineWise};
 use crate::prelude::{CommandType, Register};
 
-#[cfg(all(feature = "clipboard", target_os = "linux"))]
-mod clipboard {
-    use super::*;
-
-    pub fn set_primary(clipboard: &mut Clipboard) -> Set<'_> {
-        clipboard.set().clipboard(LinuxClipboardKind::Primary)
-    }
-
-    pub fn set_clipboard(clipboard: &mut Clipboard) -> Set<'_> {
-        clipboard.set().clipboard(LinuxClipboardKind::Clipboard)
-    }
-
-    pub fn get_primary(clipboard: &mut Clipboard) -> Get<'_> {
-        clipboard.get().clipboard(LinuxClipboardKind::Primary)
-    }
-
-    pub fn get_clipboard(clipboard: &mut Clipboard) -> Get<'_> {
-        clipboard.get().clipboard(LinuxClipboardKind::Clipboard)
-    }
-}
-
-#[cfg(all(feature = "clipboard", not(target_os = "linux")))]
-mod clipboard {
-    use super::*;
-
-    pub fn set_primary(clipboard: &mut Clipboard) -> Set<'_> {
-        clipboard.set()
-    }
-
-    pub fn set_clipboard(clipboard: &mut Clipboard) -> Set<'_> {
-        clipboard.set()
-    }
-
-    pub fn get_primary(clipboard: &mut Clipboard) -> Get<'_> {
-        clipboard.get()
-    }
-
-    pub fn get_clipboard(clipboard: &mut Clipboard) -> Get<'_> {
-        clipboard.get()
-    }
-}
+#[cfg(feature = "clipboard")]
+use arboard::{ImageData, LinuxClipboardKind};
+#[cfg(feature = "clipboard")]
+use std::cell::{RefCell, RefMut};
+#[cfg(feature = "clipboard")]
+use clipboard::Clipboard;
 
 #[cfg(feature = "clipboard")]
-use self::clipboard::*;
+mod clipboard;
 
 bitflags! {
     /// Flags that control the behaviour of [RegisterStore::put].
@@ -301,15 +259,7 @@ impl RegisterStore {
             Register::SelectionPrimary => {
                 #[cfg(feature = "clipboard")]
                 if let Some(ref mut clipboard) = self.clipboard() {
-                    if let Ok(image) = get_primary(clipboard).image() {
-                        return Err(RegisterError::ClipboardImage(image.to_owned_img()));
-                    }
-
-                    if let Ok(text) = get_primary(clipboard).text() {
-                        RegisterCell::from(EditRope::from(text))
-                    } else {
-                        RegisterCell::default()
-                    }
+                    clipboard.get(LinuxClipboardKind::Primary)?
                 } else {
                     RegisterCell::default()
                 }
@@ -320,15 +270,7 @@ impl RegisterStore {
             Register::SelectionClipboard => {
                 #[cfg(feature = "clipboard")]
                 if let Some(ref mut clipboard) = self.clipboard() {
-                    if let Ok(image) = get_clipboard(clipboard).image() {
-                        return Err(RegisterError::ClipboardImage(image));
-                    }
-
-                    if let Ok(text) = get_clipboard(clipboard).text() {
-                        RegisterCell::from(EditRope::from(text))
-                    } else {
-                        RegisterCell::default()
-                    }
+                    clipboard.get(LinuxClipboardKind::Clipboard)?
                 } else {
                     RegisterCell::default()
                 }
@@ -429,8 +371,7 @@ impl RegisterStore {
             Register::SelectionPrimary => {
                 #[cfg(feature = "clipboard")]
                 if let Some(ref mut clipboard) = self.clipboard() {
-                    let op = set_primary(clipboard);
-                    let _ = op.text(&cell.value);
+                    clipboard.set(LinuxClipboardKind::Primary, &cell);
                 }
 
                 cell
@@ -438,8 +379,7 @@ impl RegisterStore {
             Register::SelectionClipboard => {
                 #[cfg(feature = "clipboard")]
                 if let Some(ref mut clipboard) = self.clipboard() {
-                    let op = set_clipboard(clipboard);
-                    let _ = op.text(&cell.value);
+                    clipboard.set(LinuxClipboardKind::Clipboard, &cell);
                 }
 
                 cell

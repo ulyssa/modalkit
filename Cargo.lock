@@ -994,6 +994,7 @@ dependencies = [
  "crossterm",
  "derive_more",
  "editor-types",
+ "image",
  "intervaltree",
  "keybindings",
  "nom 8.0.0",
@@ -1007,6 +1008,7 @@ dependencies = [
  "thiserror 2.0.20",
  "unicode-segmentation",
  "unicode-width",
+ "wl-clipboard-rs",
 ]
 
 [[package]]
