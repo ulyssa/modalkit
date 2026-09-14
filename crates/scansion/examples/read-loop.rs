@@ -60,7 +60,7 @@ fn create_readline(mode: MixedChoice) -> Result<ReadLine, std::io::Error> {
         },
         _ => {
             let mut vi = VimMachine::<TerminalKey, ReadLineInfo>::empty();
-            VimBindings::default().submit_on_enter().setup(&mut vi);
+            VimBindings::default().submit_on_enter(false).setup(&mut vi);
             ReadLine::new(vi)
         },
     }

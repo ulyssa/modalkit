@@ -1888,20 +1888,28 @@ fn default_ctrlcd<I: ApplicationInfo>() -> Vec<(MappedModes, &'static str, Input
 }
 
 #[rustfmt::skip]
-fn submit_on_enter<I: ApplicationInfo>() -> Vec<(MappedModes, &'static str, InputStep<I>)> {
-    [
+fn submit_on_enter<I: ApplicationInfo>(insert_mode_newline: bool) -> Vec<(MappedModes, &'static str, InputStep<I>)> {
+    let mut mappings = [
         // <Enter> in Normal and Visual mode submits contents.
         ( NVMAP, "<Enter>", prompt!(PromptAction::Submit, VimMode::Normal) ),
-
-        // <Enter> in Insert mode submits contents and stays in Insert mode.
-        ( IMAP, "<Enter>", prompt!(PromptAction::Submit, VimMode::Insert) ),
 
         // <Enter> in Command mode submits the command.
         ( CMAP, "<Enter>", command_exit!(PromptAction::Submit) ),
 
         // <Enter> in Operator-Pending mode moves to the next line.
         ( OMAP, "<Enter>", edit_end!(MoveType::FirstWord(MoveDir1D::Next)) ),
-    ].to_vec()
+    ].to_vec();
+
+    let imap = if insert_mode_newline {
+        // <Enter> in Insert mode types a newlines.
+        ( IMAP, "<Enter>", chartype!(Char::Single('\n')) )
+    } else {
+        // <Enter> in Insert mode submits contents and stays in Insert mode.
+        ( IMAP, "<Enter>", prompt!(PromptAction::Submit, VimMode::Insert) )
+    };
+    mappings.push(imap);
+
+    mappings
 }
 
 #[rustfmt::skip]
@@ -1995,10 +2003,13 @@ pub struct VimBindings<I: ApplicationInfo> {
 }
 
 impl<I: ApplicationInfo> VimBindings<I> {
-    /// Remap the Enter key in Normal, Visual, Select, and Insert mode to
-    /// [submit](PromptAction::Submit) instead.
-    pub fn submit_on_enter(mut self) -> Self {
-        self.enter = submit_on_enter();
+    /// Remap the Enter key in Normal, Visual, and Select mode to [submit](PromptAction::Submit)
+    /// instead.
+    ///
+    /// `insert_mode_newline` decides whether Enter in Insert mode adds a newline as usual or
+    /// triggers [submit](PromptAction::Submit) as well.
+    pub fn submit_on_enter(mut self, insert_mode_newline: bool) -> Self {
+        self.enter = submit_on_enter(insert_mode_newline);
         self
     }
 
@@ -2029,7 +2040,7 @@ impl<I: ApplicationInfo> VimBindings<I> {
 
 impl<I: ApplicationInfo> ShellBindings for VimBindings<I> {
     fn shell(self) -> Self {
-        self.submit_on_enter().search_is_action().ctrlcd_is_abort()
+        self.submit_on_enter(false).search_is_action().ctrlcd_is_abort()
     }
 }
 

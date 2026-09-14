@@ -17,7 +17,7 @@
 //!
 //! fn main() -> Result<(), std::io::Error> {
 //!     let mut vi = VimMachine::<TerminalKey, ReadLineInfo>::empty();
-//!     VimBindings::default().submit_on_enter().setup(&mut vi);
+//!     VimBindings::default().submit_on_enter(false).setup(&mut vi);
 //!
 //!     let mut rl = ReadLine::new(vi)?;
 //!
