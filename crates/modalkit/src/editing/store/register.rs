@@ -56,6 +56,23 @@ mod clipboard {
     }
 }
 
+/// Guess the target shape based on string format
+///
+/// If the text ends on a newline, assume it is [`LineWise`](`TargetShape::LineWise`) and else
+/// [`CharWise`](`TargetShape::CharWise`).
+///
+/// This copies what vim does
+/// [here](https://github.com/vim/vim/blob/2ec2a612c7ac9315a17d70f6a2a5ea89ddaea854/src/register.c#L3246-L3248).
+#[cfg(feature = "clipboard")]
+fn with_guessed_clipboard_shape(text: String) -> RegisterCell {
+    let shape = match text.as_bytes().last() {
+        Some(b'\n') | Some(b'\r') => TargetShape::LineWise,
+        _ => TargetShape::CharWise,
+    };
+
+    RegisterCell::new(shape, EditRope::from(text))
+}
+
 #[cfg(feature = "clipboard")]
 use self::clipboard::*;
 
@@ -306,7 +323,7 @@ impl RegisterStore {
                     }
 
                     if let Ok(text) = get_primary(clipboard).text() {
-                        RegisterCell::from(EditRope::from(text))
+                        with_guessed_clipboard_shape(text)
                     } else {
                         RegisterCell::default()
                     }
@@ -325,7 +342,7 @@ impl RegisterStore {
                     }
 
                     if let Ok(text) = get_clipboard(clipboard).text() {
-                        RegisterCell::from(EditRope::from(text))
+                        with_guessed_clipboard_shape(text)
                     } else {
                         RegisterCell::default()
                     }
