@@ -1893,9 +1893,6 @@ fn submit_on_enter<I: ApplicationInfo>(insert_mode_newline: bool) -> Vec<(Mapped
         // <Enter> in Normal and Visual mode submits contents.
         ( NVMAP, "<Enter>", prompt!(PromptAction::Submit, VimMode::Normal) ),
 
-        // <Enter> in Insert mode submits contents and stays in Insert mode.
-        ( IMAP, "<Enter>", prompt!(PromptAction::Submit, VimMode::Insert) ),
-
         // <Enter> in Command mode submits the command.
         ( CMAP, "<Enter>", command_exit!(PromptAction::Submit) ),
 
@@ -1903,17 +1900,14 @@ fn submit_on_enter<I: ApplicationInfo>(insert_mode_newline: bool) -> Vec<(Mapped
         ( OMAP, "<Enter>", edit_end!(MoveType::FirstWord(MoveDir1D::Next)) ),
     ].to_vec();
 
-    if insert_mode_newline {
+    let imap = if insert_mode_newline {
         // <Enter> in Insert mode types a newlines.
-        mappings.push(
-            ( IMAP, "<Enter>", chartype!(Char::Single('\n')) ),
-        );
+        ( IMAP, "<Enter>", chartype!(Char::Single('\n')) )
     } else {
         // <Enter> in Insert mode submits contents and stays in Insert mode.
-        mappings.push(
-            ( IMAP, "<Enter>", prompt!(PromptAction::Submit, VimMode::Insert) ),
-        );
-    }
+        ( IMAP, "<Enter>", prompt!(PromptAction::Submit, VimMode::Insert) )
+    };
+    mappings.push(imap);
 
     mappings
 }
