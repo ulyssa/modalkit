@@ -63,6 +63,7 @@ mod clipboard {
 ///
 /// This copies what vim does
 /// [here](https://github.com/vim/vim/blob/2ec2a612c7ac9315a17d70f6a2a5ea89ddaea854/src/register.c#L3246-L3248).
+#[cfg(feature = "clipboard")]
 fn with_guessed_clipboard_shape(text: String) -> RegisterCell {
     let shape = match text.as_bytes().last() {
         Some(b'\n') | Some(b'\r') => TargetShape::LineWise,
