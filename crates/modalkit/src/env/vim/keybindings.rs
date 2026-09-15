@@ -1328,6 +1328,8 @@ fn default_keys<I: ApplicationInfo>() -> Vec<(MappedModes, &'static str, InputSt
         ( MAP, "<C-Left>", edit_end!(MoveType::WordBegin(WordStyle::Big, MoveDir1D::Previous)) ),
         ( MAP, "<C-Right>", edit_end!(MoveType::WordBegin(WordStyle::Big, MoveDir1D::Next)) ),
         ( MAP, "<BS>", edit_end!(MoveType::Column(MoveDir1D::Previous, true)) ),
+        ( MAP, "<S-BS>", edit_end!(MoveType::WordBegin(WordStyle::Little, MoveDir1D::Previous)) ),
+        ( MAP, "<C-BS>", edit_end!(MoveType::WordBegin(WordStyle::Big, MoveDir1D::Previous)) ),
         ( MAP, "<End>", edit_end!(MoveType::LinePos(MovePosition::End), Count::MinusOne) ),
         ( MAP, "<Home>", edit_end!(MoveType::LinePos(MovePosition::Beginning), 0) ),
 
@@ -1724,6 +1726,8 @@ fn default_keys<I: ApplicationInfo>() -> Vec<(MappedModes, &'static str, InputSt
         ( ICMAP, "<C-V>{any}", chartype!() ),
         ( ICMAP, "<C-W>", erase!(MoveType::WordBegin(WordStyle::Little, MoveDir1D::Previous)) ),
         ( ICMAP, "<BS>", erase!(MoveType::Column(MoveDir1D::Previous, true)) ),
+        ( ICMAP, "<S-BS>", erase!(MoveType::Column(MoveDir1D::Previous, true)) ),
+        ( ICMAP, "<C-BS>", erase!(MoveType::Column(MoveDir1D::Previous, true)) ),
         ( ICMAP, "<Del>", erase!(MoveType::Column(MoveDir1D::Next, true)) ),
 
         // Insert Mode
