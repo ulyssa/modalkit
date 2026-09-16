@@ -394,6 +394,9 @@ mod parse {
         is_not("\t\n\\ |\"")(input)
     }
 
+    /// Parse a path and unescape special characters at the start of the string.
+    ///
+    /// Note that this expects `\` to be escaped, even on Windows.
     fn parse_filepath(input: &str) -> IResult<&str, String> {
         escaped_transform(
             filepath_char,
@@ -438,6 +441,9 @@ mod parse {
         filepath_at_end(prefix.as_ref()).ok().map(|(_, path)| path)
     }
 
+    /// Escape special characters in the in input string.
+    ///
+    /// Note that this escapes `\`, even on Windows.
     pub fn escape_string(input: &mut String) {
         for c in ["\\\\", "\\ ", "\\#", "\\%", "\\|", "\\\""] {
             if input.contains(&c[1..2]) {
@@ -446,41 +452,65 @@ mod parse {
         }
     }
 
+    /// How many columns `input` takes up in the buffer once escaped.
+    ///
+    /// [Cursor] columns are character offsets, so this counts characters and not bytes.
+    pub fn escaped_len(input: &str) -> usize {
+        let mut escaped = input.to_string();
+        escape_string(&mut escaped);
+        escaped.chars().count()
+    }
+
     pub fn trailing_filename(input: &str) -> &str {
         let start = input.rfind(MAIN_SEPARATOR).map(|s| s + 1).unwrap_or(0);
         &input[start..]
     }
 
-    pub fn trailing_filename_escaped(input: &str) -> String {
-        let mut name = trailing_filename(input).to_string();
-        escape_string(&mut name);
-        name
+    pub fn trailing_filename_escaped_len(input: &str) -> usize {
+        escaped_len(trailing_filename(input))
     }
 }
 
 /// Complete filenames within a path leading up to the cursor.
 pub fn complete_path(input: &EditRope, cursor: &mut Cursor) -> Vec<String> {
-    let Some(filepath) = parse::filepath_prefix(input, cursor) else {
+    let Some(filepath_in) = parse::filepath_prefix(input, cursor) else {
         return vec![];
     };
 
-    let filepath = Cow::from(&filepath);
-    let Ok(filepath_unexpanded) = shellexpand::env(filepath.as_ref()) else {
+    let filepath_in = Cow::from(&filepath_in);
+    let Ok(filepath_noenv) = shellexpand::env(filepath_in.as_ref()) else {
         return vec![];
     };
-    let mut filepath = shellexpand::tilde(filepath_unexpanded.as_ref());
-    if filepath_unexpanded.as_ref() == "~" {
-        return vec![format!("{}{}", filepath, MAIN_SEPARATOR)];
+
+    if filepath_noenv != filepath_in {
+        // Expand environment variables in the path the first time:
+        cursor.left(parse::escaped_len(filepath_in.as_ref()));
+
+        let mut expanded = filepath_noenv.into_owned();
+        parse::escape_string(&mut expanded);
+
+        return vec![expanded];
     }
 
-    if filepath.is_empty() {
-        filepath = DIR_CURRENT.into();
+    let mut filepath_expanded = shellexpand::tilde(filepath_noenv.as_ref());
+    if filepath_noenv.as_ref() == "~" {
+        // Expand plain tilde to the home directory:
+        cursor.left(parse::escaped_len(filepath_in.as_ref()));
+
+        let mut home = format!("{}{MAIN_SEPARATOR}", filepath_expanded.into_owned());
+        parse::escape_string(&mut home);
+
+        return vec![home];
+    }
+
+    if filepath_expanded.is_empty() {
+        filepath_expanded = DIR_CURRENT.into();
     }
 
     let mut res = Vec::<String>::with_capacity(MAX_COMPLETIONS);
-    let path = Path::new(filepath.as_ref());
+    let path = Path::new(filepath_expanded.as_ref());
 
-    if filepath.as_ref().ends_with(MAIN_SEPARATOR) {
+    if filepath_expanded.as_ref().ends_with(MAIN_SEPARATOR) {
         // complete all normal files
 
         if let Ok(dir) = path.read_dir() {
@@ -497,14 +527,16 @@ pub fn complete_path(input: &EditRope, cursor: &mut Cursor) -> Vec<String> {
 
             res.extend(dir.flatten().flat_map(filter).take(MAX_COMPLETIONS));
         }
-    } else if filepath.as_ref() == "." ||
-        filepath.strip_suffix('.').is_some_and(|s| s.ends_with(MAIN_SEPARATOR))
+    } else if filepath_expanded.as_ref() == "." ||
+        filepath_expanded
+            .strip_suffix('.')
+            .is_some_and(|s| s.ends_with(MAIN_SEPARATOR))
     {
         // complete all dotfiles
         // The .parent() and .file_name() methods treat . especially, so we
         // have to special-case completion of hidden files here.
 
-        cursor.left(parse::trailing_filename_escaped(filepath.as_ref()).len());
+        cursor.left(parse::trailing_filename_escaped_len(filepath_in.as_ref()));
 
         if let Ok(dir) = path.read_dir() {
             let filter = |entry: DirEntry| {
@@ -525,7 +557,7 @@ pub fn complete_path(input: &EditRope, cursor: &mut Cursor) -> Vec<String> {
         }
     } else {
         // complete a path
-        cursor.left(parse::trailing_filename_escaped(filepath.as_ref()).len());
+        cursor.left(parse::trailing_filename_escaped_len(filepath_in.as_ref()));
 
         let Some(prefix) = path.components().next_back() else {
             return vec![];
@@ -539,9 +571,9 @@ pub fn complete_path(input: &EditRope, cursor: &mut Cursor) -> Vec<String> {
             },
         };
 
-        let dir = filepath
+        let dir = filepath_expanded
             .strip_suffix(prefix.as_ref())
-            .or_else(|| filepath.rsplit_once(MAIN_SEPARATOR).map(|(p, _)| p))
+            .or_else(|| filepath_expanded.rsplit_once(MAIN_SEPARATOR).map(|(p, _)| p))
             .map(Path::new)
             .filter(|p| !p.as_os_str().is_empty())
             .and_then(|p| p.read_dir().ok())
@@ -611,6 +643,7 @@ fn sort_paths(paths: &mut [String]) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::MAIN_SEPARATOR_STR;
 
     fn mkmap() -> CompletionMap<String, usize> {
         let mut map = CompletionMap::default();
@@ -721,5 +754,85 @@ mod tests {
 
         let res = completer.complete_line("foo bar q");
         assert_eq!(res, vec!["foo bar quux"]);
+    }
+
+    #[test]
+    fn test_complete_path_expand_env_simple() {
+        std::env::set_var("HOME", "/home/user");
+
+        let rope = EditRope::from("sp $HOME");
+        let mut cursor = Cursor::new(0, 8);
+        let res = complete_path(&rope, &mut cursor);
+        assert_eq!(res, vec![std::env::var("HOME").unwrap()]);
+
+        let rope = EditRope::from("sp $HOME/");
+        let mut cursor = Cursor::new(0, 9);
+        let res = complete_path(&rope, &mut cursor);
+        assert_eq!(res, vec![std::env::var("HOME").unwrap() + "/"]);
+
+        let rope = EditRope::from("sp $HOME/D");
+        let mut cursor = Cursor::new(0, 10);
+        let res = complete_path(&rope, &mut cursor);
+        assert_eq!(res, vec![std::env::var("HOME").unwrap() + "/D"]);
+    }
+
+    #[test]
+    fn test_complete_path_expand_tilde_only() {
+        let rope = EditRope::from("sp ~");
+        let mut cursor = Cursor::new(0, 4);
+        let res = complete_path(&rope, &mut cursor);
+        let mut exp =
+            std::env::home_dir().unwrap().to_string_lossy().into_owned() + MAIN_SEPARATOR_STR;
+        parse::escape_string(&mut exp);
+        assert_eq!(res, vec![exp]);
+        assert_eq!(cursor.get_x(), 3);
+    }
+
+    #[test]
+    fn test_complete_path_expand_escapes_result() {
+        // Environment variables whose contents need escaping are escaped
+        // in the expanded completion:
+        std::env::set_var("FOOBAR_TEST_DIR", "/a b/c#d");
+
+        let rope = EditRope::from("sp $FOOBAR_TEST_DIR");
+        let mut cursor = Cursor::new(0, 19);
+        let res = complete_path(&rope, &mut cursor);
+        assert_eq!(res, vec!["/a\\ b/c\\#d"]);
+        assert_eq!(cursor.get_x(), 3);
+    }
+
+    #[test]
+    fn test_complete_path_expand_cursor_multibyte() {
+        std::env::set_var("HOME", "/home/user");
+
+        // The cursor moves over characters (and not bytes or columns):
+        let rope = EditRope::from("sp $HOME/文");
+        let mut cursor = Cursor::new(0, 10);
+        let res = complete_path(&rope, &mut cursor);
+        assert_eq!(res, vec![std::env::var("HOME").unwrap() + "/文"]);
+        assert_eq!(cursor.get_x(), 3);
+    }
+
+    #[test]
+    fn test_complete_path_expand_cursor_escaped() {
+        std::env::set_var("HOME", "/home/user");
+
+        // Cursor needs to move back over the original escaped text, and not the unescaped text:
+        let rope = EditRope::from("sp $HOME/a\\ b");
+        let mut cursor = Cursor::new(0, 13);
+        let res = complete_path(&rope, &mut cursor);
+        assert_eq!(res, vec![std::env::var("HOME").unwrap() + "/a\\ b"]);
+        assert_eq!(cursor.get_x(), 3);
+    }
+
+    #[test]
+    fn test_complete_path_cursor_multibyte() {
+        std::env::set_var("HOME", "/home/user");
+
+        let rope = EditRope::from(format!("sp .{MAIN_SEPARATOR}文"));
+        let mut cursor = Cursor::new(0, 6);
+        let res = complete_path(&rope, &mut cursor);
+        assert!(res.is_empty());
+        assert_eq!(cursor.get_x(), 5);
     }
 }
