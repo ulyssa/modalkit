@@ -1863,12 +1863,15 @@ fn default_enter<I: ApplicationInfo>() -> Vec<(MappedModes, &'static str, InputS
     [
         // <Enter> in Normal, Visual, and Operator-Pending mode moves to next line.
         ( MAP, "<Enter>", edit_end!(MoveType::FirstWord(MoveDir1D::Next)) ),
+        ( MAP, "<C-Enter>", edit_end!(MoveType::FirstWord(MoveDir1D::Next)) ),
 
         // <Enter> in Insert mode types a newlines.
         ( IMAP, "<Enter>", chartype!(Char::Single('\n')) ),
+        ( IMAP, "<C-Enter>", chartype!(Char::Single('\n')) ),
 
         // <Enter> in Command mode submits the command.
         ( CMAP, "<Enter>", command_exit!(PromptAction::Submit) ),
+        ( CMAP, "<C-Enter>", command_exit!(PromptAction::Submit) ),
     ].to_vec()
 }
 
@@ -1896,12 +1899,18 @@ fn submit_on_enter<I: ApplicationInfo>(insert_mode_newline: bool) -> Vec<(Mapped
     let mut mappings = [
         // <Enter> in Normal and Visual mode submits contents.
         ( NVMAP, "<Enter>", prompt!(PromptAction::Submit, VimMode::Normal) ),
+        ( NVMAP, "<C-Enter>", prompt!(PromptAction::Submit, VimMode::Normal) ),
 
         // <Enter> in Command mode submits the command.
         ( CMAP, "<Enter>", command_exit!(PromptAction::Submit) ),
+        ( CMAP, "<C-Enter>", command_exit!(PromptAction::Submit) ),
 
         // <Enter> in Operator-Pending mode moves to the next line.
         ( OMAP, "<Enter>", edit_end!(MoveType::FirstWord(MoveDir1D::Next)) ),
+        ( OMAP, "<C-Enter>", edit_end!(MoveType::FirstWord(MoveDir1D::Next)) ),
+
+        // <C-Enter> in Insert mode always submits contents and stays in Insert mode.
+        ( IMAP, "<C-Enter>", prompt!(PromptAction::Submit, VimMode::Insert) )
     ].to_vec();
 
     let imap = if insert_mode_newline {
