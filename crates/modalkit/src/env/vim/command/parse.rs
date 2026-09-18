@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use std::str::FromStr;
 
 use nom::{
@@ -116,6 +117,22 @@ impl CommandArgument {
             Ok((_, args)) => Ok(args),
             Err(e) => Err(CommandError::ParseFailed(e.to_string())),
         }
+    }
+
+    /// Interpret the argument text as a collection of file paths.
+    ///
+    /// Values containing spaces can either be quoted, or escaped with a backslash. (For example,
+    /// `My\ File.txt` or `"My File.txt".) This is mostly the same as [CommandArgument::strings],
+    /// but has the additional benefit that environment variables and initial tildes (`~/`) will
+    /// be expanded in the returned [PathBuf] values.
+    pub fn paths(&self) -> Result<Vec<PathBuf>, CommandError> {
+        fn expand_path(p: String) -> Result<PathBuf, CommandError> {
+            shellexpand::full(&p)
+                .map_err(|e| CommandError::Error(format!("failed to expand path: {e}")))
+                .map(|c| PathBuf::from(c.into_owned()))
+        }
+
+        self.strings()?.into_iter().map(expand_path).collect()
     }
 
     /// Interpret the argument text as a series of positional arguments and flags starting with
@@ -579,6 +596,32 @@ mod tests {
         let arg = arg!(" \"My Documents/foo file.txt\" \"file2.txt\" \"file3.txt\"");
         let split = names!["My Documents/foo file.txt", "file2.txt", "file3.txt"];
         assert_eq!(arg.filenames().unwrap(), split);
+    }
+
+    #[test]
+    fn test_arg_split_paths_quoted() {
+        let arg = arg!("");
+        assert_eq!(arg.paths().unwrap(), Vec::<PathBuf>::new());
+
+        let arg = arg!("\"~\"");
+        assert_eq!(arg.paths().unwrap(), vec![std::env::home_dir().unwrap()]);
+
+        let arg = arg!("\"file\"");
+        assert_eq!(arg.paths().unwrap(), vec![PathBuf::from("file")]);
+
+        let arg = arg!(" \"file1.txt\"");
+        assert_eq!(arg.paths().unwrap(), vec![PathBuf::from("file1.txt")]);
+
+        let arg = arg!(" \"file1.txt\" ");
+        assert_eq!(arg.paths().unwrap(), vec![PathBuf::from("file1.txt")]);
+
+        let arg = arg!(" \"My Documents/foo file.txt\" \"file2.txt\" \"file3.txt\"");
+        let split = vec![
+            PathBuf::from("My Documents/foo file.txt"),
+            PathBuf::from("file2.txt"),
+            PathBuf::from("file3.txt"),
+        ];
+        assert_eq!(arg.paths().unwrap(), split);
     }
 
     #[test]
