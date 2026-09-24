@@ -1243,7 +1243,9 @@ mod tests {
 
     macro_rules! linepos {
         ($tbox: expr, $pos: expr, $c: expr, $ctx: expr, $store: expr) => {
-            $tbox.scroll(&ScrollStyle::LinePos($pos, $c), $ctx, &mut $store).unwrap()
+            $tbox
+                .scroll(&ScrollStyle::LinePos($pos, $c), $ctx, &mut $store)
+                .unwrap()
         };
     }
 

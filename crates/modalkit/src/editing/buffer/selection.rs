@@ -798,19 +798,25 @@ mod tests {
 
     macro_rules! selection_expand {
         ($ebuf: expr, $boundary: expr, $filter: expr, $ctx: expr, $store: expr) => {
-            $ebuf.selection_expand(&$boundary, $filter, $ctx, &mut $store).unwrap()
+            $ebuf
+                .selection_expand(&$boundary, $filter, $ctx, &mut $store)
+                .unwrap()
         };
     }
 
     macro_rules! selection_trim {
         ($ebuf: expr, $boundary: expr, $filter: expr, $ctx: expr, $store: expr) => {
-            $ebuf.selection_trim(&$boundary, $filter, $ctx, &mut $store).unwrap()
+            $ebuf
+                .selection_trim(&$boundary, $filter, $ctx, &mut $store)
+                .unwrap()
         };
     }
 
     macro_rules! selection_duplicate {
         ($ebuf: expr, $dir: expr, $count: expr, $ctx: expr, $store: expr) => {
-            $ebuf.selection_duplicate($dir, &$count, $ctx, &mut $store).unwrap()
+            $ebuf
+                .selection_duplicate($dir, &$count, $ctx, &mut $store)
+                .unwrap()
         };
     }
 
