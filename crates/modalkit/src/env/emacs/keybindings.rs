@@ -271,13 +271,21 @@ macro_rules! iact {
 
 macro_rules! isv {
     () => {
-        InputStep { internal: vec![], external: vec![], nextm: None }
+        InputStep {
+            internal: vec![],
+            external: vec![],
+            nextm: None,
+        }
     };
     ($ints: expr, $exts: expr) => {
         InputStep { internal: $ints, external: $exts, nextm: None }
     };
     ($ints: expr, $exts: expr, $ns: expr) => {
-        InputStep { internal: $ints, external: $exts, nextm: Some($ns) }
+        InputStep {
+            internal: $ints,
+            external: $exts,
+            nextm: Some($ns),
+        }
     };
 }
 
