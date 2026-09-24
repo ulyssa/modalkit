@@ -2143,7 +2143,9 @@ mod tests {
 
     macro_rules! window_resize {
         ($tree: expr, $change: expr, $axis: expr, $szch: expr, $ctx: expr, $store: expr) => {
-            $tree.window_resize(&$change, $axis, &$szch, $ctx, &mut $store).unwrap()
+            $tree
+                .window_resize(&$change, $axis, &$szch, $ctx, &mut $store)
+                .unwrap()
         };
     }
 
