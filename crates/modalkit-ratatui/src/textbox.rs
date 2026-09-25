@@ -1183,6 +1183,9 @@ where
     type State = TextBoxState<I>;
 
     fn render(mut self, area: Rect, buf: &mut Buffer, state: &mut Self::State) {
+        // Ensure all cells receive the Style regardless of where we place characters:
+        buf.set_style(area, self.style);
+
         let area = match self.block.take() {
             Some(block) => {
                 let inner_area = block.inner(area);

@@ -244,6 +244,9 @@ where
     type State = CommandBarState<I>;
 
     fn render(self, area: Rect, buf: &mut Buffer, state: &mut Self::State) {
+        // Ensure all cells receive the Style regardless of where we place characters:
+        buf.set_style(area, self.style_text);
+
         if self.focused {
             let prompt_style = self.style_prompt.unwrap_or(self.style_text);
             let prompt = Span::styled(&state.prompt, prompt_style);

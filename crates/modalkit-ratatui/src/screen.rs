@@ -780,13 +780,13 @@ where
         self
     }
 
-    /// What [Style] should be used when drawing borders.
+    /// What [Style] should be used when drawing the command bar.
     pub fn cmdbar_style(mut self, style: Style) -> Self {
         self.cmdbar_style = style;
         self
     }
 
-    /// What [Style] should be used when drawing the border of the selected window.
+    /// What [Style] should be used when drawing the prompt border in the command bar.
     pub fn cmdbar_prompt_style(mut self, style: Style) -> Self {
         self.cmdbar_prompt_style = Some(style);
         self
