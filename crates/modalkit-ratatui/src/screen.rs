@@ -47,11 +47,13 @@ const GAP_COMPL_COL: usize = 2;
 #[derive(Default)]
 struct CompletionMenu {
     cursor: (u16, u16),
+    style: Style,
+    style_selected: Style,
 }
 
 impl CompletionMenu {
-    fn new(cursor: (u16, u16)) -> Self {
-        CompletionMenu { cursor }
+    fn new(cursor: (u16, u16), style: Style, style_selected: Style) -> Self {
+        CompletionMenu { cursor, style, style_selected }
     }
 }
 
@@ -76,8 +78,6 @@ impl StatefulWidget for CompletionMenu {
         let right = area.right();
         let space = right.saturating_sub(cx).saturating_sub(1) as usize;
         let maxw = state.candidates.iter().map(|s| s.len()).max().unwrap_or(0).min(space);
-        let style = Style::reset().add_modifier(StyleModifier::REVERSED);
-        let style_sel = style.bg(Color::Yellow).fg(Color::Black);
 
         let x = if state.start.y == state.cursor.y {
             let diff = state.cursor.x.saturating_sub(state.start.x);
@@ -88,7 +88,7 @@ impl StatefulWidget for CompletionMenu {
 
         let mut draw = |y: u16, idx: usize, s: &str| {
             let sel = matches!(state.selected, Some(i) if i == idx);
-            let style = if sel { style_sel } else { style };
+            let style = if sel { self.style_selected } else { self.style };
             let slen = s.len();
 
             let (x, _) = buffer.set_stringn(x, y, s, space, style);
@@ -721,6 +721,8 @@ where
     cmdbar_prompt_style: Option<Style>,
     tab_style: Style,
     tab_style_focused: Style,
+    completion_style: Style,
+    completion_style_selected: Style,
     divider: Span<'a>,
     focused: bool,
 
@@ -746,6 +748,8 @@ where
             cmdbar_prompt_style: None,
             tab_style: Style::default(),
             tab_style_focused: Style::default(),
+            completion_style: Style::reset().add_modifier(StyleModifier::REVERSED),
+            completion_style_selected: Style::reset().fg(Color::Yellow).bg(Color::Black),
             divider: Span::raw("|"),
             focused: true,
             _p: PhantomData,
@@ -797,6 +801,22 @@ where
     /// What [Style] should be used for the focused tab name.
     pub fn tab_style_focused(mut self, style: Style) -> Self {
         self.tab_style_focused = style;
+        self
+    }
+
+    /// What [Style] should be used for the completion list.
+    ///
+    /// Since this will be drawn over other content it should probably include [`Style::reset()`].
+    pub fn completion_style(mut self, style: Style) -> Self {
+        self.completion_style = style;
+        self
+    }
+
+    /// What [Style] should be used for selected item of the completion list.
+    ///
+    /// Since this will be drawn over other content it should probably include [`Style::reset()`].
+    pub fn completion_style_selected(mut self, style: Style) -> Self {
+        self.completion_style_selected = style;
         self
     }
 
@@ -953,7 +973,12 @@ where
                 },
                 CompletionDisplay::List => {
                     if let Some(cursor) = state.get_term_cursor() {
-                        CompletionMenu::new(cursor).render(winarea, buf, completions);
+                        CompletionMenu::new(
+                            cursor,
+                            self.completion_style,
+                            self.completion_style_selected,
+                        )
+                        .render(winarea, buf, completions);
                     }
                 },
             }
