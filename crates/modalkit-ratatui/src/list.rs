@@ -172,6 +172,7 @@ where
     T: ListItem<I>,
     I: ApplicationInfo,
 {
+    style: Style,
     focused: bool,
     empty_message: Option<Text<'a>>,
     empty_alignment: Alignment,
@@ -1209,12 +1210,19 @@ where
     /// Create a new widget.
     pub fn new(store: &'a mut Store<I>) -> Self {
         List {
+            style: Style::default(),
             focused: false,
             empty_message: None,
             empty_alignment: Alignment::Left,
             store,
             _p: PhantomData,
         }
+    }
+
+    /// Set the default style for cells within this [List].
+    pub fn style(mut self, style: Style) -> Self {
+        self.style = style;
+        self
     }
 
     /// Set a message to display when the list is empty.
@@ -1244,6 +1252,10 @@ where
     type State = ListState<T, I>;
 
     fn render(self, area: Rect, buf: &mut Buffer, state: &mut Self::State) {
+        // Ensure all cells receive the Style regardless of where we place characters:
+        buf.set_style(area, self.style);
+
+        // Keep track of the region of the viewport:
         state.set_term_info(area);
 
         let height = state.viewctx.get_height();
