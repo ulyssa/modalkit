@@ -28,7 +28,7 @@ version = "0.0.4"
 
 [workspace.dependencies.modalkit]
 path = "crates/modalkit"
-version = "0.0.28"
+version = "0.0.29"
 
 [workspace.dependencies]
 bitflags = "2.4.2"
