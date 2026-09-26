@@ -17,6 +17,7 @@ rust-version.workspace = true
 [dependencies]
 bitflags = { workspace = true }
 editor-types-macros = { workspace = true }
+enum-map = { workspace = true }
 keybindings = { workspace = true }
 regex = { workspace = true }
 

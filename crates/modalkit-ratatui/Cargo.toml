@@ -13,6 +13,7 @@ rust-version.workspace = true
 
 [dependencies]
 crossterm = { workspace = true }
+enum-map = { workspace = true }
 intervaltree = { workspace = true }
 libc = { workspace = true }
 modalkit = { workspace = true }

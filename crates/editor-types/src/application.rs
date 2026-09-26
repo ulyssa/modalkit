@@ -258,8 +258,11 @@ impl ApplicationInfo for EmptyInfo {
 
     fn content_of_command(cmdtype: CommandType) -> String {
         match cmdtype {
-            CommandType::Search => "*search*".into(),
+            CommandType::Application => "*application*".into(),
             CommandType::Command => "*command*".into(),
+            CommandType::Content => "*content*".into(),
+            CommandType::Search => "*search*".into(),
+            CommandType::Shell => "*shell*".into(),
         }
     }
 }

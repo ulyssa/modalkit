@@ -14,6 +14,7 @@
 //! [Action]: crate::Action
 use std::fmt::{self, Debug, Display, Formatter};
 use std::hash::Hash;
+use std::ops::{Index, IndexMut};
 
 use bitflags::bitflags;
 use regex::Regex;
@@ -2770,13 +2771,64 @@ pub enum SelectionResizeStyle {
 }
 
 /// When focusing on the command bar, this is the type of command that should be submitted.
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+///
+/// Note that since [CommandBarAction::Focus] already specifies what action to take,
+/// the differences between these variants is not what action they result in, but
+/// instead which registers the submitted value is stored in and what history the
+/// user can access in the command bar.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, enum_map::Enum)]
 pub enum CommandType {
+    /// Prompt the user for an application-specific entry.
+    Application,
+
     /// Prompt the user for a command.
     Command,
 
+    /// Prompt the user for an [OpenTarget::Name] value.
+    Content,
+
     /// Prompt the user for a search query.
     Search,
+
+    /// Prompt the user for a shell command.
+    Shell,
+}
+
+/// Map for storing values indexed by [CommandType].
+#[derive(Default)]
+pub struct CommandMap<V> {
+    map: enum_map::EnumMap<CommandType, V>,
+}
+
+impl<V> CommandMap<V> {
+    pub fn new<F>(init: F) -> Self
+    where
+        F: FnMut(CommandType) -> V,
+    {
+        Self { map: enum_map::EnumMap::from_fn(init) }
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = (CommandType, &V)> {
+        IntoIterator::into_iter(&self.map)
+    }
+
+    pub fn iter_mut(&mut self) -> impl Iterator<Item = (CommandType, &mut V)> {
+        IntoIterator::into_iter(&mut self.map)
+    }
+}
+
+impl<V> Index<CommandType> for CommandMap<V> {
+    type Output = V;
+
+    fn index(&self, key: CommandType) -> &V {
+        &self.map[key]
+    }
+}
+
+impl<V> IndexMut<CommandType> for CommandMap<V> {
+    fn index_mut(&mut self, key: CommandType) -> &mut V {
+        &mut self.map[key]
+    }
 }
 
 /// What history items to recall during [PromptAction::Recall].

@@ -112,8 +112,7 @@ enum InternalResult<I: ApplicationInfo> {
 macro_rules! focused_mut {
     ($s: expr) => {
         match &$s.ct {
-            Some(CommandType::Command) => &mut $s.cmd,
-            Some(CommandType::Search) => &mut $s.search,
+            Some(c) => &mut $s.editor_states[*c],
             None => &mut $s.line,
         }
     };
@@ -197,9 +196,8 @@ where
     act: Option<(Action<I>, EditContext)>,
     cprompt: String,
 
+    editor_states: CommandMap<Editor<I>>,
     line: Editor<I>,
-    cmd: Editor<I>,
-    search: Editor<I>,
 }
 
 impl<I> ReadLine<I>
@@ -221,11 +219,14 @@ where
         let store = Store::<I>::default();
 
         let mut line = Editor::new(ReadLineId::Line);
-        let mut cmd = Editor::new(ReadLineId::Command(CommandType::Command));
-        let mut search = Editor::new(ReadLineId::Command(CommandType::Search));
         line.resize(dimensions.0, dimensions.1);
-        cmd.resize(dimensions.0, dimensions.1);
-        search.resize(dimensions.0, dimensions.1);
+
+        let editor_states = CommandMap::new(|c| {
+            let id = ReadLineId::Command(c);
+            let mut buf = Editor::new(id);
+            buf.resize(dimensions.0, dimensions.1);
+            buf
+        });
 
         let actstack = VecDeque::default();
         let bindings = KeyManager::new(bindings);
@@ -246,8 +247,7 @@ where
             cprompt: String::new(),
 
             line,
-            cmd,
-            search,
+            editor_states,
         })
     }
 
@@ -354,8 +354,8 @@ where
         Ok(InternalResult::Nothing)
     }
 
-    fn reset_cmd(&mut self) -> EditRope {
-        self.cmd.reset().trim_end_matches(is_newline)
+    fn reset_cmd(&mut self, ct: CommandType) -> EditRope {
+        self.editor_states[ct].reset().trim_end_matches(is_newline)
     }
 
     fn command_bar(
@@ -405,12 +405,12 @@ where
     }
 
     fn abort(&mut self, empty: bool) {
-        if empty && !self.cmd.is_blank() {
-            return;
-        }
-
         if let Some(ct) = self.ct {
-            let txt = self.reset_cmd();
+            if empty && !self.editor_states[ct].is_blank() {
+                return;
+            }
+
+            let txt = self.reset_cmd(ct);
             self.store.registers.set_aborted_command(ct, txt);
             self.ct = None;
         }
@@ -427,17 +427,17 @@ where
             },
             Some(ct) => {
                 let hist = self.store.registers.get_command_history(ct);
-                let text = self.cmd.recall(hist, filter, dir, count);
+                let text = self.editor_states[ct].recall(hist, filter, dir, count);
 
                 if let Some(text) = text {
-                    self.cmd.set_text(text);
+                    self.editor_states[ct].set_text(text);
                 }
             },
         }
     }
 
-    fn get_cmd_regex(&mut self) -> EditResult<Regex, I> {
-        let text = self.cmd.get_trim();
+    fn get_cmdbar_regex(&mut self, ct: CommandType) -> EditResult<Regex, I> {
+        let text = self.editor_states[ct].get_trim();
 
         if !text.is_empty() {
             let re = Regex::new(text.to_string().as_ref())?;
@@ -449,21 +449,20 @@ where
         // previously typed search and use that.
 
         let hist = self.store.registers.get_command_history(CommandType::Search);
-        let text = self
-            .cmd
+        let text = self.editor_states[ct]
             .recall(hist, RecallFilter::All, MoveDir1D::Previous, 1)
             .ok_or(EditError::NoSearch)?;
 
         let re = Regex::new(text.to_string().as_ref())?;
 
-        self.cmd.set_text(text);
+        self.editor_states[ct].set_text(text);
 
         return Ok(re);
     }
 
     fn get_regex(&mut self) -> EditResult<Regex, I> {
         let re = if let Some(CommandType::Search) = self.ct {
-            self.get_cmd_regex()?
+            self.get_cmdbar_regex(CommandType::Search)?
         } else {
             let text = self.store.registers.get_last_search();
 
@@ -500,7 +499,7 @@ where
     }
 
     fn incsearch(&mut self, ctx: &EditContext) -> EditResult<(), I> {
-        let Some(CommandType::Search) = self.ct else {
+        let Some(ct @ CommandType::Search) = self.ct else {
             return Ok(());
         };
 
@@ -508,7 +507,7 @@ where
             return Ok(());
         }
 
-        let needle = self.cmd.get_trim().to_string();
+        let needle = self.editor_states[ct].get_trim().to_string();
         let needle = Regex::new(needle.as_ref())?;
         let dir = ctx.get_search_regex_dir();
 
@@ -554,7 +553,7 @@ where
 
     fn submit(&mut self) -> InternalResult<I> {
         if let Some(ct) = self.ct {
-            let text = self.reset_cmd();
+            let text = self.reset_cmd(ct);
             self.store.registers.set_last_command(ct, text);
 
             if let Some(act) = self.act.take() {
@@ -579,9 +578,9 @@ where
 
         let lines = self.line.redraw(prompt, 0, &mut self.context)?;
 
-        if self.ct.is_some() {
+        if let Some(ct) = self.ct {
             let p = Some(self.cprompt.as_str());
-            let _ = self.cmd.redraw(p, lines, &mut self.context);
+            let _ = self.editor_states[ct].redraw(p, lines, &mut self.context);
         }
 
         self.context.stdout.queue(CursorShow)?;
@@ -625,7 +624,7 @@ where
 
         // Update editors.
         self.line.resize(width, height);
-        self.cmd.resize(width, height);
+        self.editor_states.iter_mut().for_each(|(_, e)| e.resize(width, height));
 
         if oldt >= height - 1 {
             self.context.top = height - 2;

@@ -442,6 +442,7 @@ version = "0.0.4"
 dependencies = [
  "bitflags 2.13.1",
  "editor-types-macros",
+ "enum-map",
  "keybindings",
  "regex",
 ]
@@ -476,6 +477,26 @@ name = "endian-type"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "869b0adbda23651a9c5c0c3d270aac9fcb52e8622a8f2b17e57802d7791962f2"
+
+[[package]]
+name = "enum-map"
+version = "2.7.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6866f3bfdf8207509a033af1a75a7b08abda06bbaaeae6669323fd5a097df2e9"
+dependencies = [
+ "enum-map-derive",
+]
+
+[[package]]
+name = "enum-map-derive"
+version = "0.17.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f282cfdfe92516eb26c2af8589c274c7c17681f5ecc03c18255fe741c6aa64eb"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
+]
 
 [[package]]
 name = "equivalent"
@@ -1014,6 +1035,7 @@ name = "modalkit-ratatui"
 version = "0.0.29"
 dependencies = [
  "crossterm",
+ "enum-map",
  "intervaltree",
  "libc",
  "modalkit",
