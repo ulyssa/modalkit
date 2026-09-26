@@ -139,6 +139,7 @@ struct CompletionBar {
     colw: u16,
     cols: u16,
     rows: u16,
+    style: Style,
 }
 
 impl CompletionBar {
@@ -164,9 +165,15 @@ impl CompletionBar {
                     colw: colw as u16,
                     cols: cols as u16,
                     rows: rows as u16,
+                    style: Style::default(),
                 }
             },
         }
+    }
+
+    fn style(mut self, style: Style) -> Self {
+        self.style = style;
+        self
     }
 }
 
@@ -177,6 +184,9 @@ impl StatefulWidget for CompletionBar {
         if area.height == 0 {
             return;
         }
+
+        // Ensure the whole region gets the style applied to every cell:
+        buffer.set_style(area, self.style);
 
         let mut iter = state.candidates.iter();
         let maxw = (self.colw as usize).saturating_sub(GAP_COMPL_COL);
@@ -713,18 +723,25 @@ where
     showdialog: Vec<Span<'a>>,
     showmode: Option<Span<'a>>,
 
+    style: Style,
+
     borders: bool,
     border_style: Style,
     border_style_focused: Style,
     border_type: BorderType,
     border_type_focused: Option<BorderType>,
+
     cmdbar_style: Style,
+    cmdbar_completions_style: Option<Style>,
     cmdbar_prompt_style: Option<Style>,
+
     tab_style: Style,
     tab_style_focused: Style,
+    divider: Span<'a>,
+
     completion_style: Style,
     completion_style_selected: Style,
-    divider: Span<'a>,
+
     focused: bool,
 
     _p: PhantomData<(W, I)>,
@@ -741,21 +758,35 @@ where
             store,
             showdialog: Vec::new(),
             showmode: None,
+
+            style: Style::default(),
+
             borders: false,
             border_style: Style::default(),
             border_style_focused: Style::default(),
             border_type: BorderType::Plain,
             border_type_focused: None,
+
             cmdbar_style: Style::default(),
+            cmdbar_completions_style: None,
             cmdbar_prompt_style: None,
+
             tab_style: Style::default(),
             tab_style_focused: Style::default(),
+            divider: Span::raw("|"),
+
             completion_style: Style::reset().add_modifier(StyleModifier::REVERSED),
             completion_style_selected: Style::reset().fg(Color::Yellow).bg(Color::Black),
-            divider: Span::raw("|"),
+
             focused: true,
             _p: PhantomData,
         }
+    }
+
+    /// What [Style] should be used when drawing borders.
+    pub fn style(mut self, style: Style) -> Self {
+        self.style = style;
+        self
     }
 
     /// What [Style] should be used when drawing borders.
@@ -791,6 +822,12 @@ where
     /// What [Style] should be used when drawing the command bar.
     pub fn cmdbar_style(mut self, style: Style) -> Self {
         self.cmdbar_style = style;
+        self
+    }
+
+    /// What [Style] should be used when drawing completions above the command bar.
+    pub fn cmdbar_completions_style(mut self, style: Style) -> Self {
+        self.cmdbar_completions_style = Some(style);
         self
     }
 
@@ -866,6 +903,9 @@ where
         if area.height == 0 {
             return;
         }
+
+        // Ensure whole area gets the specified base style for the screen:
+        buf.set_style(area, self.style);
 
         let focused = state.focused;
 
@@ -970,7 +1010,7 @@ where
             .focus(focused == CurrentFocus::Command)
             .status(status)
             .style(self.cmdbar_style)
-            .prompt_style(self.cmdbar_prompt_style.unwrap_or(self.cmdbar_style))
+            .prompt_style(self.cmdbar_style.patch(self.cmdbar_prompt_style.unwrap_or_default()))
             .render(cmdarea, buf, &mut state.cmdbar);
 
         // Render completion list last so it's drawn on top of the windows.
@@ -978,7 +1018,9 @@ where
             match completions.display {
                 CompletionDisplay::None => {},
                 CompletionDisplay::Bar => {
-                    cbar.render(bararea, buf, completions);
+                    let style = self.cmdbar_completions_style.unwrap_or_default();
+                    cbar.style(self.cmdbar_style.patch(style))
+                        .render(bararea, buf, completions);
                 },
                 CompletionDisplay::List => {
                     if let Some(cursor) = state.get_term_cursor() {
