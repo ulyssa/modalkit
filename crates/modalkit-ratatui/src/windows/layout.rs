@@ -1953,6 +1953,7 @@ pub struct WindowLayout<'a, W: Window<I>, I: ApplicationInfo> {
     border_style: Style,
     border_style_focused: Style,
     border_type: BorderType,
+    border_type_focused: Option<BorderType>,
 
     _pw: PhantomData<(W, I)>,
 }
@@ -1971,6 +1972,7 @@ where
             border_style: Style::default(),
             border_style_focused: Style::default(),
             border_type: BorderType::Plain,
+            border_type_focused: None,
             _pw: PhantomData,
         }
     }
@@ -1990,6 +1992,12 @@ where
     /// What characters should be used when drawing borders.
     pub fn border_type(mut self, border_type: BorderType) -> Self {
         self.border_type = border_type;
+        self
+    }
+
+    /// What characters should be used when drawing borders of the focused window.
+    pub fn border_type_focused(mut self, border_type: BorderType) -> Self {
+        self.border_type_focused = Some(border_type);
         self
     }
 
@@ -2024,6 +2032,11 @@ where
                     let focused = matches!(focus, Some(0));
 
                     if self.borders {
+                        let border_type = if focused {
+                            self.border_type_focused.unwrap_or(self.border_type)
+                        } else {
+                            self.border_type
+                        };
                         let title = w.get().get_win_title(self.store);
                         let block = Block::default()
                             .title(title)
@@ -2033,7 +2046,7 @@ where
                             } else {
                                 self.border_style
                             })
-                            .border_type(self.border_type);
+                            .border_type(border_type);
                         let inner = block.inner(info.area);
 
                         block.render(info.area, buf);
