@@ -2,14 +2,14 @@ use std::path::PathBuf;
 use std::str::FromStr;
 
 use nom::{
+    IResult,
+    Parser as _,
     branch::alt,
     bytes::complete::{escaped_transform, is_not, tag, take_while, take_while1},
     character::complete::{char, digit0, digit1, one_of, space0, space1},
     combinator::{cut, eof, opt, peek, value},
-    error::{context, ErrorKind, ParseError},
+    error::{ErrorKind, ParseError, context},
     multi::{many0, separated_list0},
-    IResult,
-    Parser as _,
 };
 
 use crate::{

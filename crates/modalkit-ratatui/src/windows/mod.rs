@@ -22,7 +22,7 @@ use modalkit::{
 };
 
 use self::layout::LayoutOps;
-use self::size::{ResizeInfo, SizeDescription, MIN_WIN_LEN};
+use self::size::{MIN_WIN_LEN, ResizeInfo, SizeDescription};
 use self::tree::SubtreeOps;
 
 mod layout;

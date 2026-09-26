@@ -1,12 +1,12 @@
 use nom::{
+    IResult,
+    Parser as _,
     branch::alt,
     bytes::complete::{escaped_transform, is_not, tag, take_while1},
     character::complete::{alphanumeric1, anychar, char, satisfy, space0, space1, u32 as num},
     combinator::{cut, eof, opt, value},
     error::{ErrorKind, ParseError},
     multi::separated_list0,
-    IResult,
-    Parser as _,
 };
 
 use super::*;

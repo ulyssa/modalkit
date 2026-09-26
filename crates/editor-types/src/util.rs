@@ -34,9 +34,5 @@ pub(crate) fn sort2<T>(a: T, b: T) -> (T, T)
 where
     T: Ord,
 {
-    if a < b {
-        (a, b)
-    } else {
-        (b, a)
-    }
+    if a < b { (a, b) } else { (b, a) }
 }

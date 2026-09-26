@@ -47,16 +47,16 @@
 use bitflags::bitflags;
 
 use editor_types::{
-    action,
-    application::{ApplicationInfo, EmptyInfo},
     Action,
     EditAction,
     EditorAction,
     SelectionAction,
+    action,
+    application::{ApplicationInfo, EmptyInfo},
 };
 
 use crate::{
-    env::{keyparse::parse, CommonKeyClass, ShellBindings},
+    env::{CommonKeyClass, ShellBindings, keyparse::parse},
     key::TerminalKey,
     keybindings::{InputBindings, ModalMachine, Step},
     prelude::*,

@@ -3,7 +3,7 @@ use std::marker::PhantomData;
 use std::ops::DerefMut;
 
 use super::layout::LayoutOps;
-use super::size::{SizeDescription, MIN_WIN_LEN};
+use super::size::{MIN_WIN_LEN, SizeDescription};
 use super::{AxisT, AxisTree, AxisTreeNode, Info, TreeInfo, Value};
 
 use modalkit::prelude::{
@@ -393,7 +393,9 @@ where
     fn _rotate_left(&mut self) {
         match &self.right {
             None => {
-                panic!("AxisTreeNode::_rotate_left() should only be called after right node insertions!");
+                panic!(
+                    "AxisTreeNode::_rotate_left() should only be called after right node insertions!"
+                );
             },
             Some(r) => {
                 if is_single(&r.left, &r.right) {
@@ -462,7 +464,9 @@ where
     fn _rotate_right(&mut self) {
         match &self.left {
             None => {
-                panic!("AxisTreeNode::_rotate_right() should only be called after left node insertions!");
+                panic!(
+                    "AxisTreeNode::_rotate_right() should only be called after left node insertions!"
+                );
             },
             Some(l) => {
                 if is_single(&l.right, &l.left) {

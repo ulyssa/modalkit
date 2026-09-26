@@ -227,12 +227,12 @@ mod tests {
     use crate::{
         editing::application::EmptyInfo,
         editing::store::{RegisterError, Store},
-        env::vim::VimState,
         env::CommonKeyClass,
+        env::vim::VimState,
         errors::EditError,
         key::TerminalKey,
         keybindings::EdgeEvent::{Class, Key},
-        keybindings::{dialog::PromptYesNo, EmptySequence, ModalMachine, Mode, ModeKeys, Step},
+        keybindings::{EmptySequence, ModalMachine, Mode, ModeKeys, Step, dialog::PromptYesNo},
     };
 
     type TestStore = Store<EmptyInfo>;

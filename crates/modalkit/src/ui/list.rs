@@ -311,11 +311,7 @@ mod tests {
     use crate::prelude::MoveDir1D::{Next, Previous as Prev};
 
     fn close1(v: &mut char) -> Result<(), char> {
-        if *v == 'c' {
-            Err(*v)
-        } else {
-            Ok(())
-        }
+        if *v == 'c' { Err(*v) } else { Ok(()) }
     }
 
     fn close2(_: &mut char) -> Result<(), bool> {

@@ -67,7 +67,7 @@ impl CursorState {
     pub fn set(&mut self, update: CursorState) {
         match self {
             CursorState::Location(_) => *self = update,
-            CursorState::Selection(ref mut cursor, ref mut anchor, ref mut shape) => {
+            CursorState::Selection(cursor, anchor, shape) => {
                 match update {
                     CursorState::Location(c) => *cursor = c,
                     CursorState::Selection(c, a, s) => {
@@ -83,8 +83,8 @@ impl CursorState {
     /// Set the cursor.
     pub fn set_cursor(&mut self, new: Cursor) {
         match self {
-            CursorState::Location(ref mut cursor) => *cursor = new,
-            CursorState::Selection(ref mut cursor, _, _) => *cursor = new,
+            CursorState::Location(cursor) => *cursor = new,
+            CursorState::Selection(cursor, _, _) => *cursor = new,
         }
     }
 
@@ -96,7 +96,7 @@ impl CursorState {
             CursorState::Location(cursor) => {
                 *self = CursorState::Selection(cursor.clone(), anchor, TargetShape::CharWise);
             },
-            CursorState::Selection(_, ref mut a, _) => {
+            CursorState::Selection(_, a, _) => {
                 *a = anchor;
             },
         }
@@ -110,7 +110,7 @@ impl CursorState {
             CursorState::Location(cursor) => {
                 *self = CursorState::Selection(cursor.clone(), cursor.clone(), shape);
             },
-            CursorState::Selection(_, _, ref mut s) => {
+            CursorState::Selection(_, _, s) => {
                 *s = shape;
             },
         }
@@ -126,7 +126,7 @@ impl CursorState {
 
     /// Swap the cursor and anchor.
     pub fn swap(&mut self) {
-        if let CursorState::Selection(ref mut cursor, ref mut anchor, _) = self {
+        if let CursorState::Selection(cursor, anchor, _) = self {
             std::mem::swap(cursor, anchor);
         }
     }
@@ -159,7 +159,7 @@ impl CursorState {
     pub fn len(&self, rope: &EditRope) -> usize {
         match self {
             CursorState::Location(_) => 1,
-            CursorState::Selection(ref cursor, ref anchor, _) => {
+            CursorState::Selection(cursor, anchor, _) => {
                 let (lc, rc) = sort2(cursor, anchor);
                 let loff = rope.cursor_to_offset(lc);
                 let roff = rope.cursor_to_offset(rc);

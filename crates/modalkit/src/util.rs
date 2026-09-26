@@ -169,11 +169,7 @@ pub fn idx_offset(
         (MoveDir1D::Next, false) => {
             let new = index.saturating_add(offset);
 
-            if new >= modulus {
-                None
-            } else {
-                Some(new)
-            }
+            if new >= modulus { None } else { Some(new) }
         },
         (MoveDir1D::Previous, false) => {
             if offset > index {
@@ -276,11 +272,7 @@ pub fn sort2<T>(a: T, b: T) -> (T, T)
 where
     T: Ord,
 {
-    if a < b {
-        (a, b)
-    } else {
-        (b, a)
-    }
+    if a < b { (a, b) } else { (b, a) }
 }
 
 pub fn into_range<T>(start: T, end: T, inclusive: bool) -> (Bound<T>, Bound<T>) {

@@ -1654,7 +1654,7 @@ impl EditRope {
     /// Compare this rope with a new version, and return a vector of adjustments needed to fix
     /// cursors and marks when moving to the new version.
     pub fn diff(&self, other: &EditRope) -> Vec<CursorAdjustment> {
-        use diff::{compute_delta, DeltaElement};
+        use diff::{DeltaElement, compute_delta};
 
         let delta = compute_delta(&self.rope, &other.rope);
         let mut adjs = Vec::new();

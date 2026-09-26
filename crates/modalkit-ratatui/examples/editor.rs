@@ -1,26 +1,26 @@
-use std::collections::hash_map::{Entry, HashMap};
 use std::collections::VecDeque;
+use std::collections::hash_map::{Entry, HashMap};
 use std::fmt;
 use std::fs::{DirEntry, File, FileType};
-use std::io::{stdout, Stdout};
+use std::io::{Stdout, stdout};
 use std::path::Path;
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
 use modalkit::crossterm::{
     self,
-    event::{poll, read, Event, KeyboardEnhancementFlags, PushKeyboardEnhancementFlags},
+    event::{Event, KeyboardEnhancementFlags, PushKeyboardEnhancementFlags, poll, read},
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen},
 };
 
 use ratatui::{
+    Terminal,
     backend::CrosstermBackend,
     buffer::Buffer,
     layout::Rect,
     style::{Modifier as StyleModifier, Style},
     text::{Line, Span, Text},
-    Terminal,
 };
 
 use modalkit::{
@@ -55,24 +55,24 @@ use modalkit::{
         store::Store,
     },
     env::mixed::{MixedChoice, MixedMachine},
-    env::vim::command::{complete_cmdbar, VimCommandMachine},
+    env::vim::command::{VimCommandMachine, complete_cmdbar},
     errors::{EditError, EditResult, UIError, UIResult},
     key::TerminalKey,
-    keybindings::{dialog::Pager, BindingMachine},
+    keybindings::{BindingMachine, dialog::Pager},
     prelude::*,
 };
 
 use modalkit_ratatui::{
-    cmdbar::CommandBarState,
-    list::{ListCursor, ListItem, ListState},
-    render_cursor,
-    screen::{Screen, ScreenState},
-    textbox::TextBoxState,
     TermOffset,
     TerminalCursor,
     TerminalExtOps,
     Window,
     WindowOps,
+    cmdbar::CommandBarState,
+    list::{ListCursor, ListItem, ListState},
+    render_cursor,
+    screen::{Screen, ScreenState},
+    textbox::TextBoxState,
 };
 
 #[derive(Clone)]

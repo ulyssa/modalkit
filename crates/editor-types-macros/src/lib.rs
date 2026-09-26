@@ -3,19 +3,19 @@ use proc_macro2::{Span, TokenStream};
 use quote::{format_ident, quote};
 use syn::parse::{Error as ParseError, Parse, ParseStream};
 use syn::punctuated::Punctuated;
-use syn::{parse_macro_input, Expr, Ident, LitStr, Token};
+use syn::{Expr, Ident, LitStr, Token, parse_macro_input};
 
 use editor_types_parser::{
-    parse_flags,
-    parse_single_flag,
-    tokenize,
     ActionParser,
     ActionParserExt,
     ActionToken,
     ArgError,
-    Flag,
     DEFAULT_COUNT,
     DEFAULT_TRUE,
+    Flag,
+    parse_flags,
+    parse_single_flag,
+    tokenize,
 };
 
 #[macro_use]
@@ -500,7 +500,10 @@ impl ActionMacroParser {
             [ActionToken::Word(w @ "current"), rest @ ..] => {
                 enum_no_args_branch!(::editor_types::prelude::FocusChange::Current, w, rest, span)
             },
-            [ActionToken::Word(w @ ("prev" | "previous" | "previously-focused")), rest @ ..] => {
+            [
+                ActionToken::Word(w @ ("prev" | "previous" | "previously-focused")),
+                rest @ ..,
+            ] => {
                 enum_no_args_branch!(
                     ::editor_types::prelude::FocusChange::PreviouslyFocused,
                     w,
@@ -568,14 +571,12 @@ impl ActionMacroParser {
             [ActionToken::Id(i), rest @ ..] => {
                 id_match_branch!(self, i, ::editor_types::prelude::FocusChange, rest, span)
             },
-            [ActionToken::Word(w), ..] => {
-                self.fail(
-                    format!(
+            [ActionToken::Word(w), ..] => self.fail(
+                format!(
                     "expected `current`, `dir1d, `dir2d`, `offset`, `pos` or `prev`, found `{w}`"
                 ),
-                    span,
-                )
-            },
+                span,
+            ),
             _ => self.fail("Expected a valid focus change argument", span),
         }
     }
@@ -931,9 +932,12 @@ impl ActionMacroParser {
             [ActionToken::Word(w @ "little"), rest @ ..] => {
                 enum_no_args_branch!(::editor_types::prelude::WordStyle::Little, w, rest, span)
             },
-            [ActionToken::Word(
-                w @ ("non-alphanum" | "nonalphanum" | "non-alphanumeric" | "nonalphanumeric"),
-            ), rest @ ..] => {
+            [
+                ActionToken::Word(
+                    w @ ("non-alphanum" | "nonalphanum" | "non-alphanumeric" | "nonalphanumeric"),
+                ),
+                rest @ ..,
+            ] => {
                 enum_no_args_branch!(::editor_types::prelude::WordStyle::NonAlphaNum, w, rest, span)
             },
             [ActionToken::Word("radix"), rest @ ..] => {
@@ -1343,7 +1347,10 @@ impl ActionMacroParser {
                     span
                 )
             },
-            [ActionToken::Word(w @ ("non-ws" | "non-whitespace")), rest @ ..] => {
+            [
+                ActionToken::Word(w @ ("non-ws" | "non-whitespace")),
+                rest @ ..,
+            ] => {
                 enum_no_args_branch!(
                     ::editor_types::prelude::SelectionBoundary::NonWhitespace,
                     w,
@@ -1363,7 +1370,10 @@ impl ActionMacroParser {
             [ActionToken::Word(w @ "all"), rest @ ..] => {
                 enum_no_args_branch!(::editor_types::prelude::RecallFilter::All, w, rest, span)
             },
-            [ActionToken::Word(w @ ("prefix" | "prefix-match")), rest @ ..] => {
+            [
+                ActionToken::Word(w @ ("prefix" | "prefix-match")),
+                rest @ ..,
+            ] => {
                 enum_no_args_branch!(
                     ::editor_types::prelude::RecallFilter::PrefixMatch,
                     w,
