@@ -717,6 +717,7 @@ where
     border_style: Style,
     border_style_focused: Style,
     border_type: BorderType,
+    border_type_focused: Option<BorderType>,
     cmdbar_style: Style,
     cmdbar_prompt_style: Option<Style>,
     tab_style: Style,
@@ -742,6 +743,7 @@ where
             border_style: Style::default(),
             border_style_focused: Style::default(),
             border_type: BorderType::Plain,
+            border_type_focused: None,
             cmdbar_style: Style::default(),
             cmdbar_prompt_style: None,
             tab_style: Style::default(),
@@ -767,6 +769,12 @@ where
     /// What characters should be used when drawing borders.
     pub fn border_type(mut self, border_type: BorderType) -> Self {
         self.border_type = border_type;
+        self
+    }
+
+    /// What characters should be used when drawing the borders of the focused window.
+    pub fn border_type_focused(mut self, border_type: BorderType) -> Self {
+        self.border_type_focused = Some(border_type);
         self
     }
 
@@ -913,6 +921,7 @@ where
                 .border_style(self.border_style)
                 .border_style_focused(self.border_style_focused)
                 .border_type(self.border_type)
+                .border_type_focused(self.border_type_focused.unwrap_or(self.border_type))
                 .borders(self.borders)
                 .render(winarea, buf, tab);
         }
