@@ -12,29 +12,29 @@ use crate::{
     editing::context::EditContext,
     editing::cursor::CursorStyle,
     key::TerminalKey,
-    keybindings::{dialog::Dialog, BindingMachine, InputBindings, InputKey, Step},
+    keybindings::{BindingMachine, InputBindings, InputKey, Step, dialog::Dialog},
     prelude::RepeatType,
 };
 
 use super::{
+    ShellBindings,
     emacs::{
-        keybindings::{default_emacs_keys, EmacsBindings, EmacsMachine, InputStep as EmacsStep},
         EmacsState,
+        keybindings::{EmacsBindings, EmacsMachine, InputStep as EmacsStep, default_emacs_keys},
     },
     kak::{
+        KakouneState,
         keybindings::{
-            default_kakoune_keys,
             InputStep as KakouneStep,
             KakouneBindings,
             KakouneMachine,
+            default_kakoune_keys,
         },
-        KakouneState,
     },
     vim::{
-        keybindings::{default_vim_keys, InputStep as VimStep, VimBindings, VimMachine},
         VimState,
+        keybindings::{InputStep as VimStep, VimBindings, VimMachine, default_vim_keys},
     },
-    ShellBindings,
 };
 
 /// Multiple keybinding styles that users can select.

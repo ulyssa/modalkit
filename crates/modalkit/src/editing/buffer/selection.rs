@@ -3,7 +3,7 @@ use crate::{
     editing::{
         application::ApplicationInfo,
         context::Resolve,
-        cursor::{block_cursors, Cursor},
+        cursor::{Cursor, block_cursors},
         rope::PrivateCursorOps,
         store::Store,
     },
@@ -663,7 +663,7 @@ where
                 },
 
                 (s, _) => {
-                    return Err(EditError::Unimplemented(format!("unknown split style: {s:?}")))
+                    return Err(EditError::Unimplemented(format!("unknown split style: {s:?}")));
                 },
             };
 

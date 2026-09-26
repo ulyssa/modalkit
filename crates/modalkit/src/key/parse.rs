@@ -3,13 +3,13 @@ use std::ops::BitOr;
 use crossterm::event::{KeyCode, KeyModifiers, MediaKeyCode};
 
 use nom::{
+    IResult,
+    Parser as _,
     branch::alt,
     bytes::complete::tag,
     character::complete::{anychar, char, digit1},
     combinator::{eof, map_res, value},
     multi::{many0, many1},
-    IResult,
-    Parser as _,
 };
 
 use super::TerminalKey;

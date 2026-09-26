@@ -26,7 +26,7 @@ pub enum ArgError {
 pub fn ungroup<'a>(value: &'a [ActionToken<'a>]) -> &'a [ActionToken<'a>] {
     match value {
         [] => value,
-        [ActionToken::Group(ref grouped), ..] => grouped.as_slice(),
+        [ActionToken::Group(grouped), ..] => grouped.as_slice(),
         [_, ..] => &value[..=0],
     }
 }
@@ -45,11 +45,11 @@ pub fn flag_pairs<'a>(
     for pair in args.chunks(2) {
         match pair {
             [] => break,
-            [ActionToken::Flag(ref f)] => return Err(ArgError::MissingArg(f.clone())),
-            [ActionToken::Flag(ref f), ActionToken::Flag(_)] => {
-                return Err(ArgError::MissingArg(f.clone()))
+            [ActionToken::Flag(f)] => return Err(ArgError::MissingArg(f.clone())),
+            [ActionToken::Flag(f), ActionToken::Flag(_)] => {
+                return Err(ArgError::MissingArg(f.clone()));
             },
-            [ActionToken::Flag(ref f), _] => {
+            [ActionToken::Flag(f), _] => {
                 if seen.contains(f) {
                     return Err(ArgError::DuplicateFlag(f.clone()));
                 }

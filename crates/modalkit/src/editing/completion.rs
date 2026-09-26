@@ -6,7 +6,7 @@
 use std::borrow::{Borrow, Cow};
 use std::cmp::Ordering;
 use std::fs::DirEntry;
-use std::path::{Component, Path, MAIN_SEPARATOR};
+use std::path::{Component, MAIN_SEPARATOR, Path};
 use std::sync::Arc;
 
 use radix_trie::{Trie, TrieCommon, TrieKey};
@@ -19,7 +19,7 @@ use crate::{
         rope::EditRope,
     },
     prelude::*,
-    util::{common_prefix, completion_keys, idx_offset, MAX_COMPLETIONS},
+    util::{MAX_COMPLETIONS, common_prefix, completion_keys, idx_offset},
 };
 
 const DIR_CURRENT: &str = unsafe { str::from_utf8_unchecked(&[b'.', MAIN_SEPARATOR as u8]) };
@@ -380,12 +380,12 @@ mod parse {
     use std::{borrow::Cow, path::MAIN_SEPARATOR};
 
     use nom::{
+        IResult,
+        Parser as _,
         branch::alt,
         bytes::complete::{escaped_transform, is_not, tag},
         character::complete::anychar,
         combinator::{eof, opt, value},
-        IResult,
-        Parser as _,
     };
 
     use crate::editing::{cursor::Cursor, rope::EditRope};
@@ -758,7 +758,9 @@ mod tests {
 
     #[test]
     fn test_complete_path_expand_env_simple() {
-        std::env::set_var("HOME", "/home/user");
+        unsafe {
+            std::env::set_var("HOME", "/home/user");
+        }
 
         let rope = EditRope::from("sp $HOME");
         let mut cursor = Cursor::new(0, 8);
@@ -792,7 +794,9 @@ mod tests {
     fn test_complete_path_expand_escapes_result() {
         // Environment variables whose contents need escaping are escaped
         // in the expanded completion:
-        std::env::set_var("FOOBAR_TEST_DIR", "/a b/c#d");
+        unsafe {
+            std::env::set_var("FOOBAR_TEST_DIR", "/a b/c#d");
+        }
 
         let rope = EditRope::from("sp $FOOBAR_TEST_DIR");
         let mut cursor = Cursor::new(0, 19);
@@ -803,7 +807,9 @@ mod tests {
 
     #[test]
     fn test_complete_path_expand_cursor_multibyte() {
-        std::env::set_var("HOME", "/home/user");
+        unsafe {
+            std::env::set_var("HOME", "/home/user");
+        }
 
         // The cursor moves over characters (and not bytes or columns):
         let rope = EditRope::from("sp $HOME/文");
@@ -815,7 +821,9 @@ mod tests {
 
     #[test]
     fn test_complete_path_expand_cursor_escaped() {
-        std::env::set_var("HOME", "/home/user");
+        unsafe {
+            std::env::set_var("HOME", "/home/user");
+        }
 
         // Cursor needs to move back over the original escaped text, and not the unescaped text:
         let rope = EditRope::from("sp $HOME/a\\ b");
@@ -827,7 +835,9 @@ mod tests {
 
     #[test]
     fn test_complete_path_cursor_multibyte() {
-        std::env::set_var("HOME", "/home/user");
+        unsafe {
+            std::env::set_var("HOME", "/home/user");
+        }
 
         let rope = EditRope::from(format!("sp .{MAIN_SEPARATOR}文"));
         let mut cursor = Cursor::new(0, 6);

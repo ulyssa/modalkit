@@ -31,7 +31,7 @@ use crate::{
 };
 
 use super::{
-    super::{keyparse::parse, CommonKeyClass, ShellBindings},
+    super::{CommonKeyClass, ShellBindings, keyparse::parse},
     EmacsMode,
     EmacsState,
 };

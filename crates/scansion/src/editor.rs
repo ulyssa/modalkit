@@ -1,14 +1,14 @@
 use std::cmp::Ordering;
-use std::io::{self, stdout, BufWriter, Stdout};
+use std::io::{self, BufWriter, Stdout, stdout};
 use std::ops::{Deref, DerefMut, RangeInclusive};
 
 use regex::Regex;
 
 use crossterm::{
+    QueueableCommand,
     cursor::MoveTo,
     style::{Print, PrintStyledContent, Stylize},
     terminal::ScrollUp,
-    QueueableCommand,
 };
 
 use modalkit::actions::{Editable, EditorAction, Jumpable};

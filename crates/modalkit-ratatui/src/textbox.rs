@@ -996,9 +996,7 @@ where
         if len > width {
             let mut n = 0;
 
-            for (idx, (_, ref mut start, _, ref mut s, slen, ref cursor_line)) in
-                joined.iter_mut().enumerate()
-            {
+            for (idx, (_, start, _, s, slen, cursor_line)) in joined.iter_mut().enumerate() {
                 if len <= width {
                     break;
                 }

@@ -1,11 +1,11 @@
 use nom::{
+    IResult,
+    Parser as _,
     branch::alt,
     bytes::complete::tag,
     character::complete::{char, digit1},
     combinator::{eof, map_res, opt, value},
     multi::many1,
-    IResult,
-    Parser as _,
 };
 
 use super::{CommonEdgeEvent, CommonEdgePath, CommonEdgePathPart, CommonKeyClass};

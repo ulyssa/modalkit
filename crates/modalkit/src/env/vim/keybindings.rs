@@ -69,7 +69,7 @@ use crate::editing::application::{ApplicationInfo, EmptyInfo};
 use crate::prelude::*;
 
 use super::{
-    super::{keyparse::parse, CommonKeyClass, ShellBindings},
+    super::{CommonKeyClass, ShellBindings, keyparse::parse},
     VimMode,
     VimState,
 };
@@ -1228,20 +1228,24 @@ macro_rules! window_split {
         isv!(
             vec![],
             vec![ExternalAction::CountAlters(
-                vec![WindowAction::Split(
-                    OpenTarget::Current,
-                    $axis,
-                    MoveDir1D::Previous,
-                    Count::Contextual
-                )
-                .into()],
-                vec![WindowAction::Open(
-                    OpenTarget::Current,
-                    $axis,
-                    MoveDir1D::Previous,
-                    Count::Contextual
-                )
-                .into()],
+                vec![
+                    WindowAction::Split(
+                        OpenTarget::Current,
+                        $axis,
+                        MoveDir1D::Previous,
+                        Count::Contextual
+                    )
+                    .into()
+                ],
+                vec![
+                    WindowAction::Open(
+                        OpenTarget::Current,
+                        $axis,
+                        MoveDir1D::Previous,
+                        Count::Contextual
+                    )
+                    .into()
+                ],
             )],
             VimMode::Normal
         )

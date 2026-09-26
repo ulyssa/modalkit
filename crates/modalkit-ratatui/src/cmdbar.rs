@@ -26,9 +26,9 @@ use modalkit::errors::EditResult;
 use modalkit::prelude::*;
 
 use super::{
-    textbox::{TextBox, TextBoxState},
     PromptActions,
     WindowOps,
+    textbox::{TextBox, TextBoxState},
 };
 
 /// Persistent state for rendering [CommandBar].

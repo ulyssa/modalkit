@@ -653,7 +653,10 @@ mod tests {
         // place "f ("1\n2\n3\n4\n5\n6\n7") on the next several lines, adding new lines as needed.
         vctx.action.register = Some(Register::Named('f'));
         paste_dir!(ebuf, MoveDir1D::Next, Count::Contextual, ctx!(gid, vwctx, vctx), store);
-        assert_eq!(ebuf.get_text(), "hello world\nthree\na1bcdeabcdefoo bar\n12234512345register\nl3ines\nf4oo bar\n5\n6\n7\n");
+        assert_eq!(
+            ebuf.get_text(),
+            "hello world\nthree\na1bcdeabcdefoo bar\n12234512345register\nl3ines\nf4oo bar\n5\n6\n7\n"
+        );
         assert_eq!(ebuf.get_leader(gid), Cursor::new(2, 1));
 
         // Move to the end of the line, and repeat pasting "f.
@@ -663,7 +666,10 @@ mod tests {
 
         vctx.action.register = Some(Register::Named('f'));
         paste_dir!(ebuf, MoveDir1D::Next, Count::Contextual, ctx!(gid, vwctx, vctx), store);
-        assert_eq!(ebuf.get_text(), "hello world\nthree\na1bcdeabcdefoo bar1\n12234512345registe2r\nl3ines3\nf4oo bar4\n55\n66\n77\n");
+        assert_eq!(
+            ebuf.get_text(),
+            "hello world\nthree\na1bcdeabcdefoo bar1\n12234512345registe2r\nl3ines3\nf4oo bar4\n55\n66\n77\n"
+        );
         assert_eq!(ebuf.get_leader(gid), Cursor::new(2, 18));
     }
 

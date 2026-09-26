@@ -20,12 +20,12 @@ use ratatui::{
 };
 
 use super::{
-    cmdbar::{CommandBar, CommandBarState},
-    util::{rect_down, rect_zero_height},
-    windows::{WindowActions, WindowLayout, WindowLayoutRoot, WindowLayoutState},
     TerminalCursor,
     Window,
     WindowOps,
+    cmdbar::{CommandBar, CommandBarState},
+    util::{rect_down, rect_zero_height},
+    windows::{WindowActions, WindowLayout, WindowLayoutRoot, WindowLayoutState},
 };
 
 use modalkit::actions::*;

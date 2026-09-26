@@ -22,11 +22,10 @@ use ratatui::{
 use crate::util::{rect_down, rect_right, rect_zero_height, rect_zero_width};
 use crate::{TermOffset, TerminalCursor, Window, WindowOps};
 
-use super::size::{ResizeInfo, ResizeInfoTrail, MIN_WIN_LEN};
+use super::size::{MIN_WIN_LEN, ResizeInfo, ResizeInfoTrail};
 use super::slot::WindowSlot;
 use super::tree::{AxisTreeIterMut, SubtreeOps, TreeOps};
 use super::{
-    winnr_cmp,
     AxisT,
     AxisTree,
     AxisTreeNode,
@@ -36,6 +35,7 @@ use super::{
     VerticalT,
     WindowActions,
     WindowInfo,
+    winnr_cmp,
 };
 
 use modalkit::actions::{Jumpable, WindowAction, WindowContainer, WindowCount};
@@ -325,7 +325,7 @@ where
     fn close(&mut self, idx: usize, trail: Box<ResizeInfoTrail<'_, X, Y>>) -> Option<W> {
         match self {
             Value::Window(_, _) => panic!("cannot remove element from non-tree"),
-            Value::Tree(tree, ref mut info) => {
+            Value::Tree(tree, info) => {
                 let trail = ResizeInfoTrail::new(idx, &mut info.resized, Some(trail));
 
                 tree.close(idx, trail)
@@ -342,14 +342,14 @@ where
 
     fn get_area(&self, at: usize) -> Option<(&W, Rect)> {
         match self {
-            Value::Window(ref window, info) => {
+            Value::Window(window, info) => {
                 if at == 0 {
                     Some((window, info.area))
                 } else {
                     None
                 }
             },
-            Value::Tree(ref tree, _) => {
+            Value::Tree(tree, _) => {
                 return tree.get_area(at);
             },
         }
@@ -357,14 +357,14 @@ where
 
     fn get_mut(&mut self, at: usize) -> Option<&mut W> {
         match self {
-            Value::Window(ref mut window, _) => {
+            Value::Window(window, _) => {
                 if at == 0 {
                     Some(window)
                 } else {
                     None
                 }
             },
-            Value::Tree(ref mut tree, _) => {
+            Value::Tree(tree, _) => {
                 return tree.get_mut(at);
             },
         }
@@ -396,7 +396,7 @@ where
             Value::Window(_, _) => {
                 return;
             },
-            Value::Tree(tree, ref mut info) => {
+            Value::Tree(tree, info) => {
                 info.resized.lengths = None;
 
                 tree.clear_sizes();
@@ -440,7 +440,7 @@ where
 
                 trail.set_size(axis, len);
             },
-            Value::Tree(tree, ref mut info) => {
+            Value::Tree(tree, info) => {
                 info.resized.lengths = Some(tree.get_lengths());
 
                 let trail = ResizeInfoTrail::new(at, &mut info.resized, Some(trail));
@@ -452,10 +452,10 @@ where
 
     fn set_area(&mut self, area: Rect, _: &ResizeInfo) {
         match self {
-            Value::Window(_, ref mut info) => {
+            Value::Window(_, info) => {
                 info.area = area;
             },
-            Value::Tree(tree, ref mut info) => {
+            Value::Tree(tree, info) => {
                 info.area = area;
                 tree.set_area(area, &info.resized);
             },
@@ -497,7 +497,7 @@ where
                     },
                 }
             },
-            Value::Tree(tree, ref mut info) => {
+            Value::Tree(tree, info) => {
                 let trail = ResizeInfoTrail::new(at, &mut info.resized, Some(trail));
 
                 tree.open(at, open, length, rel, split_axis, trail)

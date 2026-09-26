@@ -42,7 +42,6 @@ use crate::editing::{
     completion::{CompletionList, LineCompleter},
     context::{EditContext, Resolve},
     cursor::{
-        block_cursors,
         Adjustable,
         Cursor,
         CursorAdjustment,
@@ -51,6 +50,7 @@ use crate::editing::{
         CursorState,
         Selection,
         Selections,
+        block_cursors,
     },
     history::HistoryList,
     lineinfo::LineInfoStore,
@@ -865,11 +865,7 @@ where
             .filter_map(CursorState::to_selection)
             .collect::<Vec<_>>();
 
-        if sels.is_empty() {
-            None
-        } else {
-            Some(sels)
-        }
+        if sels.is_empty() { None } else { Some(sels) }
     }
 
     /// Get the [Selection] for the leader of a cursor group.
@@ -886,11 +882,7 @@ where
             .filter_map(CursorState::to_selection)
             .collect::<Vec<_>>();
 
-        if sels.is_empty() {
-            None
-        } else {
-            Some(sels)
-        }
+        if sels.is_empty() { None } else { Some(sels) }
     }
 
     /// Create a new cursor group.
@@ -937,10 +929,10 @@ where
     /// point within the buffer.
     pub fn clamp_state(&self, state: &mut CursorState, ctx: &CursorGroupIdContext<'_>) {
         match state {
-            CursorState::Location(ref mut cursor) => {
+            CursorState::Location(cursor) => {
                 PrivateCursorOps::clamp(cursor, &self._ctx_cgi2c(ctx));
             },
-            CursorState::Selection(ref mut cursor, ref mut anchor, _) => {
+            CursorState::Selection(cursor, anchor, _) => {
                 PrivateCursorOps::clamp(cursor, &self._ctx_cgi2c(ctx));
                 PrivateCursorOps::clamp(anchor, &self._ctx_cgi2c(ctx));
             },
@@ -1319,11 +1311,7 @@ where
                     (MoveDir1D::Previous, i) => {
                         let idx = i.unwrap_or(&0).to_owned().saturating_add(count);
 
-                        if idx <= clen {
-                            idx
-                        } else {
-                            clen
-                        }
+                        if idx <= clen { idx } else { clen }
                     },
                     (MoveDir1D::Next, Some(i)) => {
                         let idx = i.to_owned();
@@ -1478,8 +1466,8 @@ mod tests {
         EditBuffer::new("".to_string())
     }
 
-    pub(super) fn mkfive(
-    ) -> (EditBuffer<EmptyInfo>, CursorGroupId, ViewportContext<Cursor>, VimState, Store<EmptyInfo>)
+    pub(super) fn mkfive()
+    -> (EditBuffer<EmptyInfo>, CursorGroupId, ViewportContext<Cursor>, VimState, Store<EmptyInfo>)
     {
         let mut buf = mkbuf();
         let gid = buf.create_group();

@@ -59,11 +59,11 @@ use std::time::Duration;
 use regex::Regex;
 
 use crossterm::{
+    QueueableCommand,
     cursor::{Hide as CursorHide, MoveTo, Show as CursorShow},
-    event::{poll, read, Event},
+    event::{Event, poll, read},
     style::Print,
     terminal::{Clear, ClearType},
-    QueueableCommand,
 };
 
 use modalkit::actions::{

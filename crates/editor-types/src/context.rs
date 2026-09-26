@@ -3,8 +3,8 @@
 //! ## Overview
 //!
 //! This module contains the contexts used by the editing buffer.
-use crate::prelude::*;
 use crate::EditAction;
+use crate::prelude::*;
 
 /// Trait for values that can be converted by the [EditContext].
 pub trait Resolve<T, R> {

@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use crate::editing::{
     application::ApplicationInfo,
-    completion::{complete_path, CompletionList},
+    completion::{CompletionList, complete_path},
     cursor::Adjustable,
     store::Store,
 };
@@ -302,7 +302,7 @@ mod tests {
     use super::*;
 
     use std::fs::File;
-    use std::path::{Path, MAIN_SEPARATOR};
+    use std::path::{MAIN_SEPARATOR, Path};
     use temp_dir::TempDir;
 
     use crate::editing::{

@@ -88,18 +88,18 @@
 #![allow(clippy::needless_return)]
 #![allow(clippy::too_many_arguments)]
 #![allow(clippy::type_complexity)]
-use std::io::{stdout, Stdout};
+use std::io::{Stdout, stdout};
 use std::process;
 
 use ratatui::{
+    Frame,
+    Terminal,
     backend::CrosstermBackend,
     buffer::Buffer,
     layout::Rect,
     style::{Color, Style},
     text::{Line, Span},
     widgets::Paragraph,
-    Frame,
-    Terminal,
 };
 
 use crossterm::{
