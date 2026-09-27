@@ -37,7 +37,7 @@ use ratatui::{
     buffer::Buffer,
     layout::{Alignment, Rect},
     style::{Modifier as StyleModifier, Style},
-    text::Text,
+    text::{Line, Text},
     widgets::{Paragraph, StatefulWidget, Widget},
 };
 
@@ -111,6 +111,9 @@ pub trait ListItem<I>: Clone + ToString
 where
     I: ApplicationInfo,
 {
+    /// A optional type used to separate list items into distinct sections.
+    type Section: Clone + PartialEq + Into<Line<'static>>;
+
     /// Return a representation of this item to show in the terminal window.
     fn show(
         &self,
@@ -132,12 +135,19 @@ where
         let s = self.to_string();
         needle.is_match(s.as_str())
     }
+
+    /// Get the subsection that contains this list item.
+    fn get_section(&self) -> Option<&Self::Section> {
+        None
+    }
 }
 
 impl<I> ListItem<I> for String
 where
     I: ApplicationInfo,
 {
+    type Section = String;
+
     fn show(&self, selected: bool, _: &ViewportContext<ListCursor>, _: &mut Store<I>) -> Text<'_> {
         if selected {
             let hl = Style::default().add_modifier(StyleModifier::REVERSED);
@@ -239,8 +249,15 @@ where
                 self.viewctx.corner.text_row = 0;
 
                 for (idx, item) in self.items.iter().enumerate().take(idx + 1).rev() {
+                    // Determine if this item includes a section header:
+                    let section_item = item.get_section();
+                    let section_above =
+                        idx.checked_sub(1).and_then(|n| self.items[n].get_section());
+                    let section_height =
+                        usize::from(section_above != section_item && section_item.is_some());
+
                     let sel = selidx == idx;
-                    let len = item.show(sel, &self.viewctx, store).lines.len();
+                    let len = item.show(sel, &self.viewctx, store).lines.len() + section_height;
 
                     if posidx == idx {
                         lines += len / 2;
@@ -265,8 +282,15 @@ where
                 self.viewctx.corner.text_row = 0;
 
                 for (idx, item) in self.items.iter().enumerate().take(idx + 1).rev() {
+                    // Determine if this item includes a section header:
+                    let section_item = item.get_section();
+                    let section_above =
+                        idx.checked_sub(1).and_then(|n| self.items[n].get_section());
+                    let section_height =
+                        usize::from(section_above != section_item && section_item.is_some());
+
                     let sel = idx == pos;
-                    let len = item.show(sel, &self.viewctx, store).lines.len();
+                    let len = item.show(sel, &self.viewctx, store).lines.len() + section_height;
 
                     lines += len;
 
@@ -285,25 +309,63 @@ where
     fn shift_cursor(&mut self, store: &mut Store<I>) {
         if self.cursor < self.viewctx.corner {
             // Cursor is above the viewport; move it inside.
-            self.cursor = self.viewctx.corner.position.into();
+            self.cursor = self.viewctx.corner.clone();
             return;
         }
 
         // Check whether the cursor is below the viewport.
+        let mut section_curr = self
+            .viewctx
+            .corner
+            .position
+            .checked_sub(1)
+            .and_then(|n| self.items[n].get_section());
         let mut lines = 0;
+        let corner = &self.viewctx.corner;
 
-        for (idx, item) in self.items.iter().enumerate().skip(self.viewctx.corner.position) {
-            if idx == self.cursor.position {
-                // Cursor is already within the viewport.
+        for idx in corner.position.. {
+            let Some(item) = self.items.get(idx) else {
                 break;
-            }
+            };
 
+            let section_item = item.get_section();
+            let show_header =
+                section_curr != section_item && (idx > corner.position || corner.text_row == 0);
+            section_curr = section_item;
+
+            lines += usize::from(show_header);
             lines += item.show(false, &self.viewctx, store).lines.len();
 
-            if lines >= self.viewctx.get_height() {
-                // We've reached the end of the viewport; move cursor into it.
-                self.cursor = idx.into();
-                break;
+            match lines.cmp(&self.viewctx.get_height()) {
+                Ordering::Less => {
+                    if idx == self.cursor.position {
+                        // Cursor is already within the viewport.
+                        break;
+                    } else {
+                        // Continue looking for the cursor or the viewport bottom.
+                        continue;
+                    }
+                },
+                Ordering::Equal => {
+                    // We've reached the end of the viewport; move cursor into it.
+                    self.cursor = idx.into();
+                    break;
+                },
+                Ordering::Greater => {
+                    // The the most recent item extends below the bottom of the viewport,
+                    // so place the cursor just before it, which ensures that the cursor position
+                    // won't force us to shift the viewport on the next draw.
+                    //
+                    // We prevent this from going before the viewport corner to ensure smooth
+                    // scrolling across really large items with more lines than the viewport height.
+                    let bottom = idx.saturating_sub(1);
+                    if bottom <= corner.position {
+                        self.cursor = corner.clone();
+                    } else {
+                        self.cursor = bottom.into();
+                    }
+                    break;
+                },
             }
         }
     }
@@ -1034,20 +1096,39 @@ where
 
                     let pos = corner.position.saturating_sub(1);
                     let sel = pos == self.cursor.position;
-                    let txt = self.items[pos].show(sel, &self.viewctx, store);
+                    let item = &self.items[pos];
+                    let txt = item.show(sel, &self.viewctx, store);
+
+                    let section_item = item.get_section();
+                    let section_above =
+                        pos.checked_sub(1).and_then(|n| self.items[n].get_section());
+                    let section_height =
+                        usize::from(section_above != section_item && section_item.is_some());
 
                     corner.position = pos;
-                    corner.text_row = txt.height().saturating_sub(1);
+                    corner.text_row = txt.height().saturating_add(section_height).saturating_sub(1);
                 }
             },
             MoveDir2D::Down => {
+                let mut section_curr =
+                    corner.position.checked_sub(1).and_then(|n| self.items[n].get_section());
                 let last = self.items.len().saturating_sub(1);
 
                 while rows > 0 {
                     let pos = corner.position;
                     let sel = pos == self.cursor.position;
-                    let txt = self.items[pos].show(sel, &self.viewctx, store);
-                    let len = txt.height();
+                    let item = &self.items[pos];
+                    let txt = item.show(sel, &self.viewctx, store);
+                    let section_item = item.get_section();
+
+                    let section_height = if section_curr != section_item {
+                        section_curr = section_item;
+                        usize::from(section_curr.is_some())
+                    } else {
+                        0
+                    };
+
+                    let len = txt.height().saturating_add(section_height);
                     let max = len.saturating_sub(1);
 
                     if pos == last {
@@ -1281,10 +1362,17 @@ where
         let corner = &state.viewctx.corner;
         let mut lines = vec![];
         let mut sawit = false;
+        let mut section_curr =
+            corner.position.checked_sub(1).and_then(|n| state.items[n].get_section());
 
-        for (idx, item) in state.items.iter().enumerate().skip(corner.position) {
+        for idx in corner.position.. {
+            let Some(item) = state.items.get(idx) else {
+                break;
+            };
+
             let sel = idx == state.cursor.position;
             let txt = item.show(self.focused && sel, &state.viewctx, self.store);
+            let mut row = 0;
 
             if sel && txt.lines.len() >= height {
                 lines = txt
@@ -1297,8 +1385,27 @@ where
                 break;
             }
 
-            for (row, line) in txt.lines.into_iter().enumerate() {
+            let section_item = item.get_section();
+
+            if section_item != section_curr {
+                // Transitioning to a different section, include its header:
+                section_curr = section_item;
+
+                if let Some(l) = section_curr.as_ref() {
+                    let inside = idx > corner.position || corner.text_row == 0;
+
+                    if inside {
+                        // The header is visible in the viewport, so output the line:
+                        lines.push((idx, row, <T::Section as Clone>::clone(l).into()));
+                    }
+
+                    row += 1;
+                }
+            }
+
+            for line in txt.lines.into_iter() {
                 if idx == corner.position && row < corner.text_row {
+                    row += 1;
                     continue;
                 }
 
@@ -1307,6 +1414,7 @@ where
                 }
 
                 lines.push((idx, row, line));
+                row += 1;
             }
 
             if sel {
@@ -1358,14 +1466,29 @@ mod tests {
     struct TestItem {
         book: String,
         author: String,
+        section: Option<String>,
     }
 
     impl TestItem {
         fn new(book: &str, author: &str) -> Self {
             let book = book.to_owned();
             let author = author.to_owned();
+            let section = None;
 
-            TestItem { book, author }
+            TestItem { book, author, section }
+        }
+
+        fn indent(&self) -> Span<'static> {
+            if self.section.is_some() {
+                Span::raw("  ")
+            } else {
+                Span::raw("")
+            }
+        }
+
+        fn section(mut self, section: &str) -> Self {
+            self.section = Some(section.to_owned());
+            self
         }
     }
 
@@ -1379,6 +1502,8 @@ mod tests {
     where
         I: ApplicationInfo,
     {
+        type Section = String;
+
         fn show(
             &self,
             selected: bool,
@@ -1391,10 +1516,18 @@ mod tests {
                 Style::default()
             };
 
-            let line1 = Line::from(Span::styled(self.book.as_str(), style));
-            let line2 = Line::from(vec![Span::from("    by "), Span::from(self.author.as_str())]);
+            let line1 = Line::from(vec![self.indent(), Span::styled(self.book.as_str(), style)]);
+            let line2 = Line::from(vec![
+                self.indent(),
+                Span::from("    by "),
+                Span::from(self.author.as_str()),
+            ]);
 
             Text::from(vec![line1, line2])
+        }
+
+        fn get_section(&self) -> Option<&String> {
+            self.section.as_ref()
         }
     }
 
@@ -1432,11 +1565,11 @@ mod tests {
          * This will render as:
          *
          * +------------------------------+
-         * |The Wind-Up Bird Chronicle    |
-         * |    by Haruki Murakami        |
-         * |The Master and Margarita      |
-         * |    by Mikhail Bulgakov       |
-         * |The Left Hand of Darkness     |
+         * |The Wind-Up Bird Chronicle    | <-+
+         * |    by Haruki Murakami        |   |
+         * |The Master and Margarita      |   | Initial viewport
+         * |    by Mikhail Bulgakov       |   |
+         * |The Left Hand of Darkness     | <-+
          * |    by Ursula K. Le Guin      |
          * |2666                          |
          * |    by Roberto Bolaño         |
@@ -1459,6 +1592,45 @@ mod tests {
             TestItem::new("Annihilation", "Jeff Vandermeer"),
             TestItem::new("Foucault's Pendulum", "Umberto Eco"),
             TestItem::new("Monday Starts on Saturday", "Arkady Strugatsky"),
+        ]);
+
+        list.viewctx.dimensions.0 = 30;
+        list.viewctx.dimensions.1 = 5;
+
+        (list, EditContext::default(), Store::default())
+    }
+
+    fn mklist_sectioned() -> (TestListState, EditContext, Store<EmptyInfo>) {
+        /*
+         * This will render as:
+         *
+         * +------------------------------+
+         * |Era One                       | <-+
+         * |  The Final Empire            |   |
+         * |      by Brandon Sanderson    |   | Initial viewport
+         * |  The Well of Ascension       |   |
+         * |      by Brandon Sanderson    | <-+
+         * |  The Hero of Ages            |
+         * |      by Brandon Sanderson    |
+         * |Era Two                       |
+         * |  The Alloy of Law            |
+         * |      by Brandon Sanderson    |
+         * |  Shadows of Self             |
+         * |      by Brandon Sanderson    |
+         * |  The Bands of Mourning       |
+         * |      by Brandon Sanderson    |
+         * |  The Lost Metal              |
+         * |      by Brandon Sanderson    |
+         * +------------------------------+
+         */
+        let mut list = ListState::new("".to_string(), vec![
+            TestItem::new("The Final Empire", "Brandon Sanderson").section("Era One"),
+            TestItem::new("The Well of Ascension", "Brandon Sanderson").section("Era One"),
+            TestItem::new("The Hero of Ages", "Brandon Sanderson").section("Era One"),
+            TestItem::new("The Alloy of Law", "Brandon Sanderson").section("Era Two"),
+            TestItem::new("Shadows of Self", "Brandon Sanderson").section("Era Two"),
+            TestItem::new("The Bands of Mourning", "Brandon Sanderson").section("Era Two"),
+            TestItem::new("The Lost Metal", "Brandon Sanderson").section("Era Two"),
         ]);
 
         list.viewctx.dimensions.0 = 30;
@@ -1767,12 +1939,122 @@ mod tests {
         list.dirscroll(MoveDir2D::Up, ScrollSize::Page, &1.into(), &ctx, &mut store)
             .unwrap();
         assert_eq!(list.viewctx.corner, ListCursor::new(2, 1));
-        assert_eq!(list.cursor.position, 4);
+        assert_eq!(list.cursor.position, 3);
 
         list.dirscroll(MoveDir2D::Down, ScrollSize::Cell, &1.into(), &ctx, &mut store)
             .unwrap();
         assert_eq!(list.viewctx.corner, ListCursor::new(3, 0));
-        assert_eq!(list.cursor.position, 4);
+        assert_eq!(list.cursor.position, 3);
+    }
+
+    #[test]
+    fn test_scroll_section_dirscroll() {
+        let (mut list, ctx, mut store) = mklist_sectioned();
+        let area = Rect::new(0, 0, 30, 5);
+        let mut buf = Buffer::empty(area);
+
+        assert_eq!(list.cursor.position, 0);
+        assert_eq!(list.viewctx.corner.position, 0);
+
+        // Drawing doesn't change anything:
+        list.draw(area, &mut buf, true, &mut store);
+        assert_eq!(list.cursor.position, 0);
+        assert_eq!(list.viewctx.corner.position, 0);
+
+        // Scroll down 1 row hides the section header, but doesn't move cursor:
+        list.dirscroll(MoveDir2D::Down, ScrollSize::Cell, &1.into(), &ctx, &mut store)
+            .unwrap();
+        assert_eq!(list.viewctx.corner, ListCursor::new(0, 1));
+        assert_eq!(list.cursor.position, 0);
+
+        // Drawing doesn't change anything:
+        list.draw(area, &mut buf, true, &mut store);
+        assert_eq!(list.viewctx.corner, ListCursor::new(0, 1));
+        assert_eq!(list.cursor.position, 0);
+
+        // Scroll down 1 more row now hides the title but still shows the author:
+        list.dirscroll(MoveDir2D::Down, ScrollSize::Cell, &1.into(), &ctx, &mut store)
+            .unwrap();
+        assert_eq!(list.viewctx.corner, ListCursor::new(0, 2));
+        assert_eq!(list.cursor.position, 0);
+
+        // Drawing doesn't change anything:
+        list.draw(area, &mut buf, true, &mut store);
+        assert_eq!(list.viewctx.corner, ListCursor::new(0, 2));
+        assert_eq!(list.cursor.position, 0);
+
+        // And going down 1 more row now moves to the next item, which puts the next
+        // header right at the bottom of the page, which shouldn't interrupt anything:
+        list.dirscroll(MoveDir2D::Down, ScrollSize::Cell, &1.into(), &ctx, &mut store)
+            .unwrap();
+        assert_eq!(list.viewctx.corner, ListCursor::new(1, 0));
+        assert_eq!(list.cursor.position, 1);
+
+        // Drawing doesn't change anything:
+        list.draw(area, &mut buf, true, &mut store);
+        assert_eq!(list.viewctx.corner, ListCursor::new(1, 0));
+        assert_eq!(list.cursor.position, 1);
+
+        // Scroll by 5 (the page height), moving the next header out of view:
+        list.dirscroll(MoveDir2D::Down, ScrollSize::Page, &1.into(), &ctx, &mut store)
+            .unwrap();
+        assert_eq!(list.viewctx.corner, ListCursor::new(3, 1));
+        assert_eq!(list.cursor.position, 3);
+
+        // Drawing doesn't change anything:
+        list.draw(area, &mut buf, true, &mut store);
+        assert_eq!(list.viewctx.corner, ListCursor::new(3, 1));
+        assert_eq!(list.cursor.position, 3);
+
+        // Scroll up 1, moving the second header into view:
+        list.dirscroll(MoveDir2D::Up, ScrollSize::Cell, &1.into(), &ctx, &mut store)
+            .unwrap();
+        assert_eq!(list.viewctx.corner, ListCursor::new(3, 0));
+        assert_eq!(list.cursor.position, 3);
+
+        // Scroll up 1, so that the previous item is in view. Cursor should stay in place.
+        list.dirscroll(MoveDir2D::Up, ScrollSize::Cell, &1.into(), &ctx, &mut store)
+            .unwrap();
+        assert_eq!(list.viewctx.corner, ListCursor::new(2, 1));
+        assert_eq!(list.cursor.position, 3);
+
+        // Drawing doesn't change anything:
+        list.draw(area, &mut buf, true, &mut store);
+        assert_eq!(list.viewctx.corner, ListCursor::new(2, 1));
+        assert_eq!(list.cursor.position, 3);
+
+        // Scroll up by 1 again:
+        list.dirscroll(MoveDir2D::Up, ScrollSize::Cell, &1.into(), &ctx, &mut store)
+            .unwrap();
+        assert_eq!(list.viewctx.corner, ListCursor::new(2, 0));
+        assert_eq!(list.cursor.position, 3);
+
+        // Drawing doesn't change anything:
+        list.draw(area, &mut buf, true, &mut store);
+        assert_eq!(list.viewctx.corner, ListCursor::new(2, 0));
+        assert_eq!(list.cursor.position, 3);
+
+        // Scroll up by 1 again:
+        list.dirscroll(MoveDir2D::Up, ScrollSize::Cell, &1.into(), &ctx, &mut store)
+            .unwrap();
+        assert_eq!(list.viewctx.corner, ListCursor::new(1, 1));
+        assert_eq!(list.cursor.position, 2);
+
+        // Drawing doesn't change anything:
+        list.draw(area, &mut buf, true, &mut store);
+        assert_eq!(list.viewctx.corner, ListCursor::new(1, 1));
+        assert_eq!(list.cursor.position, 2);
+
+        // Scroll up by 1 again:
+        list.dirscroll(MoveDir2D::Up, ScrollSize::Cell, &1.into(), &ctx, &mut store)
+            .unwrap();
+        assert_eq!(list.viewctx.corner, ListCursor::new(1, 0));
+        assert_eq!(list.cursor.position, 2);
+
+        // Drawing doesn't change anything:
+        list.draw(area, &mut buf, true, &mut store);
+        assert_eq!(list.viewctx.corner, ListCursor::new(1, 0));
+        assert_eq!(list.cursor.position, 2);
     }
 
     #[test]
@@ -1800,6 +2082,8 @@ mod tests {
     #[test]
     fn test_scroll_linepos() {
         let (mut list, ctx, mut store) = mklist();
+        let area = Rect::new(0, 0, 30, 5);
+        let mut buf = Buffer::empty(area);
 
         assert_eq!(list.cursor.position, 0);
         assert_eq!(list.viewctx.corner.position, 0);
@@ -1809,20 +2093,41 @@ mod tests {
         assert_eq!(list.viewctx.corner, ListCursor::new(4, 0));
         assert_eq!(list.cursor.position, 4);
 
-        // Cursor is below viewport after scrolling, and gets placed at bottom.
+        // Drawing doesn't change anything:
+        list.draw(area, &mut buf, true, &mut store);
+        assert_eq!(list.viewctx.corner, ListCursor::new(4, 0));
+        assert_eq!(list.cursor.position, 4);
+
+        // Cursor is below viewport after scrolling, and gets placed on the bottom-most
+        // item that won't force a viewport shift after drawing.
         list.linepos(MovePosition::Middle, &1.into(), &ctx, &mut store).unwrap();
         assert_eq!(list.viewctx.corner, ListCursor::new(0, 0));
-        assert_eq!(list.cursor.position, 2);
+        assert_eq!(list.cursor.position, 1);
+
+        // Drawing doesn't change anything:
+        list.draw(area, &mut buf, true, &mut store);
+        assert_eq!(list.viewctx.corner, ListCursor::new(0, 0));
+        assert_eq!(list.cursor.position, 1);
 
         // Cursor is above viewport after scrolling, and gets placed at top.
         list.linepos(MovePosition::Middle, &6.into(), &ctx, &mut store).unwrap();
         assert_eq!(list.viewctx.corner, ListCursor::new(4, 1));
         assert_eq!(list.cursor.position, 4);
 
+        // Drawing doesn't change anything:
+        list.draw(area, &mut buf, true, &mut store);
+        assert_eq!(list.viewctx.corner, ListCursor::new(4, 1));
+        assert_eq!(list.cursor.position, 4);
+
         // Cursor stays inside viewport.
         list.linepos(MovePosition::End, &5.into(), &ctx, &mut store).unwrap();
         assert_eq!(list.viewctx.corner, ListCursor::new(2, 1));
-        assert_eq!(list.cursor.position, 4);
+        assert_eq!(list.cursor.position, 3);
+
+        // Drawing doesn't change anything:
+        list.draw(area, &mut buf, true, &mut store);
+        assert_eq!(list.viewctx.corner, ListCursor::new(2, 1));
+        assert_eq!(list.cursor.position, 3);
     }
 
     #[test]
