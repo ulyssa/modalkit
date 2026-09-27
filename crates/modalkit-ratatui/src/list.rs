@@ -167,9 +167,20 @@ where
 {
     id: I::ContentId,
     items: Vec<T>,
+
+    /// Current cursor position within the list.
     cursor: ListCursor,
+
+    /// Information about the viewport saved during rendering.
     viewctx: ViewportContext<ListCursor>,
+
+    /// Bottom-most line within the viewport during the most recent rendering.
+    bottom: ListCursor,
+
+    /// Whether or not regex searches should be case-sensitive.
     ignorecase: bool,
+
+    /// Absolute position of the terminal cursor within this window.
     term_cursor: (u16, u16),
 
     /// Tracks the jumplist for this window.
@@ -182,11 +193,21 @@ where
     T: ListItem<I>,
     I: ApplicationInfo,
 {
+    /// Style to use when rendering the widget.
     style: Style,
+
+    /// Whether or not the widget should be considered focused.
     focused: bool,
+
+    /// A message to show when there are no list items.
     empty_message: Option<Text<'a>>,
+
+    /// How to align `empty_message` within the viewport area.
     empty_alignment: Alignment,
+
+    /// The application store for passing to [ListItem::show].
     store: &'a mut Store<I>,
+
     _p: PhantomData<T>,
 }
 
@@ -204,6 +225,7 @@ where
             id,
             items,
             cursor: 0.into(),
+            bottom: 0.into(),
             term_cursor: (0, 0),
             viewctx,
             ignorecase: false,
@@ -506,12 +528,12 @@ where
                 return Some(self.viewctx.corner.position.into());
             },
             MoveType::ViewportPos(MovePosition::Middle) => {
-                // Need store to calculate an accurate middle position.
-                return None;
+                let items = self.bottom.position.saturating_sub(self.viewctx.corner.position);
+                let mid = self.viewctx.corner.position.saturating_add(items / 2);
+                return Some(mid.into());
             },
             MoveType::ViewportPos(MovePosition::End) => {
-                // Need store to calculate an accurate end position.
-                return None;
+                return Some(self.bottom.position.into());
             },
             _ => return None,
         }
@@ -1251,6 +1273,7 @@ where
             id: self.id.clone(),
             items: self.items.clone(),
             cursor: self.cursor.clone(),
+            bottom: self.bottom.clone(),
             viewctx: self.viewctx.clone(),
             ignorecase: self.ignorecase,
             jumped: self.jumped.clone(),
@@ -1434,6 +1457,11 @@ where
         if let Some((idx, row, _)) = lines.first() {
             state.viewctx.corner.position = *idx;
             state.viewctx.corner.text_row = *row;
+        }
+
+        if let Some((idx, row, _)) = lines.last() {
+            state.bottom.position = *idx;
+            state.bottom.text_row = *row;
         }
 
         let mut y = area.top();
@@ -1790,19 +1818,102 @@ mod tests {
     #[test]
     fn test_motion_viewport() {
         let (mut list, ctx, mut store) = mklist();
+        let area = Rect::new(0, 0, 30, 5);
+        let mut buf = Buffer::empty(area);
+
         let op = EditAction::Motion;
         let beg = MoveType::ViewportPos(MovePosition::Beginning);
+        let mid = MoveType::ViewportPos(MovePosition::Middle);
+        let end = MoveType::ViewportPos(MovePosition::End);
 
-        assert_eq!(list.cursor.position, 0);
-
+        // Start out at item 3:
         list.viewctx.corner.position = 3;
-
-        list.edit(&op, &beg.clone().into(), &ctx, &mut store).unwrap();
+        list.cursor.position = 3;
+        list.draw(area, &mut buf, true, &mut store);
+        assert_eq!(list.viewctx.corner.position, 3);
+        assert_eq!(list.viewctx.corner.text_row, 0);
         assert_eq!(list.cursor.position, 3);
 
-        list.viewctx.corner.position = 6;
-
+        // Moving to beginning should be no-op:
         list.edit(&op, &beg.clone().into(), &ctx, &mut store).unwrap();
+        assert_eq!(list.viewctx.corner.position, 3);
+        assert_eq!(list.viewctx.corner.text_row, 0);
+        assert_eq!(list.cursor.position, 3);
+
+        // Drawing doesn't change anything:
+        list.draw(area, &mut buf, true, &mut store);
+        assert_eq!(list.viewctx.corner.position, 3);
+        assert_eq!(list.viewctx.corner.text_row, 0);
+        assert_eq!(list.cursor.position, 3);
+
+        // Moving to middle should go to 5, viewport doesn't move:
+        list.edit(&op, &mid.clone().into(), &ctx, &mut store).unwrap();
+        assert_eq!(list.viewctx.corner.position, 3);
+        assert_eq!(list.viewctx.corner.text_row, 0);
+        assert_eq!(list.cursor.position, 4);
+
+        // Drawing doesn't change anything:
+        list.draw(area, &mut buf, true, &mut store);
+        assert_eq!(list.viewctx.corner.position, 3);
+        assert_eq!(list.viewctx.corner.text_row, 0);
+        assert_eq!(list.cursor.position, 4);
+
+        // Back to beginning:
+        list.edit(&op, &beg.clone().into(), &ctx, &mut store).unwrap();
+        assert_eq!(list.viewctx.corner.position, 3);
+        assert_eq!(list.viewctx.corner.text_row, 0);
+        assert_eq!(list.cursor.position, 3);
+
+        // Drawing doesn't change anything:
+        list.draw(area, &mut buf, true, &mut store);
+        assert_eq!(list.viewctx.corner.position, 3);
+        assert_eq!(list.viewctx.corner.text_row, 0);
+        assert_eq!(list.cursor.position, 3);
+
+        // Moving to end should go to 5:
+        list.edit(&op, &end.clone().into(), &ctx, &mut store).unwrap();
+        assert_eq!(list.viewctx.corner.position, 3);
+        assert_eq!(list.viewctx.corner.text_row, 0);
+        assert_eq!(list.cursor.position, 5);
+
+        // And drawing shifts viewport by 1 row to ensure all of item 5 is visible:
+        list.draw(area, &mut buf, true, &mut store);
+        assert_eq!(list.viewctx.corner.position, 3);
+        assert_eq!(list.viewctx.corner.text_row, 1);
+        assert_eq!(list.cursor.position, 5);
+
+        // Move to item 6 in the corner, which only fills 4 out of 5 terminal rows:
+        list.viewctx.corner.position = 6;
+        list.cursor.position = 6;
+        list.draw(area, &mut buf, true, &mut store);
+        assert_eq!(list.viewctx.corner.position, 6);
+        assert_eq!(list.viewctx.corner.text_row, 0);
+        assert_eq!(list.bottom.position, 7);
+        assert_eq!(list.bottom.text_row, 1);
+        assert_eq!(list.cursor.position, 6);
+
+        // Moving to end should go to 7:
+        list.edit(&op, &end.clone().into(), &ctx, &mut store).unwrap();
+        assert_eq!(list.viewctx.corner.position, 6);
+        assert_eq!(list.viewctx.corner.text_row, 0);
+        assert_eq!(list.cursor.position, 7);
+
+        // Drawing doesn't change anything:
+        list.draw(area, &mut buf, true, &mut store);
+        assert_eq!(list.viewctx.corner.position, 6);
+        assert_eq!(list.viewctx.corner.text_row, 0);
+        assert_eq!(list.cursor.position, 7);
+
+        // Moving to beginning should go back to 6:
+        list.edit(&op, &beg.clone().into(), &ctx, &mut store).unwrap();
+        assert_eq!(list.viewctx.corner.position, 6);
+        assert_eq!(list.viewctx.corner.text_row, 0);
+        assert_eq!(list.cursor.position, 6);
+
+        // Drawing doesn't change anything:
+        list.draw(area, &mut buf, true, &mut store);
+        assert_eq!(list.cursor.position, 6);
+        assert_eq!(list.viewctx.corner.text_row, 0);
         assert_eq!(list.cursor.position, 6);
     }
 
