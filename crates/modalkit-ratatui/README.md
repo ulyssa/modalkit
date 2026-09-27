@@ -18,7 +18,7 @@ your project's `Cargo.toml`.
 
 ```toml
 [dependencies]
-modalkit-ratatui = "0.0.29"
+modalkit-ratatui = "0.0.30"
 ```
 
 ## License
@@ -27,3 +27,4 @@ modalkit-ratatui = "0.0.29"
 
 [Apache License, Version 2.0]: https://github.com/ulyssa/modalkit/blob/master/LICENSE
 [modalkit]: https://docs.rs/modalkit/latest/modalkit/
+[ratatui]: https://docs.rs/ratatui/latest/ratatui/
