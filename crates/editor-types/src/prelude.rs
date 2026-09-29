@@ -1084,38 +1084,135 @@ pub trait BoundaryTest {
 #[non_exhaustive]
 pub enum RangeType {
     /// Select from the beginning to the end of a [word](WordStyle).
+    ///
+    /// ## Example: Using `range!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::range;
+    ///
+    /// let r = RangeType::Word(WordStyle::AlphaNum);
+    /// assert_eq!(r, range!("word -s alphanum"));
+    /// assert_eq!(r, range!("word -s alpha-num"));
+    /// ```
     Word(WordStyle),
 
     /// Select the whole buffer.
+    ///
+    /// ## Example: Using `range!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::range;
+    ///
+    /// let r = RangeType::Buffer;
+    /// assert_eq!(r, range!("buffer"));
+    /// ```
     Buffer,
 
     /// Select the current paragraph the cursor is in.
+    ///
+    /// ## Example: Using `range!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::range;
+    ///
+    /// let r = RangeType::Paragraph;
+    /// assert_eq!(r, range!("paragraph"));
+    /// ```
     Paragraph,
 
     /// Select the current sentence the cursor is in.
+    ///
+    /// ## Example: Using `range!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::range;
+    ///
+    /// let r = RangeType::Sentence;
+    /// assert_eq!(r, range!("sentence"));
+    /// ```
     Sentence,
 
     /// Select the current line the cursor is on.
+    ///
+    /// ## Example: Using `range!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::range;
+    ///
+    /// let r = RangeType::Line;
+    /// assert_eq!(r, range!("line"));
+    /// ```
     Line,
 
     /// Select the current block specified by the start and end characters.
     ///
     /// When done inclusively, the delimiters are included.
+    ///
+    /// ## Example: Using `range!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::range;
+    ///
+    /// let r = RangeType::Bracketed('{', '}');
+    /// assert_eq!(r, range!("bracketed --left '{' --right '}'"));
+    ///
+    /// let r = RangeType::Bracketed('(', ')');
+    /// assert_eq!(r, range!("bracketed --left '(' --right ')'"));
+    /// ```
     Bracketed(char, char),
 
     /// Select the range enclosed by the next item character.
     ///
     /// This is the ranged version of [MoveType::ItemMatch].
+    ///
+    /// ## Example: Using `range!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::range;
+    ///
+    /// let r = RangeType::Item;
+    /// assert_eq!(r, range!("item"));
+    /// ```
     Item,
 
     /// Select text quoted by [char] around the cursor.
     ///
     /// When done inclusively, the quote characters are included.
+    ///
+    /// ## Example: Using `range!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::range;
+    ///
+    /// let r = RangeType::Quote('"');
+    /// assert_eq!(r, range!("quote '\"'"));
+    ///
+    /// let r = RangeType::Quote('\'');
+    /// assert_eq!(r, range!("quote '\''"));
+    /// ```
     Quote(char),
 
     /// Select the XML block around the cursor.
     ///
     /// When done inclusively, the opening and closing tags are included.
+    ///
+    /// ## Example: Using `range!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::range;
+    ///
+    /// let r = RangeType::XmlTag;
+    /// assert_eq!(r, range!("xml-tag"));
+    /// ```
     XmlTag,
 }
 
@@ -1124,73 +1221,305 @@ pub enum RangeType {
 #[non_exhaustive]
 pub enum MoveType {
     /// Move to a line at a position relative to the buffer.
+    ///
+    /// ## Example: Using `motion!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::motion;
+    ///
+    /// let m = MoveType::BufferPos(MovePosition::Beginning);
+    /// assert_eq!(m, motion!("buffer-pos -p beginning"));
+    /// ```
     BufferPos(MovePosition),
 
     /// Move to the column [*n* bytes](Count) into the buffer.
+    ///
+    /// ## Example: Using `motion!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::motion;
+    ///
+    /// let m = MoveType::BufferByteOffset;
+    /// assert_eq!(m, motion!("buffer-byte-offset"));
+    /// ```
     BufferByteOffset,
 
     /// Move to the [*n*<sup>th</sup> line](Count) in the buffer.
+    ///
+    /// ## Example: Using `motion!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::motion;
+    ///
+    /// let m = MoveType::BufferLineOffset;
+    /// assert_eq!(m, motion!("buffer-line-offset"));
+    /// ```
     BufferLineOffset,
 
     /// Move to the line [*n*%](Count) of the way through the buffer.
+    ///
+    /// ## Example: Using `motion!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::motion;
+    ///
+    /// let m = MoveType::BufferLinePercent;
+    /// assert_eq!(m, motion!("buffer-line-percent"));
+    /// ```
     BufferLinePercent,
 
     /// Move to the previous or next column [*n* times](Count).
     ///
     /// The [bool] parameter indicates whether to cross line boundaries.
+    ///
+    /// ## Example: Using `motion!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::motion;
+    ///
+    /// let m = MoveType::Column(MoveDir1D::Next, true);
+    /// assert_eq!(m, motion!("column -d next"));
+    /// assert_eq!(m, motion!("column -d next --multiline true"));
+    ///
+    /// let m = MoveType::Column(MoveDir1D::Next, false);
+    /// assert_eq!(m, motion!("column -d next --multiline false"));
+    /// ```
     Column(MoveDir1D, bool),
 
     /// Move to the final non-blank character [*n* lines](Count) away in [MoveDir1D] direction.
+    ///
+    /// ## Example: Using `motion!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::motion;
+    ///
+    /// let m = MoveType::FinalNonBlank(MoveDir1D::Next);
+    /// assert_eq!(m, motion!("final-non-blank -d next"));
+    /// ```
     FinalNonBlank(MoveDir1D),
 
     /// Move to the first word [*n* lines](Count) away in [MoveDir1D] direction.
+    ///
+    /// ## Example: Using `motion!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::motion;
+    ///
+    /// let m = MoveType::FirstWord(MoveDir1D::Next);
+    /// assert_eq!(m, motion!("first-word -d next"));
+    /// ```
     FirstWord(MoveDir1D),
 
     /// Move to the matching character of the next item.
     ///
     /// Items are characters like `(`/`)`, `[`/`]`, `{`/`}`, and so on.
+    ///
+    /// ## Example: Using `motion!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::motion;
+    ///
+    /// let m = MoveType::ItemMatch;
+    /// assert_eq!(m, motion!("item-match"));
+    /// ```
     ItemMatch,
 
     /// Move [*n* lines](Count) in [MoveDir1D] direction.
+    ///
+    /// ## Example: Using `motion!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::motion;
+    ///
+    /// let m = MoveType::Line(MoveDir1D::Next);
+    /// assert_eq!(m, motion!("line -d next"));
+    /// ```
     Line(MoveDir1D),
 
     /// Move to the [*n*<sup>th</sup>](Count) column in the current line.
+    ///
+    /// ## Example: Using `motion!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::motion;
+    ///
+    /// let m = MoveType::LineColumnOffset;
+    /// assert_eq!(m, motion!("line-column-offset"));
+    /// ```
     LineColumnOffset,
 
     /// Move to the column [*n*%](Count) of the way through the current line.
+    ///
+    /// ## Example: Using `motion!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::motion;
+    ///
+    /// let m = MoveType::LinePercent;
+    /// assert_eq!(m, motion!("line-percent"));
+    /// ```
     LinePercent,
 
     /// Move to a column at a position relative to the current line.
+    ///
+    /// ## Example: Using `motion!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::motion;
+    ///
+    /// let m = MoveType::LinePos(MovePosition::End);
+    /// assert_eq!(m, motion!("line-pos -p end"));
+    /// ```
     LinePos(MovePosition),
 
     /// Move to the beginning of a word [*n* times](Count) in [MoveDir1D] direction.
+    ///
+    /// ## Example: Using `motion!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::motion;
+    ///
+    /// let m = MoveType::WordBegin(WordStyle::Little, MoveDir1D::Previous);
+    /// assert_eq!(m, motion!("word-begin -s little -d prev"));
+    /// assert_eq!(m, motion!("word-begin -s little -d previous"));
+    /// ```
     WordBegin(WordStyle, MoveDir1D),
 
     /// Move to the end of a word [*n* times](Count) in [MoveDir1D] direction.
+    ///
+    /// ## Example: Using `motion!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::motion;
+    ///
+    /// let m = MoveType::WordEnd(WordStyle::Big, MoveDir1D::Previous);
+    /// assert_eq!(m, motion!("word-end -s big -d prev"));
+    /// assert_eq!(m, motion!("word-end -s big -d previous"));
+    /// ```
     WordEnd(WordStyle, MoveDir1D),
 
     /// Move to the beginning of a paragraph [*n* times](Count) in [MoveDir1D] direction.
+    ///
+    /// ## Example: Using `motion!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::motion;
+    ///
+    /// let m = MoveType::ParagraphBegin(MoveDir1D::Previous);
+    /// assert_eq!(m, motion!("paragraph-begin -d prev"));
+    /// assert_eq!(m, motion!("paragraph-begin -d previous"));
+    /// ```
     ParagraphBegin(MoveDir1D),
 
     /// Move to the beginning of a sentence [*n* times](Count) in [MoveDir1D] direction.
+    ///
+    /// ## Example: Using `motion!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::motion;
+    ///
+    /// let m = MoveType::SentenceBegin(MoveDir1D::Previous);
+    /// assert_eq!(m, motion!("sentence-begin -d prev"));
+    /// assert_eq!(m, motion!("sentence-begin -d previous"));
+    /// ```
     SentenceBegin(MoveDir1D),
 
     /// Move to the beginning of a section [*n* times](Count) in [MoveDir1D] direction.
+    ///
+    /// ## Example: Using `motion!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::motion;
+    ///
+    /// let m = MoveType::SectionBegin(MoveDir1D::Previous);
+    /// assert_eq!(m, motion!("section-begin -d prev"));
+    /// assert_eq!(m, motion!("section-begin -d previous"));
+    /// ```
     SectionBegin(MoveDir1D),
 
     /// Move to the end of a section [*n* times](Count) in [MoveDir1D] direction.
+    ///
+    /// ## Example: Using `motion!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::motion;
+    ///
+    /// let m = MoveType::SectionEnd(MoveDir1D::Previous);
+    /// assert_eq!(m, motion!("section-end -d prev"));
+    /// assert_eq!(m, motion!("section-end -d previous"));
+    /// ```
     SectionEnd(MoveDir1D),
 
     /// Move to the first word of a screen line [*n* times](Count) away in [MoveDir1D] direction.
+    ///
+    /// ## Example: Using `motion!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::motion;
+    ///
+    /// let m = MoveType::ScreenFirstWord(MoveDir1D::Previous);
+    /// assert_eq!(m, motion!("screen-first-word -d prev"));
+    /// assert_eq!(m, motion!("screen-first-word -d previous"));
+    /// ```
     ScreenFirstWord(MoveDir1D),
 
     /// Move [*n* screen lines](Count) in [MoveDir1D] direction.
+    ///
+    /// ## Example: Using `motion!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::motion;
+    ///
+    /// let m = MoveType::ScreenLine(MoveDir1D::Previous);
+    /// assert_eq!(m, motion!("screen-line -d prev"));
+    /// assert_eq!(m, motion!("screen-line -d previous"));
+    /// ```
     ScreenLine(MoveDir1D),
 
     /// Move to a column at a position relative to the current screen line.
+    ///
+    /// ## Example: Using `motion!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::motion;
+    ///
+    /// let m = MoveType::ScreenLinePos(MovePosition::Beginning);
+    /// assert_eq!(m, motion!("screen-line-pos -p beginning"));
+    /// ```
     ScreenLinePos(MovePosition),
 
     /// Move to the first word of the line displayed at a position relative to the viewport.
+    ///
+    /// ## Example: Using `motion!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::motion;
+    ///
+    /// let m = MoveType::ViewportPos(MovePosition::Beginning);
+    /// assert_eq!(m, motion!("viewport-pos -p beginning"));
+    /// ```
     ViewportPos(MovePosition),
 }
 
