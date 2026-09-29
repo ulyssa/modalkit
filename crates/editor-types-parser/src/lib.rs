@@ -91,6 +91,12 @@ pub enum Flag {
     /// In order to encourage common flag initials, `-m` should always take an input `Mark`.
     Mark,
 
+    /// A `--position` or `-p` flag in the input.
+    ///
+    /// In order to encourage common flag initials, `-p` should always take an input
+    /// `MovePosition`.
+    Position,
+
     /// A --style` or `-s` flag in the input.
     ///
     /// In order to encourage common flag initials, `-s` should always take one of the `*Style`
@@ -123,6 +129,7 @@ impl std::fmt::Display for Flag {
             Flag::Focus => write!(f, "--focus"),
             Flag::Input => write!(f, "--input"),
             Flag::Mark => write!(f, "--mark"),
+            Flag::Position => write!(f, "--position"),
             Flag::Style => write!(f, "--style"),
             Flag::Target => write!(f, "--target"),
             Flag::Long(s) => write!(f, "--{s}"),
@@ -160,6 +167,32 @@ pub enum ActionToken<'a> {
 
     /// A collection of tokens between parenthesis (e.g. `(foo bar 5)`).
     Group(Vec<ActionToken<'a>>),
+}
+
+impl std::fmt::Display for ActionToken<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        match self {
+            Self::Word(w) => write!(f, "{w}"),
+            Self::Flag(flag) => write!(f, "{flag}"),
+            Self::Str(s) => write!(f, "{s:?}"),
+            Self::Id(None) => write!(f, "{{}}"),
+            Self::Id(Some(id)) => write!(f, "{{{id}}}"),
+            Self::Bool(b) => write!(f, "{b}"),
+            Self::Number(n) => write!(f, "{n}"),
+            Self::Char(c) => write!(f, "{c:?}"),
+            Self::Group(group) => {
+                write!(f, "(")?;
+                for (i, token) in group.iter().enumerate() {
+                    if i == 0 {
+                        write!(f, "{token}")?;
+                    } else {
+                        write!(f, " {token}")?;
+                    }
+                }
+                write!(f, ")")
+            },
+        }
+    }
 }
 
 pub trait ActionParser {
@@ -488,6 +521,38 @@ pub trait ActionParser {
     ) -> Self::Output;
 }
 
+/// Parse a series of ActionTokens into `editor_types::prelude::RangeType`.
+pub trait RangeParser {
+    type Output;
+    type Span;
+
+    /// Output an error for the current parse.
+    fn range_invalid<T: std::fmt::Display>(&self, msg: T, span: Self::Span) -> Self::Output;
+
+    fn visit_word(&mut self, style: &[ActionToken], span: Self::Span) -> Self::Output;
+
+    fn visit_buffer(&mut self, span: Self::Span) -> Self::Output;
+
+    fn visit_paragraph(&mut self, span: Self::Span) -> Self::Output;
+
+    fn visit_sentence(&mut self, span: Self::Span) -> Self::Output;
+
+    fn visit_line(&mut self, span: Self::Span) -> Self::Output;
+
+    fn visit_bracketed(
+        &mut self,
+        left: &[ActionToken],
+        right: &[ActionToken],
+        span: Self::Span,
+    ) -> Self::Output;
+
+    fn visit_item(&mut self, span: Self::Span) -> Self::Output;
+
+    fn visit_quote(&mut self, surround: &[ActionToken], span: Self::Span) -> Self::Output;
+
+    fn visit_xml_tag(&mut self, span: Self::Span) -> Self::Output;
+}
+
 pub fn parse_single_flag<'a>(
     flag: Flag,
     input: &'a [ActionToken<'a>],
@@ -586,18 +651,18 @@ pub fn parse_single_count<'a>(
     Ok(count)
 }
 
-fn fail_cmd_flag<V: ActionParser>(v: &V, cmd: &str, err: ArgError, span: V::Span) -> V::Output {
+fn fail_cmd_flag_msg(cmd: &str, err: ArgError) -> String {
     match err {
-        ArgError::ExpectedFlag(None) => v.fail(format!("`{cmd}` expects a flag argument"), span),
-        ArgError::ExpectedFlag(Some(f)) => {
-            v.fail(format!("`{cmd}` requires a `{f}` argument"), span)
-        },
-        ArgError::MissingArg(f) => {
-            v.fail(format!("`{cmd}` expects an argument following `{f}`"), span)
-        },
-        ArgError::UnexpectedFlag(f) => v.fail(format!("`{cmd}` does not take `{f}`"), span),
-        ArgError::DuplicateFlag(f) => v.fail(format!("`{cmd}` only takes one `{f}`"), span),
+        ArgError::ExpectedFlag(None) => format!("`{cmd}` expects a flag argument"),
+        ArgError::ExpectedFlag(Some(f)) => format!("`{cmd}` requires a `{f}` argument"),
+        ArgError::MissingArg(f) => format!("`{cmd}` expects an argument following `{f}`"),
+        ArgError::UnexpectedFlag(f) => format!("`{cmd}` does not take `{f}`"),
+        ArgError::DuplicateFlag(f) => format!("`{cmd}` only takes one `{f}`"),
     }
+}
+
+fn fail_cmd_flag<V: ActionParser>(v: &V, cmd: &str, err: ArgError, span: V::Span) -> V::Output {
+    v.fail(fail_cmd_flag_msg(cmd, err), span)
 }
 
 pub trait ActionParserExt: ActionParser {
@@ -666,7 +731,7 @@ impl<V: ActionParser> ActionParserExt for V {
             ActionToken::Word("focus") => {
                 match parse_flags(
                     [
-                        (Flag::Short('p'), None),
+                        (Flag::Short('P'), None),
                         (Flag::Style, None),
                         (Flag::Short('a'), None),
                     ],
@@ -1276,6 +1341,335 @@ impl<V: ActionParser> ActionParserExt for V {
             ActionToken::Word(w) => self.fail(format!("unknown action keyword `{w}`"), span),
 
             _ => self.fail("expect action keyword at start of command", span),
+        }
+    }
+}
+
+pub trait RangeParserExt: RangeParser {
+    fn parse_range(&mut self, input: &[ActionToken], span: Self::Span) -> Self::Output;
+}
+
+impl<V: RangeParser> RangeParserExt for V {
+    fn parse_range(&mut self, input: &[ActionToken], span: Self::Span) -> Self::Output {
+        let Some((range, rest)) = input.split_first() else {
+            return self.range_invalid("No range specified", span);
+        };
+
+        match range {
+            ActionToken::Word(w @ "word") => {
+                match parse_single_flag(Flag::Style, rest) {
+                    Ok(style) => self.visit_word(style, span),
+                    Err(e) => self.range_invalid(fail_cmd_flag_msg(w, e), span),
+                }
+            },
+            ActionToken::Word(w @ "buffer") => {
+                if rest.is_empty() {
+                    self.visit_buffer(span)
+                } else {
+                    self.range_invalid(format!("`{w}` takes no arguments"), span)
+                }
+            },
+            ActionToken::Word(w @ "paragraph") => {
+                if rest.is_empty() {
+                    self.visit_paragraph(span)
+                } else {
+                    self.range_invalid(format!("`{w}` takes no arguments"), span)
+                }
+            },
+            ActionToken::Word(w @ "sentence") => {
+                if rest.is_empty() {
+                    self.visit_sentence(span)
+                } else {
+                    self.range_invalid(format!("`{w}` takes no arguments"), span)
+                }
+            },
+            ActionToken::Word(w @ "line") => {
+                if rest.is_empty() {
+                    self.visit_line(span)
+                } else {
+                    self.range_invalid(format!("`{w}` takes no arguments"), span)
+                }
+            },
+            ActionToken::Word(w @ "bracketed") => {
+                match parse_required_flags(
+                    [Flag::Long("left".into()), Flag::Long("right".into())],
+                    rest,
+                ) {
+                    Ok([left, right]) => self.visit_bracketed(left, right, span),
+                    Err(e) => self.range_invalid(fail_cmd_flag_msg(w, e), span),
+                }
+            },
+            ActionToken::Word(w @ "item") => {
+                if rest.is_empty() {
+                    self.visit_item(span)
+                } else {
+                    self.range_invalid(format!("`{w}` takes no arguments"), span)
+                }
+            },
+            ActionToken::Word(w @ "quote") => {
+                if rest.len() == 1 {
+                    self.visit_quote(rest, span)
+                } else {
+                    self.range_invalid(format!("`{w}` expected a single argument"), span)
+                }
+            },
+            ActionToken::Word(w @ "xml-tag") => {
+                if rest.is_empty() {
+                    self.visit_xml_tag(span)
+                } else {
+                    self.range_invalid(format!("`{w}` takes no arguments"), span)
+                }
+            },
+
+            ActionToken::Word(w) => {
+                self.range_invalid(format!("expected the name of a range type, found `{w}`"), span)
+            },
+
+            t => {
+                self.range_invalid(format!("expected the name of a range type, found `{t}`"), span)
+            },
+        }
+    }
+}
+
+/// Parse a series of ActionTokens into `editor_types::prelude::MoveType`.
+pub trait MotionParser {
+    type Output;
+    type Span;
+
+    /// Output an error for the current parse.
+    fn motion_invalid<T: std::fmt::Display>(&self, msg: T, span: Self::Span) -> Self::Output;
+
+    fn visit_buffer_pos(&mut self, position: &[ActionToken], span: Self::Span) -> Self::Output;
+
+    fn visit_buffer_byte_offset(&mut self, span: Self::Span) -> Self::Output;
+
+    fn visit_buffer_line_offset(&mut self, span: Self::Span) -> Self::Output;
+
+    fn visit_buffer_line_percent(&mut self, span: Self::Span) -> Self::Output;
+
+    fn visit_column(
+        &mut self,
+        dir: &[ActionToken],
+        multiline: &[ActionToken],
+        span: Self::Span,
+    ) -> Self::Output;
+
+    fn visit_final_non_blank(&mut self, dir: &[ActionToken], span: Self::Span) -> Self::Output;
+
+    fn visit_first_word(&mut self, dir: &[ActionToken], span: Self::Span) -> Self::Output;
+
+    fn visit_item_match(&mut self, span: Self::Span) -> Self::Output;
+
+    fn visit_line(&mut self, dir: &[ActionToken], span: Self::Span) -> Self::Output;
+
+    fn visit_line_column_offset(&mut self, span: Self::Span) -> Self::Output;
+
+    fn visit_line_percent(&mut self, span: Self::Span) -> Self::Output;
+
+    fn visit_line_pos(&mut self, position: &[ActionToken], span: Self::Span) -> Self::Output;
+
+    fn visit_word_begin(
+        &mut self,
+        style: &[ActionToken],
+        dir: &[ActionToken],
+        span: Self::Span,
+    ) -> Self::Output;
+
+    fn visit_word_end(
+        &mut self,
+        style: &[ActionToken],
+        dir: &[ActionToken],
+        span: Self::Span,
+    ) -> Self::Output;
+
+    fn visit_paragraph_begin(&mut self, dir: &[ActionToken], span: Self::Span) -> Self::Output;
+
+    fn visit_sentence_begin(&mut self, dir: &[ActionToken], span: Self::Span) -> Self::Output;
+
+    fn visit_section_begin(&mut self, dir: &[ActionToken], span: Self::Span) -> Self::Output;
+
+    fn visit_section_end(&mut self, dir: &[ActionToken], span: Self::Span) -> Self::Output;
+
+    fn visit_screen_first_word(&mut self, dir: &[ActionToken], span: Self::Span) -> Self::Output;
+
+    fn visit_screen_line(&mut self, dir: &[ActionToken], span: Self::Span) -> Self::Output;
+
+    fn visit_screen_line_pos(&mut self, position: &[ActionToken], span: Self::Span)
+    -> Self::Output;
+
+    fn visit_viewport_pos(&mut self, position: &[ActionToken], span: Self::Span) -> Self::Output;
+}
+
+pub trait MotionParserExt: MotionParser {
+    fn parse_motion(&mut self, input: &[ActionToken], span: Self::Span) -> Self::Output;
+}
+
+impl<V: MotionParser> MotionParserExt for V {
+    fn parse_motion(&mut self, input: &[ActionToken], span: Self::Span) -> Self::Output {
+        let Some((motion, rest)) = input.split_first() else {
+            return self.motion_invalid("No motion specified", span);
+        };
+
+        match motion {
+            ActionToken::Word(w @ "buffer-pos") => {
+                match parse_single_flag(Flag::Position, rest) {
+                    Ok(pos) => self.visit_buffer_pos(pos, span),
+                    Err(e) => self.motion_invalid(fail_cmd_flag_msg(w, e), span),
+                }
+            },
+            ActionToken::Word(w @ "buffer-byte-offset") => {
+                if rest.is_empty() {
+                    self.visit_buffer_byte_offset(span)
+                } else {
+                    self.motion_invalid(format!("`{w}` takes no arguments"), span)
+                }
+            },
+            ActionToken::Word(w @ "buffer-line-offset") => {
+                if rest.is_empty() {
+                    self.visit_buffer_line_offset(span)
+                } else {
+                    self.motion_invalid(format!("`{w}` takes no arguments"), span)
+                }
+            },
+            ActionToken::Word(w @ "buffer-line-percent") => {
+                if rest.is_empty() {
+                    self.visit_buffer_line_percent(span)
+                } else {
+                    self.motion_invalid(format!("`{w}` takes no arguments"), span)
+                }
+            },
+            ActionToken::Word(w @ "column") => {
+                match parse_flags(
+                    [
+                        (Flag::Dir, None),
+                        (Flag::Long("multiline".into()), Some(&DEFAULT_TRUE)),
+                    ],
+                    rest,
+                ) {
+                    Ok([dir, multiline]) => self.visit_column(dir, multiline, span),
+                    Err(e) => self.motion_invalid(fail_cmd_flag_msg(w, e), span),
+                }
+            },
+            ActionToken::Word(w @ "final-non-blank") => {
+                match parse_single_flag(Flag::Dir, rest) {
+                    Ok(dir) => self.visit_final_non_blank(dir, span),
+                    Err(e) => self.motion_invalid(fail_cmd_flag_msg(w, e), span),
+                }
+            },
+            ActionToken::Word(w @ "first-word") => {
+                match parse_single_flag(Flag::Dir, rest) {
+                    Ok(dir) => self.visit_first_word(dir, span),
+                    Err(e) => self.motion_invalid(fail_cmd_flag_msg(w, e), span),
+                }
+            },
+            ActionToken::Word(w @ "item-match") => {
+                if rest.is_empty() {
+                    self.visit_item_match(span)
+                } else {
+                    self.motion_invalid(format!("`{w}` takes no arguments"), span)
+                }
+            },
+            ActionToken::Word(w @ "line") => {
+                match parse_single_flag(Flag::Dir, rest) {
+                    Ok(dir) => self.visit_line(dir, span),
+                    Err(e) => self.motion_invalid(fail_cmd_flag_msg(w, e), span),
+                }
+            },
+            ActionToken::Word(w @ "line-column-offset") => {
+                if rest.is_empty() {
+                    self.visit_line_column_offset(span)
+                } else {
+                    self.motion_invalid(format!("`{w}` takes no arguments"), span)
+                }
+            },
+            ActionToken::Word(w @ "line-percent") => {
+                if rest.is_empty() {
+                    self.visit_line_percent(span)
+                } else {
+                    self.motion_invalid(format!("`{w}` takes no arguments"), span)
+                }
+            },
+            ActionToken::Word(w @ "line-pos") => {
+                match parse_single_flag(Flag::Position, rest) {
+                    Ok(pos) => self.visit_line_pos(pos, span),
+                    Err(e) => self.motion_invalid(fail_cmd_flag_msg(w, e), span),
+                }
+            },
+            ActionToken::Word(w @ "word-begin") => {
+                match parse_required_flags([Flag::Style, Flag::Dir], rest) {
+                    Ok([style, dir]) => self.visit_word_begin(style, dir, span),
+                    Err(e) => self.motion_invalid(fail_cmd_flag_msg(w, e), span),
+                }
+            },
+            ActionToken::Word(w @ "word-end") => {
+                match parse_required_flags([Flag::Style, Flag::Dir], rest) {
+                    Ok([style, dir]) => self.visit_word_end(style, dir, span),
+                    Err(e) => self.motion_invalid(fail_cmd_flag_msg(w, e), span),
+                }
+            },
+            ActionToken::Word(w @ "paragraph-begin") => {
+                match parse_single_flag(Flag::Dir, rest) {
+                    Ok(dir) => self.visit_paragraph_begin(dir, span),
+                    Err(e) => self.motion_invalid(fail_cmd_flag_msg(w, e), span),
+                }
+            },
+            ActionToken::Word(w @ "sentence-begin") => {
+                match parse_single_flag(Flag::Dir, rest) {
+                    Ok(dir) => self.visit_sentence_begin(dir, span),
+                    Err(e) => self.motion_invalid(fail_cmd_flag_msg(w, e), span),
+                }
+            },
+            ActionToken::Word(w @ "section-begin") => {
+                match parse_single_flag(Flag::Dir, rest) {
+                    Ok(dir) => self.visit_section_begin(dir, span),
+                    Err(e) => self.motion_invalid(fail_cmd_flag_msg(w, e), span),
+                }
+            },
+            ActionToken::Word(w @ "section-end") => {
+                match parse_single_flag(Flag::Dir, rest) {
+                    Ok(dir) => self.visit_section_end(dir, span),
+                    Err(e) => self.motion_invalid(fail_cmd_flag_msg(w, e), span),
+                }
+            },
+            ActionToken::Word(w @ "screen-first-word") => {
+                match parse_single_flag(Flag::Dir, rest) {
+                    Ok(dir) => self.visit_screen_first_word(dir, span),
+                    Err(e) => self.motion_invalid(fail_cmd_flag_msg(w, e), span),
+                }
+            },
+            ActionToken::Word(w @ "screen-line") => {
+                match parse_single_flag(Flag::Dir, rest) {
+                    Ok(dir) => self.visit_screen_line(dir, span),
+                    Err(e) => self.motion_invalid(fail_cmd_flag_msg(w, e), span),
+                }
+            },
+            ActionToken::Word(w @ "screen-line-pos") => {
+                match parse_single_flag(Flag::Position, rest) {
+                    Ok(pos) => self.visit_screen_line_pos(pos, span),
+                    Err(e) => self.motion_invalid(fail_cmd_flag_msg(w, e), span),
+                }
+            },
+            ActionToken::Word(w @ "viewport-pos") => {
+                match parse_single_flag(Flag::Position, rest) {
+                    Ok(pos) => self.visit_viewport_pos(pos, span),
+                    Err(e) => self.motion_invalid(fail_cmd_flag_msg(w, e), span),
+                }
+            },
+
+            ActionToken::Word(w) => {
+                self.motion_invalid(
+                    format!("expected the name of a motion type, found `{w}`"),
+                    span,
+                )
+            },
+
+            t => {
+                self.motion_invalid(
+                    format!("expected the name of a motion type, found `{t}`"),
+                    span,
+                )
+            },
         }
     }
 }

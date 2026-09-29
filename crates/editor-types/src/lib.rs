@@ -39,6 +39,12 @@ use keybindings::SequenceStatus;
 /// A macro that turns a shorthand command DSL into an [Action].
 pub use editor_types_macros::action;
 
+/// A macro that turns a shorthand command DSL into a [MoveType];
+pub use editor_types_macros::motion;
+
+/// A macro that turns a shorthand command DSL into a [RangeType];
+pub use editor_types_macros::range;
+
 /// The various actions that can be taken on text.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub enum EditAction {
@@ -532,7 +538,7 @@ pub enum CommandBarAction<I: ApplicationInfo> {
     /// use editor_types::prelude::*;
     /// use editor_types::{action, Action, CommandBarAction};
     ///
-    /// let focus: Action = action!(r#"cmdbar focus -p "/" -s search -a (search -d same)"#);
+    /// let focus: Action = action!(r#"cmdbar focus -P "/" -s search -a (search -d same)"#);
     /// assert_eq!(focus, CommandBarAction::Focus(
     ///     "/".into(),
     ///     CommandType::Search,

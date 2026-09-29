@@ -47,6 +47,7 @@ fn parse_flag_short(input: &str) -> IResult<&str, ActionToken<'_>> {
         'f' => ActionToken::Flag(Flag::Focus),
         'i' => ActionToken::Flag(Flag::Input),
         'm' => ActionToken::Flag(Flag::Mark),
+        'p' => ActionToken::Flag(Flag::Position),
         's' => ActionToken::Flag(Flag::Style),
         't' => ActionToken::Flag(Flag::Target),
         'w' => ActionToken::Flag(Flag::Wrap),
