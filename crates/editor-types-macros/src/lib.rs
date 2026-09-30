@@ -150,15 +150,161 @@ impl ActionMacroParser {
         }
     }
 
+    fn parse_case<'a>(&mut self, input: &'a [ActionToken<'a>], span: Span) -> TokenStream {
+        match input {
+            [ActionToken::Word(w @ "upper"), rest @ ..] => {
+                enum_no_args_branch!(::editor_types::prelude::Case::Upper, w, rest, span)
+            },
+            [ActionToken::Word(w @ "lower"), rest @ ..] => {
+                enum_no_args_branch!(::editor_types::prelude::Case::Lower, w, rest, span)
+            },
+            [ActionToken::Word(w @ "title"), rest @ ..] => {
+                enum_no_args_branch!(::editor_types::prelude::Case::Title, w, rest, span)
+            },
+            [ActionToken::Word(w @ "toggle"), rest @ ..] => {
+                enum_no_args_branch!(::editor_types::prelude::Case::Toggle, w, rest, span)
+            },
+            [ActionToken::Id(i), rest @ ..] => {
+                id_match_branch!(self, i, ::editor_types::prelude::Case, rest, span)
+            },
+            _ => self.fail("expected a valid case change", span),
+        }
+    }
+
+    fn parse_indent_change<'a>(&mut self, input: &'a [ActionToken<'a>], span: Span) -> TokenStream {
+        match input {
+            [ActionToken::Word(w @ "auto"), rest @ ..] => {
+                enum_no_args_branch!(::editor_types::prelude::IndentChange::Auto, w, rest, span)
+            },
+            [ActionToken::Word(w @ "increase"), rest @ ..] => {
+                let count = self.parse_single_count(w, rest, span);
+                quote! { ::editor_types::prelude::IndentChange::Increase(#count) }
+            },
+            [ActionToken::Word(w @ "decrease"), rest @ ..] => {
+                let count = self.parse_single_count(w, rest, span);
+                quote! { ::editor_types::prelude::IndentChange::Decrease(#count) }
+            },
+            [ActionToken::Id(i), rest @ ..] => {
+                id_match_branch!(self, i, ::editor_types::prelude::IndentChange, rest, span)
+            },
+            _ => self.fail("expected a valid IndentChange", span),
+        }
+    }
+
+    fn parse_number_change<'a>(&mut self, input: &'a [ActionToken<'a>], span: Span) -> TokenStream {
+        match input {
+            [ActionToken::Word(w @ "increase"), rest @ ..] => {
+                let count = self.parse_single_count(w, rest, span);
+                quote! { ::editor_types::prelude::NumberChange::Increase(#count) }
+            },
+            [ActionToken::Word(w @ "decrease"), rest @ ..] => {
+                let count = self.parse_single_count(w, rest, span);
+                quote! { ::editor_types::prelude::NumberChange::Decrease(#count) }
+            },
+            [ActionToken::Id(i), rest @ ..] => {
+                id_match_branch!(self, i, ::editor_types::prelude::NumberChange, rest, span)
+            },
+            _ => self.fail("expected a valid NumberChange", span),
+        }
+    }
+
+    fn parse_join_style<'a>(&mut self, input: &'a [ActionToken<'a>], span: Span) -> TokenStream {
+        match input {
+            [ActionToken::Word(w @ "no-change"), rest @ ..] => {
+                enum_no_args_branch!(::editor_types::prelude::JoinStyle::NoChange, w, rest, span)
+            },
+            [ActionToken::Word(w @ "one-space"), rest @ ..] => {
+                enum_no_args_branch!(::editor_types::prelude::JoinStyle::OneSpace, w, rest, span)
+            },
+            [ActionToken::Word(w @ "new-space"), rest @ ..] => {
+                enum_no_args_branch!(::editor_types::prelude::JoinStyle::NewSpace, w, rest, span)
+            },
+            [ActionToken::Id(i), rest @ ..] => {
+                id_match_branch!(self, i, ::editor_types::prelude::JoinStyle, rest, span)
+            },
+            _ => self.fail("expected a valid join style", span),
+        }
+    }
+
     fn parse_edit_action<'a>(&mut self, input: &'a [ActionToken<'a>], span: Span) -> TokenStream {
+        match input {
+            [ActionToken::Word(w @ "motion"), rest @ ..] => {
+                enum_no_args_branch!(::editor_types::EditAction::Motion, w, rest, span)
+            },
+            [ActionToken::Word(w @ "delete"), rest @ ..] => {
+                enum_no_args_branch!(::editor_types::EditAction::Delete, w, rest, span)
+            },
+            [ActionToken::Word(w @ "yank"), rest @ ..] => {
+                enum_no_args_branch!(::editor_types::EditAction::Yank, w, rest, span)
+            },
+            [ActionToken::Word(w @ "format"), rest @ ..] => {
+                enum_no_args_branch!(::editor_types::EditAction::Format, w, rest, span)
+            },
+            [ActionToken::Word(w @ "replace"), rest @ ..] => {
+                let virt = parse_single_flag(Flag::Long("virtual".into()), rest)
+                    .map(|s| self.parse_bool(s, span))
+                    .unwrap_or_else(|e| fail_cmd_flag(w, e, span));
+
+                quote! { ::editor_types::EditAction::Replace(#virt) }
+            },
+            [
+                ActionToken::Word(w @ ("change-number" | "change-num")),
+                rest @ ..,
+            ] => {
+                match parse_required_flags([Flag::Style, Flag::Long("multiply".into())], rest) {
+                    Ok([style, multiply]) => {
+                        let style = self.parse_number_change(style, span);
+                        let multiply = self.parse_bool(multiply, span);
+                        quote! { ::editor_types::EditAction::ChangeNumber(#style, #multiply) }
+                    },
+                    Err(e) => fail_cmd_flag(w, e, span),
+                }
+            },
+            [ActionToken::Word(w @ "join"), rest @ ..] => {
+                let style = parse_single_flag(Flag::Style, rest)
+                    .map(|s| self.parse_join_style(s, span))
+                    .unwrap_or_else(|e| fail_cmd_flag(w, e, span));
+
+                quote! { ::editor_types::EditAction::Join(#style) }
+            },
+            [ActionToken::Word(w @ "indent"), rest @ ..] => {
+                let indent = parse_single_flag(Flag::Style, rest)
+                    .map(|s| self.parse_indent_change(s, span))
+                    .unwrap_or_else(|e| fail_cmd_flag(w, e, span));
+
+                quote! { ::editor_types::EditAction::Indent(#indent) }
+            },
+            [ActionToken::Word(w @ "change-case"), rest @ ..] => {
+                let case = parse_single_flag(Flag::Style, rest)
+                    .map(|s| self.parse_case(s, span))
+                    .unwrap_or_else(|e| fail_cmd_flag(w, e, span));
+
+                quote! { ::editor_types::EditAction::ChangeCase(#case) }
+            },
+            [ActionToken::Id(i), rest @ ..] => {
+                id_match_branch!(self, i, ::editor_types::EditAction, rest, span)
+            },
+            _ => self.fail("expected a valid edit action argument", span),
+        }
+    }
+
+    fn parse_specifier_edit_action<'a>(
+        &mut self,
+        input: &'a [ActionToken<'a>],
+        span: Span,
+    ) -> TokenStream {
         match input {
             [ActionToken::Word(w @ "ctx"), rest @ ..] => {
                 enum_no_args_branch!(::editor_types::prelude::Specifier::Contextual, w, rest, span)
             },
+            [ActionToken::Word("exact"), rest @ ..] => {
+                let mark = self.parse_edit_action(rest, span);
+                quote! { ::editor_types::prelude::Specifier::Exact(#mark) }
+            },
             [ActionToken::Id(i), rest @ ..] => {
                 id_match_branch!(self, i, ::editor_types::prelude::Specifier, rest, span)
             },
-            _ => self.fail("expected a valid edit action argument", span),
+            _ => self.fail("expected a valid edit action specifier", span),
         }
     }
 

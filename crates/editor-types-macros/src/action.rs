@@ -117,7 +117,7 @@ impl ActionParser for ActionMacroParser {
         target: &[ActionToken],
         span: Self::Span,
     ) -> Self::Output {
-        let action = self.parse_edit_action(action, span);
+        let action = self.parse_specifier_edit_action(action, span);
         let target = self.parse_edit_target(target, span);
 
         quote! {
