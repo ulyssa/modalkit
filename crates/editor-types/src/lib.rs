@@ -209,6 +209,20 @@ pub enum SelectionAction {
     ///
     /// See the documentation for the [SelectionResizeStyle] variants for how to construct all of the
     /// possible values using [action].
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, SelectionAction};
+    ///
+    /// let style = SelectionResizeStyle::Restart;
+    /// let target = EditTarget::CurrentPosition;
+    /// let act: Action = SelectionAction::Resize(style, target.clone()).into();
+    /// assert_eq!(act, action!("selection resize -s restart -t curr-pos"));
+    /// assert_eq!(act, action!("selection resize -s restart -t {}", target.clone()));
+    /// assert_eq!(act, action!("selection resize -s {style} -t {target}"));
+    /// ```
     Resize(SelectionResizeStyle, EditTarget),
 
     /// Split [matching selections](TargetShapeFilter) into multiple selections line.
