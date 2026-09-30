@@ -12,12 +12,15 @@ use editor_types_parser::{
     ArgError,
     DEFAULT_COUNT,
     DEFAULT_TRUE,
+    EditTargetParser,
+    EditTargetParserExt,
     Flag,
     MotionParser,
     MotionParserExt,
     RangeParser,
     RangeParserExt,
     parse_flags,
+    parse_required_flags,
     parse_single_flag,
     tokenize,
 };
@@ -25,16 +28,24 @@ use editor_types_parser::{
 #[macro_use]
 mod macros;
 mod action;
+mod edit_target;
 mod motion;
 mod range;
 
 use action::*;
+use edit_target::*;
 use motion::*;
 use range::*;
 
 #[proc_macro]
 pub fn action(stream: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let input = parse_macro_input!(stream as ActionMacroInput);
+    input.into_stream().into()
+}
+
+#[proc_macro]
+pub fn edit_target(stream: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    let input = parse_macro_input!(stream as EditTargetMacroInput);
     input.into_stream().into()
 }
 
@@ -56,15 +67,7 @@ fn fail<T: std::fmt::Display>(msg: T, span: Span) -> TokenStream {
 }
 
 fn fail_cmd_flag(cmd: &str, err: ArgError, span: Span) -> TokenStream {
-    match err {
-        ArgError::ExpectedFlag(None) => fail(format!("`{cmd}` expects a flag argument"), span),
-        ArgError::ExpectedFlag(Some(f)) => fail(format!("`{cmd}` requires a `{f}` argument"), span),
-        ArgError::MissingArg(f) => {
-            fail(format!("`{cmd}` expects a argument following `{f}`"), span)
-        },
-        ArgError::UnexpectedFlag(f) => fail(format!("`{cmd}` does not take `{f}`"), span),
-        ArgError::DuplicateFlag(f) => fail(format!("`{cmd}` only takes one `{f}`"), span),
-    }
+    fail(err.display(cmd).to_string(), span)
 }
 
 struct ActionMacroParser {
@@ -164,7 +167,28 @@ impl ActionMacroParser {
             [ActionToken::Id(i), rest @ ..] => {
                 id_match_branch!(self, i, ::editor_types::prelude::EditTarget, rest, span)
             },
-            _ => self.fail("expected a valid edit target argument", span),
+            [ActionToken::Word(_), ..] => EditTargetParserExt::parse_tokens(self, input, span),
+            _ => self.fail("expected a valid EditTarget argument", span),
+        }
+    }
+
+    fn parse_motion_type<'a>(&mut self, input: &'a [ActionToken<'a>], span: Span) -> TokenStream {
+        match input {
+            [ActionToken::Id(i), rest @ ..] => {
+                id_match_branch!(self, i, ::editor_types::prelude::MoveType, rest, span)
+            },
+            [ActionToken::Word(_), ..] => MotionParserExt::parse_tokens(self, input, span),
+            _ => self.fail("expected a valid MoveType argument", span),
+        }
+    }
+
+    fn parse_range_type<'a>(&mut self, input: &'a [ActionToken<'a>], span: Span) -> TokenStream {
+        match input {
+            [ActionToken::Id(i), rest @ ..] => {
+                id_match_branch!(self, i, ::editor_types::prelude::RangeType, rest, span)
+            },
+            [ActionToken::Word(_), ..] => RangeParserExt::parse_tokens(self, input, span),
+            _ => self.fail("expected a valid RangeType argument", span),
         }
     }
 
@@ -183,6 +207,38 @@ impl ActionMacroParser {
                 id_match_branch!(self, i, ::editor_types::prelude::CommandType, rest, span)
             },
             _ => self.fail("expected a valid command type", span),
+        }
+    }
+
+    fn parse_search_type<'a>(&mut self, input: &'a [ActionToken<'a>], span: Span) -> TokenStream {
+        match input {
+            [ActionToken::Word(w @ "regex"), rest @ ..] => {
+                enum_no_args_branch!(::editor_types::prelude::SearchType::Regex, w, rest, span)
+            },
+            [ActionToken::Word(w @ "char"), rest @ ..] => {
+                let multiline = parse_single_flag(Flag::Long("multiline".into()), rest)
+                    .map(|b| self.parse_bool(b, span))
+                    .unwrap_or_else(|e| fail_cmd_flag(w, e, span));
+
+                quote! { ::editor_types::prelude::SearchType::Char(#multiline) }
+            },
+            [ActionToken::Word(w @ "word"), rest @ ..] => {
+                match parse_required_flags([Flag::Style, Flag::Short('b')], rest) {
+                    Ok([style, boundary]) => {
+                        let style = self.parse_word_style(style, span);
+                        let boundary = self.parse_bool(boundary, span);
+                        quote! { ::editor_types::prelude::SearchType::Word(#style, #boundary) }
+                    },
+                    Err(e) => fail_cmd_flag(w, e, span),
+                }
+            },
+            [ActionToken::Word(w), ..] => {
+                self.fail(format!("expected `regex`, `char` or `word`, found `{w}`"), span)
+            },
+            [ActionToken::Id(i), rest @ ..] => {
+                id_match_branch!(self, i, ::editor_types::prelude::SearchType, rest, span)
+            },
+            _ => self.fail("expected a valid search type", span),
         }
     }
 
@@ -791,6 +847,27 @@ impl ActionMacroParser {
         }
     }
 
+    fn parse_move_terminus<'a>(&mut self, input: &'a [ActionToken<'a>], span: Span) -> TokenStream {
+        match input {
+            [ActionToken::Word(w @ ("b" | "beginning")), rest @ ..] => {
+                enum_no_args_branch!(
+                    ::editor_types::prelude::MoveTerminus::Beginning,
+                    w,
+                    rest,
+                    span
+                )
+            },
+            [ActionToken::Word(w @ ("e" | "end")), rest @ ..] => {
+                enum_no_args_branch!(::editor_types::prelude::MoveTerminus::End, w, rest, span)
+            },
+            [ActionToken::Word(w), ..] => bad_word_match_branch!(w, "move terminus", span),
+            [ActionToken::Id(i), rest @ ..] => {
+                id_match_branch!(self, i, ::editor_types::prelude::MoveTerminus, rest, span)
+            },
+            _ => self.fail("expected a valid move terminus", span),
+        }
+    }
+
     fn parse_scroll_size<'a>(&mut self, input: &'a [ActionToken<'a>], span: Span) -> TokenStream {
         match input {
             [ActionToken::Word(w @ "cell"), rest @ ..] => {
@@ -1178,6 +1255,20 @@ impl ActionMacroParser {
 
     fn parse_char(&mut self, input: &[ActionToken], span: Span) -> TokenStream {
         match input {
+            [ActionToken::Word(w @ "copy-line"), rest @ ..] => {
+                let dir = parse_single_flag(Flag::Dir, rest)
+                    .map(|d| self.parse_dir1d(d, span))
+                    .unwrap_or_else(|e| fail_cmd_flag(w, e, span));
+
+                quote! { ::editor_types::prelude::Char::CopyLine(#dir) }
+            },
+            [ActionToken::Word(w @ "ctrl-seq"), rest @ ..] => {
+                let input = parse_single_flag(Flag::Input, rest)
+                    .map(|d| self.parse_string(d, span))
+                    .unwrap_or_else(|e| fail_cmd_flag(w, e, span));
+
+                quote! { ::editor_types::prelude::Char::CtrlSeq(#input) }
+            },
             [ActionToken::Word("digraph"), rest @ ..] => {
                 let (c1, rest) = match rest {
                     [ActionToken::Char(c1), rest @ ..] => (quote! { #c1 }, rest),

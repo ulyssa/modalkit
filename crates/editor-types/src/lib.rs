@@ -39,6 +39,9 @@ use keybindings::SequenceStatus;
 /// A macro that turns a shorthand command DSL into an [Action].
 pub use editor_types_macros::action;
 
+/// A macro that turns a shorthand command DSL into an [EditTarget];
+pub use editor_types_macros::edit_target;
+
 /// A macro that turns a shorthand command DSL into a [MoveType];
 pub use editor_types_macros::motion;
 
@@ -206,6 +209,20 @@ pub enum SelectionAction {
     ///
     /// See the documentation for the [SelectionResizeStyle] variants for how to construct all of the
     /// possible values using [action].
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, SelectionAction};
+    ///
+    /// let style = SelectionResizeStyle::Restart;
+    /// let target = EditTarget::CurrentPosition;
+    /// let act: Action = SelectionAction::Resize(style, target.clone()).into();
+    /// assert_eq!(act, action!("selection resize -s restart -t curr-pos"));
+    /// assert_eq!(act, action!("selection resize -s restart -t {}", target.clone()));
+    /// assert_eq!(act, action!("selection resize -s {style} -t {target}"));
+    /// ```
     Resize(SelectionResizeStyle, EditTarget),
 
     /// Split [matching selections](TargetShapeFilter) into multiple selections line.
@@ -1023,6 +1040,7 @@ pub enum EditorAction {
     /// let ctx = Specifier::Contextual;
     /// let target = EditTarget::CurrentPosition;
     /// let act: Action = EditorAction::Edit(ctx, target.clone()).into();
+    /// assert_eq!(act, action!("edit -o ctx -t curr-pos"));
     /// assert_eq!(act, action!("edit -o ctx -t {target}"));
     /// ```
     Edit(Specifier<EditAction>, EditTarget),

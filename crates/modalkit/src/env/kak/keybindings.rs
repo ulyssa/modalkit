@@ -1025,7 +1025,7 @@ pub struct KakouneBindings<I: ApplicationInfo> {
 }
 
 impl<I: ApplicationInfo> KakouneBindings<I> {
-    /// Map the Enter key to [submit](PromptAction::Submit) in all modes.
+    /// Map the Enter key to [submit][editor_types::PromptAction::Submit] in all modes.
     ///
     /// Normally, Enter is unmapped in Kakoune's Normal mode.
     pub fn submit_on_enter(mut self) -> Self {

@@ -17,10 +17,39 @@ const EMPTY_ACTION: [ActionToken<'static>; 0] = [];
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ArgError {
-    ExpectedFlag(Option<Flag>),
+    ExpectedFlag(Flag),
+    ExpectedFlagBefore(String),
     MissingArg(Flag),
     UnexpectedFlag(Flag),
     DuplicateFlag(Flag),
+}
+
+impl ArgError {
+    pub fn display<'a>(&'a self, cmd: &'a str) -> ArgErrorDisplay<'a> {
+        ArgErrorDisplay { cmd, err: self }
+    }
+}
+
+pub struct ArgErrorDisplay<'a> {
+    cmd: &'a str,
+    err: &'a ArgError,
+}
+
+impl<'a> std::fmt::Display for ArgErrorDisplay<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        let cmd = self.cmd;
+        match self.err {
+            ArgError::ExpectedFlagBefore(s) => {
+                write!(f, "`{cmd}` expected to find a flag argument before `{s}`")
+            },
+            ArgError::ExpectedFlag(flag) => write!(f, "`{cmd}` requires a `{flag}` argument"),
+            ArgError::MissingArg(flag) => {
+                write!(f, "`{cmd}` expects an argument following `{flag}`")
+            },
+            ArgError::UnexpectedFlag(flag) => write!(f, "`{cmd}` does not take `{flag}`"),
+            ArgError::DuplicateFlag(flag) => write!(f, "`{cmd}` only takes one `{flag}`"),
+        }
+    }
 }
 
 pub fn ungroup<'a>(value: &'a [ActionToken<'a>]) -> &'a [ActionToken<'a>] {
@@ -57,7 +86,7 @@ pub fn flag_pairs<'a>(
                 seen.insert(f);
                 pairs.push((f, ungroup(&pair[1..])));
             },
-            [_, ..] => return Err(ArgError::ExpectedFlag(None)),
+            [t, ..] => return Err(ArgError::ExpectedFlagBefore(t.to_string())),
         }
     }
 
@@ -93,11 +122,11 @@ pub enum Flag {
 
     /// A `--position` or `-p` flag in the input.
     ///
-    /// In order to encourage common flag initials, `-p` should always take an input
-    /// `MovePosition`.
+    /// In order to encourage common flag initials, `-p` should always take an input of
+    /// `MovePosition` or `MoveTerminus`.
     Position,
 
-    /// A --style` or `-s` flag in the input.
+    /// A `--style` or `-s` flag in the input.
     ///
     /// In order to encourage common flag initials, `-s` should always take one of the `*Style`
     /// types.
@@ -610,7 +639,7 @@ pub fn parse_flags<'a, const N: usize>(
         } else if let Some(default) = default {
             output[i] = default;
         } else {
-            return Err(ArgError::ExpectedFlag(Some(flag)));
+            return Err(ArgError::ExpectedFlag(flag));
         }
     }
 
@@ -636,7 +665,7 @@ pub fn parse_required_flags<'a, const N: usize>(
         if let Some((_, act)) = matches.next() {
             output[i] = act;
         } else {
-            return Err(ArgError::ExpectedFlag(Some(flag)));
+            return Err(ArgError::ExpectedFlag(flag));
         }
     }
 
@@ -652,13 +681,7 @@ pub fn parse_single_count<'a>(
 }
 
 fn fail_cmd_flag_msg(cmd: &str, err: ArgError) -> String {
-    match err {
-        ArgError::ExpectedFlag(None) => format!("`{cmd}` expects a flag argument"),
-        ArgError::ExpectedFlag(Some(f)) => format!("`{cmd}` requires a `{f}` argument"),
-        ArgError::MissingArg(f) => format!("`{cmd}` expects an argument following `{f}`"),
-        ArgError::UnexpectedFlag(f) => format!("`{cmd}` does not take `{f}`"),
-        ArgError::DuplicateFlag(f) => format!("`{cmd}` only takes one `{f}`"),
-    }
+    err.display(cmd).to_string()
 }
 
 fn fail_cmd_flag<V: ActionParser>(v: &V, cmd: &str, err: ArgError, span: V::Span) -> V::Output {
@@ -1346,11 +1369,11 @@ impl<V: ActionParser> ActionParserExt for V {
 }
 
 pub trait RangeParserExt: RangeParser {
-    fn parse_range(&mut self, input: &[ActionToken], span: Self::Span) -> Self::Output;
+    fn parse_tokens(&mut self, input: &[ActionToken], span: Self::Span) -> Self::Output;
 }
 
 impl<V: RangeParser> RangeParserExt for V {
-    fn parse_range(&mut self, input: &[ActionToken], span: Self::Span) -> Self::Output {
+    fn parse_tokens(&mut self, input: &[ActionToken], span: Self::Span) -> Self::Output {
         let Some((range, rest)) = input.split_first() else {
             return self.range_invalid("No range specified", span);
         };
@@ -1419,10 +1442,6 @@ impl<V: RangeParser> RangeParserExt for V {
                 } else {
                     self.range_invalid(format!("`{w}` takes no arguments"), span)
                 }
-            },
-
-            ActionToken::Word(w) => {
-                self.range_invalid(format!("expected the name of a range type, found `{w}`"), span)
             },
 
             t => {
@@ -1502,11 +1521,11 @@ pub trait MotionParser {
 }
 
 pub trait MotionParserExt: MotionParser {
-    fn parse_motion(&mut self, input: &[ActionToken], span: Self::Span) -> Self::Output;
+    fn parse_tokens(&mut self, input: &[ActionToken], span: Self::Span) -> Self::Output;
 }
 
 impl<V: MotionParser> MotionParserExt for V {
-    fn parse_motion(&mut self, input: &[ActionToken], span: Self::Span) -> Self::Output {
+    fn parse_tokens(&mut self, input: &[ActionToken], span: Self::Span) -> Self::Output {
         let Some((motion, rest)) = input.split_first() else {
             return self.motion_invalid("No motion specified", span);
         };
@@ -1667,6 +1686,157 @@ impl<V: MotionParser> MotionParserExt for V {
             t => {
                 self.motion_invalid(
                     format!("expected the name of a motion type, found `{t}`"),
+                    span,
+                )
+            },
+        }
+    }
+}
+
+/// Parse a series of ActionTokens into `editor_types::prelude::EditTarget`.
+pub trait EditTargetParser {
+    type Output;
+    type Span;
+
+    /// Output an error for the current parse.
+    fn edit_target_invalid<T: std::fmt::Display>(&self, msg: T, span: Self::Span) -> Self::Output;
+
+    fn visit_boundary(
+        &mut self,
+        range: &[ActionToken],
+        inclusive: &[ActionToken],
+        terminus: &[ActionToken],
+        count: &[ActionToken],
+        span: Self::Span,
+    ) -> Self::Output;
+
+    fn visit_current_position(&mut self, span: Self::Span) -> Self::Output;
+
+    fn visit_char_jump(&mut self, mark: &[ActionToken], span: Self::Span) -> Self::Output;
+
+    fn visit_line_jump(&mut self, mark: &[ActionToken], span: Self::Span) -> Self::Output;
+
+    fn visit_motion(
+        &mut self,
+        motion: &[ActionToken],
+        count: &[ActionToken],
+        span: Self::Span,
+    ) -> Self::Output;
+
+    fn visit_range(
+        &mut self,
+        range: &[ActionToken],
+        inclusive: &[ActionToken],
+        count: &[ActionToken],
+        span: Self::Span,
+    ) -> Self::Output;
+
+    fn visit_search(
+        &mut self,
+        search: &[ActionToken],
+        dir: &[ActionToken],
+        count: &[ActionToken],
+        span: Self::Span,
+    ) -> Self::Output;
+
+    fn visit_selection(&mut self, span: Self::Span) -> Self::Output;
+}
+
+pub trait EditTargetParserExt: EditTargetParser {
+    fn parse_tokens(&mut self, input: &[ActionToken], span: Self::Span) -> Self::Output;
+}
+
+impl<V: EditTargetParser> EditTargetParserExt for V {
+    fn parse_tokens(&mut self, input: &[ActionToken], span: Self::Span) -> Self::Output {
+        let Some((target, rest)) = input.split_first() else {
+            return self.edit_target_invalid("No edit target specified", span);
+        };
+
+        match target {
+            ActionToken::Word(w @ "boundary") => {
+                match parse_flags(
+                    [
+                        (Flag::Short('T'), None),
+                        (Flag::Long("inclusive".into()), None),
+                        (Flag::Position, None),
+                        (Flag::Count, Some(&DEFAULT_COUNT)),
+                    ],
+                    rest,
+                ) {
+                    Ok([t, inclusive, terminus, count]) => {
+                        self.visit_boundary(t, inclusive, terminus, count, span)
+                    },
+                    Err(e) => self.edit_target_invalid(fail_cmd_flag_msg(w, e), span),
+                }
+            },
+            ActionToken::Word(w @ ("current-position" | "curr-pos")) => {
+                if rest.is_empty() {
+                    self.visit_current_position(span)
+                } else {
+                    self.edit_target_invalid(format!("`{w}` takes no arguments"), span)
+                }
+            },
+            ActionToken::Word(w @ "char-jump") => {
+                match parse_flags([(Flag::Mark, Some(&DEFAULT_MARK[..]))], rest) {
+                    Ok([mark]) => self.visit_char_jump(mark, span),
+                    Err(e) => self.edit_target_invalid(fail_cmd_flag_msg(w, e), span),
+                }
+            },
+            ActionToken::Word(w @ "line-jump") => {
+                match parse_flags([(Flag::Mark, Some(&DEFAULT_MARK[..]))], rest) {
+                    Ok([mark]) => self.visit_line_jump(mark, span),
+                    Err(e) => self.edit_target_invalid(fail_cmd_flag_msg(w, e), span),
+                }
+            },
+            ActionToken::Word(w @ "motion") => {
+                match parse_flags(
+                    [
+                        (Flag::Short('T'), None),
+                        (Flag::Count, Some(&DEFAULT_COUNT)),
+                    ],
+                    rest,
+                ) {
+                    Ok([t, count]) => self.visit_motion(t, count, span),
+                    Err(e) => self.edit_target_invalid(fail_cmd_flag_msg(w, e), span),
+                }
+            },
+            ActionToken::Word(w @ "range") => {
+                match parse_flags(
+                    [
+                        (Flag::Short('T'), None),
+                        (Flag::Long("inclusive".into()), None),
+                        (Flag::Count, Some(&DEFAULT_COUNT)),
+                    ],
+                    rest,
+                ) {
+                    Ok([t, inclusive, count]) => self.visit_range(t, inclusive, count, span),
+                    Err(e) => self.edit_target_invalid(fail_cmd_flag_msg(w, e), span),
+                }
+            },
+            ActionToken::Word(w @ "search") => {
+                match parse_flags(
+                    [
+                        (Flag::Short('T'), None),
+                        (Flag::Dir, None),
+                        (Flag::Count, Some(&DEFAULT_COUNT)),
+                    ],
+                    rest,
+                ) {
+                    Ok([t, dir, count]) => self.visit_search(t, dir, count, span),
+                    Err(e) => self.edit_target_invalid(fail_cmd_flag_msg(w, e), span),
+                }
+            },
+            ActionToken::Word(w @ "selection") => {
+                if rest.is_empty() {
+                    self.visit_selection(span)
+                } else {
+                    self.edit_target_invalid(format!("`{w}` takes no arguments"), span)
+                }
+            },
+
+            t => {
+                self.edit_target_invalid(
+                    format!("expected the name of a range type, found `{t}`"),
                     span,
                 )
             },
