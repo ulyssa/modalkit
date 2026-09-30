@@ -37,15 +37,59 @@ use crate::*;
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Case {
     /// Make the targeted text uppercase.
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, EditAction, EditorAction};
+    ///
+    /// let act: Action = EditorAction::Edit(
+    ///     EditAction::ChangeCase(Case::Upper).into(), EditTarget::Selection).into();
+    /// assert_eq!(act, action!("edit -t selection -o (exact change-case -s upper)"));
+    /// ```
     Upper,
 
     /// Make the targeted text lowercase.
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, EditAction, EditorAction};
+    ///
+    /// let act: Action = EditorAction::Edit(
+    ///     EditAction::ChangeCase(Case::Lower).into(), EditTarget::Selection).into();
+    /// assert_eq!(act, action!("edit -t selection -o (exact change-case -s lower)"));
+    /// ```
     Lower,
 
     /// Make the first character of the targeted text uppercase, and the rest lowercase.
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, EditAction, EditorAction};
+    ///
+    /// let act: Action = EditorAction::Edit(
+    ///     EditAction::ChangeCase(Case::Title).into(), EditTarget::Selection).into();
+    /// assert_eq!(act, action!("edit -t selection -o (exact change-case -s title)"));
+    /// ```
     Title,
 
     /// Toggle the case of each character in the targeted text.
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, EditAction, EditorAction};
+    ///
+    /// let act: Action = EditorAction::Edit(
+    ///     EditAction::ChangeCase(Case::Toggle).into(), EditTarget::Selection).into();
+    /// assert_eq!(act, action!("edit -t selection -o (exact change-case -s toggle)"));
+    /// ```
     Toggle,
 }
 
@@ -53,13 +97,49 @@ pub enum Case {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum JoinStyle {
     /// Leave whitespace around the join point as-is.
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, EditAction, EditorAction};
+    ///
+    /// let style = JoinStyle::NoChange;
+    /// let act: Action = EditorAction::Edit(
+    ///     EditAction::Join(style).into(), EditTarget::Selection).into();
+    /// assert_eq!(act, action!("edit -t selection -o (exact join -s no-change)"));
+    /// ```
     NoChange,
 
     /// Replace whitespace around the join point with a single space.
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, EditAction, EditorAction};
+    ///
+    /// let style = JoinStyle::OneSpace;
+    /// let act: Action = EditorAction::Edit(
+    ///     EditAction::Join(style).into(), EditTarget::Selection).into();
+    /// assert_eq!(act, action!("edit -t selection -o (exact join -s one-space)"));
+    /// ```
     OneSpace,
 
     /// Always insert a new space at the join point, regardless of whether there's already
     /// whitespace there.
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, EditAction, EditorAction};
+    ///
+    /// let style = JoinStyle::NewSpace;
+    /// let act: Action = EditorAction::Edit(
+    ///     EditAction::Join(style).into(), EditTarget::Selection).into();
+    /// assert_eq!(act, action!("edit -t selection -o (exact join -s new-space)"));
+    /// ```
     NewSpace,
 }
 
@@ -2264,12 +2344,50 @@ pub enum SizeChange<I = Count> {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum IndentChange<I = Count> {
     /// Automatically determine indentation level.
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, EditAction, EditorAction};
+    ///
+    /// let change = IndentChange::Auto;
+    /// let act: Action = EditorAction::Edit(
+    ///     EditAction::Indent(change.clone()).into(), EditTarget::Selection).into();
+    /// assert_eq!(act, action!("edit -t selection -o (exact indent -s auto)"));
+    /// ```
     Auto,
 
     /// Decrease the indentation level of indentation.
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, EditAction, EditorAction};
+    ///
+    /// let change = IndentChange::Decrease(Count::Contextual);
+    /// let act: Action = EditorAction::Edit(
+    ///     EditAction::Indent(change.clone()).into(), EditTarget::Selection).into();
+    /// assert_eq!(act, action!("edit -t selection -o (exact indent -s decrease)"));
+    /// assert_eq!(act, action!("edit -t selection -o (exact indent -s (decrease -c ctx))"));
+    /// ```
     Decrease(I),
 
     /// Increase the indentation level of indentation.
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, EditAction, EditorAction};
+    ///
+    /// let change = IndentChange::Increase(Count::Contextual);
+    /// let act: Action = EditorAction::Edit(
+    ///     EditAction::Indent(change.clone()).into(), EditTarget::Selection).into();
+    /// assert_eq!(act, action!("edit -t selection -o (exact indent -s increase)"));
+    /// assert_eq!(act, action!("edit -t selection -o (exact indent -s (increase -c ctx))"));
+    /// ```
     Increase(I),
 }
 
@@ -2277,9 +2395,35 @@ pub enum IndentChange<I = Count> {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum NumberChange {
     /// Decrease the first number in the targeted text by [*n*](Count).
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, EditAction, EditorAction};
+    ///
+    /// let change = NumberChange::Decrease(Count::Contextual);
+    /// let act: Action = EditorAction::Edit(
+    ///     EditAction::ChangeNumber(change.clone(), false).into(), EditTarget::Selection).into();
+    /// assert_eq!(act, action!("edit -t selection -o (exact change-num -s decrease --multiply false)"));
+    /// assert_eq!(act, action!("edit -t selection -o (exact change-num -s (decrease -c ctx) --multiply false)"));
+    /// ```
     Decrease(Count),
 
     /// Increase the first number in the targeted text by [*n*](Count).
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, EditAction, EditorAction};
+    ///
+    /// let change = NumberChange::Increase(Count::Contextual);
+    /// let act: Action = EditorAction::Edit(
+    ///     EditAction::ChangeNumber(change.clone(), false).into(), EditTarget::Selection).into();
+    /// assert_eq!(act, action!("edit -t selection -o (exact change-num -s increase --multiply false)"));
+    /// assert_eq!(act, action!("edit -t selection -o (exact change-num -s (increase -c ctx) --multiply false)"));
+    /// ```
     Increase(Count),
 }
 

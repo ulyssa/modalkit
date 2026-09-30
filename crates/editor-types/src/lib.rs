@@ -56,35 +56,143 @@ pub enum EditAction {
     /// If a shape is [specified contextually](EditContext::get_target_shape), then visually select
     /// text while moving, as if using [SelectionAction::Resize] with
     /// [SelectionResizeStyle::Extend].
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, EditAction, EditorAction};
+    ///
+    /// let act: Action = EditorAction::Edit(
+    ///     EditAction::Motion.into(), EditTarget::Selection).into();
+    /// assert_eq!(act, action!("edit -t selection -o (exact motion)"));
+    /// ```
     #[default]
     Motion,
 
     /// Delete the targeted text.
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, EditAction, EditorAction};
+    ///
+    /// let act: Action = EditorAction::Edit(
+    ///     EditAction::Delete.into(), EditTarget::Selection).into();
+    /// assert_eq!(act, action!("edit -t selection -o (exact delete)"));
+    /// ```
     Delete,
 
     /// Yank the targeted text into a [Register].
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, EditAction, EditorAction};
+    ///
+    /// let act: Action = EditorAction::Edit(
+    ///     EditAction::Yank.into(), EditTarget::Selection).into();
+    /// assert_eq!(act, action!("edit -t selection -o (exact yank)"));
+    /// ```
     Yank,
 
     /// Replace characters within the targeted text with a new character.
     ///
     /// If [bool] is true, virtually replace characters by how many columns they occupy.
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, EditAction, EditorAction};
+    ///
+    /// let act: Action = EditorAction::Edit(
+    ///     EditAction::Replace(true).into(), EditTarget::Selection).into();
+    /// assert_eq!(act, action!("edit -t selection -o (exact replace --virtual true)"));
+    /// ```
     Replace(bool),
 
     /// Automatically format the targeted text.
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, EditAction, EditorAction};
+    ///
+    /// let act: Action = EditorAction::Edit(
+    ///     EditAction::Format.into(), EditTarget::Selection).into();
+    /// assert_eq!(act, action!("edit -t selection -o (exact format)"));
+    /// ```
     Format,
 
     /// Change the first number on each line within the targeted text.
     ///
     /// The [bool] argument controls whether to increment by an additional count on each line.
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, EditAction, EditorAction};
+    ///
+    /// let change = NumberChange::Decrease(Count::Contextual);
+    /// let act: Action = EditorAction::Edit(
+    ///     EditAction::ChangeNumber(change.clone(), false).into(), EditTarget::Selection).into();
+    /// assert_eq!(act, action!("edit -t selection -o (exact change-number -s decrease --multiply false)"));
+    /// assert_eq!(act, action!("edit -t selection -o (exact change-num -s decrease --multiply false)"));
+    /// assert_eq!(act, action!("edit -t selection -o (exact change-num -s (decrease -c ctx) --multiply false)"));
+    /// assert_eq!(act, action!("edit -t selection -o (exact change-num -s {change} --multiply false)"));
+    /// ```
     ChangeNumber(NumberChange, bool),
 
     /// Join the lines within the targeted text together.
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, EditAction, EditorAction};
+    ///
+    /// let style = JoinStyle::NoChange;
+    /// let act: Action = EditorAction::Edit(
+    ///     EditAction::Join(style).into(), EditTarget::Selection).into();
+    /// assert_eq!(act, action!("edit -t selection -o (exact join -s no-change)"));
+    /// assert_eq!(act, action!("edit -t selection -o (exact join -s {style})"));
+    /// ```
     Join(JoinStyle),
 
     /// Change the indent level of the targeted text.
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, EditAction, EditorAction};
+    ///
+    /// let change = IndentChange::Decrease(Count::Contextual);
+    /// let act: Action = EditorAction::Edit(
+    ///     EditAction::Indent(change.clone()).into(), EditTarget::Selection).into();
+    /// assert_eq!(act, action!("edit -t selection -o (exact indent -s decrease)"));
+    /// assert_eq!(act, action!("edit -t selection -o (exact indent -s (decrease -c ctx))"));
+    /// assert_eq!(act, action!("edit -t selection -o (exact indent -s {change})"));
+    /// ```
     Indent(IndentChange),
 
     /// Change the case of the targeted text.
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, EditAction, EditorAction};
+    ///
+    /// let act: Action = EditorAction::Edit(
+    ///     EditAction::ChangeCase(Case::Lower).into(), EditTarget::Selection).into();
+    /// assert_eq!(act, action!("edit -t selection -o (exact change-case -s lower)"));
+    /// ```
     ChangeCase(Case),
 }
 
