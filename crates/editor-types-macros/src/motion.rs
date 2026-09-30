@@ -174,7 +174,7 @@ impl Parse for MotionMacroInput {
         }
 
         let mut parser = ActionMacroParser { params: idents, pos: 0 };
-        let acts = parser.parse_motion(tokens.as_slice(), fmt.span());
+        let acts = MotionParserExt::parse_tokens(&mut parser, tokens.as_slice(), fmt.span());
         let generator = Self { args, acts };
 
         Ok(generator)

@@ -39,6 +39,9 @@ use keybindings::SequenceStatus;
 /// A macro that turns a shorthand command DSL into an [Action].
 pub use editor_types_macros::action;
 
+/// A macro that turns a shorthand command DSL into an [EditTarget];
+pub use editor_types_macros::edit_target;
+
 /// A macro that turns a shorthand command DSL into a [MoveType];
 pub use editor_types_macros::motion;
 
@@ -1023,6 +1026,7 @@ pub enum EditorAction {
     /// let ctx = Specifier::Contextual;
     /// let target = EditTarget::CurrentPosition;
     /// let act: Action = EditorAction::Edit(ctx, target.clone()).into();
+    /// assert_eq!(act, action!("edit -o ctx -t curr-pos"));
     /// assert_eq!(act, action!("edit -o ctx -t {target}"));
     /// ```
     Edit(Specifier<EditAction>, EditTarget),

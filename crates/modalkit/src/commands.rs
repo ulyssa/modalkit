@@ -132,8 +132,8 @@ impl<C: Command> CommandMachine<C> {
 
     /// Get the specified command by alias or name.
     ///
-    /// Aliases are checked first, so that [Command::add_alias] overrides can take precedence,
-    /// and then the actual command names.
+    /// Aliases are checked first, so that [CommandMachine::add_alias] overrides can take
+    /// precedence, and then the actual command names.
     ///
     /// This returns [CommandError::InvalidCommand] if there is nothing mapped.
     pub fn get(&self, name: &str) -> Result<&C, CommandError> {

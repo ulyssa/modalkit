@@ -368,31 +368,154 @@ pub enum CompletionDisplay {
 #[non_exhaustive]
 pub enum EditTarget {
     /// Move to one of the sides of a range.
+    ///
+    /// [bool] indicates if this is an inclusive range, when applicable to the [RangeType].
+    ///
+    /// ## Example: Using `edit_target!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::edit_target;
+    ///
+    /// let r = RangeType::Word(WordStyle::AlphaNum);
+    /// let e = EditTarget::Boundary(r.clone(), true, MoveTerminus::End, Count::Contextual);
+    ///
+    /// // Implicit contextual count:
+    /// assert_eq!(e, edit_target!("boundary -T (word -s alphanum) --inclusive true -p end"));
+    ///
+    /// // Explicit contextual count:
+    /// assert_eq!(e, edit_target!("boundary -T (word -s alpha-num) --inclusive true -p end -c ctx"));
+    ///
+    /// // Provide `RangeType` as identifier:
+    /// assert_eq!(e, edit_target!("boundary -T {r} --inclusive true -p end"));
+    /// ```
     Boundary(RangeType, bool, MoveTerminus, Count),
 
     /// Target the current cursor position.
+    ///
+    /// ## Example: Using `edit_target!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::edit_target;
+    ///
+    /// let e = EditTarget::CurrentPosition;
+    /// assert_eq!(e, edit_target!("current-position"));
+    /// assert_eq!(e, edit_target!("curr-pos"));
+    /// ```
     CurrentPosition,
 
     /// Move to the line and column of a [Mark].
+    ///
+    /// ## Example: Using `edit_target!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::edit_target;
+    ///
+    /// // Use the context's mark:
+    /// let e = EditTarget::CharJump(Specifier::Contextual);
+    /// assert_eq!(e, edit_target!("char-jump"));
+    /// assert_eq!(e, edit_target!("char-jump -m ctx"));
+    ///
+    /// // Use a specific mark:
+    /// let mark = Mark::LastYankedEnd;
+    /// let e = EditTarget::CharJump(mark.clone().into());
+    /// assert_eq!(e, edit_target!("char-jump -m (exact last-yanked-end)"));
+    /// assert_eq!(e, edit_target!("char-jump -m {mark}"));
+    /// ```
     CharJump(Specifier<Mark>),
 
     /// Move to the first word of the line that [Mark] is on.
+    ///
+    /// ## Example: Using `edit_target!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::edit_target;
+    ///
+    /// // Use the context's mark:
+    /// let e = EditTarget::LineJump(Specifier::Contextual);
+    /// assert_eq!(e, edit_target!("line-jump"));
+    /// assert_eq!(e, edit_target!("line-jump -m ctx"));
+    ///
+    /// // Use a specific mark:
+    /// let mark = Mark::LastYankedEnd;
+    /// let e = EditTarget::LineJump(mark.clone().into());
+    /// assert_eq!(e, edit_target!("line-jump -m (exact last-yanked-end)"));
+    /// assert_eq!(e, edit_target!("line-jump -m {mark}"));
+    /// ```
     LineJump(Specifier<Mark>),
 
     /// Target the text between the current cursor position and the end of a motion.
+    ///
+    /// ## Example: Using `edit_target!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::edit_target;
+    ///
+    /// let mov = MoveType::WordBegin(WordStyle::Little, MoveDir1D::Next);
+    /// let e = EditTarget::Motion(mov.clone(), Count::Contextual);
+    /// assert_eq!(e, edit_target!("motion -T (word-begin -s little -d next)"));
+    /// assert_eq!(e, edit_target!("motion -T (word-begin -s little -d next) -c ctx"));
+    /// assert_eq!(e, edit_target!("motion -T {mov} -c ctx"));
+    /// ```
     Motion(MoveType, Count),
 
     /// Target a range of text around the cursor.
     ///
     /// [bool] indicates if this is an inclusive range, when applicable to the [RangeType].
+    ///
+    /// ## Example: Using `edit_target!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::edit_target;
+    ///
+    /// let w = RangeType::Word(WordStyle::AlphaNum);
+    /// let e = EditTarget::Range(w.clone(), true, Count::Contextual);
+    ///
+    /// // Implicit contextual count:
+    /// assert_eq!(e, edit_target!("range -T (word -s alphanum) --inclusive true"));
+    ///
+    /// // Explicit contextual count:
+    /// assert_eq!(e, edit_target!("range -T (word -s alpha-num) --inclusive true -c ctx"));
+    ///
+    /// // Provide `RangeType` as identifier:
+    /// assert_eq!(e, edit_target!("range -T {w} --inclusive true"));
+    /// ```
     Range(RangeType, bool, Count),
 
     /// Target the text between the current cursor position and the end of a search.
     ///
     /// The [MoveDirMod] parameter modifies the search direction.
+    ///
+    /// ## Example: Using `edit_target!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::edit_target;
+    ///
+    /// let search = SearchType::Regex;
+    /// let e = EditTarget::Search(search.clone(), MoveDirMod::Flip, Count::Contextual);
+    /// assert_eq!(e, edit_target!("search -T regex -d flip"));
+    /// assert_eq!(e, edit_target!("search -T regex -d flip -c ctx"));
+    /// assert_eq!(e, edit_target!("search -T {search} -d flip -c ctx"));
+    /// ```
     Search(SearchType, MoveDirMod, Count),
 
     /// Target the visually selected text.
+    ///
+    /// ## Example: Using `edit_target!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::edit_target;
+    ///
+    /// let e = EditTarget::Selection;
+    /// assert_eq!(e, edit_target!("selection"));
+    /// ```
     Selection,
 }
 
@@ -1616,9 +1739,29 @@ pub enum MoveDir2D {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum MoveTerminus {
     /// The beginning of a range.
+    ///
+    /// ## Example: Using `edit_target!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::edit_target;
+    ///
+    /// let e = EditTarget::Boundary(
+    ///     RangeType::Item, true, MoveTerminus::Beginning, Count::Contextual);
+    /// assert_eq!(e, edit_target!("boundary -T item --inclusive true -p beginning"));
+    /// ```
     Beginning,
 
     /// The end of a range.
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::edit_target;
+    ///
+    /// let e = EditTarget::Boundary(
+    ///     RangeType::Item, true, MoveTerminus::End, Count::Contextual);
+    /// assert_eq!(e, edit_target!("boundary -T item --inclusive true -p end"));
+    /// ```
     End,
 }
 
@@ -3064,6 +3207,7 @@ pub enum SelectionResizeStyle {
     /// let style = SelectionResizeStyle::Extend;
     /// let target = EditTarget::CurrentPosition;
     /// let act: Action = SelectionAction::Resize(style, target.clone()).into();
+    /// assert_eq!(act, action!("selection resize -s extend -t curr-pos"));
     /// assert_eq!(act, action!("selection resize -s extend -t {target}"));
     /// ```
     Extend,
@@ -3079,6 +3223,7 @@ pub enum SelectionResizeStyle {
     /// let style = SelectionResizeStyle::Object;
     /// let target = EditTarget::CurrentPosition;
     /// let act: Action = SelectionAction::Resize(style, target.clone()).into();
+    /// assert_eq!(act, action!("selection resize -s object -t curr-pos"));
     /// assert_eq!(act, action!("selection resize -s object -t {target}"));
     /// ```
     Object,
@@ -3094,6 +3239,7 @@ pub enum SelectionResizeStyle {
     /// let style = SelectionResizeStyle::Restart;
     /// let target = EditTarget::CurrentPosition;
     /// let act: Action = SelectionAction::Resize(style, target.clone()).into();
+    /// assert_eq!(act, action!("selection resize -s restart -t curr-pos"));
     /// assert_eq!(act, action!("selection resize -s restart -t {target}"));
     /// ```
     Restart,
@@ -3247,12 +3393,71 @@ pub enum InsertStyle {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Char {
     /// An exact character.
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, InsertTextAction};
+    ///
+    /// let c = Char::Single('a');
+    /// let count = Count::Contextual;
+    /// let act: Action = InsertTextAction::Type(
+    ///     c.clone().into(), MoveDir1D::Previous, count).into();
+    ///
+    /// assert_eq!(act, action!("insert type -i (exact 'a') -d prev"));
+    /// ```
     Single(char),
+
     /// A digraph sequence.
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, InsertTextAction};
+    ///
+    /// let c = Char::Digraph('<', '<');
+    /// let count = Count::Contextual;
+    /// let act: Action = InsertTextAction::Type(
+    ///     c.clone().into(), MoveDir1D::Previous, count).into();
+    ///
+    /// assert_eq!(act, action!("insert type -i (exact digraph '<' '<') -d prev"));
+    /// ```
     Digraph(char, char),
+
     /// A terminal control sequence.
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, InsertTextAction};
+    ///
+    /// let c = Char::CtrlSeq("<C-A>".into());
+    /// let count = Count::Contextual;
+    /// let act: Action = InsertTextAction::Type(
+    ///     c.clone().into(), MoveDir1D::Previous, count).into();
+    ///
+    /// assert_eq!(act, action!(r#"insert type -i (exact ctrl-seq -i "<C-A>") -d prev"#));
+    /// ```
     CtrlSeq(String),
+
     /// Copy a character from the same column in the previous or next line.
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, InsertTextAction};
+    ///
+    /// let c = Char::CopyLine(MoveDir1D::Next);
+    /// let count = Count::Contextual;
+    /// let act: Action = InsertTextAction::Type(
+    ///     c.clone().into(), MoveDir1D::Previous, count).into();
+    ///
+    /// assert_eq!(act, action!("insert type -i (exact copy-line -d next) -d prev"));
+    /// ```
     CopyLine(MoveDir1D),
 }
 
