@@ -15,8 +15,10 @@ license.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+anyhow = { workspace = true }
 bitflags = { workspace = true }
 editor-types-macros = { workspace = true }
+editor-types-parser = { workspace = true }
 enum-map = { workspace = true }
 keybindings = { workspace = true }
 regex = { workspace = true }

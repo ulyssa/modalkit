@@ -2,136 +2,116 @@ use super::*;
 
 impl MotionParser for ActionMacroParser {
     type Output = TokenStream;
-    type Span = Span;
 
     /// Output an error for the current parse.
-    fn motion_invalid<T: std::fmt::Display>(&self, msg: T, span: Self::Span) -> Self::Output {
-        ParseError::new(span, msg).to_compile_error()
+    fn motion_invalid<T: std::fmt::Display>(&self, msg: T) -> Self::Output {
+        ParseError::new(self.span, msg).to_compile_error()
     }
 
-    fn visit_buffer_pos(&mut self, position: &[ActionToken], span: Self::Span) -> Self::Output {
-        let pos = self.parse_move_position(position, span);
+    fn visit_buffer_pos(&mut self, position: &[ActionToken]) -> Self::Output {
+        let pos = self.parse_move_position(position);
         quote! { ::editor_types::prelude::MoveType::BufferPos(#pos) }
     }
 
-    fn visit_buffer_byte_offset(&mut self, _: Self::Span) -> Self::Output {
+    fn visit_buffer_byte_offset(&mut self) -> Self::Output {
         quote! { ::editor_types::prelude::MoveType::BufferByteOffset }
     }
 
-    fn visit_buffer_line_offset(&mut self, _: Self::Span) -> Self::Output {
+    fn visit_buffer_line_offset(&mut self) -> Self::Output {
         quote! { ::editor_types::prelude::MoveType::BufferLineOffset }
     }
 
-    fn visit_buffer_line_percent(&mut self, _: Self::Span) -> Self::Output {
+    fn visit_buffer_line_percent(&mut self) -> Self::Output {
         quote! { ::editor_types::prelude::MoveType::BufferLinePercent }
     }
 
-    fn visit_column(
-        &mut self,
-        dir: &[ActionToken],
-        multiline: &[ActionToken],
-        span: Self::Span,
-    ) -> Self::Output {
-        let dir = self.parse_dir1d(dir, span);
-        let multiline = self.parse_bool(multiline, span);
+    fn visit_column(&mut self, dir: &[ActionToken], multiline: &[ActionToken]) -> Self::Output {
+        let dir = self.parse_dir1d(dir);
+        let multiline = self.parse_bool(multiline);
         quote! { ::editor_types::prelude::MoveType::Column(#dir, #multiline) }
     }
 
-    fn visit_final_non_blank(&mut self, dir: &[ActionToken], span: Self::Span) -> Self::Output {
-        let dir = self.parse_dir1d(dir, span);
+    fn visit_final_non_blank(&mut self, dir: &[ActionToken]) -> Self::Output {
+        let dir = self.parse_dir1d(dir);
         quote! { ::editor_types::prelude::MoveType::FinalNonBlank(#dir) }
     }
 
-    fn visit_first_word(&mut self, dir: &[ActionToken], span: Self::Span) -> Self::Output {
-        let dir = self.parse_dir1d(dir, span);
+    fn visit_first_word(&mut self, dir: &[ActionToken]) -> Self::Output {
+        let dir = self.parse_dir1d(dir);
         quote! { ::editor_types::prelude::MoveType::FirstWord(#dir) }
     }
 
-    fn visit_item_match(&mut self, _: Self::Span) -> Self::Output {
+    fn visit_item_match(&mut self) -> Self::Output {
         quote! { ::editor_types::prelude::MoveType::ItemMatch }
     }
 
-    fn visit_line(&mut self, dir: &[ActionToken], span: Self::Span) -> Self::Output {
-        let dir = self.parse_dir1d(dir, span);
+    fn visit_line(&mut self, dir: &[ActionToken]) -> Self::Output {
+        let dir = self.parse_dir1d(dir);
         quote! { ::editor_types::prelude::MoveType::Line(#dir) }
     }
 
-    fn visit_line_column_offset(&mut self, _: Self::Span) -> Self::Output {
+    fn visit_line_column_offset(&mut self) -> Self::Output {
         quote! { ::editor_types::prelude::MoveType::LineColumnOffset }
     }
 
-    fn visit_line_percent(&mut self, _: Self::Span) -> Self::Output {
+    fn visit_line_percent(&mut self) -> Self::Output {
         quote! { ::editor_types::prelude::MoveType::LinePercent }
     }
 
-    fn visit_line_pos(&mut self, position: &[ActionToken], span: Self::Span) -> Self::Output {
-        let pos = self.parse_move_position(position, span);
+    fn visit_line_pos(&mut self, position: &[ActionToken]) -> Self::Output {
+        let pos = self.parse_move_position(position);
         quote! { ::editor_types::prelude::MoveType::LinePos(#pos) }
     }
 
-    fn visit_word_begin(
-        &mut self,
-        style: &[ActionToken],
-        dir: &[ActionToken],
-        span: Self::Span,
-    ) -> Self::Output {
-        let style = self.parse_word_style(style, span);
-        let dir = self.parse_dir1d(dir, span);
+    fn visit_word_begin(&mut self, style: &[ActionToken], dir: &[ActionToken]) -> Self::Output {
+        let style = self.parse_word_style(style);
+        let dir = self.parse_dir1d(dir);
         quote! { ::editor_types::prelude::MoveType::WordBegin(#style, #dir) }
     }
 
-    fn visit_word_end(
-        &mut self,
-        style: &[ActionToken],
-        dir: &[ActionToken],
-        span: Self::Span,
-    ) -> Self::Output {
-        let style = self.parse_word_style(style, span);
-        let dir = self.parse_dir1d(dir, span);
+    fn visit_word_end(&mut self, style: &[ActionToken], dir: &[ActionToken]) -> Self::Output {
+        let style = self.parse_word_style(style);
+        let dir = self.parse_dir1d(dir);
         quote! { ::editor_types::prelude::MoveType::WordEnd(#style, #dir) }
     }
 
-    fn visit_paragraph_begin(&mut self, dir: &[ActionToken], span: Self::Span) -> Self::Output {
-        let dir = self.parse_dir1d(dir, span);
+    fn visit_paragraph_begin(&mut self, dir: &[ActionToken]) -> Self::Output {
+        let dir = self.parse_dir1d(dir);
         quote! { ::editor_types::prelude::MoveType::ParagraphBegin(#dir) }
     }
 
-    fn visit_sentence_begin(&mut self, dir: &[ActionToken], span: Self::Span) -> Self::Output {
-        let dir = self.parse_dir1d(dir, span);
+    fn visit_sentence_begin(&mut self, dir: &[ActionToken]) -> Self::Output {
+        let dir = self.parse_dir1d(dir);
         quote! { ::editor_types::prelude::MoveType::SentenceBegin(#dir) }
     }
 
-    fn visit_section_begin(&mut self, dir: &[ActionToken], span: Self::Span) -> Self::Output {
-        let dir = self.parse_dir1d(dir, span);
+    fn visit_section_begin(&mut self, dir: &[ActionToken]) -> Self::Output {
+        let dir = self.parse_dir1d(dir);
         quote! { ::editor_types::prelude::MoveType::SectionBegin(#dir) }
     }
 
-    fn visit_section_end(&mut self, dir: &[ActionToken], span: Self::Span) -> Self::Output {
-        let dir = self.parse_dir1d(dir, span);
+    fn visit_section_end(&mut self, dir: &[ActionToken]) -> Self::Output {
+        let dir = self.parse_dir1d(dir);
         quote! { ::editor_types::prelude::MoveType::SectionEnd(#dir) }
     }
 
-    fn visit_screen_first_word(&mut self, dir: &[ActionToken], span: Self::Span) -> Self::Output {
-        let dir = self.parse_dir1d(dir, span);
+    fn visit_screen_first_word(&mut self, dir: &[ActionToken]) -> Self::Output {
+        let dir = self.parse_dir1d(dir);
         quote! { ::editor_types::prelude::MoveType::ScreenFirstWord(#dir) }
     }
 
-    fn visit_screen_line(&mut self, dir: &[ActionToken], span: Self::Span) -> Self::Output {
-        let dir = self.parse_dir1d(dir, span);
+    fn visit_screen_line(&mut self, dir: &[ActionToken]) -> Self::Output {
+        let dir = self.parse_dir1d(dir);
         quote! { ::editor_types::prelude::MoveType::ScreenLine(#dir) }
     }
 
-    fn visit_screen_line_pos(
-        &mut self,
-        position: &[ActionToken],
-        span: Self::Span,
-    ) -> Self::Output {
-        let pos = self.parse_move_position(position, span);
+    fn visit_screen_line_pos(&mut self, position: &[ActionToken]) -> Self::Output {
+        let pos = self.parse_move_position(position);
         quote! { ::editor_types::prelude::MoveType::ScreenLinePos(#pos) }
     }
 
-    fn visit_viewport_pos(&mut self, position: &[ActionToken], span: Self::Span) -> Self::Output {
-        let pos = self.parse_move_position(position, span);
+    fn visit_viewport_pos(&mut self, position: &[ActionToken]) -> Self::Output {
+        let pos = self.parse_move_position(position);
         quote! { ::editor_types::prelude::MoveType::ViewportPos(#pos) }
     }
 }
@@ -173,8 +153,8 @@ impl Parse for MotionMacroInput {
             args.push((ident, arg));
         }
 
-        let mut parser = ActionMacroParser { params: idents, pos: 0 };
-        let acts = MotionParserExt::parse_tokens(&mut parser, tokens.as_slice(), fmt.span());
+        let mut parser = ActionMacroParser { params: idents, pos: 0, span: fmt.span() };
+        let acts = MotionParserExt::parse_tokens(&mut parser, tokens.as_slice());
         let generator = Self { args, acts };
 
         Ok(generator)

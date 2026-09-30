@@ -31,6 +31,7 @@ path = "crates/modalkit"
 version = "0.0.30"
 
 [workspace.dependencies]
+anyhow = "1.0.104"
 bitflags = "2.4.2"
 crossterm = "0.29"
 enum-map = "2.7.3"

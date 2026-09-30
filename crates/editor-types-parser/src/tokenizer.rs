@@ -28,6 +28,7 @@ fn parse_flag_long(input: &str) -> IResult<&str, ActionToken<'_>> {
         "focus" => ActionToken::Flag(Flag::Focus),
         "input" => ActionToken::Flag(Flag::Input),
         "mark" => ActionToken::Flag(Flag::Mark),
+        "position" => ActionToken::Flag(Flag::Position),
         "style" => ActionToken::Flag(Flag::Style),
         "target" => ActionToken::Flag(Flag::Target),
         "wrap" => ActionToken::Flag(Flag::Wrap),
