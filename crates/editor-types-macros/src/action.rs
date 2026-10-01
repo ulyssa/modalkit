@@ -2,26 +2,25 @@ use super::*;
 
 impl ActionParser for ActionMacroParser {
     type Output = TokenStream;
-    type Span = Span;
 
-    fn fail<T: std::fmt::Display>(&self, msg: T, span: Self::Span) -> Self::Output {
-        ParseError::new(span, msg).to_compile_error()
+    fn fail<T: std::fmt::Display>(&self, msg: T) -> Self::Output {
+        ParseError::new(self.span, msg).to_compile_error()
     }
 
-    fn visit_keyword_lookup(&mut self, target: &[ActionToken], span: Self::Span) -> Self::Output {
-        let target = self.parse_keyword_target(target, span);
+    fn visit_keyword_lookup(&mut self, target: &[ActionToken]) -> Self::Output {
+        let target = self.parse_keyword_target(target);
         quote! { ::editor_types::Action::KeywordLookup(#target) }
     }
 
-    fn visit_noop(&mut self, _: Self::Span) -> Self::Output {
+    fn visit_noop(&mut self) -> Self::Output {
         quote! { ::editor_types::Action::NoOp }
     }
 
-    fn visit_redraw_screen(&mut self, _: Self::Span) -> Self::Output {
+    fn visit_redraw_screen(&mut self) -> Self::Output {
         quote! { ::editor_types::Action::RedrawScreen }
     }
 
-    fn visit_suspend(&mut self, _: Self::Span) -> Self::Output {
+    fn visit_suspend(&mut self) -> Self::Output {
         quote! { ::editor_types::Action::Suspend }
     }
 
@@ -30,11 +29,10 @@ impl ActionParser for ActionMacroParser {
         prompt: &[ActionToken],
         cmdtype: &[ActionToken],
         action: &[ActionToken],
-        span: Self::Span,
     ) -> Self::Output {
-        let prompt = self.parse_string(prompt, span);
-        let cmdtype = self.parse_command_type(cmdtype, span);
-        let action = self.parse_action(action, span);
+        let prompt = self.parse_string(prompt);
+        let cmdtype = self.parse_command_type(cmdtype);
+        let action = self.parse_action(action);
 
         quote! {
             ::editor_types::Action::CommandBar(
@@ -43,7 +41,7 @@ impl ActionParser for ActionMacroParser {
         }
     }
 
-    fn visit_cmdbar_unfocus(&mut self, _: Self::Span) -> Self::Output {
+    fn visit_cmdbar_unfocus(&mut self) -> Self::Output {
         quote! {
             ::editor_types::Action::CommandBar(
                 ::editor_types::CommandBarAction::Unfocus
@@ -51,8 +49,8 @@ impl ActionParser for ActionMacroParser {
         }
     }
 
-    fn visit_command_execute(&mut self, count: &[ActionToken], span: Self::Span) -> Self::Output {
-        let count = self.parse_count(count, span);
+    fn visit_command_execute(&mut self, count: &[ActionToken]) -> Self::Output {
+        let count = self.parse_count(count);
 
         quote! {
             ::editor_types::Action::Command(
@@ -61,8 +59,8 @@ impl ActionParser for ActionMacroParser {
         }
     }
 
-    fn visit_command_run(&mut self, input: &[ActionToken], span: Self::Span) -> Self::Output {
-        let input = self.parse_string(input, span);
+    fn visit_command_run(&mut self, input: &[ActionToken]) -> Self::Output {
+        let input = self.parse_string(input);
 
         quote! {
             ::editor_types::Action::Command(
@@ -76,11 +74,10 @@ impl ActionParser for ActionMacroParser {
         style: &[ActionToken],
         comptype: &[ActionToken],
         display: &[ActionToken],
-        span: Self::Span,
     ) -> Self::Output {
-        let comptype = self.parse_completion_type(comptype, span);
-        let style = self.parse_completion_style(style, span);
-        let display = self.parse_completion_display(display, span);
+        let comptype = self.parse_completion_type(comptype);
+        let style = self.parse_completion_style(style);
+        let display = self.parse_completion_display(display);
 
         quote! {
             ::editor_types::Action::Editor(
@@ -89,7 +86,7 @@ impl ActionParser for ActionMacroParser {
         }
     }
 
-    fn visit_history_checkpoint(&mut self, _: Self::Span) -> Self::Output {
+    fn visit_history_checkpoint(&mut self) -> Self::Output {
         quote! {
             ::editor_types::Action::Editor(
                 ::editor_types::EditorAction::History(
@@ -99,8 +96,8 @@ impl ActionParser for ActionMacroParser {
         }
     }
 
-    fn visit_history_undo(&mut self, count: &[ActionToken], span: Self::Span) -> Self::Output {
-        let count = self.parse_count(count, span);
+    fn visit_history_undo(&mut self, count: &[ActionToken]) -> Self::Output {
+        let count = self.parse_count(count);
 
         quote! {
             ::editor_types::Action::Editor(
@@ -111,14 +108,9 @@ impl ActionParser for ActionMacroParser {
         }
     }
 
-    fn visit_edit(
-        &mut self,
-        action: &[ActionToken],
-        target: &[ActionToken],
-        span: Self::Span,
-    ) -> Self::Output {
-        let action = self.parse_specifier_edit_action(action, span);
-        let target = self.parse_edit_target(target, span);
+    fn visit_edit(&mut self, action: &[ActionToken], target: &[ActionToken]) -> Self::Output {
+        let action = self.parse_specifier_edit_action(action);
+        let target = self.parse_edit_target(target);
 
         quote! {
             ::editor_types::Action::Editor(
@@ -127,8 +119,8 @@ impl ActionParser for ActionMacroParser {
         }
     }
 
-    fn visit_history_redo(&mut self, count: &[ActionToken], span: Self::Span) -> Self::Output {
-        let count = self.parse_count(count, span);
+    fn visit_history_redo(&mut self, count: &[ActionToken]) -> Self::Output {
+        let count = self.parse_count(count);
 
         quote! {
             ::editor_types::Action::Editor(
@@ -139,8 +131,8 @@ impl ActionParser for ActionMacroParser {
         }
     }
 
-    fn visit_macro_execute(&mut self, count: &[ActionToken], span: Self::Span) -> Self::Output {
-        let count = self.parse_count(count, span);
+    fn visit_macro_execute(&mut self, count: &[ActionToken]) -> Self::Output {
+        let count = self.parse_count(count);
 
         quote! {
             ::editor_types::Action::Macro(
@@ -149,14 +141,9 @@ impl ActionParser for ActionMacroParser {
         }
     }
 
-    fn visit_macro_run(
-        &mut self,
-        input: &[ActionToken],
-        count: &[ActionToken],
-        span: Self::Span,
-    ) -> Self::Output {
-        let input = self.parse_string(input, span);
-        let count = self.parse_count(count, span);
+    fn visit_macro_run(&mut self, input: &[ActionToken], count: &[ActionToken]) -> Self::Output {
+        let input = self.parse_string(input);
+        let count = self.parse_count(count);
 
         quote! {
             ::editor_types::Action::Macro(
@@ -165,8 +152,8 @@ impl ActionParser for ActionMacroParser {
         }
     }
 
-    fn visit_macro_repeat(&mut self, count: &[ActionToken], span: Self::Span) -> Self::Output {
-        let count = self.parse_count(count, span);
+    fn visit_macro_repeat(&mut self, count: &[ActionToken]) -> Self::Output {
+        let count = self.parse_count(count);
 
         quote! {
             ::editor_types::Action::Macro(
@@ -175,7 +162,7 @@ impl ActionParser for ActionMacroParser {
         }
     }
 
-    fn visit_macro_toggle_recording(&mut self, _: Self::Span) -> Self::Output {
+    fn visit_macro_toggle_recording(&mut self) -> Self::Output {
         quote! {
             ::editor_types::Action::Macro(
                 ::editor_types::MacroAction::ToggleRecording
@@ -183,7 +170,7 @@ impl ActionParser for ActionMacroParser {
         }
     }
 
-    fn visit_prompt_abort(&mut self, _: Self::Span) -> Self::Output {
+    fn visit_prompt_abort(&mut self) -> Self::Output {
         quote! {
             ::editor_types::Action::Prompt(
                 ::editor_types::PromptAction::Abort(false)
@@ -196,11 +183,10 @@ impl ActionParser for ActionMacroParser {
         filter: &[ActionToken],
         dir: &[ActionToken],
         count: &[ActionToken],
-        span: Self::Span,
     ) -> Self::Output {
-        let filter = self.parse_recall_filter(filter, span);
-        let dir = self.parse_dir1d(dir, span);
-        let count = self.parse_count(count, span);
+        let filter = self.parse_recall_filter(filter);
+        let dir = self.parse_dir1d(dir);
+        let count = self.parse_count(count);
 
         quote! {
             ::editor_types::Action::Prompt(
@@ -209,7 +195,7 @@ impl ActionParser for ActionMacroParser {
         }
     }
 
-    fn visit_prompt_submit(&mut self, _: Self::Span) -> Self::Output {
+    fn visit_prompt_submit(&mut self) -> Self::Output {
         quote! {
             ::editor_types::Action::Prompt(
                 ::editor_types::PromptAction::Submit
@@ -217,8 +203,8 @@ impl ActionParser for ActionMacroParser {
         }
     }
 
-    fn visit_mark(&mut self, mark: &[ActionToken], span: Self::Span) -> Self::Output {
-        let mark = self.parse_specifier_mark(mark, span);
+    fn visit_mark(&mut self, mark: &[ActionToken]) -> Self::Output {
+        let mark = self.parse_specifier_mark(mark);
 
         quote! {
             ::editor_types::Action::Editor(
@@ -227,14 +213,9 @@ impl ActionParser for ActionMacroParser {
         }
     }
 
-    fn visit_tab_close(
-        &mut self,
-        target: &[ActionToken],
-        flags: &[ActionToken],
-        span: Span,
-    ) -> Self::Output {
-        let target = self.parse_tab_target(target, span);
-        let flags = self.parse_close_flags(flags, span);
+    fn visit_tab_close(&mut self, target: &[ActionToken], flags: &[ActionToken]) -> Self::Output {
+        let target = self.parse_tab_target(target);
+        let flags = self.parse_close_flags(flags);
 
         quote! {
             ::editor_types::Action::Tab(
@@ -243,14 +224,9 @@ impl ActionParser for ActionMacroParser {
         }
     }
 
-    fn visit_tab_extract(
-        &mut self,
-        fc: &[ActionToken],
-        dir: &[ActionToken],
-        span: Span,
-    ) -> Self::Output {
-        let fc = self.parse_focus_change(fc, span);
-        let dir = self.parse_dir1d(dir, span);
+    fn visit_tab_extract(&mut self, fc: &[ActionToken], dir: &[ActionToken]) -> Self::Output {
+        let fc = self.parse_focus_change(fc);
+        let dir = self.parse_dir1d(dir);
 
         quote! {
             ::editor_types::Action::Tab(
@@ -259,14 +235,9 @@ impl ActionParser for ActionMacroParser {
         }
     }
 
-    fn visit_tab_open(
-        &mut self,
-        target: &[ActionToken],
-        fc: &[ActionToken],
-        span: Span,
-    ) -> Self::Output {
-        let target = self.parse_open_target(target, span);
-        let fc = self.parse_focus_change(fc, span);
+    fn visit_tab_open(&mut self, target: &[ActionToken], fc: &[ActionToken]) -> Self::Output {
+        let target = self.parse_open_target(target);
+        let fc = self.parse_focus_change(fc);
 
         quote! {
             ::editor_types::Action::Tab(
@@ -275,8 +246,8 @@ impl ActionParser for ActionMacroParser {
         }
     }
 
-    fn visit_tab_focus(&mut self, fc: &[ActionToken], span: Span) -> Self::Output {
-        let fc = self.parse_focus_change(fc, span);
+    fn visit_tab_focus(&mut self, fc: &[ActionToken]) -> Self::Output {
+        let fc = self.parse_focus_change(fc);
 
         quote! {
             ::editor_types::Action::Tab(
@@ -285,8 +256,8 @@ impl ActionParser for ActionMacroParser {
         }
     }
 
-    fn visit_tab_move(&mut self, fc: &[ActionToken], span: Span) -> Self::Output {
-        let fc = self.parse_focus_change(fc, span);
+    fn visit_tab_move(&mut self, fc: &[ActionToken]) -> Self::Output {
+        let fc = self.parse_focus_change(fc);
 
         quote! {
             ::editor_types::Action::Tab(
@@ -295,8 +266,8 @@ impl ActionParser for ActionMacroParser {
         }
     }
 
-    fn visit_cursor_close(&mut self, target: &[ActionToken], span: Self::Span) -> Self::Output {
-        let target = self.parse_cursor_close_target(target, span);
+    fn visit_cursor_close(&mut self, target: &[ActionToken]) -> Self::Output {
+        let target = self.parse_cursor_close_target(target);
 
         quote! {
             ::editor_types::Action::Editor(
@@ -307,8 +278,8 @@ impl ActionParser for ActionMacroParser {
         }
     }
 
-    fn visit_cursor_restore(&mut self, style: &[ActionToken], span: Self::Span) -> Self::Output {
-        let style = self.parse_cursor_group_combine(style, span);
+    fn visit_cursor_restore(&mut self, style: &[ActionToken]) -> Self::Output {
+        let style = self.parse_cursor_group_combine(style);
 
         quote! {
             ::editor_types::Action::Editor(
@@ -319,14 +290,9 @@ impl ActionParser for ActionMacroParser {
         }
     }
 
-    fn visit_cursor_rotate(
-        &mut self,
-        dir: &[ActionToken],
-        count: &[ActionToken],
-        span: Self::Span,
-    ) -> Self::Output {
-        let dir = self.parse_dir1d(dir, span);
-        let count = self.parse_count(count, span);
+    fn visit_cursor_rotate(&mut self, dir: &[ActionToken], count: &[ActionToken]) -> Self::Output {
+        let dir = self.parse_dir1d(dir);
+        let count = self.parse_count(count);
 
         quote! {
             ::editor_types::Action::Editor(
@@ -337,8 +303,8 @@ impl ActionParser for ActionMacroParser {
         }
     }
 
-    fn visit_cursor_save(&mut self, style: &[ActionToken], span: Self::Span) -> Self::Output {
-        let style = self.parse_cursor_group_combine(style, span);
+    fn visit_cursor_save(&mut self, style: &[ActionToken]) -> Self::Output {
+        let style = self.parse_cursor_group_combine(style);
 
         quote! {
             ::editor_types::Action::Editor(
@@ -349,8 +315,8 @@ impl ActionParser for ActionMacroParser {
         }
     }
 
-    fn visit_cursor_split(&mut self, count: &[ActionToken], span: Self::Span) -> Self::Output {
-        let count = self.parse_count(count, span);
+    fn visit_cursor_split(&mut self, count: &[ActionToken]) -> Self::Output {
+        let count = self.parse_count(count);
 
         quote! {
             ::editor_types::Action::Editor(
@@ -365,10 +331,9 @@ impl ActionParser for ActionMacroParser {
         &mut self,
         target: &[ActionToken],
         flags: &[ActionToken],
-        span: Span,
     ) -> Self::Output {
-        let target = self.parse_window_target(target, span);
-        let flags = self.parse_close_flags(flags, span);
+        let target = self.parse_window_target(target);
+        let flags = self.parse_close_flags(flags);
 
         quote! {
             ::editor_types::Action::Window(
@@ -383,12 +348,11 @@ impl ActionParser for ActionMacroParser {
         axis: &[ActionToken],
         dir: &[ActionToken],
         count: &[ActionToken],
-        span: Span,
     ) -> Self::Output {
-        let target = self.parse_open_target(target, span);
-        let axis = self.parse_axis(axis, span);
-        let dir = self.parse_dir1d(dir, span);
-        let count = self.parse_count(count, span);
+        let target = self.parse_open_target(target);
+        let axis = self.parse_axis(axis);
+        let dir = self.parse_dir1d(dir);
+        let count = self.parse_count(count);
 
         quote! {
             ::editor_types::Action::Window(
@@ -402,11 +366,10 @@ impl ActionParser for ActionMacroParser {
         fc: &[ActionToken],
         axis: &[ActionToken],
         size: &[ActionToken],
-        span: Span,
     ) -> Self::Output {
-        let fc = self.parse_focus_change(fc, span);
-        let axis = self.parse_axis(axis, span);
-        let size = self.parse_size_change(size, span);
+        let fc = self.parse_focus_change(fc);
+        let axis = self.parse_axis(axis);
+        let size = self.parse_size_change(size);
 
         quote! {
             ::editor_types::Action::Window(
@@ -421,12 +384,11 @@ impl ActionParser for ActionMacroParser {
         axis: &[ActionToken],
         dir: &[ActionToken],
         count: &[ActionToken],
-        span: Span,
     ) -> Self::Output {
-        let target = self.parse_open_target(target, span);
-        let axis = self.parse_axis(axis, span);
-        let dir = self.parse_dir1d(dir, span);
-        let count = self.parse_count(count, span);
+        let target = self.parse_open_target(target);
+        let axis = self.parse_axis(axis);
+        let dir = self.parse_dir1d(dir);
+        let count = self.parse_count(count);
 
         quote! {
             ::editor_types::Action::Window(
@@ -435,8 +397,8 @@ impl ActionParser for ActionMacroParser {
         }
     }
 
-    fn visit_window_switch(&mut self, target: &[ActionToken], span: Span) -> Self::Output {
-        let target = self.parse_open_target(target, span);
+    fn visit_window_switch(&mut self, target: &[ActionToken]) -> Self::Output {
+        let target = self.parse_open_target(target);
 
         quote! {
             ::editor_types::Action::Window(
@@ -449,10 +411,9 @@ impl ActionParser for ActionMacroParser {
         &mut self,
         target: &[ActionToken],
         flags: &[ActionToken],
-        span: Span,
     ) -> Self::Output {
-        let target = self.parse_window_target(target, span);
-        let flags = self.parse_write_flags(flags, span);
+        let target = self.parse_window_target(target);
+        let flags = self.parse_write_flags(flags);
         let name = quote! { ::std::option::Option::None };
 
         quote! {
@@ -462,8 +423,8 @@ impl ActionParser for ActionMacroParser {
         }
     }
 
-    fn visit_window_exchange(&mut self, fc: &[ActionToken], span: Self::Span) -> Self::Output {
-        let fc = self.parse_focus_change(fc, span);
+    fn visit_window_exchange(&mut self, fc: &[ActionToken]) -> Self::Output {
+        let fc = self.parse_focus_change(fc);
 
         quote! {
             ::editor_types::Action::Window(
@@ -472,8 +433,8 @@ impl ActionParser for ActionMacroParser {
         }
     }
 
-    fn visit_window_focus(&mut self, fc: &[ActionToken], span: Self::Span) -> Self::Output {
-        let fc = self.parse_focus_change(fc, span);
+    fn visit_window_focus(&mut self, fc: &[ActionToken]) -> Self::Output {
+        let fc = self.parse_focus_change(fc);
 
         quote! {
             ::editor_types::Action::Window(
@@ -482,8 +443,8 @@ impl ActionParser for ActionMacroParser {
         }
     }
 
-    fn visit_window_move_side(&mut self, dir: &[ActionToken], span: Span) -> Self::Output {
-        let dir = self.parse_dir2d(dir, span);
+    fn visit_window_move_side(&mut self, dir: &[ActionToken]) -> Self::Output {
+        let dir = self.parse_dir2d(dir);
 
         quote! {
             ::editor_types::Action::Window(
@@ -492,8 +453,8 @@ impl ActionParser for ActionMacroParser {
         }
     }
 
-    fn visit_window_rotate(&mut self, dir: &[ActionToken], span: Self::Span) -> Self::Output {
-        let dir = self.parse_dir1d(dir, span);
+    fn visit_window_rotate(&mut self, dir: &[ActionToken]) -> Self::Output {
+        let dir = self.parse_dir1d(dir);
 
         quote! {
             ::editor_types::Action::Window(
@@ -502,7 +463,7 @@ impl ActionParser for ActionMacroParser {
         }
     }
 
-    fn visit_window_clear_sizes(&mut self, _: Self::Span) -> Self::Output {
+    fn visit_window_clear_sizes(&mut self) -> Self::Output {
         quote! {
             ::editor_types::Action::Window(
                 ::editor_types::WindowAction::ClearSizes
@@ -510,7 +471,7 @@ impl ActionParser for ActionMacroParser {
         }
     }
 
-    fn visit_window_zoom_toggle(&mut self, _: Self::Span) -> Self::Output {
+    fn visit_window_zoom_toggle(&mut self) -> Self::Output {
         quote! {
             ::editor_types::Action::Window(
                 ::editor_types::WindowAction::ZoomToggle
@@ -523,11 +484,10 @@ impl ActionParser for ActionMacroParser {
         shape: &[ActionToken],
         dir: &[ActionToken],
         count: &[ActionToken],
-        span: Span,
     ) -> Self::Output {
-        let shape = self.parse_target_shape(shape, span);
-        let dir = self.parse_dir1d(dir, span);
-        let count = self.parse_count(count, span);
+        let shape = self.parse_target_shape(shape);
+        let dir = self.parse_dir1d(dir);
+        let count = self.parse_count(count);
 
         quote! {
             ::editor_types::Action::Editor(
@@ -543,11 +503,10 @@ impl ActionParser for ActionMacroParser {
         input: &[ActionToken],
         dir: &[ActionToken],
         count: &[ActionToken],
-        span: Span,
     ) -> Self::Output {
-        let input = self.parse_string(input, span);
-        let dir = self.parse_dir1d(dir, span);
-        let count = self.parse_count(count, span);
+        let input = self.parse_string(input);
+        let dir = self.parse_dir1d(dir);
+        let count = self.parse_count(count);
 
         quote! {
             ::editor_types::Action::Editor(
@@ -563,11 +522,10 @@ impl ActionParser for ActionMacroParser {
         c: &[ActionToken],
         dir: &[ActionToken],
         count: &[ActionToken],
-        span: Span,
     ) -> Self::Output {
-        let c = self.parse_specifier_char(c, span);
-        let dir = self.parse_dir1d(dir, span);
-        let count = self.parse_count(count, span);
+        let c = self.parse_specifier_char(c);
+        let dir = self.parse_dir1d(dir);
+        let count = self.parse_count(count);
 
         quote! {
             ::editor_types::Action::Editor(
@@ -578,14 +536,9 @@ impl ActionParser for ActionMacroParser {
         }
     }
 
-    fn visit_insert_paste(
-        &mut self,
-        style: &[ActionToken],
-        count: &[ActionToken],
-        span: Span,
-    ) -> Self::Output {
-        let style = self.parse_paste_style(style, span);
-        let count = self.parse_count(count, span);
+    fn visit_insert_paste(&mut self, style: &[ActionToken], count: &[ActionToken]) -> Self::Output {
+        let style = self.parse_paste_style(style);
+        let count = self.parse_count(count);
 
         quote! {
             ::editor_types::Action::Editor(
@@ -601,37 +554,31 @@ impl ActionParser for ActionMacroParser {
         list: &[ActionToken],
         dir: &[ActionToken],
         count: &[ActionToken],
-        span: Self::Span,
     ) -> Self::Output {
-        let list = self.parse_position_list(list, span);
-        let dir = self.parse_dir1d(dir, span);
-        let count = self.parse_count(count, span);
+        let list = self.parse_position_list(list);
+        let dir = self.parse_dir1d(dir);
+        let count = self.parse_count(count);
 
         quote! {
             ::editor_types::Action::Jump(#list, #dir, #count)
         }
     }
 
-    fn visit_repeat(&mut self, style: &[ActionToken], span: Span) -> Self::Output {
-        let style = self.parse_repeat_style(style, span);
+    fn visit_repeat(&mut self, style: &[ActionToken]) -> Self::Output {
+        let style = self.parse_repeat_style(style);
 
         quote! { ::editor_types::Action::Repeat(#style) }
     }
 
-    fn visit_scroll(&mut self, style: &[ActionToken], span: Span) -> Self::Output {
-        let style = self.parse_scroll_style(style, span);
+    fn visit_scroll(&mut self, style: &[ActionToken]) -> Self::Output {
+        let style = self.parse_scroll_style(style);
 
         quote! { ::editor_types::Action::Scroll(#style) }
     }
 
-    fn visit_search(
-        &mut self,
-        dir: &[ActionToken],
-        count: &[ActionToken],
-        span: Span,
-    ) -> Self::Output {
-        let dir = self.parse_move_dir_mod(dir, span);
-        let count = self.parse_count(count, span);
+    fn visit_search(&mut self, dir: &[ActionToken], count: &[ActionToken]) -> Self::Output {
+        let dir = self.parse_move_dir_mod(dir);
+        let count = self.parse_count(count);
 
         quote! { ::editor_types::Action::Search(#dir, #count) }
     }
@@ -640,10 +587,9 @@ impl ActionParser for ActionMacroParser {
         &mut self,
         dir: &[ActionToken],
         count: &[ActionToken],
-        span: Span,
     ) -> Self::Output {
-        let dir = self.parse_dir1d(dir, span);
-        let count = self.parse_count(count, span);
+        let dir = self.parse_dir1d(dir);
+        let count = self.parse_count(count);
 
         quote! {
             ::editor_types::Action::Editor(
@@ -654,8 +600,8 @@ impl ActionParser for ActionMacroParser {
         }
     }
 
-    fn visit_selection_cursor_set(&mut self, change: &[ActionToken], span: Span) -> Self::Output {
-        let change = self.parse_selection_cursor_change(change, span);
+    fn visit_selection_cursor_set(&mut self, change: &[ActionToken]) -> Self::Output {
+        let change = self.parse_selection_cursor_change(change);
 
         quote! {
             ::editor_types::Action::Editor(
@@ -670,10 +616,9 @@ impl ActionParser for ActionMacroParser {
         &mut self,
         boundary: &[ActionToken],
         target: &[ActionToken],
-        span: Span,
     ) -> Self::Output {
-        let boundary = self.parse_selection_boundary(boundary, span);
-        let target = self.parse_target_shape_filter(target, span);
+        let boundary = self.parse_selection_boundary(boundary);
+        let target = self.parse_target_shape_filter(target);
 
         quote! {
             ::editor_types::Action::Editor(
@@ -684,8 +629,8 @@ impl ActionParser for ActionMacroParser {
         }
     }
 
-    fn visit_selection_filter(&mut self, act: &[ActionToken], span: Span) -> Self::Output {
-        let act = self.parse_match_action(act, span);
+    fn visit_selection_filter(&mut self, act: &[ActionToken]) -> Self::Output {
+        let act = self.parse_match_action(act);
 
         quote! {
             ::editor_types::Action::Editor(
@@ -700,10 +645,9 @@ impl ActionParser for ActionMacroParser {
         &mut self,
         style: &[ActionToken],
         target: &[ActionToken],
-        span: Span,
     ) -> Self::Output {
-        let style = self.parse_selection_resize_style(style, span);
-        let target = self.parse_edit_target(target, span);
+        let style = self.parse_selection_resize_style(style);
+        let target = self.parse_edit_target(target);
 
         quote! {
             ::editor_types::Action::Editor(
@@ -718,10 +662,9 @@ impl ActionParser for ActionMacroParser {
         &mut self,
         style: &[ActionToken],
         target: &[ActionToken],
-        span: Span,
     ) -> Self::Output {
-        let style = self.parse_selection_split_style(style, span);
-        let target = self.parse_target_shape_filter(target, span);
+        let style = self.parse_selection_split_style(style);
+        let target = self.parse_target_shape_filter(target);
 
         quote! {
             ::editor_types::Action::Editor(
@@ -732,7 +675,7 @@ impl ActionParser for ActionMacroParser {
         }
     }
 
-    fn visit_selection_join(&mut self, _: Span) -> Self::Output {
+    fn visit_selection_join(&mut self) -> Self::Output {
         quote! {
             ::editor_types::Action::Editor(
                 ::editor_types::EditorAction::Selection(
@@ -746,10 +689,9 @@ impl ActionParser for ActionMacroParser {
         &mut self,
         boundary: &[ActionToken],
         target: &[ActionToken],
-        span: Span,
     ) -> Self::Output {
-        let boundary = self.parse_selection_boundary(boundary, span);
-        let target = self.parse_target_shape_filter(target, span);
+        let boundary = self.parse_selection_boundary(boundary);
+        let target = self.parse_target_shape_filter(target);
 
         quote! {
             ::editor_types::Action::Editor(
@@ -798,8 +740,8 @@ impl Parse for ActionMacroInput {
             args.push((ident, arg));
         }
 
-        let mut parser = ActionMacroParser { params: idents, pos: 0 };
-        let acts = parser.parse_action(tokens.as_slice(), fmt.span());
+        let mut parser = ActionMacroParser { params: idents, pos: 0, span: fmt.span() };
+        let acts = parser.parse_action(tokens.as_slice());
         let generator = Self { args, acts };
 
         Ok(generator)

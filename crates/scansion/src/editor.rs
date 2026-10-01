@@ -531,17 +531,17 @@ mod tests {
         assert_eq!(ed.scrollback, ScrollbackState::Pending);
         assert_eq!(strs(&history), v);
 
-        let res = ed.recall(&mut history, all.clone(), MoveDir1D::Previous, 3).unwrap();
+        let res = ed.recall(&mut history, all, MoveDir1D::Previous, 3).unwrap();
         assert_eq!(res, EditRope::from("bar"));
         assert_eq!(ed.scrollback, ScrollbackState::Empty);
         assert_eq!(strs(&history), v);
 
-        let res = ed.recall(&mut history, all.clone(), MoveDir1D::Next, 1).unwrap();
+        let res = ed.recall(&mut history, all, MoveDir1D::Next, 1).unwrap();
         assert_eq!(res, EditRope::from("writhe"));
         assert_eq!(ed.scrollback, ScrollbackState::Empty);
         assert_eq!(strs(&history), v);
 
-        let res = ed.recall(&mut history, all.clone(), MoveDir1D::Next, 2).unwrap();
+        let res = ed.recall(&mut history, all, MoveDir1D::Next, 2).unwrap();
         assert_eq!(res, EditRope::from(""));
         assert_eq!(ed.scrollback, ScrollbackState::Pending);
         assert_eq!(strs(&history), v);
@@ -574,17 +574,17 @@ mod tests {
             "quux",
         ];
 
-        let res = ed.recall(&mut history, all.clone(), MoveDir1D::Previous, 3).unwrap();
+        let res = ed.recall(&mut history, all, MoveDir1D::Previous, 3).unwrap();
         assert_eq!(res, EditRope::from("bar"));
         assert_eq!(ed.scrollback, ScrollbackState::Typed);
         assert_eq!(strs(&history), v);
 
-        let res = ed.recall(&mut history, all.clone(), MoveDir1D::Next, 1).unwrap();
+        let res = ed.recall(&mut history, all, MoveDir1D::Next, 1).unwrap();
         assert_eq!(res, EditRope::from("writhe"));
         assert_eq!(ed.scrollback, ScrollbackState::Typed);
         assert_eq!(strs(&history), v);
 
-        let res = ed.recall(&mut history, all.clone(), MoveDir1D::Next, 2).unwrap();
+        let res = ed.recall(&mut history, all, MoveDir1D::Next, 2).unwrap();
         assert_eq!(res, EditRope::from("quux"));
         assert_eq!(ed.scrollback, ScrollbackState::Typed);
         assert_eq!(strs(&history), v);

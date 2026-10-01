@@ -38,6 +38,18 @@ use crate::*;
 pub enum Case {
     /// Make the targeted text uppercase.
     ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, EditAction, EditorAction};
+    /// use std::str::FromStr;
+    ///
+    /// let act: Action = EditorAction::Edit(
+    ///     EditAction::ChangeCase(Case::Upper).into(), EditTarget::Selection).into();
+    /// assert_eq!(act, Action::from_str("edit -t selection -o (exact change-case -s upper)").unwrap());
+    /// ```
+    ///
     /// ## Example: Using `action!`
     ///
     /// ```
@@ -51,6 +63,18 @@ pub enum Case {
     Upper,
 
     /// Make the targeted text lowercase.
+    ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, EditAction, EditorAction};
+    /// use std::str::FromStr;
+    ///
+    /// let act: Action = EditorAction::Edit(
+    ///     EditAction::ChangeCase(Case::Lower).into(), EditTarget::Selection).into();
+    /// assert_eq!(act, Action::from_str("edit -t selection -o (exact change-case -s lower)").unwrap());
+    /// ```
     ///
     /// ## Example: Using `action!`
     ///
@@ -66,6 +90,18 @@ pub enum Case {
 
     /// Make the first character of the targeted text uppercase, and the rest lowercase.
     ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, EditAction, EditorAction};
+    /// use std::str::FromStr;
+    ///
+    /// let act: Action = EditorAction::Edit(
+    ///     EditAction::ChangeCase(Case::Title).into(), EditTarget::Selection).into();
+    /// assert_eq!(act, Action::from_str("edit -t selection -o (exact change-case -s title)").unwrap());
+    /// ```
+    ///
     /// ## Example: Using `action!`
     ///
     /// ```
@@ -79,6 +115,18 @@ pub enum Case {
     Title,
 
     /// Toggle the case of each character in the targeted text.
+    ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, EditAction, EditorAction};
+    /// use std::str::FromStr;
+    ///
+    /// let act: Action = EditorAction::Edit(
+    ///     EditAction::ChangeCase(Case::Toggle).into(), EditTarget::Selection).into();
+    /// assert_eq!(act, Action::from_str("edit -t selection -o (exact change-case -s toggle)").unwrap());
+    /// ```
     ///
     /// ## Example: Using `action!`
     ///
@@ -98,6 +146,19 @@ pub enum Case {
 pub enum JoinStyle {
     /// Leave whitespace around the join point as-is.
     ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, EditAction, EditorAction};
+    /// use std::str::FromStr;
+    ///
+    /// let style = JoinStyle::NoChange;
+    /// let act: Action = EditorAction::Edit(
+    ///     EditAction::Join(style).into(), EditTarget::Selection).into();
+    /// assert_eq!(act, Action::from_str("edit -t selection -o (exact join -s no-change)").unwrap());
+    /// ```
+    ///
     /// ## Example: Using `action!`
     ///
     /// ```
@@ -112,6 +173,19 @@ pub enum JoinStyle {
     NoChange,
 
     /// Replace whitespace around the join point with a single space.
+    ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, EditAction, EditorAction};
+    /// use std::str::FromStr;
+    ///
+    /// let style = JoinStyle::OneSpace;
+    /// let act: Action = EditorAction::Edit(
+    ///     EditAction::Join(style).into(), EditTarget::Selection).into();
+    /// assert_eq!(act, Action::from_str("edit -t selection -o (exact join -s one-space)").unwrap());
+    /// ```
     ///
     /// ## Example: Using `action!`
     ///
@@ -128,6 +202,19 @@ pub enum JoinStyle {
 
     /// Always insert a new space at the join point, regardless of whether there's already
     /// whitespace there.
+    ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, EditAction, EditorAction};
+    /// use std::str::FromStr;
+    ///
+    /// let style = JoinStyle::NewSpace;
+    /// let act: Action = EditorAction::Edit(
+    ///     EditAction::Join(style).into(), EditTarget::Selection).into();
+    /// assert_eq!(act, Action::from_str("edit -t selection -o (exact join -s new-space)").unwrap());
+    /// ```
     ///
     /// ## Example: Using `action!`
     ///
@@ -148,6 +235,18 @@ pub enum JoinStyle {
 pub enum PasteStyle {
     /// Paste text before the cursor.
     ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, InsertTextAction};
+    /// use std::str::FromStr;
+    ///
+    /// let style = PasteStyle::Cursor;
+    /// let paste: Action = Action::from_str("insert paste -s cursor").unwrap();
+    /// assert_eq!(paste, InsertTextAction::Paste(style, Count::Contextual).into());
+    /// ```
+    ///
     /// ## Example: Using `action!`
     ///
     /// ```
@@ -161,6 +260,22 @@ pub enum PasteStyle {
     Cursor,
 
     /// Paste text before the selection's start, or after its end.
+    ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, InsertTextAction};
+    /// use std::str::FromStr;
+    ///
+    /// let style = PasteStyle::Side(MoveDir1D::Next);
+    /// let paste: Action = Action::from_str("insert paste -s (side -d next)").unwrap();
+    /// assert_eq!(paste, InsertTextAction::Paste(style, Count::Contextual).into());
+    ///
+    /// let style = PasteStyle::Side(MoveDir1D::Previous);
+    /// let paste: Action = Action::from_str("insert paste -s (side -d prev)").unwrap();
+    /// assert_eq!(paste, InsertTextAction::Paste(style, Count::Contextual).into());
+    /// ```
     ///
     /// ## Example: Using `action!`
     ///
@@ -180,6 +295,18 @@ pub enum PasteStyle {
 
     /// Replace selected text with register contents.
     ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, InsertTextAction};
+    /// use std::str::FromStr;
+    ///
+    /// let style = PasteStyle::Replace;
+    /// let paste: Action = Action::from_str("insert paste -s replace").unwrap();
+    /// assert_eq!(paste, InsertTextAction::Paste(style, Count::Contextual).into());
+    /// ```
+    ///
     /// ## Example: Using `action!`
     ///
     /// ```
@@ -198,6 +325,20 @@ pub enum PasteStyle {
 pub enum CompletionScope {
     /// Only use completion candidates from the current buffer.
     ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, EditorAction};
+    /// use std::str::FromStr;
+    ///
+    /// let ct = CompletionType::Line(CompletionScope::Buffer);
+    /// let style = CompletionStyle::Prefix;
+    /// let display = CompletionDisplay::List;
+    /// let act: Action = EditorAction::Complete(style, ct, display).into();
+    /// assert_eq!(act, Action::from_str("complete -s prefix -T (line buffer) -D list").unwrap());
+    /// ```
+    ///
     /// ## Example: Using `action!`
     ///
     /// ```
@@ -213,6 +354,20 @@ pub enum CompletionScope {
     Buffer,
 
     /// Use completion candidates available from all buffers.
+    ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, EditorAction};
+    /// use std::str::FromStr;
+    ///
+    /// let ct = CompletionType::Line(CompletionScope::Global);
+    /// let style = CompletionStyle::Prefix;
+    /// let display = CompletionDisplay::List;
+    /// let act: Action = EditorAction::Complete(style, ct, display).into();
+    /// assert_eq!(act, Action::from_str("complete -s prefix -T (line global) -D list").unwrap());
+    /// ```
     ///
     /// ## Example: Using `action!`
     ///
@@ -239,6 +394,26 @@ pub enum CompletionStyle {
     /// single candidate in the completion list. This is usually desired in
     /// contexts where the user may want to reset back to the prefix if the
     /// completion was not what they wanted.
+    ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, EditorAction};
+    /// use std::str::FromStr;
+    ///
+    /// let ct = CompletionType::Auto;
+    /// let style = CompletionStyle::List(MoveDir1D::Next, true);
+    /// let display = CompletionDisplay::List;
+    /// let act: Action = EditorAction::Complete(style, ct, display).into();
+    /// assert_eq!(act, Action::from_str("complete -s (list -d next) -T auto -D list").unwrap());
+    ///
+    /// let ct = CompletionType::Auto;
+    /// let style = CompletionStyle::List(MoveDir1D::Next, false);
+    /// let display = CompletionDisplay::List;
+    /// let act: Action = EditorAction::Complete(style, ct, display).into();
+    /// assert_eq!(act, Action::from_str("complete -s (list -d next --toggle false) -T auto -D list").unwrap());
+    /// ```
     ///
     /// ## Example: Using `action!`
     ///
@@ -267,11 +442,26 @@ pub enum CompletionStyle {
     /// actually picking any, in case they don't know what the first
     /// character to type is.
     ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, EditorAction};
+    /// use std::str::FromStr;
+    ///
+    /// let ct = CompletionType::Auto;
+    /// let style = CompletionStyle::None;
+    /// let display = CompletionDisplay::List;
+    /// let act: Action = EditorAction::Complete(style, ct, display).into();
+    /// assert_eq!(act, Action::from_str("complete -s none -T auto -D list").unwrap());
+    /// ```
+    ///
     /// ## Example: Using `action!`
     ///
     /// ```
     /// use editor_types::prelude::*;
     /// use editor_types::{action, Action, EditorAction};
+    /// use std::str::FromStr;
     ///
     /// let ct = CompletionType::Auto;
     /// let style = CompletionStyle::None;
@@ -283,11 +473,26 @@ pub enum CompletionStyle {
 
     /// Complete only the longest common prefix from the completion candidates.
     ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, EditorAction};
+    /// use std::str::FromStr;
+    ///
+    /// let ct = CompletionType::Auto;
+    /// let style = CompletionStyle::Prefix;
+    /// let display = CompletionDisplay::List;
+    /// let act: Action = EditorAction::Complete(style, ct, display).into();
+    /// assert_eq!(act, Action::from_str("complete -s prefix -T auto -D list").unwrap());
+    /// ```
+    ///
     /// ## Example: Using `action!`
     ///
     /// ```
     /// use editor_types::prelude::*;
     /// use editor_types::{action, Action, EditorAction};
+    /// use std::str::FromStr;
     ///
     /// let ct = CompletionType::Auto;
     /// let style = CompletionStyle::Prefix;
@@ -298,6 +503,20 @@ pub enum CompletionStyle {
     Prefix,
 
     /// If there is only a single completion candidate, select it.
+    ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, EditorAction};
+    /// use std::str::FromStr;
+    ///
+    /// let ct = CompletionType::Auto;
+    /// let style = CompletionStyle::Single;
+    /// let display = CompletionDisplay::List;
+    /// let act: Action = EditorAction::Complete(style, ct, display).into();
+    /// assert_eq!(act, Action::from_str("complete -s single -T auto -D list").unwrap());
+    /// ```
     ///
     /// ## Example: Using `action!`
     ///
@@ -324,6 +543,20 @@ pub enum CompletionStyle {
 pub enum CompletionType {
     /// Determine what to complete by the buffer context.
     ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, EditorAction};
+    /// use std::str::FromStr;
+    ///
+    /// let ct = CompletionType::Auto;
+    /// let style = CompletionStyle::Prefix;
+    /// let display = CompletionDisplay::List;
+    /// let act: Action = EditorAction::Complete(style, ct, display).into();
+    /// assert_eq!(act, Action::from_str("complete -s prefix -T auto -D list").unwrap());
+    /// ```
+    ///
     /// ## Example: Using `action!`
     ///
     /// ```
@@ -339,6 +572,20 @@ pub enum CompletionType {
     Auto,
 
     /// Complete a filename.
+    ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, EditorAction};
+    /// use std::str::FromStr;
+    ///
+    /// let ct = CompletionType::File;
+    /// let style = CompletionStyle::Prefix;
+    /// let display = CompletionDisplay::List;
+    /// let act: Action = EditorAction::Complete(style, ct, display).into();
+    /// assert_eq!(act, Action::from_str("complete -s prefix -T file -D list").unwrap());
+    /// ```
     ///
     /// ## Example: Using `action!`
     ///
@@ -356,6 +603,20 @@ pub enum CompletionType {
 
     /// Complete the rest of the line.
     ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, EditorAction};
+    /// use std::str::FromStr;
+    ///
+    /// let ct = CompletionType::Line(CompletionScope::Global);
+    /// let style = CompletionStyle::Prefix;
+    /// let display = CompletionDisplay::List;
+    /// let act: Action = EditorAction::Complete(style, ct, display).into();
+    /// assert_eq!(act, Action::from_str("complete -s prefix -T (line global) -D list").unwrap());
+    /// ```
+    ///
     /// ## Example: Using `action!`
     ///
     /// ```
@@ -371,6 +632,20 @@ pub enum CompletionType {
     Line(CompletionScope),
 
     /// Complete the current word.
+    ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, EditorAction};
+    /// use std::str::FromStr;
+    ///
+    /// let ct = CompletionType::Word(CompletionScope::Buffer);
+    /// let style = CompletionStyle::Prefix;
+    /// let display = CompletionDisplay::List;
+    /// let act: Action = EditorAction::Complete(style, ct, display).into();
+    /// assert_eq!(act, Action::from_str("complete -s prefix -T (word buffer) -D list").unwrap());
+    /// ```
     ///
     /// ## Example: Using `action!`
     ///
@@ -396,6 +671,20 @@ pub enum CompletionDisplay {
     /// users don't expect to see possible completions and just want to cycle
     /// through what's available, such as completing filenames in a command bar.
     ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, EditorAction};
+    /// use std::str::FromStr;
+    ///
+    /// let ct = CompletionType::Auto;
+    /// let style = CompletionStyle::Prefix;
+    /// let display = CompletionDisplay::None;
+    /// let act: Action = EditorAction::Complete(style, ct, display).into();
+    /// assert_eq!(act, Action::from_str("complete -s prefix -T auto -D none").unwrap());
+    /// ```
+    ///
     /// ## Example: Using `action!`
     ///
     /// ```
@@ -412,6 +701,20 @@ pub enum CompletionDisplay {
 
     /// Display candidates in a bar above the command bar.
     ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, EditorAction};
+    /// use std::str::FromStr;
+    ///
+    /// let ct = CompletionType::Auto;
+    /// let style = CompletionStyle::Prefix;
+    /// let display = CompletionDisplay::Bar;
+    /// let act: Action = EditorAction::Complete(style, ct, display).into();
+    /// assert_eq!(act, Action::from_str("complete -s prefix -T auto -D bar").unwrap());
+    /// ```
+    ///
     /// ## Example: Using `action!`
     ///
     /// ```
@@ -427,6 +730,20 @@ pub enum CompletionDisplay {
     Bar,
 
     /// Display candidates in a pop-up list.
+    ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, EditorAction};
+    /// use std::str::FromStr;
+    ///
+    /// let ct = CompletionType::Auto;
+    /// let style = CompletionStyle::Prefix;
+    /// let display = CompletionDisplay::List;
+    /// let act: Action = EditorAction::Complete(style, ct, display).into();
+    /// assert_eq!(act, Action::from_str("complete -s prefix -T auto -D list").unwrap());
+    /// ```
     ///
     /// ## Example: Using `action!`
     ///
@@ -451,6 +768,19 @@ pub enum EditTarget {
     ///
     /// [bool] indicates if this is an inclusive range, when applicable to the [RangeType].
     ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{Action, EditorAction};
+    /// use std::str::FromStr;
+    ///
+    /// let r = RangeType::Word(WordStyle::AlphaNum);
+    /// let e = EditTarget::Boundary(r, true, MoveTerminus::End, Count::Contextual);
+    /// let act: Action = EditorAction::Edit(Specifier::Contextual, e).into();
+    /// assert_eq!(act, Action::from_str("edit -t (boundary -T (word -s alphanum) --inclusive true -p end)").unwrap());
+    /// ```
+    ///
     /// ## Example: Using `edit_target!`
     ///
     /// ```
@@ -473,6 +803,21 @@ pub enum EditTarget {
 
     /// Target the current cursor position.
     ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{Action, EditorAction};
+    /// use std::str::FromStr;
+    ///
+    /// let act: Action = EditorAction::Edit(Specifier::Contextual, EditTarget::CurrentPosition)
+    ///     .into();
+    ///
+    /// // Both of these are equivalent:
+    /// assert_eq!(act, Action::from_str("edit -t current-position").unwrap());
+    /// assert_eq!(act, Action::from_str("edit -t curr-pos").unwrap());
+    /// ```
+    ///
     /// ## Example: Using `edit_target!`
     ///
     /// ```
@@ -486,6 +831,24 @@ pub enum EditTarget {
     CurrentPosition,
 
     /// Move to the line and column of a [Mark].
+    ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{Action, EditorAction};
+    /// use std::str::FromStr;
+    ///
+    /// // Use the context's mark:
+    /// let e = EditTarget::CharJump(Specifier::Contextual);
+    /// let act: Action = EditorAction::Edit(Specifier::Contextual, e).into();
+    /// assert_eq!(act, Action::from_str("edit -t (char-jump -m ctx)").unwrap());
+    ///
+    /// // Use a specific mark:
+    /// let e = EditTarget::CharJump(Mark::LastYankedEnd.into());
+    /// let act: Action = EditorAction::Edit(Specifier::Contextual, e).into();
+    /// assert_eq!(act, Action::from_str("edit -t (char-jump -m (exact last-yanked-end))").unwrap());
+    /// ```
     ///
     /// ## Example: Using `edit_target!`
     ///
@@ -508,6 +871,24 @@ pub enum EditTarget {
 
     /// Move to the first word of the line that [Mark] is on.
     ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{Action, EditorAction};
+    /// use std::str::FromStr;
+    ///
+    /// // Use the context's mark:
+    /// let e = EditTarget::LineJump(Specifier::Contextual);
+    /// let act: Action = EditorAction::Edit(Specifier::Contextual, e).into();
+    /// assert_eq!(act, Action::from_str("edit -t (line-jump -m ctx)").unwrap());
+    ///
+    /// // Use a specific mark:
+    /// let e = EditTarget::LineJump(Mark::LastYankedEnd.into());
+    /// let act: Action = EditorAction::Edit(Specifier::Contextual, e).into();
+    /// assert_eq!(act, Action::from_str("edit -t (line-jump -m (exact last-yanked-end))").unwrap());
+    /// ```
+    ///
     /// ## Example: Using `edit_target!`
     ///
     /// ```
@@ -529,6 +910,19 @@ pub enum EditTarget {
 
     /// Target the text between the current cursor position and the end of a motion.
     ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{Action, EditorAction};
+    /// use std::str::FromStr;
+    ///
+    /// let mov = MoveType::WordBegin(WordStyle::Little, MoveDir1D::Next);
+    /// let e = EditTarget::Motion(mov, Count::Contextual);
+    /// let act: Action = EditorAction::Edit(Specifier::Contextual, e).into();
+    /// assert_eq!(act, Action::from_str("edit -t (motion -T (word-begin -s little -d next))").unwrap());
+    /// ```
+    ///
     /// ## Example: Using `edit_target!`
     ///
     /// ```
@@ -546,6 +940,19 @@ pub enum EditTarget {
     /// Target a range of text around the cursor.
     ///
     /// [bool] indicates if this is an inclusive range, when applicable to the [RangeType].
+    ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{Action, EditorAction};
+    /// use std::str::FromStr;
+    ///
+    /// let w = RangeType::Word(WordStyle::AlphaNum);
+    /// let e = EditTarget::Range(w, true, Count::Contextual);
+    /// let act: Action = EditorAction::Edit(Specifier::Contextual, e).into();
+    /// assert_eq!(act, Action::from_str("edit -t (range -T (word -s alphanum) --inclusive true)").unwrap());
+    /// ```
     ///
     /// ## Example: Using `edit_target!`
     ///
@@ -571,6 +978,18 @@ pub enum EditTarget {
     ///
     /// The [MoveDirMod] parameter modifies the search direction.
     ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{Action, EditorAction};
+    /// use std::str::FromStr;
+    ///
+    /// let e = EditTarget::Search(SearchType::Regex, MoveDirMod::Flip, Count::Contextual);
+    /// let act: Action = EditorAction::Edit(Specifier::Contextual, e).into();
+    /// assert_eq!(act, Action::from_str("edit -t (search -T regex -d flip)").unwrap());
+    /// ```
+    ///
     /// ## Example: Using `edit_target!`
     ///
     /// ```
@@ -586,6 +1005,17 @@ pub enum EditTarget {
     Search(SearchType, MoveDirMod, Count),
 
     /// Target the visually selected text.
+    ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{Action, EditorAction};
+    /// use std::str::FromStr;
+    ///
+    /// let act: Action = EditorAction::Edit(Specifier::Contextual, EditTarget::Selection).into();
+    /// assert_eq!(act, Action::from_str("edit -t selection").unwrap());
+    /// ```
     ///
     /// ## Example: Using `edit_target!`
     ///
@@ -688,6 +1118,17 @@ impl<Cursor: Ord> EditRange<Cursor> {
 pub enum RepeatType {
     /// A sequence of changes made to a buffer.
     ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action};
+    /// use std::str::FromStr;
+    ///
+    /// let rep: Action = Action::from_str("repeat -s edit-sequence").unwrap();
+    /// assert_eq!(rep, Action::Repeat(RepeatType::EditSequence));
+    /// ```
+    ///
     /// ## Example: Using `action!`
     ///
     /// ```
@@ -701,6 +1142,17 @@ pub enum RepeatType {
 
     /// The last [Action] done.
     ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action};
+    /// use std::str::FromStr;
+    ///
+    /// let rep: Action = Action::from_str("repeat -s last-action").unwrap();
+    /// assert_eq!(rep, Action::Repeat(RepeatType::LastAction));
+    /// ```
+    ///
     /// ## Example: Using `action!`
     ///
     /// ```
@@ -713,6 +1165,17 @@ pub enum RepeatType {
     LastAction,
 
     /// The last selection resize made in a buffer.
+    ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action};
+    /// use std::str::FromStr;
+    ///
+    /// let rep: Action = Action::from_str("repeat -s last-selection").unwrap();
+    /// assert_eq!(rep, Action::Repeat(RepeatType::LastSelection));
+    /// ```
     ///
     /// ## Example: Using `action!`
     ///
@@ -770,6 +1233,21 @@ impl SearchType {
 pub enum WordStyle {
     /// A run of alphanumeric characters.
     ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action};
+    /// use std::str::FromStr;
+    ///
+    /// let style = WordStyle::AlphaNum;
+    /// let kw: Action = Action::KeywordLookup(style.into());
+    ///
+    /// // All of these are equivalent:
+    /// assert_eq!(kw, Action::from_str("keyword-lookup -t (word alphanum)").unwrap());
+    /// assert_eq!(kw, Action::from_str("keyword-lookup -t (word alpha-num)").unwrap());
+    /// ```
+    ///
     /// ## Example: Using `action!`
     ///
     /// ```
@@ -789,6 +1267,18 @@ pub enum WordStyle {
     ///
     /// An empty line is also a Big word. Vim calls this a `WORD`.
     ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action};
+    /// use std::str::FromStr;
+    ///
+    /// let style = WordStyle::Big;
+    /// let kw: Action = Action::KeywordLookup(style.into());
+    /// assert_eq!(kw, Action::from_str("keyword-lookup -t (word big)").unwrap());
+    /// ```
+    ///
     /// ## Example: Using `action!`
     ///
     /// ```
@@ -806,6 +1296,21 @@ pub enum WordStyle {
 
     /// A name of a directory or file.
     ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action};
+    /// use std::str::FromStr;
+    ///
+    /// let style = WordStyle::FileName;
+    /// let kw: Action = Action::KeywordLookup(style.into());
+    ///
+    /// // All of these are equivalent:
+    /// assert_eq!(kw, Action::from_str("keyword-lookup -t (word filename)").unwrap());
+    /// assert_eq!(kw, Action::from_str("keyword-lookup -t (word file-name)").unwrap());
+    /// ```
+    ///
     /// ## Example: Using `action!`
     ///
     /// ```
@@ -822,6 +1327,21 @@ pub enum WordStyle {
     FileName,
 
     /// A path to a directory or file.
+    ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action};
+    /// use std::str::FromStr;
+    ///
+    /// let style = WordStyle::FilePath;
+    /// let kw: Action = Action::KeywordLookup(style.into());
+    ///
+    /// // All of these are equivalent:
+    /// assert_eq!(kw, Action::from_str("keyword-lookup -t (word filepath)").unwrap());
+    /// assert_eq!(kw, Action::from_str("keyword-lookup -t (word file-path)").unwrap());
+    /// ```
     ///
     /// ## Example: Using `action!`
     ///
@@ -843,6 +1363,18 @@ pub enum WordStyle {
     ///
     /// An empty line is also a Little word.
     ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action};
+    /// use std::str::FromStr;
+    ///
+    /// let style = WordStyle::Little;
+    /// let kw: Action = Action::KeywordLookup(style.into());
+    /// assert_eq!(kw, Action::from_str("keyword-lookup -t (word little)").unwrap());
+    /// ```
+    ///
     /// ## Example: Using `action!`
     ///
     /// ```
@@ -856,6 +1388,23 @@ pub enum WordStyle {
     Little,
 
     /// A run of non-alphanumeric characters.
+    ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action};
+    /// use std::str::FromStr;
+    ///
+    /// let style = WordStyle::NonAlphaNum;
+    /// let kw: Action = Action::KeywordLookup(style.into());
+    ///
+    /// // All of these are equivalent:
+    /// assert_eq!(kw, Action::from_str("keyword-lookup -t (word non-alphanum)").unwrap());
+    /// assert_eq!(kw, Action::from_str("keyword-lookup -t (word non-alphanumeric)").unwrap());
+    /// assert_eq!(kw, Action::from_str("keyword-lookup -t (word nonalphanum)").unwrap());
+    /// assert_eq!(kw, Action::from_str("keyword-lookup -t (word nonalphanumeric)").unwrap());
+    /// ```
     ///
     /// ## Example: Using `action!`
     ///
@@ -876,6 +1425,18 @@ pub enum WordStyle {
 
     /// A run of digits in the given base, with an optional leading hyphen.
     ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action};
+    /// use std::str::FromStr;
+    ///
+    /// let style = WordStyle::Number(Radix::Decimal);
+    /// let kw: Action = Action::KeywordLookup(style.into());
+    /// assert_eq!(kw, Action::from_str("keyword-lookup -t (word radix decimal)").unwrap());
+    /// ```
+    ///
     /// ## Example: Using `action!`
     ///
     /// ```
@@ -891,6 +1452,22 @@ pub enum WordStyle {
     /// A run of blank characters.
     ///
     /// [bool] controls whether this crosses line boundaries.
+    ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action};
+    /// use std::str::FromStr;
+    ///
+    /// let style = WordStyle::Whitespace(true);
+    /// let kw: Action = Action::KeywordLookup(style.into());
+    /// assert_eq!(kw, Action::from_str("keyword-lookup -t (word whitespace -w true)").unwrap());
+    ///
+    /// let style = WordStyle::Whitespace(false);
+    /// let kw: Action = Action::KeywordLookup(style.into());
+    /// assert_eq!(kw, Action::from_str("keyword-lookup -t (word whitespace -w false)").unwrap());
+    /// ```
     ///
     /// ## Example: Using `action!`
     ///
@@ -1158,6 +1735,23 @@ impl From<Radix> for WordStyle {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Radix {
     /// A base 2 number.
+    ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action};
+    /// use std::str::FromStr;
+    ///
+    /// let style = WordStyle::Number(Radix::Binary);
+    /// let kw: Action = Action::KeywordLookup(style.into());
+    ///
+    /// // All of these are equivalent:
+    /// assert_eq!(kw, Action::from_str("keyword-lookup -t (word radix 2)").unwrap());
+    /// assert_eq!(kw, Action::from_str("keyword-lookup -t (word radix bin)").unwrap());
+    /// assert_eq!(kw, Action::from_str("keyword-lookup -t (word radix binary)").unwrap());
+    /// ```
+    ///
     /// ## Example: Using `action!`
     ///
     /// ```
@@ -1175,6 +1769,22 @@ pub enum Radix {
     Binary,
 
     /// A base 8 number.
+    ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action};
+    /// use std::str::FromStr;
+    ///
+    /// let style = WordStyle::Number(Radix::Octal);
+    /// let kw: Action = Action::KeywordLookup(style.into());
+    ///
+    /// // All of these are equivalent:
+    /// assert_eq!(kw, Action::from_str("keyword-lookup -t (word radix 8)").unwrap());
+    /// assert_eq!(kw, Action::from_str("keyword-lookup -t (word radix oct)").unwrap());
+    /// assert_eq!(kw, Action::from_str("keyword-lookup -t (word radix octal)").unwrap());
+    /// ```
     ///
     /// ## Example: Using `action!`
     ///
@@ -1194,6 +1804,22 @@ pub enum Radix {
 
     /// A base 10 number.
     ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action};
+    /// use std::str::FromStr;
+    ///
+    /// let style = WordStyle::Number(Radix::Decimal);
+    /// let kw: Action = Action::KeywordLookup(style.into());
+    ///
+    /// // All of these are equivalent:
+    /// assert_eq!(kw, Action::from_str("keyword-lookup -t (word radix 10)").unwrap());
+    /// assert_eq!(kw, Action::from_str("keyword-lookup -t (word radix dec)").unwrap());
+    /// assert_eq!(kw, Action::from_str("keyword-lookup -t (word radix decimal)").unwrap());
+    /// ```
+    ///
     /// ## Example: Using `action!`
     ///
     /// ```
@@ -1211,6 +1837,22 @@ pub enum Radix {
     Decimal,
 
     /// A base 16 number.
+    ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action};
+    /// use std::str::FromStr;
+    ///
+    /// let style = WordStyle::Number(Radix::Hexadecimal);
+    /// let kw: Action = Action::KeywordLookup(style.into());
+    ///
+    /// // All of these are equivalent:
+    /// assert_eq!(kw, Action::from_str("keyword-lookup -t (word radix 16)").unwrap());
+    /// assert_eq!(kw, Action::from_str("keyword-lookup -t (word radix hex)").unwrap());
+    /// assert_eq!(kw, Action::from_str("keyword-lookup -t (word radix hexadecimal)").unwrap());
+    /// ```
     ///
     /// ## Example: Using `action!`
     ///
@@ -1288,6 +1930,20 @@ pub trait BoundaryTest {
 pub enum RangeType {
     /// Select from the beginning to the end of a [word](WordStyle).
     ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{Action, EditorAction};
+    /// use std::str::FromStr;
+    ///
+    /// let r = RangeType::Word(WordStyle::AlphaNum);
+    /// let target = EditTarget::Range(r, true, Count::Contextual);
+    /// let act: Action = EditorAction::Edit(Specifier::Contextual, target).into();
+    /// assert_eq!(act, Action::from_str("edit -t (range -T (word -s alphanum) --inclusive true)").unwrap());
+    /// assert_eq!(act, Action::from_str("edit -t (range -T (word -s alpha-num) --inclusive true)").unwrap());
+    /// ```
+    ///
     /// ## Example: Using `range!`
     ///
     /// ```
@@ -1302,6 +1958,19 @@ pub enum RangeType {
 
     /// Select the whole buffer.
     ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{Action, EditorAction};
+    /// use std::str::FromStr;
+    ///
+    /// let r = RangeType::Buffer;
+    /// let target = EditTarget::Range(r, true, Count::Contextual);
+    /// let act: Action = EditorAction::Edit(Specifier::Contextual, target).into();
+    /// assert_eq!(act, Action::from_str("edit -t (range -T buffer --inclusive true)").unwrap());
+    /// ```
+    ///
     /// ## Example: Using `range!`
     ///
     /// ```
@@ -1314,6 +1983,19 @@ pub enum RangeType {
     Buffer,
 
     /// Select the current paragraph the cursor is in.
+    ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{Action, EditorAction};
+    /// use std::str::FromStr;
+    ///
+    /// let r = RangeType::Paragraph;
+    /// let target = EditTarget::Range(r, true, Count::Contextual);
+    /// let act: Action = EditorAction::Edit(Specifier::Contextual, target).into();
+    /// assert_eq!(act, Action::from_str("edit -t (range -T paragraph --inclusive true)").unwrap());
+    /// ```
     ///
     /// ## Example: Using `range!`
     ///
@@ -1328,6 +2010,19 @@ pub enum RangeType {
 
     /// Select the current sentence the cursor is in.
     ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{Action, EditorAction};
+    /// use std::str::FromStr;
+    ///
+    /// let r = RangeType::Sentence;
+    /// let target = EditTarget::Range(r, true, Count::Contextual);
+    /// let act: Action = EditorAction::Edit(Specifier::Contextual, target).into();
+    /// assert_eq!(act, Action::from_str("edit -t (range -T sentence --inclusive true)").unwrap());
+    /// ```
+    ///
     /// ## Example: Using `range!`
     ///
     /// ```
@@ -1340,6 +2035,19 @@ pub enum RangeType {
     Sentence,
 
     /// Select the current line the cursor is on.
+    ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{Action, EditorAction};
+    /// use std::str::FromStr;
+    ///
+    /// let r = RangeType::Line;
+    /// let target = EditTarget::Range(r, true, Count::Contextual);
+    /// let act: Action = EditorAction::Edit(Specifier::Contextual, target).into();
+    /// assert_eq!(act, Action::from_str("edit -t (range -T line --inclusive true)").unwrap());
+    /// ```
     ///
     /// ## Example: Using `range!`
     ///
@@ -1355,6 +2063,19 @@ pub enum RangeType {
     /// Select the current block specified by the start and end characters.
     ///
     /// When done inclusively, the delimiters are included.
+    ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{Action, EditorAction};
+    /// use std::str::FromStr;
+    ///
+    /// let r = RangeType::Bracketed('{', '}');
+    /// let target = EditTarget::Range(r, true, Count::Contextual);
+    /// let act: Action = EditorAction::Edit(Specifier::Contextual, target).into();
+    /// assert_eq!(act, Action::from_str("edit -t (range -T (bracketed --left '{' --right '}') --inclusive true)").unwrap());
+    /// ```
     ///
     /// ## Example: Using `range!`
     ///
@@ -1374,6 +2095,19 @@ pub enum RangeType {
     ///
     /// This is the ranged version of [MoveType::ItemMatch].
     ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{Action, EditorAction};
+    /// use std::str::FromStr;
+    ///
+    /// let r = RangeType::Item;
+    /// let target = EditTarget::Range(r, true, Count::Contextual);
+    /// let act: Action = EditorAction::Edit(Specifier::Contextual, target).into();
+    /// assert_eq!(act, Action::from_str("edit -t (range -T item --inclusive true)").unwrap());
+    /// ```
+    ///
     /// ## Example: Using `range!`
     ///
     /// ```
@@ -1388,6 +2122,19 @@ pub enum RangeType {
     /// Select text quoted by [char] around the cursor.
     ///
     /// When done inclusively, the quote characters are included.
+    ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{Action, EditorAction};
+    /// use std::str::FromStr;
+    ///
+    /// let r = RangeType::Quote('"');
+    /// let target = EditTarget::Range(r, true, Count::Contextual);
+    /// let act: Action = EditorAction::Edit(Specifier::Contextual, target).into();
+    /// assert_eq!(act, Action::from_str("edit -t (range -T (quote '\"') --inclusive true)").unwrap());
+    /// ```
     ///
     /// ## Example: Using `range!`
     ///
@@ -1407,6 +2154,19 @@ pub enum RangeType {
     ///
     /// When done inclusively, the opening and closing tags are included.
     ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{Action, EditorAction};
+    /// use std::str::FromStr;
+    ///
+    /// let r = RangeType::XmlTag;
+    /// let target = EditTarget::Range(r, true, Count::Contextual);
+    /// let act: Action = EditorAction::Edit(Specifier::Contextual, target).into();
+    /// assert_eq!(act, Action::from_str("edit -t (range -T xml-tag --inclusive true)").unwrap());
+    /// ```
+    ///
     /// ## Example: Using `range!`
     ///
     /// ```
@@ -1425,6 +2185,19 @@ pub enum RangeType {
 pub enum MoveType {
     /// Move to a line at a position relative to the buffer.
     ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{Action, EditorAction};
+    /// use std::str::FromStr;
+    ///
+    /// let m = MoveType::BufferPos(MovePosition::Beginning);
+    /// let target = EditTarget::Motion(m, Count::Contextual);
+    /// let act: Action = EditorAction::Edit(Specifier::Contextual, target).into();
+    /// assert_eq!(act, Action::from_str("edit -t (motion -T (buffer-pos -p beginning))").unwrap());
+    /// ```
+    ///
     /// ## Example: Using `motion!`
     ///
     /// ```
@@ -1437,6 +2210,19 @@ pub enum MoveType {
     BufferPos(MovePosition),
 
     /// Move to the column [*n* bytes](Count) into the buffer.
+    ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{Action, EditorAction};
+    /// use std::str::FromStr;
+    ///
+    /// let m = MoveType::BufferByteOffset;
+    /// let target = EditTarget::Motion(m, Count::Contextual);
+    /// let act: Action = EditorAction::Edit(Specifier::Contextual, target).into();
+    /// assert_eq!(act, Action::from_str("edit -t (motion -T buffer-byte-offset)").unwrap());
+    /// ```
     ///
     /// ## Example: Using `motion!`
     ///
@@ -1451,6 +2237,19 @@ pub enum MoveType {
 
     /// Move to the [*n*<sup>th</sup> line](Count) in the buffer.
     ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{Action, EditorAction};
+    /// use std::str::FromStr;
+    ///
+    /// let m = MoveType::BufferLineOffset;
+    /// let target = EditTarget::Motion(m, Count::Contextual);
+    /// let act: Action = EditorAction::Edit(Specifier::Contextual, target).into();
+    /// assert_eq!(act, Action::from_str("edit -t (motion -T buffer-line-offset)").unwrap());
+    /// ```
+    ///
     /// ## Example: Using `motion!`
     ///
     /// ```
@@ -1463,6 +2262,19 @@ pub enum MoveType {
     BufferLineOffset,
 
     /// Move to the line [*n*%](Count) of the way through the buffer.
+    ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{Action, EditorAction};
+    /// use std::str::FromStr;
+    ///
+    /// let m = MoveType::BufferLinePercent;
+    /// let target = EditTarget::Motion(m, Count::Contextual);
+    /// let act: Action = EditorAction::Edit(Specifier::Contextual, target).into();
+    /// assert_eq!(act, Action::from_str("edit -t (motion -T buffer-line-percent)").unwrap());
+    /// ```
     ///
     /// ## Example: Using `motion!`
     ///
@@ -1478,6 +2290,19 @@ pub enum MoveType {
     /// Move to the previous or next column [*n* times](Count).
     ///
     /// The [bool] parameter indicates whether to cross line boundaries.
+    ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{Action, EditorAction};
+    /// use std::str::FromStr;
+    ///
+    /// let m = MoveType::Column(MoveDir1D::Next, true);
+    /// let target = EditTarget::Motion(m, Count::Contextual);
+    /// let act: Action = EditorAction::Edit(Specifier::Contextual, target).into();
+    /// assert_eq!(act, Action::from_str("edit -t (motion -T (column -d next --multiline true))").unwrap());
+    /// ```
     ///
     /// ## Example: Using `motion!`
     ///
@@ -1496,6 +2321,19 @@ pub enum MoveType {
 
     /// Move to the final non-blank character [*n* lines](Count) away in [MoveDir1D] direction.
     ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{Action, EditorAction};
+    /// use std::str::FromStr;
+    ///
+    /// let m = MoveType::FinalNonBlank(MoveDir1D::Next);
+    /// let target = EditTarget::Motion(m, Count::Contextual);
+    /// let act: Action = EditorAction::Edit(Specifier::Contextual, target).into();
+    /// assert_eq!(act, Action::from_str("edit -t (motion -T (final-non-blank -d next))").unwrap());
+    /// ```
+    ///
     /// ## Example: Using `motion!`
     ///
     /// ```
@@ -1508,6 +2346,19 @@ pub enum MoveType {
     FinalNonBlank(MoveDir1D),
 
     /// Move to the first word [*n* lines](Count) away in [MoveDir1D] direction.
+    ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{Action, EditorAction};
+    /// use std::str::FromStr;
+    ///
+    /// let m = MoveType::FirstWord(MoveDir1D::Next);
+    /// let target = EditTarget::Motion(m, Count::Contextual);
+    /// let act: Action = EditorAction::Edit(Specifier::Contextual, target).into();
+    /// assert_eq!(act, Action::from_str("edit -t (motion -T (first-word -d next))").unwrap());
+    /// ```
     ///
     /// ## Example: Using `motion!`
     ///
@@ -1524,6 +2375,19 @@ pub enum MoveType {
     ///
     /// Items are characters like `(`/`)`, `[`/`]`, `{`/`}`, and so on.
     ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{Action, EditorAction};
+    /// use std::str::FromStr;
+    ///
+    /// let m = MoveType::ItemMatch;
+    /// let target = EditTarget::Motion(m, Count::Contextual);
+    /// let act: Action = EditorAction::Edit(Specifier::Contextual, target).into();
+    /// assert_eq!(act, Action::from_str("edit -t (motion -T item-match)").unwrap());
+    /// ```
+    ///
     /// ## Example: Using `motion!`
     ///
     /// ```
@@ -1536,6 +2400,19 @@ pub enum MoveType {
     ItemMatch,
 
     /// Move [*n* lines](Count) in [MoveDir1D] direction.
+    ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{Action, EditorAction};
+    /// use std::str::FromStr;
+    ///
+    /// let m = MoveType::Line(MoveDir1D::Next);
+    /// let target = EditTarget::Motion(m, Count::Contextual);
+    /// let act: Action = EditorAction::Edit(Specifier::Contextual, target).into();
+    /// assert_eq!(act, Action::from_str("edit -t (motion -T (line -d next))").unwrap());
+    /// ```
     ///
     /// ## Example: Using `motion!`
     ///
@@ -1550,6 +2427,19 @@ pub enum MoveType {
 
     /// Move to the [*n*<sup>th</sup>](Count) column in the current line.
     ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{Action, EditorAction};
+    /// use std::str::FromStr;
+    ///
+    /// let m = MoveType::LineColumnOffset;
+    /// let target = EditTarget::Motion(m, Count::Contextual);
+    /// let act: Action = EditorAction::Edit(Specifier::Contextual, target).into();
+    /// assert_eq!(act, Action::from_str("edit -t (motion -T line-column-offset)").unwrap());
+    /// ```
+    ///
     /// ## Example: Using `motion!`
     ///
     /// ```
@@ -1562,6 +2452,19 @@ pub enum MoveType {
     LineColumnOffset,
 
     /// Move to the column [*n*%](Count) of the way through the current line.
+    ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{Action, EditorAction};
+    /// use std::str::FromStr;
+    ///
+    /// let m = MoveType::LinePercent;
+    /// let target = EditTarget::Motion(m, Count::Contextual);
+    /// let act: Action = EditorAction::Edit(Specifier::Contextual, target).into();
+    /// assert_eq!(act, Action::from_str("edit -t (motion -T line-percent)").unwrap());
+    /// ```
     ///
     /// ## Example: Using `motion!`
     ///
@@ -1576,6 +2479,19 @@ pub enum MoveType {
 
     /// Move to a column at a position relative to the current line.
     ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{Action, EditorAction};
+    /// use std::str::FromStr;
+    ///
+    /// let m = MoveType::LinePos(MovePosition::End);
+    /// let target = EditTarget::Motion(m, Count::Contextual);
+    /// let act: Action = EditorAction::Edit(Specifier::Contextual, target).into();
+    /// assert_eq!(act, Action::from_str("edit -t (motion -T (line-pos -p end))").unwrap());
+    /// ```
+    ///
     /// ## Example: Using `motion!`
     ///
     /// ```
@@ -1588,6 +2504,19 @@ pub enum MoveType {
     LinePos(MovePosition),
 
     /// Move to the beginning of a word [*n* times](Count) in [MoveDir1D] direction.
+    ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{Action, EditorAction};
+    /// use std::str::FromStr;
+    ///
+    /// let m = MoveType::WordBegin(WordStyle::Little, MoveDir1D::Previous);
+    /// let target = EditTarget::Motion(m, Count::Contextual);
+    /// let act: Action = EditorAction::Edit(Specifier::Contextual, target).into();
+    /// assert_eq!(act, Action::from_str("edit -t (motion -T (word-begin -s little -d prev))").unwrap());
+    /// ```
     ///
     /// ## Example: Using `motion!`
     ///
@@ -1603,6 +2532,19 @@ pub enum MoveType {
 
     /// Move to the end of a word [*n* times](Count) in [MoveDir1D] direction.
     ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{Action, EditorAction};
+    /// use std::str::FromStr;
+    ///
+    /// let m = MoveType::WordEnd(WordStyle::Big, MoveDir1D::Previous);
+    /// let target = EditTarget::Motion(m, Count::Contextual);
+    /// let act: Action = EditorAction::Edit(Specifier::Contextual, target).into();
+    /// assert_eq!(act, Action::from_str("edit -t (motion -T (word-end -s big -d prev))").unwrap());
+    /// ```
+    ///
     /// ## Example: Using `motion!`
     ///
     /// ```
@@ -1616,6 +2558,19 @@ pub enum MoveType {
     WordEnd(WordStyle, MoveDir1D),
 
     /// Move to the beginning of a paragraph [*n* times](Count) in [MoveDir1D] direction.
+    ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{Action, EditorAction};
+    /// use std::str::FromStr;
+    ///
+    /// let m = MoveType::ParagraphBegin(MoveDir1D::Previous);
+    /// let target = EditTarget::Motion(m, Count::Contextual);
+    /// let act: Action = EditorAction::Edit(Specifier::Contextual, target).into();
+    /// assert_eq!(act, Action::from_str("edit -t (motion -T (paragraph-begin -d prev))").unwrap());
+    /// ```
     ///
     /// ## Example: Using `motion!`
     ///
@@ -1631,6 +2586,19 @@ pub enum MoveType {
 
     /// Move to the beginning of a sentence [*n* times](Count) in [MoveDir1D] direction.
     ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{Action, EditorAction};
+    /// use std::str::FromStr;
+    ///
+    /// let m = MoveType::SentenceBegin(MoveDir1D::Previous);
+    /// let target = EditTarget::Motion(m, Count::Contextual);
+    /// let act: Action = EditorAction::Edit(Specifier::Contextual, target).into();
+    /// assert_eq!(act, Action::from_str("edit -t (motion -T (sentence-begin -d prev))").unwrap());
+    /// ```
+    ///
     /// ## Example: Using `motion!`
     ///
     /// ```
@@ -1644,6 +2612,19 @@ pub enum MoveType {
     SentenceBegin(MoveDir1D),
 
     /// Move to the beginning of a section [*n* times](Count) in [MoveDir1D] direction.
+    ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{Action, EditorAction};
+    /// use std::str::FromStr;
+    ///
+    /// let m = MoveType::SectionBegin(MoveDir1D::Previous);
+    /// let target = EditTarget::Motion(m, Count::Contextual);
+    /// let act: Action = EditorAction::Edit(Specifier::Contextual, target).into();
+    /// assert_eq!(act, Action::from_str("edit -t (motion -T (section-begin -d prev))").unwrap());
+    /// ```
     ///
     /// ## Example: Using `motion!`
     ///
@@ -1659,6 +2640,19 @@ pub enum MoveType {
 
     /// Move to the end of a section [*n* times](Count) in [MoveDir1D] direction.
     ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{Action, EditorAction};
+    /// use std::str::FromStr;
+    ///
+    /// let m = MoveType::SectionEnd(MoveDir1D::Previous);
+    /// let target = EditTarget::Motion(m, Count::Contextual);
+    /// let act: Action = EditorAction::Edit(Specifier::Contextual, target).into();
+    /// assert_eq!(act, Action::from_str("edit -t (motion -T (section-end -d prev))").unwrap());
+    /// ```
+    ///
     /// ## Example: Using `motion!`
     ///
     /// ```
@@ -1672,6 +2666,19 @@ pub enum MoveType {
     SectionEnd(MoveDir1D),
 
     /// Move to the first word of a screen line [*n* times](Count) away in [MoveDir1D] direction.
+    ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{Action, EditorAction};
+    /// use std::str::FromStr;
+    ///
+    /// let m = MoveType::ScreenFirstWord(MoveDir1D::Previous);
+    /// let target = EditTarget::Motion(m, Count::Contextual);
+    /// let act: Action = EditorAction::Edit(Specifier::Contextual, target).into();
+    /// assert_eq!(act, Action::from_str("edit -t (motion -T (screen-first-word -d prev))").unwrap());
+    /// ```
     ///
     /// ## Example: Using `motion!`
     ///
@@ -1687,6 +2694,19 @@ pub enum MoveType {
 
     /// Move [*n* screen lines](Count) in [MoveDir1D] direction.
     ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{Action, EditorAction};
+    /// use std::str::FromStr;
+    ///
+    /// let m = MoveType::ScreenLine(MoveDir1D::Previous);
+    /// let target = EditTarget::Motion(m, Count::Contextual);
+    /// let act: Action = EditorAction::Edit(Specifier::Contextual, target).into();
+    /// assert_eq!(act, Action::from_str("edit -t (motion -T (screen-line -d prev))").unwrap());
+    /// ```
+    ///
     /// ## Example: Using `motion!`
     ///
     /// ```
@@ -1701,6 +2721,19 @@ pub enum MoveType {
 
     /// Move to a column at a position relative to the current screen line.
     ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{Action, EditorAction};
+    /// use std::str::FromStr;
+    ///
+    /// let m = MoveType::ScreenLinePos(MovePosition::Beginning);
+    /// let target = EditTarget::Motion(m, Count::Contextual);
+    /// let act: Action = EditorAction::Edit(Specifier::Contextual, target).into();
+    /// assert_eq!(act, Action::from_str("edit -t (motion -T (screen-line-pos -p beginning))").unwrap());
+    /// ```
+    ///
     /// ## Example: Using `motion!`
     ///
     /// ```
@@ -1713,6 +2746,19 @@ pub enum MoveType {
     ScreenLinePos(MovePosition),
 
     /// Move to the first word of the line displayed at a position relative to the viewport.
+    ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{Action, EditorAction};
+    /// use std::str::FromStr;
+    ///
+    /// let m = MoveType::ViewportPos(MovePosition::Beginning);
+    /// let target = EditTarget::Motion(m, Count::Contextual);
+    /// let act: Action = EditorAction::Edit(Specifier::Contextual, target).into();
+    /// assert_eq!(act, Action::from_str("edit -t (motion -T (viewport-pos -p beginning))").unwrap());
+    /// ```
     ///
     /// ## Example: Using `motion!`
     ///
@@ -1731,6 +2777,20 @@ pub enum MoveType {
 pub enum MoveDir1D {
     /// Move backwards, or to a previous point.
     ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, WindowAction};
+    /// use std::str::FromStr;
+    ///
+    /// let act: Action = WindowAction::Rotate(MoveDir1D::Previous).into();
+    ///
+    /// // All of these are equivalent:
+    /// assert_eq!(act, Action::from_str("window rotate -d previous").unwrap());
+    /// assert_eq!(act, Action::from_str("window rotate -d prev").unwrap());
+    /// ```
+    ///
     /// ## Example: Using `action!`
     ///
     /// ```
@@ -1746,6 +2806,17 @@ pub enum MoveDir1D {
     Previous,
 
     /// Move forwards, or to a following point.
+    ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, WindowAction};
+    /// use std::str::FromStr;
+    ///
+    /// let act: Action = WindowAction::Rotate(MoveDir1D::Next).into();
+    /// assert_eq!(act, Action::from_str("window rotate -d next").unwrap());
+    /// ```
     ///
     /// ## Example: Using `action!`
     ///
@@ -1764,6 +2835,17 @@ pub enum MoveDir1D {
 pub enum MoveDir2D {
     /// Move leftwards.
     ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, WindowAction};
+    /// use std::str::FromStr;
+    ///
+    /// let act: Action = WindowAction::MoveSide(MoveDir2D::Left).into();
+    /// assert_eq!(act, Action::from_str("window move-side -d left").unwrap());
+    /// ```
+    ///
     /// ## Example: Using `action!`
     ///
     /// ```
@@ -1776,6 +2858,17 @@ pub enum MoveDir2D {
     Left,
 
     /// Move rightwards.
+    ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, WindowAction};
+    /// use std::str::FromStr;
+    ///
+    /// let act: Action = WindowAction::MoveSide(MoveDir2D::Right).into();
+    /// assert_eq!(act, Action::from_str("window move-side -d right").unwrap());
+    /// ```
     ///
     /// ## Example: Using `action!`
     ///
@@ -1790,6 +2883,17 @@ pub enum MoveDir2D {
 
     /// Move upwards.
     ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, WindowAction};
+    /// use std::str::FromStr;
+    ///
+    /// let act: Action = WindowAction::MoveSide(MoveDir2D::Up).into();
+    /// assert_eq!(act, Action::from_str("window move-side -d up").unwrap());
+    /// ```
+    ///
     /// ## Example: Using `action!`
     ///
     /// ```
@@ -1802,6 +2906,17 @@ pub enum MoveDir2D {
     Up,
 
     /// Move downwards.
+    ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, WindowAction};
+    /// use std::str::FromStr;
+    ///
+    /// let act: Action = WindowAction::MoveSide(MoveDir2D::Down).into();
+    /// assert_eq!(act, Action::from_str("window move-side -d down").unwrap());
+    /// ```
     ///
     /// ## Example: Using `action!`
     ///
@@ -1820,6 +2935,19 @@ pub enum MoveDir2D {
 pub enum MoveTerminus {
     /// The beginning of a range.
     ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{Action, EditorAction};
+    /// use std::str::FromStr;
+    ///
+    /// let e = EditTarget::Boundary(
+    ///     RangeType::Item, true, MoveTerminus::Beginning, Count::Contextual);
+    /// let act: Action = EditorAction::Edit(Specifier::Contextual, e).into();
+    /// assert_eq!(act, Action::from_str("edit -t (boundary -T item --inclusive true -p beginning)").unwrap());
+    /// ```
+    ///
     /// ## Example: Using `edit_target!`
     ///
     /// ```
@@ -1833,6 +2961,21 @@ pub enum MoveTerminus {
     Beginning,
 
     /// The end of a range.
+    ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{Action, EditorAction};
+    /// use std::str::FromStr;
+    ///
+    /// let e = EditTarget::Boundary(
+    ///     RangeType::Item, true, MoveTerminus::End, Count::Contextual);
+    /// let act: Action = EditorAction::Edit(Specifier::Contextual, e).into();
+    /// assert_eq!(act, Action::from_str("edit -t (boundary -T item --inclusive true -p end)").unwrap());
+    /// ```
+    ///
+    /// ## Example: Using `edit_target!`
     ///
     /// ```
     /// use editor_types::prelude::*;
@@ -1850,6 +2993,20 @@ pub enum MoveTerminus {
 pub enum MovePosition {
     /// Move to the beginning of some range.
     ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action};
+    /// use std::str::FromStr;
+    ///
+    /// // All of these are equivalent:
+    /// let scroll: Action = Action::Scroll(
+    ///     ScrollStyle::LinePos(MovePosition::Beginning, 1.into()));
+    /// assert_eq!(scroll, Action::from_str("scroll -s (line-pos -p b -c 1)").unwrap());
+    /// assert_eq!(scroll, Action::from_str("scroll -s (line-pos -p beginning -c 1)").unwrap());
+    /// ```
+    ///
     /// ## Example: Using `action!`
     ///
     /// ```
@@ -1866,6 +3023,20 @@ pub enum MovePosition {
 
     /// Move to the middle of some range.
     ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action};
+    /// use std::str::FromStr;
+    ///
+    /// // All of these are equivalent:
+    /// let scroll: Action = Action::Scroll(
+    ///     ScrollStyle::LinePos(MovePosition::Middle, 1.into()));
+    /// assert_eq!(scroll, Action::from_str("scroll -s (line-pos -p m -c 1)").unwrap());
+    /// assert_eq!(scroll, Action::from_str("scroll -s (line-pos -p middle -c 1)").unwrap());
+    /// ```
+    ///
     /// ## Example: Using `action!`
     ///
     /// ```
@@ -1881,6 +3052,20 @@ pub enum MovePosition {
     Middle,
 
     /// Move to the end of some range.
+    ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action};
+    /// use std::str::FromStr;
+    ///
+    /// // All of these are equivalent:
+    /// let scroll: Action = Action::Scroll(
+    ///     ScrollStyle::LinePos(MovePosition::End, 1.into()));
+    /// assert_eq!(scroll, Action::from_str("scroll -s (line-pos -p e -c 1)").unwrap());
+    /// assert_eq!(scroll, Action::from_str("scroll -s (line-pos -p end -c 1)").unwrap());
+    /// ```
     ///
     /// ## Example: Using `action!`
     ///
@@ -1902,6 +3087,18 @@ pub enum MovePosition {
 pub enum MoveDirMod {
     /// Use the same movement previously used.
     ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, CommandBarAction};
+    /// use std::str::FromStr;
+    ///
+    /// let dir = MoveDirMod::Same;
+    /// let search: Action = Action::from_str("search -d same").unwrap();
+    /// assert_eq!(search, Action::Search(dir, Count::Contextual));
+    /// ```
+    ///
     /// ## Example: Using `action!`
     ///
     /// ```
@@ -1916,6 +3113,18 @@ pub enum MoveDirMod {
 
     /// Use the opposite of the movement previously used.
     ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, CommandBarAction};
+    /// use std::str::FromStr;
+    ///
+    /// let dir = MoveDirMod::Flip;
+    /// let search: Action = Action::from_str("search -d flip").unwrap();
+    /// assert_eq!(search, Action::Search(dir, Count::Contextual));
+    /// ```
+    ///
     /// ## Example: Using `action!`
     ///
     /// ```
@@ -1929,6 +3138,22 @@ pub enum MoveDirMod {
     Flip,
 
     /// Ignore whatever value was previously used.
+    ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, CommandBarAction};
+    /// use std::str::FromStr;
+    ///
+    /// let dir = MoveDirMod::Exact(MoveDir1D::Previous);
+    /// let search: Action = Action::from_str("search -d (exact prev)").unwrap();
+    /// assert_eq!(search, Action::Search(dir, Count::Contextual));
+    ///
+    /// let dir = MoveDirMod::Exact(MoveDir1D::Next);
+    /// let search: Action = Action::from_str("search -d (exact next)").unwrap();
+    /// assert_eq!(search, Action::Search(dir, Count::Contextual));
+    /// ```
     ///
     /// ## Example: Using `action!`
     ///
@@ -1952,6 +3177,21 @@ pub enum MoveDirMod {
 pub enum Axis {
     /// The horizontal axis.
     ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action};
+    /// use std::str::FromStr;
+    ///
+    /// let axis = Axis::Horizontal;
+    /// let scroll: Action = Action::Scroll(ScrollStyle::CursorPos(MovePosition::End, axis));
+    ///
+    /// // All of these are equivalent:
+    /// assert_eq!(scroll, Action::from_str("scroll -s (cursor-pos -p end -x horizontal)").unwrap());
+    /// assert_eq!(scroll, Action::from_str("scroll -s (cursor-pos -p end -x h)").unwrap());
+    /// ```
+    ///
     /// ## Example: Using `action!`
     ///
     /// ```
@@ -1969,6 +3209,21 @@ pub enum Axis {
     Horizontal,
 
     /// The vertical axis.
+    ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action};
+    /// use std::str::FromStr;
+    ///
+    /// let axis = Axis::Vertical;
+    /// let scroll: Action = Action::Scroll(ScrollStyle::CursorPos(MovePosition::End, axis));
+    ///
+    /// // All of these are equivalent:
+    /// assert_eq!(scroll, Action::from_str("scroll -s (cursor-pos -p end -x vertical)").unwrap());
+    /// assert_eq!(scroll, Action::from_str("scroll -s (cursor-pos -p end -x v)").unwrap());
+    /// ```
     ///
     /// ## Example: Using `action!`
     ///
@@ -2002,6 +3257,18 @@ impl Axis {
 pub enum ScrollSize {
     /// Scroll by number of character cells.
     ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action};
+    /// use std::str::FromStr;
+    ///
+    /// let scroll: Action = Action::from_str("scroll -s (dir2d -d up -z cell)").unwrap();
+    /// let style = ScrollStyle::Direction2D(MoveDir2D::Up, ScrollSize::Cell, Count::Contextual);
+    /// assert_eq!(scroll, Action::Scroll(style));
+    /// ```
+    ///
     /// ## Example: Using `action!`
     ///
     /// ```
@@ -2016,6 +3283,18 @@ pub enum ScrollSize {
 
     /// Scroll by [*n*](Count) times half the page size.
     ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action};
+    /// use std::str::FromStr;
+    ///
+    /// let scroll: Action = Action::from_str("scroll -s (dir2d -d up -z half-page)").unwrap();
+    /// let style = ScrollStyle::Direction2D(MoveDir2D::Up, ScrollSize::HalfPage, Count::Contextual);
+    /// assert_eq!(scroll, Action::Scroll(style));
+    /// ```
+    ///
     /// ## Example: Using `action!`
     ///
     /// ```
@@ -2029,6 +3308,18 @@ pub enum ScrollSize {
     HalfPage,
 
     /// Scroll by [*n*](Count) times the page size.
+    ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action};
+    /// use std::str::FromStr;
+    ///
+    /// let scroll: Action = Action::from_str("scroll -s (dir2d -d up -z page)").unwrap();
+    /// let style = ScrollStyle::Direction2D(MoveDir2D::Up, ScrollSize::Page, Count::Contextual);
+    /// assert_eq!(scroll, Action::Scroll(style));
+    /// ```
     ///
     /// ## Example: Using `action!`
     ///
@@ -2048,6 +3339,18 @@ pub enum ScrollSize {
 pub enum ScrollStyle {
     /// Scroll the viewport in [MoveDir2D] direction by [ScrollSize] units, [*n* times](Count).
     ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action};
+    /// use std::str::FromStr;
+    ///
+    /// let scroll: Action = Action::from_str("scroll -s (dir2d -d up -z half-page)").unwrap();
+    /// let style = ScrollStyle::Direction2D(MoveDir2D::Up, ScrollSize::HalfPage, Count::Contextual);
+    /// assert_eq!(scroll, Action::Scroll(style));
+    /// ```
+    ///
     /// ## Example: Using `action!`
     ///
     /// ```
@@ -2065,6 +3368,18 @@ pub enum ScrollStyle {
 
     /// Scroll the viewport so that the cursor is placed at [MovePosition] relative to [Axis].
     ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action};
+    /// use std::str::FromStr;
+    ///
+    /// let scroll: Action = Action::from_str("scroll -s (cursor-pos -p end -x vertical)").unwrap();
+    /// let style = ScrollStyle::CursorPos(MovePosition::End, Axis::Vertical);
+    /// assert_eq!(scroll, Action::Scroll(style));
+    /// ```
+    ///
     /// ## Example: Using `action!`
     ///
     /// ```
@@ -2081,6 +3396,18 @@ pub enum ScrollStyle {
     CursorPos(MovePosition, Axis),
 
     /// Scroll the viewport so that the [*n*<sup>th</sup> line](Count) is at [MovePosition] on the screen.
+    ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action};
+    /// use std::str::FromStr;
+    ///
+    /// let scroll: Action = Action::from_str("scroll -s (line-pos -p end -c 1)").unwrap();
+    /// let style = ScrollStyle::LinePos(MovePosition::End, 1.into());
+    /// assert_eq!(scroll, Action::Scroll(style));
+    /// ```
     ///
     /// ## Example: Using `action!`
     ///
@@ -2104,6 +3431,18 @@ pub enum ScrollStyle {
 pub enum SelectionCursorChange {
     /// Place the cursor in the first line of the selection, in the first column of the selection.
     ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, SelectionAction};
+    /// use std::str::FromStr;
+    ///
+    /// let change = SelectionCursorChange::Beginning;
+    /// let act: Action = Action::from_str("selection cursor-set -f beginning").unwrap();
+    /// assert_eq!(act, SelectionAction::CursorSet(change).into());
+    /// ```
+    ///
     /// ## Example: Using `action!`
     ///
     /// ```
@@ -2118,6 +3457,18 @@ pub enum SelectionCursorChange {
 
     /// Place the cursor in the last line of the selection, in the last column of the selection.
     ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, SelectionAction};
+    /// use std::str::FromStr;
+    ///
+    /// let change = SelectionCursorChange::End;
+    /// let act: Action = Action::from_str("selection cursor-set -f end").unwrap();
+    /// assert_eq!(act, SelectionAction::CursorSet(change).into());
+    /// ```
+    ///
     /// ## Example: Using `action!`
     ///
     /// ```
@@ -2131,6 +3482,18 @@ pub enum SelectionCursorChange {
     End,
 
     /// Swap the cursor with the anchor of the selection.
+    ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, SelectionAction};
+    /// use std::str::FromStr;
+    ///
+    /// let change = SelectionCursorChange::SwapAnchor;
+    /// let act: Action = Action::from_str("selection cursor-set -f swap-anchor").unwrap();
+    /// assert_eq!(act, SelectionAction::CursorSet(change).into());
+    /// ```
     ///
     /// ## Example: Using `action!`
     ///
@@ -2156,6 +3519,18 @@ pub enum SelectionCursorChange {
     /// * When the selection is [CharWise](TargetShape::CharWise), the
     ///   other side of the selection is the anchor.
     ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, SelectionAction};
+    /// use std::str::FromStr;
+    ///
+    /// let change = SelectionCursorChange::SwapSide;
+    /// let act: Action = Action::from_str("selection cursor-set -f swap-side").unwrap();
+    /// assert_eq!(act, SelectionAction::CursorSet(change).into());
+    /// ```
+    ///
     /// ## Example: Using `action!`
     ///
     /// ```
@@ -2174,6 +3549,18 @@ pub enum SelectionCursorChange {
 pub enum FocusChange {
     /// Target the currently focused UI element.
     ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, TabAction};
+    /// use std::str::FromStr;
+    ///
+    /// let fc = FocusChange::Current;
+    /// let act: Action = TabAction::Focus(fc).into();
+    /// assert_eq!(act, Action::from_str("tab focus -f current").unwrap());
+    /// ```
+    ///
     /// ## Example: Using `action!`
     ///
     /// ```
@@ -2191,6 +3578,18 @@ pub enum FocusChange {
     /// If the specified *n* is greater than the number of elements, and [bool] is `true`, target
     /// the last element. Otherwise, do nothing.
     ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, TabAction};
+    /// use std::str::FromStr;
+    ///
+    /// let fc = FocusChange::Offset(2.into(), false);
+    /// let act: Action = TabAction::Focus(fc).into();
+    /// assert_eq!(act, Action::from_str("tab focus -f (offset -c 2 -l false)").unwrap());
+    /// ```
+    ///
     /// ## Example: Using `action!`
     ///
     /// ```
@@ -2204,6 +3603,20 @@ pub enum FocusChange {
     Offset(Count, bool),
 
     /// Target the element at [MovePosition] in the element list.
+    ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, TabAction};
+    /// use std::str::FromStr;
+    ///
+    /// // All of these are equivalent:
+    /// let fc = FocusChange::Position(MovePosition::End);
+    /// let act: Action = TabAction::Focus(fc).into();
+    /// assert_eq!(act, Action::from_str("tab focus -f (pos -p end)").unwrap());
+    /// assert_eq!(act, Action::from_str("tab focus -f (position -p end)").unwrap());
+    /// ```
     ///
     /// ## Example: Using `action!`
     ///
@@ -2223,6 +3636,21 @@ pub enum FocusChange {
     Position(MovePosition),
 
     /// Target the previously focused element.
+    ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, TabAction};
+    /// use std::str::FromStr;
+    ///
+    /// // All of these are equivalent:
+    /// let fc = FocusChange::PreviouslyFocused;
+    /// let act: Action = TabAction::Focus(fc).into();
+    /// assert_eq!(act, Action::from_str("tab focus -f previously-focused").unwrap());
+    /// assert_eq!(act, Action::from_str("tab focus -f previous").unwrap());
+    /// assert_eq!(act, Action::from_str("tab focus -f prev").unwrap());
+    /// ```
     ///
     /// ## Example: Using `action!`
     ///
@@ -2244,6 +3672,19 @@ pub enum FocusChange {
     /// If moving [*n* times](Count) would go past the first or last element, and [bool] is `true`, wrap
     /// around to the other end of the element list and continue from there. Otherwise, do nothing.
     ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, TabAction};
+    /// use std::str::FromStr;
+    ///
+    /// // All of these are equivalent:
+    /// let fc = FocusChange::Direction1D(MoveDir1D::Next, 4.into(), true);
+    /// let act: Action = TabAction::Focus(fc).into();
+    /// assert_eq!(act, Action::from_str("tab focus -f (dir1d -d next -c 4 -w true)").unwrap());
+    /// ```
+    ///
     /// ## Example: Using `action!`
     ///
     /// ```
@@ -2258,6 +3699,19 @@ pub enum FocusChange {
     Direction1D(MoveDir1D, Count, bool),
 
     /// Target the element [*n* times](Count) away in [MoveDir2D] direction.
+    ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, TabAction};
+    /// use std::str::FromStr;
+    ///
+    /// // All of these are equivalent:
+    /// let fc = FocusChange::Direction2D(MoveDir2D::Up, 3.into());
+    /// let act: Action = TabAction::Focus(fc).into();
+    /// assert_eq!(act, Action::from_str("tab focus -f (dir2d -d up -c 3)").unwrap());
+    /// ```
     ///
     /// ## Example: Using `action!`
     ///
@@ -2278,6 +3732,21 @@ pub enum FocusChange {
 pub enum SizeChange<I = Count> {
     /// Make the window and others along the specified axis the same size.
     ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, WindowAction};
+    /// use std::str::FromStr;
+    ///
+    /// let size = SizeChange::Equal;
+    /// let act: Action = WindowAction::Resize(FocusChange::Current, Axis::Vertical, size).into();
+    ///
+    /// // All of these are equivalent:
+    /// assert_eq!(act, Action::from_str("window resize -f current -x vertical -z equal").unwrap());
+    /// assert_eq!(act, Action::from_str("window resize -f current -x vertical -z eq").unwrap());
+    /// ```
+    ///
     /// ## Example: Using `action!`
     ///
     /// ```
@@ -2295,6 +3764,18 @@ pub enum SizeChange<I = Count> {
 
     /// Make the window exactly a specific size along the axis.
     ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, WindowAction};
+    /// use std::str::FromStr;
+    ///
+    /// let size = SizeChange::Exact(5.into());
+    /// let act: Action = WindowAction::Resize(FocusChange::Current, Axis::Vertical, size).into();
+    /// assert_eq!(act, Action::from_str("window resize -f current -x vertical -z (exact 5)").unwrap());
+    /// ```
+    ///
     /// ## Example: Using `action!`
     ///
     /// ```
@@ -2308,6 +3789,20 @@ pub enum SizeChange<I = Count> {
     Exact(I),
 
     /// Decrease the size of the window by a specific amount.
+    ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, WindowAction};
+    /// use std::str::FromStr;
+    ///
+    /// // All of these are equivalent:
+    /// let size = SizeChange::Decrease(5.into());
+    /// let act: Action = WindowAction::Resize(FocusChange::Current, Axis::Vertical, size).into();
+    /// assert_eq!(act, Action::from_str("window resize -f current -x vertical -z (decrease 5)").unwrap());
+    /// assert_eq!(act, Action::from_str("window resize -f current -x vertical -z (dec 5)").unwrap());
+    /// ```
     ///
     /// ## Example: Using `action!`
     ///
@@ -2324,6 +3819,20 @@ pub enum SizeChange<I = Count> {
     Decrease(I),
 
     /// Increase the size of the window by a specific amount.
+    ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, WindowAction};
+    /// use std::str::FromStr;
+    ///
+    /// // All of these are equivalent:
+    /// let size = SizeChange::Increase(5.into());
+    /// let act: Action = WindowAction::Resize(FocusChange::Current, Axis::Vertical, size).into();
+    /// assert_eq!(act, Action::from_str("window resize -f current -x vertical -z (increase 5)").unwrap());
+    /// assert_eq!(act, Action::from_str("window resize -f current -x vertical -z (inc 5)").unwrap());
+    /// ```
     ///
     /// ## Example: Using `action!`
     ///
@@ -2345,6 +3854,19 @@ pub enum SizeChange<I = Count> {
 pub enum IndentChange<I = Count> {
     /// Automatically determine indentation level.
     ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, EditAction, EditorAction};
+    /// use std::str::FromStr;
+    ///
+    /// let change = IndentChange::Auto;
+    /// let act: Action = EditorAction::Edit(
+    ///     EditAction::Indent(change.clone()).into(), EditTarget::Selection).into();
+    /// assert_eq!(act, Action::from_str("edit -t selection -o (exact indent -s auto)").unwrap());
+    /// ```
+    ///
     /// ## Example: Using `action!`
     ///
     /// ```
@@ -2359,6 +3881,20 @@ pub enum IndentChange<I = Count> {
     Auto,
 
     /// Decrease the indentation level of indentation.
+    ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, EditAction, EditorAction};
+    /// use std::str::FromStr;
+    ///
+    /// let change = IndentChange::Decrease(Count::Contextual);
+    /// let act: Action = EditorAction::Edit(
+    ///     EditAction::Indent(change.clone()).into(), EditTarget::Selection).into();
+    /// assert_eq!(act, Action::from_str("edit -t selection -o (exact indent -s decrease)").unwrap());
+    /// assert_eq!(act, Action::from_str("edit -t selection -o (exact indent -s (decrease -c ctx))").unwrap());
+    /// ```
     ///
     /// ## Example: Using `action!`
     ///
@@ -2375,6 +3911,20 @@ pub enum IndentChange<I = Count> {
     Decrease(I),
 
     /// Increase the indentation level of indentation.
+    ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, EditAction, EditorAction};
+    /// use std::str::FromStr;
+    ///
+    /// let change = IndentChange::Increase(Count::Contextual);
+    /// let act: Action = EditorAction::Edit(
+    ///     EditAction::Indent(change.clone()).into(), EditTarget::Selection).into();
+    /// assert_eq!(act, Action::from_str("edit -t selection -o (exact indent -s increase)").unwrap());
+    /// assert_eq!(act, Action::from_str("edit -t selection -o (exact indent -s (increase -c ctx))").unwrap());
+    /// ```
     ///
     /// ## Example: Using `action!`
     ///
@@ -2396,6 +3946,20 @@ pub enum IndentChange<I = Count> {
 pub enum NumberChange {
     /// Decrease the first number in the targeted text by [*n*](Count).
     ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, EditAction, EditorAction};
+    /// use std::str::FromStr;
+    ///
+    /// let change = NumberChange::Decrease(Count::Contextual);
+    /// let act: Action = EditorAction::Edit(
+    ///     EditAction::ChangeNumber(change.clone(), false).into(), EditTarget::Selection).into();
+    /// assert_eq!(act, Action::from_str("edit -t selection -o (exact change-num -s decrease --multiply false)").unwrap());
+    /// assert_eq!(act, Action::from_str("edit -t selection -o (exact change-num -s (decrease -c ctx) --multiply false)").unwrap());
+    /// ```
+    ///
     /// ## Example: Using `action!`
     ///
     /// ```
@@ -2411,6 +3975,20 @@ pub enum NumberChange {
     Decrease(Count),
 
     /// Increase the first number in the targeted text by [*n*](Count).
+    ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, EditAction, EditorAction};
+    /// use std::str::FromStr;
+    ///
+    /// let change = NumberChange::Increase(Count::Contextual);
+    /// let act: Action = EditorAction::Edit(
+    ///     EditAction::ChangeNumber(change.clone(), false).into(), EditTarget::Selection).into();
+    /// assert_eq!(act, Action::from_str("edit -t selection -o (exact change-num -s increase --multiply false)").unwrap());
+    /// assert_eq!(act, Action::from_str("edit -t selection -o (exact change-num -s (increase -c ctx) --multiply false)").unwrap());
+    /// ```
     ///
     /// ## Example: Using `action!`
     ///
@@ -2432,6 +4010,21 @@ pub enum NumberChange {
 pub enum KeywordTarget {
     /// Lookup the [word][WordStyle] surrounding the cursor.
     ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action};
+    /// use std::str::FromStr;
+    ///
+    /// let word = WordStyle::Little;
+    /// let target = KeywordTarget::Word(word.clone());
+    /// let act: Action = Action::KeywordLookup(target.clone());
+    ///
+    /// // All of these are equivalent:
+    /// assert_eq!(act, Action::from_str("keyword-lookup -t (word little)").unwrap());
+    /// ```
+    ///
     /// ## Example: Using `action!`
     ///
     /// ```
@@ -2451,6 +4044,20 @@ pub enum KeywordTarget {
     Word(WordStyle),
 
     /// Lookup the currently selected text.
+    ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action};
+    /// use std::str::FromStr;
+    ///
+    /// let target = KeywordTarget::Selection;
+    /// let act: Action = Action::KeywordLookup(target.clone());
+    ///
+    /// // All of these are equivalent:
+    /// assert_eq!(act, Action::from_str("keyword-lookup -t selection").unwrap());
+    /// ```
     ///
     /// ## Example: Using `action!`
     ///
@@ -2482,6 +4089,18 @@ impl From<WordStyle> for KeywordTarget {
 pub enum OpenTarget<W: ApplicationWindowId> {
     /// An alternate window. This is usually the previous window.
     ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, WindowAction};
+    /// use std::str::FromStr;
+    ///
+    /// let target = OpenTarget::Alternate;
+    /// let switch: Action = WindowAction::Switch(target).into();
+    /// assert_eq!(switch, Action::from_str("window switch -t alternate").unwrap());
+    /// ```
+    ///
     /// ## Example: Using `action!`
     ///
     /// ```
@@ -2499,6 +4118,18 @@ pub enum OpenTarget<W: ApplicationWindowId> {
 
     /// Use the current window as the target.
     ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, WindowAction};
+    /// use std::str::FromStr;
+    ///
+    /// let target = OpenTarget::Current;
+    /// let switch: Action = WindowAction::Switch(target).into();
+    /// assert_eq!(switch, Action::from_str("window switch -t current").unwrap());
+    /// ```
+    ///
     /// ## Example: Using `action!`
     ///
     /// ```
@@ -2512,6 +4143,18 @@ pub enum OpenTarget<W: ApplicationWindowId> {
     Current,
 
     /// Use the [word](WordStyle) under the cursor as a target name.
+    ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, WindowAction};
+    /// use std::str::FromStr;
+    ///
+    /// let target = OpenTarget::Cursor(WordStyle::FileName);
+    /// let switch: Action = WindowAction::Switch(target).into();
+    /// assert_eq!(switch, Action::from_str("window switch -t (cursor -s filename)").unwrap());
+    /// ```
     ///
     /// ## Example: Using `action!`
     ///
@@ -2530,6 +4173,18 @@ pub enum OpenTarget<W: ApplicationWindowId> {
 
     /// An absolute position in a list of targets.
     ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, WindowAction};
+    /// use std::str::FromStr;
+    ///
+    /// let target = OpenTarget::List(2.into());
+    /// let switch: Action = WindowAction::Switch(target).into();
+    /// assert_eq!(switch, Action::from_str("window switch -t (list -c 2)").unwrap());
+    /// ```
+    ///
     /// ## Example: Using `action!`
     ///
     /// ```
@@ -2543,6 +4198,18 @@ pub enum OpenTarget<W: ApplicationWindowId> {
     List(Count),
 
     /// A named target (e.g., a filename to open).
+    ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, WindowAction};
+    /// use std::str::FromStr;
+    ///
+    /// let target = OpenTarget::Name("foo bar".into());
+    /// let switch: Action = WindowAction::Switch(target).into();
+    /// assert_eq!(switch, Action::from_str(r#"window switch -t (name -i "foo bar")"#).unwrap());
+    /// ```
     ///
     /// ## Example: Using `action!`
     ///
@@ -2558,6 +4225,18 @@ pub enum OpenTarget<W: ApplicationWindowId> {
 
     /// A window offset from the current one.
     ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, WindowAction};
+    /// use std::str::FromStr;
+    ///
+    /// let target = OpenTarget::Offset(MoveDir1D::Next, 5.into());
+    /// let switch: Action = WindowAction::Switch(target).into();
+    /// assert_eq!(switch, Action::from_str("window switch -t (offset -d next -c 5)").unwrap());
+    /// ```
+    ///
     /// ## Example: Using `action!`
     ///
     /// ```
@@ -2572,6 +4251,18 @@ pub enum OpenTarget<W: ApplicationWindowId> {
 
     /// Use the selected text as a target name.
     ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, WindowAction};
+    /// use std::str::FromStr;
+    ///
+    /// let target = OpenTarget::Selection;
+    /// let switch: Action = WindowAction::Switch(target).into();
+    /// assert_eq!(switch, Action::from_str("window switch -t selection").unwrap());
+    /// ```
+    ///
     /// ## Example: Using `action!`
     ///
     /// ```
@@ -2585,6 +4276,18 @@ pub enum OpenTarget<W: ApplicationWindowId> {
     Selection,
 
     /// A default window to open when no target has been specified.
+    ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, WindowAction};
+    /// use std::str::FromStr;
+    ///
+    /// let target = OpenTarget::Unnamed;
+    /// let switch: Action = WindowAction::Switch(target).into();
+    /// assert_eq!(switch, Action::from_str("window switch -t unnamed").unwrap());
+    /// ```
     ///
     /// ## Example: Using `action!`
     ///
@@ -2604,6 +4307,19 @@ pub enum OpenTarget<W: ApplicationWindowId> {
 pub enum TabTarget {
     /// Close the tab targeted by FocusChange.
     ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, TabAction};
+    /// use std::str::FromStr;
+    ///
+    /// let fc = TabTarget::Single(FocusChange::Current);
+    /// let flags = CloseFlags::NONE;
+    /// let act: Action = TabAction::Close(fc, flags).into();
+    /// assert_eq!(act, Action::from_str("tab close -t (single current) -F none").unwrap());
+    /// ```
+    ///
     /// ## Example: Using `action!`
     ///
     /// ```
@@ -2619,6 +4335,19 @@ pub enum TabTarget {
 
     /// Close all tab *except* for the one targeted by FocusChange.
     ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, TabAction};
+    /// use std::str::FromStr;
+    ///
+    /// let fc = TabTarget::AllBut(FocusChange::Current);
+    /// let flags = CloseFlags::NONE;
+    /// let act: Action = TabAction::Close(fc, flags).into();
+    /// assert_eq!(act, Action::from_str("tab close -t (all-but current) -F none").unwrap());
+    /// ```
+    ///
     /// ## Example: Using `action!`
     ///
     /// ```
@@ -2633,6 +4362,19 @@ pub enum TabTarget {
     AllBut(FocusChange),
 
     /// Close all tabs.
+    ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, TabAction};
+    /// use std::str::FromStr;
+    ///
+    /// let fc = TabTarget::All;
+    /// let flags = CloseFlags::NONE;
+    /// let act: Action = TabAction::Close(fc, flags).into();
+    /// assert_eq!(act, Action::from_str("tab close -t all -F none").unwrap());
+    /// ```
     ///
     /// ## Example: Using `action!`
     ///
@@ -2653,6 +4395,19 @@ pub enum TabTarget {
 pub enum WindowTarget {
     /// Close the window targeted by [FocusChange].
     ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, WindowAction};
+    /// use std::str::FromStr;
+    ///
+    /// let fc = WindowTarget::Single(FocusChange::Current);
+    /// let flags = CloseFlags::NONE;
+    /// let act: Action = WindowAction::Close(fc, flags).into();
+    /// assert_eq!(act, Action::from_str("window close -t (single current) -F none").unwrap());
+    /// ```
+    ///
     /// ## Example: Using `action!`
     ///
     /// ```
@@ -2668,6 +4423,19 @@ pub enum WindowTarget {
 
     /// Close all windows *except* for the one targeted by [FocusChange].
     ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, WindowAction};
+    /// use std::str::FromStr;
+    ///
+    /// let fc = WindowTarget::AllBut(FocusChange::Current);
+    /// let flags = CloseFlags::NONE;
+    /// let act: Action = WindowAction::Close(fc, flags).into();
+    /// assert_eq!(act, Action::from_str("window close -t (all-but current) -F none").unwrap());
+    /// ```
+    ///
     /// ## Example: Using `action!`
     ///
     /// ```
@@ -2682,6 +4450,19 @@ pub enum WindowTarget {
     AllBut(FocusChange),
 
     /// Close all windows.
+    ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, WindowAction};
+    /// use std::str::FromStr;
+    ///
+    /// let fc = WindowTarget::All;
+    /// let flags = CloseFlags::NONE;
+    /// let act: Action = WindowAction::Close(fc, flags).into();
+    /// assert_eq!(act, Action::from_str("window close -t all -F none").unwrap());
+    /// ```
     ///
     /// ## Example: Using `action!`
     ///
@@ -2702,6 +4483,17 @@ pub enum WindowTarget {
 pub enum CursorCloseTarget {
     /// Target the cursor group's leader.
     ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, CursorAction};
+    /// use std::str::FromStr;
+    ///
+    /// let close: Action = Action::from_str("cursor close -t leader").unwrap();
+    /// assert_eq!(close, CursorAction::Close(CursorCloseTarget::Leader).into());
+    /// ```
+    ///
     /// ## Example: Using `action!`
     ///
     /// ```
@@ -2714,6 +4506,17 @@ pub enum CursorCloseTarget {
     Leader,
 
     /// Target the cursor group's followers.
+    ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, CursorAction};
+    /// use std::str::FromStr;
+    ///
+    /// let close: Action = Action::from_str("cursor close -t followers").unwrap();
+    /// assert_eq!(close, CursorAction::Close(CursorCloseTarget::Followers).into());
+    /// ```
     ///
     /// ## Example: Using `action!`
     ///
@@ -2732,6 +4535,18 @@ pub enum CursorCloseTarget {
 pub enum CursorGroupCombineStyle {
     /// Use all of the selections from both groups.
     ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, CursorAction};
+    /// use std::str::FromStr;
+    ///
+    /// let combine = CursorGroupCombineStyle::Append;
+    /// let restore: Action = Action::from_str("cursor restore -s append").unwrap();
+    /// assert_eq!(restore, CursorAction::Restore(combine).into());
+    /// ```
+    ///
     /// ## Example: Using `action!`
     ///
     /// ```
@@ -2747,6 +4562,18 @@ pub enum CursorGroupCombineStyle {
     /// Merge each member with the matching member in the other group.
     ///
     /// This fails if the groups have a different number of members.
+    ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, CursorAction};
+    /// use std::str::FromStr;
+    ///
+    /// let combine = CursorGroupCombineStyle::Merge(CursorMergeStyle::Union);
+    /// let restore: Action = Action::from_str("cursor restore -s (merge union)").unwrap();
+    /// assert_eq!(restore, CursorAction::Restore(combine).into());
+    /// ```
     ///
     /// ## Example: Using `action!`
     ///
@@ -2764,6 +4591,18 @@ pub enum CursorGroupCombineStyle {
     Merge(CursorMergeStyle),
 
     /// Use only the selections in the newer group.
+    ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, CursorAction};
+    /// use std::str::FromStr;
+    ///
+    /// let combine = CursorGroupCombineStyle::Replace;
+    /// let restore: Action = Action::from_str("cursor restore -s replace").unwrap();
+    /// assert_eq!(restore, CursorAction::Restore(combine).into());
+    /// ```
     ///
     /// ## Example: Using `action!`
     ///
@@ -2789,6 +4628,18 @@ impl From<CursorMergeStyle> for CursorGroupCombineStyle {
 pub enum CursorMergeStyle {
     /// Merge the two selections to form one long selection.
     ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, CursorAction};
+    /// use std::str::FromStr;
+    ///
+    /// let merge = CursorMergeStyle::Union;
+    /// let save: Action = Action::from_str("cursor save -s (merge union)").unwrap();
+    /// assert_eq!(save, CursorAction::Save(CursorGroupCombineStyle::Merge(merge)).into());
+    /// ```
+    ///
     /// ## Example: Using `action!`
     ///
     /// ```
@@ -2802,6 +4653,18 @@ pub enum CursorMergeStyle {
     Union,
 
     /// Use the intersecting region of the two selections.
+    ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, CursorAction};
+    /// use std::str::FromStr;
+    ///
+    /// let merge = CursorMergeStyle::Intersect;
+    /// let save: Action = Action::from_str("cursor save -s (merge intersect)").unwrap();
+    /// assert_eq!(save, CursorAction::Save(CursorGroupCombineStyle::Merge(merge)).into());
+    /// ```
     ///
     /// ## Example: Using `action!`
     ///
@@ -2817,6 +4680,18 @@ pub enum CursorMergeStyle {
 
     /// Select the one where the cursor is furthest in [MoveDir1D] direction.
     ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, CursorAction};
+    /// use std::str::FromStr;
+    ///
+    /// let merge = CursorMergeStyle::SelectCursor(MoveDir1D::Previous);
+    /// let save: Action = Action::from_str("cursor save -s (merge select-cursor -d prev)").unwrap();
+    /// assert_eq!(save, CursorAction::Save(CursorGroupCombineStyle::Merge(merge)).into());
+    /// ```
+    ///
     /// ## Example: Using `action!`
     ///
     /// ```
@@ -2831,6 +4706,18 @@ pub enum CursorMergeStyle {
 
     /// Select the shortest selection.
     ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, CursorAction};
+    /// use std::str::FromStr;
+    ///
+    /// let merge = CursorMergeStyle::SelectShort;
+    /// let save: Action = Action::from_str("cursor save -s (merge select-short)").unwrap();
+    /// assert_eq!(save, CursorAction::Save(CursorGroupCombineStyle::Merge(merge)).into());
+    /// ```
+    ///
     /// ## Example: Using `action!`
     ///
     /// ```
@@ -2844,6 +4731,18 @@ pub enum CursorMergeStyle {
     SelectShort,
 
     /// Select the longest selection.
+    ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, CursorAction};
+    /// use std::str::FromStr;
+    ///
+    /// let merge = CursorMergeStyle::SelectLong;
+    /// let save: Action = Action::from_str("cursor save -s (merge select-long)").unwrap();
+    /// assert_eq!(save, CursorAction::Save(CursorGroupCombineStyle::Merge(merge)).into());
+    /// ```
     ///
     /// ## Example: Using `action!`
     ///
@@ -2882,6 +4781,18 @@ pub enum Mark {
     ///
     /// For example, `'"` in Vim.
     ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, EditorAction};
+    /// use std::str::FromStr;
+    ///
+    /// let act: Action = Action::from_str("mark -m (exact buffer-last-exited)").unwrap();
+    /// let exp: Action = EditorAction::Mark(Mark::BufferLastExited.into()).into();
+    /// assert_eq!(act, exp);
+    /// ```
+    ///
     /// ## Example: Using `action!`
     ///
     /// ```
@@ -2897,6 +4808,18 @@ pub enum Mark {
     /// A user-named position in the current buffer.
     ///
     /// For example, `'[a-z]` in Vim.
+    ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, EditorAction};
+    /// use std::str::FromStr;
+    ///
+    /// let act: Action = Action::from_str("mark -m (exact buffer-named 'c')").unwrap();
+    /// let exp: Action = EditorAction::Mark(Mark::BufferNamed('c').into()).into();
+    /// assert_eq!(act, exp);
+    /// ```
     ///
     /// ## Example: Using `action!`
     ///
@@ -2917,6 +4840,18 @@ pub enum Mark {
     ///
     /// For example, `'[0-9]` in Vim.
     ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, EditorAction};
+    /// use std::str::FromStr;
+    ///
+    /// let act: Action = Action::from_str("mark -m (exact global-last-exited 1)").unwrap();
+    /// let exp: Action = EditorAction::Mark(Mark::GlobalLastExited(1).into()).into();
+    /// assert_eq!(act, exp);
+    /// ```
+    ///
     /// ## Example: Using `action!`
     ///
     /// ```
@@ -2932,6 +4867,18 @@ pub enum Mark {
     /// A global, user-named position in some buffer known to the application.
     ///
     /// For example, `'[A-Z]` in Vim.
+    ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, EditorAction};
+    /// use std::str::FromStr;
+    ///
+    /// let act: Action = Action::from_str("mark -m (exact global-named 'C')").unwrap();
+    /// let exp: Action = EditorAction::Mark(Mark::GlobalNamed('C').into()).into();
+    /// assert_eq!(act, exp);
+    /// ```
     ///
     /// ## Example: Using `action!`
     ///
@@ -2949,6 +4896,18 @@ pub enum Mark {
     ///
     /// For example, `'.` in Vim.
     ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, EditorAction};
+    /// use std::str::FromStr;
+    ///
+    /// let act: Action = Action::from_str("mark -m (exact last-changed)").unwrap();
+    /// let exp: Action = EditorAction::Mark(Mark::LastChanged.into()).into();
+    /// assert_eq!(act, exp);
+    /// ```
+    ///
     /// ## Example: Using `action!`
     ///
     /// ```
@@ -2964,6 +4923,18 @@ pub enum Mark {
     /// The cursor position where the last text was inserted.
     ///
     /// For example, `'^` in Vim.
+    ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, EditorAction};
+    /// use std::str::FromStr;
+    ///
+    /// let act: Action = Action::from_str("mark -m (exact last-inserted)").unwrap();
+    /// let exp: Action = EditorAction::Mark(Mark::LastInserted.into()).into();
+    /// assert_eq!(act, exp);
+    /// ```
     ///
     /// ## Example: Using `action!`
     ///
@@ -2981,6 +4952,18 @@ pub enum Mark {
     ///
     /// For example, `''` and `` '` `` in Vim.
     ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, EditorAction};
+    /// use std::str::FromStr;
+    ///
+    /// let act: Action = Action::from_str("mark -m (exact last-jump)").unwrap();
+    /// let exp: Action = EditorAction::Mark(Mark::LastJump.into()).into();
+    /// assert_eq!(act, exp);
+    /// ```
+    ///
     /// ## Example: Using `action!`
     ///
     /// ```
@@ -2996,6 +4979,18 @@ pub enum Mark {
     /// The position of the beginning of the last text selection.
     ///
     /// For example, `'<` in Vim.
+    ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, EditorAction};
+    /// use std::str::FromStr;
+    ///
+    /// let act: Action = Action::from_str("mark -m (exact visual-begin)").unwrap();
+    /// let exp: Action = EditorAction::Mark(Mark::VisualBegin.into()).into();
+    /// assert_eq!(act, exp);
+    /// ```
     ///
     /// ## Example: Using `action!`
     ///
@@ -3013,6 +5008,18 @@ pub enum Mark {
     ///
     /// For example, `'>` in Vim.
     ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, EditorAction};
+    /// use std::str::FromStr;
+    ///
+    /// let act: Action = Action::from_str("mark -m (exact visual-end)").unwrap();
+    /// let exp: Action = EditorAction::Mark(Mark::VisualEnd.into()).into();
+    /// assert_eq!(act, exp);
+    /// ```
+    ///
     /// ## Example: Using `action!`
     ///
     /// ```
@@ -3029,6 +5036,18 @@ pub enum Mark {
     ///
     /// For example, `'[` in Vim.
     ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, EditorAction};
+    /// use std::str::FromStr;
+    ///
+    /// let act: Action = Action::from_str("mark -m (exact last-yanked-begin)").unwrap();
+    /// let exp: Action = EditorAction::Mark(Mark::LastYankedBegin.into()).into();
+    /// assert_eq!(act, exp);
+    /// ```
+    ///
     /// ## Example: Using `action!`
     ///
     /// ```
@@ -3044,6 +5063,18 @@ pub enum Mark {
     /// The position of the end of the last yanked text.
     ///
     /// For example, `']` in Vim.
+    ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, EditorAction};
+    /// use std::str::FromStr;
+    ///
+    /// let act: Action = Action::from_str("mark -m (exact last-yanked-end)").unwrap();
+    /// let exp: Action = EditorAction::Mark(Mark::LastYankedEnd.into()).into();
+    /// assert_eq!(act, exp);
+    /// ```
     ///
     /// ## Example: Using `action!`
     ///
@@ -3101,6 +5132,19 @@ bitflags! {
     pub struct WriteFlags: u32 {
         /// No flags set.
         ///
+        /// ## Example: Using `Action::from_str`
+        ///
+        /// ```
+        /// use editor_types::prelude::*;
+        /// use editor_types::{action, Action, WindowAction};
+        /// use std::str::FromStr;
+        ///
+        /// let target = WindowTarget::All;
+        /// let flags = WriteFlags::NONE;
+        /// let act: Action = WindowAction::Write(target, None, flags).into();
+        /// assert_eq!(act, Action::from_str("window write -t all -F none").unwrap());
+        /// ```
+        ///
         /// ## Example: Using `action!`
         ///
         /// ```
@@ -3115,6 +5159,19 @@ bitflags! {
         const NONE = 0b00000000;
 
         /// Ignore any issues during closing.
+        ///
+        /// ## Example: Using `Action::from_str`
+        ///
+        /// ```
+        /// use editor_types::prelude::*;
+        /// use editor_types::{action, Action, WindowAction};
+        /// use std::str::FromStr;
+        ///
+        /// let target = WindowTarget::All;
+        /// let flags = WriteFlags::FORCE;
+        /// let act: Action = WindowAction::Write(target, None, flags).into();
+        /// assert_eq!(act, Action::from_str("window write -t all -F force").unwrap());
+        /// ```
         ///
         /// ## Example: Using `action!`
         ///
@@ -3152,6 +5209,19 @@ bitflags! {
     pub struct CloseFlags: u32 {
         /// No flags set.
         ///
+        /// ## Example: Using `Action::from_str`
+        ///
+        /// ```
+        /// use editor_types::prelude::*;
+        /// use editor_types::{action, Action, TabAction};
+        /// use std::str::FromStr;
+        ///
+        /// let fc = TabTarget::Single(FocusChange::Current);
+        /// let flags = CloseFlags::NONE;
+        /// let act: Action = TabAction::Close(fc, flags).into();
+        /// assert_eq!(act, Action::from_str("tab close -t (single current) -F none").unwrap());
+        /// ```
+        ///
         /// ## Example: Using `action!`
         ///
         /// ```
@@ -3166,6 +5236,19 @@ bitflags! {
         const NONE = 0b00000000;
 
         /// Ignore any issues during closing.
+        ///
+        /// ## Example: Using `Action::from_str`
+        ///
+        /// ```
+        /// use editor_types::prelude::*;
+        /// use editor_types::{action, Action, TabAction};
+        /// use std::str::FromStr;
+        ///
+        /// let fc = TabTarget::Single(FocusChange::Current);
+        /// let flags = CloseFlags::FORCE;
+        /// let act: Action = TabAction::Close(fc, flags).into();
+        /// assert_eq!(act, Action::from_str("tab close -t (single current) -F force").unwrap());
+        /// ```
         ///
         /// ## Example: Using `action!`
         ///
@@ -3182,6 +5265,19 @@ bitflags! {
 
         /// Write while closing.
         ///
+        /// ## Example: Using `Action::from_str`
+        ///
+        /// ```
+        /// use editor_types::prelude::*;
+        /// use editor_types::{action, Action, TabAction};
+        /// use std::str::FromStr;
+        ///
+        /// let fc = TabTarget::Single(FocusChange::Current);
+        /// let flags = CloseFlags::WRITE;
+        /// let act: Action = TabAction::Close(fc, flags).into();
+        /// assert_eq!(act, Action::from_str("tab close -t (single current) -F write").unwrap());
+        /// ```
+        ///
         /// ## Example: Using `action!`
         ///
         /// ```
@@ -3196,6 +5292,19 @@ bitflags! {
         const WRITE = 0b00000010;
 
         /// Quit if this is the last window.
+        ///
+        /// ## Example: Using `Action::from_str`
+        ///
+        /// ```
+        /// use editor_types::prelude::*;
+        /// use editor_types::{action, Action, TabAction};
+        /// use std::str::FromStr;
+        ///
+        /// let fc = TabTarget::Single(FocusChange::Current);
+        /// let flags = CloseFlags::QUIT;
+        /// let act: Action = TabAction::Close(fc, flags).into();
+        /// assert_eq!(act, Action::from_str("tab close -t (single current) -F quit").unwrap());
+        /// ```
         ///
         /// ## Example: Using `action!`
         ///
@@ -3224,6 +5333,18 @@ bitflags! {
 pub enum SelectionBoundary {
     /// A selection that starts at the beginning of a line and ends on a newline.
     ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, SelectionAction};
+    /// use std::str::FromStr;
+    ///
+    /// let style = SelectionBoundary::Line;
+    /// let split: Action = Action::from_str("selection trim -b line").unwrap();
+    /// assert_eq!(split, SelectionAction::Trim(style, TargetShapeFilter::ALL).into());
+    /// ```
+    ///
     /// ## Example: Using `action!`
     ///
     /// ```
@@ -3238,6 +5359,20 @@ pub enum SelectionBoundary {
 
     /// A selection that starts on a non-whitespace character and ends on a non-whitespace
     /// character.
+    ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, SelectionAction};
+    /// use std::str::FromStr;
+    ///
+    /// let style = SelectionBoundary::NonWhitespace;
+    /// let act: Action = SelectionAction::Expand(style, TargetShapeFilter::ALL).into();
+    ///
+    /// assert_eq!(Action::from_str("selection expand -b non-whitespace").unwrap(), act);
+    /// assert_eq!(Action::from_str("selection expand -b non-ws").unwrap(), act);
+    /// ```
     ///
     /// ## Example: Using `action!`
     ///
@@ -3287,6 +5422,18 @@ pub enum SelectionSplitStyle {
     /// Split a selection into two [TargetShape::CharWise] selections, one at the current cursor
     /// position, and the other at the anchor.
     ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, SelectionAction};
+    /// use std::str::FromStr;
+    ///
+    /// let style = SelectionSplitStyle::Anchor;
+    /// let split: Action = Action::from_str("selection split -s anchor").unwrap();
+    /// assert_eq!(split, SelectionAction::Split(style, TargetShapeFilter::ALL).into());
+    /// ```
+    ///
     /// ## Example: Using `action!`
     ///
     /// ```
@@ -3300,6 +5447,18 @@ pub enum SelectionSplitStyle {
     Anchor,
 
     /// Split a selection at each line boundary it contains.
+    ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, SelectionAction};
+    /// use std::str::FromStr;
+    ///
+    /// let style = SelectionSplitStyle::Lines;
+    /// let split: Action = Action::from_str("selection split -s lines").unwrap();
+    /// assert_eq!(split, SelectionAction::Split(style, TargetShapeFilter::ALL).into());
+    /// ```
     ///
     /// ## Example: Using `action!`
     ///
@@ -3315,6 +5474,22 @@ pub enum SelectionSplitStyle {
 
     /// Split a selection into [TargetShape::CharWise] parts based on the regular expression
     /// stored in the register for [CommandType::Search].
+    ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, SelectionAction};
+    /// use std::str::FromStr;
+    ///
+    /// let style = SelectionSplitStyle::Regex(MatchAction::Keep);
+    /// let split: Action = Action::from_str("selection split -s (regex keep)").unwrap();
+    /// assert_eq!(split, SelectionAction::Split(style, TargetShapeFilter::ALL).into());
+    ///
+    /// let style = SelectionSplitStyle::Regex(MatchAction::Drop);
+    /// let split: Action = Action::from_str("selection split -s (regex drop)").unwrap();
+    /// assert_eq!(split, SelectionAction::Split(style, TargetShapeFilter::ALL).into());
+    /// ```
     ///
     /// ## Example: Using `action!`
     ///
@@ -3342,6 +5517,19 @@ pub enum SelectionResizeStyle {
     /// When extending with [EditTarget::Range], this may also move the anchor to fully encompass
     /// the [RangeType].
     ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, SelectionAction};
+    /// use std::str::FromStr;
+    ///
+    /// let style = SelectionResizeStyle::Extend;
+    /// let target = EditTarget::CurrentPosition;
+    /// let act: Action = SelectionAction::Resize(style, target).into();
+    /// assert_eq!(act, Action::from_str("selection resize -s extend -t curr-pos").unwrap());
+    /// ```
+    ///
     /// ## Example: Using `action!`
     ///
     /// ```
@@ -3358,6 +5546,19 @@ pub enum SelectionResizeStyle {
 
     /// Interpret the [EditTarget] as the bounds of a text object, and select it.
     ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, SelectionAction};
+    /// use std::str::FromStr;
+    ///
+    /// let style = SelectionResizeStyle::Object;
+    /// let target = EditTarget::CurrentPosition;
+    /// let act: Action = SelectionAction::Resize(style, target).into();
+    /// assert_eq!(act, Action::from_str("selection resize -s object -t curr-pos").unwrap());
+    /// ```
+    ///
     /// ## Example: Using `action!`
     ///
     /// ```
@@ -3373,6 +5574,19 @@ pub enum SelectionResizeStyle {
     Object,
 
     /// Move the anchor to the current cursor position and create a new selection from there.
+    ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, SelectionAction};
+    /// use std::str::FromStr;
+    ///
+    /// let style = SelectionResizeStyle::Restart;
+    /// let target = EditTarget::CurrentPosition;
+    /// let act: Action = SelectionAction::Resize(style, target).into();
+    /// assert_eq!(act, Action::from_str("selection resize -s restart -t curr-pos").unwrap());
+    /// ```
     ///
     /// ## Example: Using `action!`
     ///
@@ -3451,9 +5665,21 @@ impl<V> IndexMut<CommandType> for CommandMap<V> {
 }
 
 /// What history items to recall during [PromptAction::Recall].
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum RecallFilter {
     /// Include all items in the prompt's history.
+    ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, PromptAction};
+    /// use std::str::FromStr;
+    ///
+    /// let filter = RecallFilter::All;
+    /// let act: Action = PromptAction::Recall(filter.clone(), MoveDir1D::Next, Count::Contextual).into();
+    /// assert_eq!(act, Action::from_str("prompt recall -d next -c ctx -F all").unwrap());
+    /// ```
     ///
     /// ## Example: Using `action!`
     ///
@@ -3464,10 +5690,26 @@ pub enum RecallFilter {
     /// let filter = RecallFilter::All;
     /// let act: Action = PromptAction::Recall(filter.clone(), MoveDir1D::Next, Count::Contextual).into();
     /// assert_eq!(act, action!("prompt recall -d next -c ctx -F all"));
+    /// assert_eq!(act, action!("prompt recall -d next -c ctx -F {filter}"));
     /// ```
     All,
 
     /// Only include items whose prefix matches the initially typed text.
+    ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, PromptAction};
+    /// use std::str::FromStr;
+    ///
+    /// let filter = RecallFilter::PrefixMatch;
+    /// let act: Action = PromptAction::Recall(filter.clone(), MoveDir1D::Next, Count::Contextual).into();
+    ///
+    /// // All of these are equivalent:
+    /// assert_eq!(act, Action::from_str("prompt recall -d next -c ctx -F prefix-match").unwrap());
+    /// assert_eq!(act, Action::from_str("prompt recall -d next -c ctx -F prefix").unwrap());
+    /// ```
     ///
     /// ## Example: Using `action!`
     ///
@@ -3491,6 +5733,19 @@ pub enum RecallFilter {
 pub enum PositionList {
     /// The change list contains positions where changes were previously made.
     ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, InsertTextAction};
+    /// use std::str::FromStr;
+    ///
+    /// let list = PositionList::ChangeList;
+    /// let count = Count::Contextual;
+    /// let act: Action = Action::Jump(list, MoveDir1D::Next, count);
+    /// assert_eq!(act, Action::from_str("jump -t change-list -d next").unwrap());
+    /// ```
+    ///
     /// ## Example: Using `action!`
     ///
     /// ```
@@ -3506,6 +5761,19 @@ pub enum PositionList {
 
     /// The jump list contains positions where the cursor was placed before jumping to a new
     /// location in the document.
+    ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, InsertTextAction};
+    /// use std::str::FromStr;
+    ///
+    /// let list = PositionList::JumpList;
+    /// let count = Count::Contextual;
+    /// let act: Action = Action::Jump(list, MoveDir1D::Next, count);
+    /// assert_eq!(act, Action::from_str("jump -t jump-list -d next").unwrap());
+    /// ```
     ///
     /// ## Example: Using `action!`
     ///
@@ -3538,6 +5806,21 @@ pub enum InsertStyle {
 pub enum Char {
     /// An exact character.
     ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, InsertTextAction};
+    /// use std::str::FromStr;
+    ///
+    /// let c = Char::Single('a');
+    /// let count = Count::Contextual;
+    /// let act: Action = InsertTextAction::Type(
+    ///     c.clone().into(), MoveDir1D::Previous, count).into();
+    ///
+    /// assert_eq!(act, Action::from_str("insert type -i (exact 'a') -d prev").unwrap());
+    /// ```
+    ///
     /// ## Example: Using `action!`
     ///
     /// ```
@@ -3554,6 +5837,21 @@ pub enum Char {
     Single(char),
 
     /// A digraph sequence.
+    ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, InsertTextAction};
+    /// use std::str::FromStr;
+    ///
+    /// let c = Char::Digraph('<', '<');
+    /// let count = Count::Contextual;
+    /// let act: Action = InsertTextAction::Type(
+    ///     c.clone().into(), MoveDir1D::Previous, count).into();
+    ///
+    /// assert_eq!(act, Action::from_str("insert type -i (exact digraph '<' '<') -d prev").unwrap());
+    /// ```
     ///
     /// ## Example: Using `action!`
     ///
@@ -3572,6 +5870,21 @@ pub enum Char {
 
     /// A terminal control sequence.
     ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, InsertTextAction};
+    /// use std::str::FromStr;
+    ///
+    /// let c = Char::CtrlSeq("<C-A>".into());
+    /// let count = Count::Contextual;
+    /// let act: Action = InsertTextAction::Type(
+    ///     c.clone().into(), MoveDir1D::Previous, count).into();
+    ///
+    /// assert_eq!(act, Action::from_str(r#"insert type -i (exact ctrl-seq -i "<C-A>") -d prev"#).unwrap());
+    /// ```
+    ///
     /// ## Example: Using `action!`
     ///
     /// ```
@@ -3588,6 +5901,21 @@ pub enum Char {
     CtrlSeq(String),
 
     /// Copy a character from the same column in the previous or next line.
+    ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, InsertTextAction};
+    /// use std::str::FromStr;
+    ///
+    /// let c = Char::CopyLine(MoveDir1D::Next);
+    /// let count = Count::Contextual;
+    /// let act: Action = InsertTextAction::Type(
+    ///     c.clone().into(), MoveDir1D::Previous, count).into();
+    ///
+    /// assert_eq!(act, Action::from_str("insert type -i (exact copy-line -d next) -d prev").unwrap());
+    /// ```
     ///
     /// ## Example: Using `action!`
     ///
@@ -3721,6 +6049,22 @@ pub enum TargetShape {
     ///
     /// During a selection, the two points indicate the start and end columns.
     ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, InsertTextAction};
+    /// use std::str::FromStr;
+    ///
+    /// let shape = TargetShape::CharWise;
+    /// let count = Count::Contextual;
+    /// let act: Action = InsertTextAction::OpenLine(shape, MoveDir1D::Next, count).into();
+    ///
+    /// // All of these are equivalent:
+    /// assert_eq!(act, Action::from_str("insert open-line -S charwise -d next").unwrap());
+    /// assert_eq!(act, Action::from_str("insert open-line -S char -d next").unwrap());
+    /// ```
+    ///
     /// ## Example: Using `action!`
     ///
     /// ```
@@ -3741,6 +6085,22 @@ pub enum TargetShape {
     ///
     /// During a selection, the two points indicate the start and end lines.
     ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, InsertTextAction};
+    /// use std::str::FromStr;
+    ///
+    /// let shape = TargetShape::LineWise;
+    /// let count = Count::Contextual;
+    /// let act: Action = InsertTextAction::OpenLine(shape, MoveDir1D::Next, count).into();
+    ///
+    /// // All of these are equivalent:
+    /// assert_eq!(act, Action::from_str("insert open-line -S linewise -d next").unwrap());
+    /// assert_eq!(act, Action::from_str("insert open-line -S line -d next").unwrap());
+    /// ```
+    ///
     /// ## Example: Using `action!`
     ///
     /// ```
@@ -3760,6 +6120,22 @@ pub enum TargetShape {
     /// A block of characters.
     ///
     /// During a selection, the two points indicate opposite corners.
+    ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, InsertTextAction};
+    /// use std::str::FromStr;
+    ///
+    /// let shape = TargetShape::BlockWise;
+    /// let count = Count::Contextual;
+    /// let act: Action = InsertTextAction::OpenLine(shape, MoveDir1D::Next, count).into();
+    ///
+    /// // All of these are equivalent:
+    /// assert_eq!(act, Action::from_str("insert open-line -S blockwise -d next").unwrap());
+    /// assert_eq!(act, Action::from_str("insert open-line -S block -d next").unwrap());
+    /// ```
     ///
     /// ## Example: Using `action!`
     ///
@@ -3825,6 +6201,18 @@ impl From<TargetShape> for TargetShapeFilter {
 pub enum MatchAction {
     /// Keep targets of the regular expression.
     ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, SelectionAction};
+    /// use std::str::FromStr;
+    ///
+    /// let act = SelectionAction::Filter(MatchAction::Keep);
+    /// let split: Action = Action::from_str("selection filter -F keep").unwrap();
+    /// assert_eq!(split, act.into());
+    /// ```
+    ///
     /// ## Example: Using `action!`
     ///
     /// ```
@@ -3838,6 +6226,18 @@ pub enum MatchAction {
     Keep,
 
     /// Remove targets of the regular expression.
+    ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, SelectionAction};
+    /// use std::str::FromStr;
+    ///
+    /// let act = SelectionAction::Filter(MatchAction::Drop);
+    /// let split: Action = Action::from_str("selection filter -F drop").unwrap();
+    /// assert_eq!(split, act.into());
+    /// ```
     ///
     /// ## Example: Using `action!`
     ///

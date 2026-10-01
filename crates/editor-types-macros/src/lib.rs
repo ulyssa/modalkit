@@ -61,21 +61,17 @@ pub fn range(stream: proc_macro::TokenStream) -> proc_macro::TokenStream {
     input.into_stream().into()
 }
 
-#[inline]
-fn fail<T: std::fmt::Display>(msg: T, span: Span) -> TokenStream {
-    ParseError::new(span, msg).to_compile_error()
-}
-
-fn fail_cmd_flag(cmd: &str, err: ArgError, span: Span) -> TokenStream {
-    fail(err.display(cmd).to_string(), span)
-}
-
 struct ActionMacroParser {
     params: Vec<Ident>,
     pos: usize,
+    span: Span,
 }
 
 impl ActionMacroParser {
+    fn fail_cmd_flag(&self, cmd: &str, err: ArgError) -> TokenStream {
+        self.fail(err.display(cmd).to_string())
+    }
+
     fn advance(&mut self) -> Option<Ident> {
         if self.pos < self.params.len() {
             let res = self.params.get(self.pos).cloned();
@@ -86,164 +82,142 @@ impl ActionMacroParser {
         }
     }
 
-    fn parse_single_dir1d<'a>(
-        &mut self,
-        cmd: &str,
-        input: &'a [ActionToken<'a>],
-        span: Span,
-    ) -> TokenStream {
+    fn parse_single_dir1d<'a>(&mut self, cmd: &str, input: &'a [ActionToken<'a>]) -> TokenStream {
         match parse_single_flag(Flag::Dir, input) {
-            Ok(c) => self.parse_dir1d(c, span),
-            Err(e) => fail_cmd_flag(cmd, e, span),
+            Ok(c) => self.parse_dir1d(c),
+            Err(e) => self.fail_cmd_flag(cmd, e),
         }
     }
 
-    fn parse_single_count<'a>(
-        &mut self,
-        cmd: &str,
-        input: &'a [ActionToken<'a>],
-        span: Span,
-    ) -> TokenStream {
+    fn parse_single_count<'a>(&mut self, cmd: &str, input: &'a [ActionToken<'a>]) -> TokenStream {
         match editor_types_parser::parse_single_count(input) {
-            Ok(c) => self.parse_count(c, span),
-            Err(e) => fail_cmd_flag(cmd, e, span),
+            Ok(c) => self.parse_count(c),
+            Err(e) => self.fail_cmd_flag(cmd, e),
         }
     }
 
-    fn parse_single_wrap<'a>(
-        &mut self,
-        cmd: &str,
-        input: &'a [ActionToken<'a>],
-        span: Span,
-    ) -> TokenStream {
-        match parse_single_flag(Flag::Wrap, input) {
-            Ok(c) => self.parse_bool(c, span),
-            Err(e) => fail_cmd_flag(cmd, e, span),
-        }
-    }
-
-    fn parse_bool<'a>(&mut self, input: &'a [ActionToken<'a>], span: Span) -> TokenStream {
+    fn parse_bool<'a>(&mut self, input: &'a [ActionToken<'a>]) -> TokenStream {
         match input {
             [ActionToken::Bool(b), rest @ ..] => {
                 if rest.is_empty() {
                     quote! { #b }
                 } else {
-                    fail(format!("the boolean `{b}` takes no arguments"), span)
+                    self.fail(format!("the boolean `{b}` takes no arguments"))
                 }
             },
-            [ActionToken::Id(i), rest @ ..] => id_match_branch!(self, i, ::bool, rest, span),
-            _ => self.fail("expected a valid boolean argument", span),
+            [ActionToken::Id(i), rest @ ..] => id_match_branch!(self, i, ::bool, rest),
+            _ => self.fail("expected a valid boolean argument"),
         }
     }
 
-    fn parse_num<'a>(&mut self, input: &'a [ActionToken<'a>], span: Span) -> TokenStream {
+    fn parse_num<'a>(&mut self, input: &'a [ActionToken<'a>]) -> TokenStream {
         match input {
             [ActionToken::Number(n), rest @ ..] => {
                 if rest.is_empty() {
                     quote! { #n }
                 } else {
-                    fail(format!("the number `{n}` takes no arguments"), span)
+                    self.fail(format!("the number `{n}` takes no arguments"))
                 }
             },
-            [ActionToken::Id(i), rest @ ..] => id_match_branch!(self, i, ::usize, rest, span),
-            _ => self.fail("expected a valid number argument", span),
+            [ActionToken::Id(i), rest @ ..] => id_match_branch!(self, i, ::usize, rest),
+            _ => self.fail("expected a valid number argument"),
         }
     }
 
-    fn parse_case<'a>(&mut self, input: &'a [ActionToken<'a>], span: Span) -> TokenStream {
+    fn parse_case<'a>(&mut self, input: &'a [ActionToken<'a>]) -> TokenStream {
         match input {
             [ActionToken::Word(w @ "upper"), rest @ ..] => {
-                enum_no_args_branch!(::editor_types::prelude::Case::Upper, w, rest, span)
+                enum_no_args_branch!(self, ::editor_types::prelude::Case::Upper, w, rest)
             },
             [ActionToken::Word(w @ "lower"), rest @ ..] => {
-                enum_no_args_branch!(::editor_types::prelude::Case::Lower, w, rest, span)
+                enum_no_args_branch!(self, ::editor_types::prelude::Case::Lower, w, rest)
             },
             [ActionToken::Word(w @ "title"), rest @ ..] => {
-                enum_no_args_branch!(::editor_types::prelude::Case::Title, w, rest, span)
+                enum_no_args_branch!(self, ::editor_types::prelude::Case::Title, w, rest)
             },
             [ActionToken::Word(w @ "toggle"), rest @ ..] => {
-                enum_no_args_branch!(::editor_types::prelude::Case::Toggle, w, rest, span)
+                enum_no_args_branch!(self, ::editor_types::prelude::Case::Toggle, w, rest)
             },
             [ActionToken::Id(i), rest @ ..] => {
-                id_match_branch!(self, i, ::editor_types::prelude::Case, rest, span)
+                id_match_branch!(self, i, ::editor_types::prelude::Case, rest)
             },
-            _ => self.fail("expected a valid case change", span),
+            _ => self.fail("expected a valid case change"),
         }
     }
 
-    fn parse_indent_change<'a>(&mut self, input: &'a [ActionToken<'a>], span: Span) -> TokenStream {
+    fn parse_indent_change<'a>(&mut self, input: &'a [ActionToken<'a>]) -> TokenStream {
         match input {
             [ActionToken::Word(w @ "auto"), rest @ ..] => {
-                enum_no_args_branch!(::editor_types::prelude::IndentChange::Auto, w, rest, span)
+                enum_no_args_branch!(self, ::editor_types::prelude::IndentChange::Auto, w, rest)
             },
             [ActionToken::Word(w @ "increase"), rest @ ..] => {
-                let count = self.parse_single_count(w, rest, span);
+                let count = self.parse_single_count(w, rest);
                 quote! { ::editor_types::prelude::IndentChange::Increase(#count) }
             },
             [ActionToken::Word(w @ "decrease"), rest @ ..] => {
-                let count = self.parse_single_count(w, rest, span);
+                let count = self.parse_single_count(w, rest);
                 quote! { ::editor_types::prelude::IndentChange::Decrease(#count) }
             },
             [ActionToken::Id(i), rest @ ..] => {
-                id_match_branch!(self, i, ::editor_types::prelude::IndentChange, rest, span)
+                id_match_branch!(self, i, ::editor_types::prelude::IndentChange, rest)
             },
-            _ => self.fail("expected a valid IndentChange", span),
+            _ => self.fail("expected a valid IndentChange"),
         }
     }
 
-    fn parse_number_change<'a>(&mut self, input: &'a [ActionToken<'a>], span: Span) -> TokenStream {
+    fn parse_number_change<'a>(&mut self, input: &'a [ActionToken<'a>]) -> TokenStream {
         match input {
             [ActionToken::Word(w @ "increase"), rest @ ..] => {
-                let count = self.parse_single_count(w, rest, span);
+                let count = self.parse_single_count(w, rest);
                 quote! { ::editor_types::prelude::NumberChange::Increase(#count) }
             },
             [ActionToken::Word(w @ "decrease"), rest @ ..] => {
-                let count = self.parse_single_count(w, rest, span);
+                let count = self.parse_single_count(w, rest);
                 quote! { ::editor_types::prelude::NumberChange::Decrease(#count) }
             },
             [ActionToken::Id(i), rest @ ..] => {
-                id_match_branch!(self, i, ::editor_types::prelude::NumberChange, rest, span)
+                id_match_branch!(self, i, ::editor_types::prelude::NumberChange, rest)
             },
-            _ => self.fail("expected a valid NumberChange", span),
+            _ => self.fail("expected a valid NumberChange"),
         }
     }
 
-    fn parse_join_style<'a>(&mut self, input: &'a [ActionToken<'a>], span: Span) -> TokenStream {
+    fn parse_join_style<'a>(&mut self, input: &'a [ActionToken<'a>]) -> TokenStream {
         match input {
             [ActionToken::Word(w @ "no-change"), rest @ ..] => {
-                enum_no_args_branch!(::editor_types::prelude::JoinStyle::NoChange, w, rest, span)
+                enum_no_args_branch!(self, ::editor_types::prelude::JoinStyle::NoChange, w, rest)
             },
             [ActionToken::Word(w @ "one-space"), rest @ ..] => {
-                enum_no_args_branch!(::editor_types::prelude::JoinStyle::OneSpace, w, rest, span)
+                enum_no_args_branch!(self, ::editor_types::prelude::JoinStyle::OneSpace, w, rest)
             },
             [ActionToken::Word(w @ "new-space"), rest @ ..] => {
-                enum_no_args_branch!(::editor_types::prelude::JoinStyle::NewSpace, w, rest, span)
+                enum_no_args_branch!(self, ::editor_types::prelude::JoinStyle::NewSpace, w, rest)
             },
             [ActionToken::Id(i), rest @ ..] => {
-                id_match_branch!(self, i, ::editor_types::prelude::JoinStyle, rest, span)
+                id_match_branch!(self, i, ::editor_types::prelude::JoinStyle, rest)
             },
-            _ => self.fail("expected a valid join style", span),
+            _ => self.fail("expected a valid join style"),
         }
     }
 
-    fn parse_edit_action<'a>(&mut self, input: &'a [ActionToken<'a>], span: Span) -> TokenStream {
+    fn parse_edit_action<'a>(&mut self, input: &'a [ActionToken<'a>]) -> TokenStream {
         match input {
             [ActionToken::Word(w @ "motion"), rest @ ..] => {
-                enum_no_args_branch!(::editor_types::EditAction::Motion, w, rest, span)
+                enum_no_args_branch!(self, ::editor_types::EditAction::Motion, w, rest)
             },
             [ActionToken::Word(w @ "delete"), rest @ ..] => {
-                enum_no_args_branch!(::editor_types::EditAction::Delete, w, rest, span)
+                enum_no_args_branch!(self, ::editor_types::EditAction::Delete, w, rest)
             },
             [ActionToken::Word(w @ "yank"), rest @ ..] => {
-                enum_no_args_branch!(::editor_types::EditAction::Yank, w, rest, span)
+                enum_no_args_branch!(self, ::editor_types::EditAction::Yank, w, rest)
             },
             [ActionToken::Word(w @ "format"), rest @ ..] => {
-                enum_no_args_branch!(::editor_types::EditAction::Format, w, rest, span)
+                enum_no_args_branch!(self, ::editor_types::EditAction::Format, w, rest)
             },
             [ActionToken::Word(w @ "replace"), rest @ ..] => {
                 let virt = parse_single_flag(Flag::Long("virtual".into()), rest)
-                    .map(|s| self.parse_bool(s, span))
-                    .unwrap_or_else(|e| fail_cmd_flag(w, e, span));
+                    .map(|s| self.parse_bool(s))
+                    .unwrap_or_else(|e| self.fail_cmd_flag(w, e));
 
                 quote! { ::editor_types::EditAction::Replace(#virt) }
             },
@@ -253,138 +227,134 @@ impl ActionMacroParser {
             ] => {
                 match parse_required_flags([Flag::Style, Flag::Long("multiply".into())], rest) {
                     Ok([style, multiply]) => {
-                        let style = self.parse_number_change(style, span);
-                        let multiply = self.parse_bool(multiply, span);
+                        let style = self.parse_number_change(style);
+                        let multiply = self.parse_bool(multiply);
                         quote! { ::editor_types::EditAction::ChangeNumber(#style, #multiply) }
                     },
-                    Err(e) => fail_cmd_flag(w, e, span),
+                    Err(e) => self.fail_cmd_flag(w, e),
                 }
             },
             [ActionToken::Word(w @ "join"), rest @ ..] => {
                 let style = parse_single_flag(Flag::Style, rest)
-                    .map(|s| self.parse_join_style(s, span))
-                    .unwrap_or_else(|e| fail_cmd_flag(w, e, span));
+                    .map(|s| self.parse_join_style(s))
+                    .unwrap_or_else(|e| self.fail_cmd_flag(w, e));
 
                 quote! { ::editor_types::EditAction::Join(#style) }
             },
             [ActionToken::Word(w @ "indent"), rest @ ..] => {
                 let indent = parse_single_flag(Flag::Style, rest)
-                    .map(|s| self.parse_indent_change(s, span))
-                    .unwrap_or_else(|e| fail_cmd_flag(w, e, span));
+                    .map(|s| self.parse_indent_change(s))
+                    .unwrap_or_else(|e| self.fail_cmd_flag(w, e));
 
                 quote! { ::editor_types::EditAction::Indent(#indent) }
             },
             [ActionToken::Word(w @ "change-case"), rest @ ..] => {
                 let case = parse_single_flag(Flag::Style, rest)
-                    .map(|s| self.parse_case(s, span))
-                    .unwrap_or_else(|e| fail_cmd_flag(w, e, span));
+                    .map(|s| self.parse_case(s))
+                    .unwrap_or_else(|e| self.fail_cmd_flag(w, e));
 
                 quote! { ::editor_types::EditAction::ChangeCase(#case) }
             },
             [ActionToken::Id(i), rest @ ..] => {
-                id_match_branch!(self, i, ::editor_types::EditAction, rest, span)
+                id_match_branch!(self, i, ::editor_types::EditAction, rest)
             },
-            _ => self.fail("expected a valid edit action argument", span),
+            _ => self.fail("expected a valid edit action argument"),
         }
     }
 
-    fn parse_specifier_edit_action<'a>(
-        &mut self,
-        input: &'a [ActionToken<'a>],
-        span: Span,
-    ) -> TokenStream {
+    fn parse_specifier_edit_action<'a>(&mut self, input: &'a [ActionToken<'a>]) -> TokenStream {
         match input {
             [ActionToken::Word(w @ "ctx"), rest @ ..] => {
-                enum_no_args_branch!(::editor_types::prelude::Specifier::Contextual, w, rest, span)
+                enum_no_args_branch!(self, ::editor_types::prelude::Specifier::Contextual, w, rest)
             },
             [ActionToken::Word("exact"), rest @ ..] => {
-                let mark = self.parse_edit_action(rest, span);
+                let mark = self.parse_edit_action(rest);
                 quote! { ::editor_types::prelude::Specifier::Exact(#mark) }
             },
             [ActionToken::Id(i), rest @ ..] => {
-                id_match_branch!(self, i, ::editor_types::prelude::Specifier, rest, span)
+                id_match_branch!(self, i, ::editor_types::prelude::Specifier, rest)
             },
-            _ => self.fail("expected a valid edit action specifier", span),
+            _ => self.fail("expected a valid edit action specifier"),
         }
     }
 
-    fn parse_edit_target<'a>(&mut self, input: &'a [ActionToken<'a>], span: Span) -> TokenStream {
+    fn parse_edit_target<'a>(&mut self, input: &'a [ActionToken<'a>]) -> TokenStream {
         match input {
             [ActionToken::Id(i), rest @ ..] => {
-                id_match_branch!(self, i, ::editor_types::prelude::EditTarget, rest, span)
+                id_match_branch!(self, i, ::editor_types::prelude::EditTarget, rest)
             },
-            [ActionToken::Word(_), ..] => EditTargetParserExt::parse_tokens(self, input, span),
-            _ => self.fail("expected a valid EditTarget argument", span),
+            [ActionToken::Word(_), ..] => EditTargetParserExt::parse_tokens(self, input),
+            _ => self.fail("expected a valid EditTarget argument"),
         }
     }
 
-    fn parse_motion_type<'a>(&mut self, input: &'a [ActionToken<'a>], span: Span) -> TokenStream {
+    fn parse_motion_type<'a>(&mut self, input: &'a [ActionToken<'a>]) -> TokenStream {
         match input {
             [ActionToken::Id(i), rest @ ..] => {
-                id_match_branch!(self, i, ::editor_types::prelude::MoveType, rest, span)
+                id_match_branch!(self, i, ::editor_types::prelude::MoveType, rest)
             },
-            [ActionToken::Word(_), ..] => MotionParserExt::parse_tokens(self, input, span),
-            _ => self.fail("expected a valid MoveType argument", span),
+            [ActionToken::Word(_), ..] => MotionParserExt::parse_tokens(self, input),
+            _ => self.fail("expected a valid MoveType argument"),
         }
     }
 
-    fn parse_range_type<'a>(&mut self, input: &'a [ActionToken<'a>], span: Span) -> TokenStream {
+    fn parse_range_type<'a>(&mut self, input: &'a [ActionToken<'a>]) -> TokenStream {
         match input {
             [ActionToken::Id(i), rest @ ..] => {
-                id_match_branch!(self, i, ::editor_types::prelude::RangeType, rest, span)
+                id_match_branch!(self, i, ::editor_types::prelude::RangeType, rest)
             },
-            [ActionToken::Word(_), ..] => RangeParserExt::parse_tokens(self, input, span),
-            _ => self.fail("expected a valid RangeType argument", span),
+            [ActionToken::Word(_), ..] => RangeParserExt::parse_tokens(self, input),
+            _ => self.fail("expected a valid RangeType argument"),
         }
     }
 
-    fn parse_command_type<'a>(&mut self, input: &'a [ActionToken<'a>], span: Span) -> TokenStream {
+    fn parse_command_type<'a>(&mut self, input: &'a [ActionToken<'a>]) -> TokenStream {
         match input {
             [ActionToken::Word(w @ "command"), rest @ ..] => {
-                enum_no_args_branch!(::editor_types::prelude::CommandType::Command, w, rest, span)
+                enum_no_args_branch!(self, ::editor_types::prelude::CommandType::Command, w, rest)
             },
             [ActionToken::Word(w @ "search"), rest @ ..] => {
-                enum_no_args_branch!(::editor_types::prelude::CommandType::Search, w, rest, span)
+                enum_no_args_branch!(self, ::editor_types::prelude::CommandType::Search, w, rest)
             },
             [ActionToken::Word(w), ..] => {
-                self.fail(format!("expected `command` or `search`, found `{w}`"), span)
+                self.fail(format!("expected `command` or `search`, found `{w}`"))
             },
             [ActionToken::Id(i), rest @ ..] => {
-                id_match_branch!(self, i, ::editor_types::prelude::CommandType, rest, span)
+                id_match_branch!(self, i, ::editor_types::prelude::CommandType, rest)
             },
-            _ => self.fail("expected a valid command type", span),
+            _ => self.fail("expected a valid command type"),
         }
     }
 
-    fn parse_search_type<'a>(&mut self, input: &'a [ActionToken<'a>], span: Span) -> TokenStream {
+    fn parse_search_type<'a>(&mut self, input: &'a [ActionToken<'a>]) -> TokenStream {
         match input {
             [ActionToken::Word(w @ "regex"), rest @ ..] => {
-                enum_no_args_branch!(::editor_types::prelude::SearchType::Regex, w, rest, span)
+                enum_no_args_branch!(self, ::editor_types::prelude::SearchType::Regex, w, rest)
             },
             [ActionToken::Word(w @ "char"), rest @ ..] => {
                 let multiline = parse_single_flag(Flag::Long("multiline".into()), rest)
-                    .map(|b| self.parse_bool(b, span))
-                    .unwrap_or_else(|e| fail_cmd_flag(w, e, span));
+                    .map(|b| self.parse_bool(b))
+                    .unwrap_or_else(|e| self.fail_cmd_flag(w, e));
 
                 quote! { ::editor_types::prelude::SearchType::Char(#multiline) }
             },
             [ActionToken::Word(w @ "word"), rest @ ..] => {
                 match parse_required_flags([Flag::Style, Flag::Short('b')], rest) {
                     Ok([style, boundary]) => {
-                        let style = self.parse_word_style(style, span);
-                        let boundary = self.parse_bool(boundary, span);
+                        let style = self.parse_word_style(style);
+                        let boundary = self.parse_bool(boundary);
                         quote! { ::editor_types::prelude::SearchType::Word(#style, #boundary) }
                     },
-                    Err(e) => fail_cmd_flag(w, e, span),
+                    Err(e) => self.fail_cmd_flag(w, e),
                 }
             },
             [ActionToken::Word(w), ..] => {
-                self.fail(format!("expected `regex`, `char` or `word`, found `{w}`"), span)
+                self.fail(format!("expected `regex`, `char` or `word`, found `{w}`"))
             },
             [ActionToken::Id(i), rest @ ..] => {
-                id_match_branch!(self, i, ::editor_types::prelude::SearchType, rest, span)
+                id_match_branch!(self, i, ::editor_types::prelude::SearchType, rest)
             },
-            _ => self.fail("expected a valid search type", span),
+            _ => self.fail("expected a valid search type"),
         }
     }
 
@@ -392,61 +362,56 @@ impl ActionMacroParser {
         &mut self,
         cmd: &str,
         input: &'a [ActionToken<'a>],
-        span: Span,
     ) -> TokenStream {
         match input {
             [ActionToken::Word(w @ "buffer"), rest @ ..] => {
                 enum_no_args_branch!(
+                    self,
                     ::editor_types::prelude::CompletionScope::Buffer,
                     w,
-                    rest,
-                    span
+                    rest
                 )
             },
             [ActionToken::Word(w @ "global"), rest @ ..] => {
                 enum_no_args_branch!(
+                    self,
                     ::editor_types::prelude::CompletionScope::Global,
                     w,
-                    rest,
-                    span
+                    rest
                 )
             },
             [ActionToken::Word(w), ..] => {
-                self.fail(format!("expected `buffer or `global` after `{cmd}`, found `{w}`"), span)
+                self.fail(format!("expected `buffer or `global` after `{cmd}`, found `{w}`"))
             },
             [ActionToken::Id(i), rest @ ..] => {
-                id_match_branch!(self, i, ::editor_types::prelude::CompletionScope, rest, span)
+                id_match_branch!(self, i, ::editor_types::prelude::CompletionScope, rest)
             },
-            _ => self.fail(format!("expected `buffer` or `global` after `{cmd}`"), span),
+            _ => self.fail(format!("expected `buffer` or `global` after `{cmd}`")),
         }
     }
 
-    fn parse_completion_style<'a>(
-        &mut self,
-        input: &'a [ActionToken<'a>],
-        span: Span,
-    ) -> TokenStream {
+    fn parse_completion_style<'a>(&mut self, input: &'a [ActionToken<'a>]) -> TokenStream {
         match input {
             [ActionToken::Word(w @ "none"), rest @ ..] => {
-                enum_no_args_branch!(::editor_types::prelude::CompletionStyle::None, w, rest, span)
+                enum_no_args_branch!(self, ::editor_types::prelude::CompletionStyle::None, w, rest)
             },
             [ActionToken::Word(w @ "prefix"), rest @ ..] => {
                 enum_no_args_branch!(
+                    self,
                     ::editor_types::prelude::CompletionStyle::Prefix,
                     w,
-                    rest,
-                    span
+                    rest
                 )
             },
             [ActionToken::Word(w @ "single"), rest @ ..] => {
                 enum_no_args_branch!(
+                    self,
                     ::editor_types::prelude::CompletionStyle::Single,
                     w,
-                    rest,
-                    span
+                    rest
                 )
             },
-            [ActionToken::Word("list"), rest @ ..] => {
+            [ActionToken::Word(w @ "list"), rest @ ..] => {
                 match parse_flags(
                     [
                         (Flag::Dir, None),
@@ -455,291 +420,279 @@ impl ActionMacroParser {
                     rest,
                 ) {
                     Ok([dir, toggle]) => {
-                        let dir = self.parse_dir1d(dir, span);
-                        let toggle = self.parse_bool(toggle, span);
+                        let dir = self.parse_dir1d(dir);
+                        let toggle = self.parse_bool(toggle);
                         quote! { ::editor_types::prelude::CompletionStyle::List(#dir, #toggle) }
                     },
-                    Err(e) => fail_cmd_flag("list", e, span),
+                    Err(e) => self.fail_cmd_flag(w, e),
                 }
             },
             [ActionToken::Id(i), rest @ ..] => {
-                id_match_branch!(self, i, ::editor_types::prelude::CompletionStyle, rest, span)
+                id_match_branch!(self, i, ::editor_types::prelude::CompletionStyle, rest)
             },
-            _ => self.fail("expected a valid completion selection", span),
+            _ => self.fail("expected a valid completion selection"),
         }
     }
 
-    fn parse_completion_type<'a>(
-        &mut self,
-        input: &'a [ActionToken<'a>],
-        span: Span,
-    ) -> TokenStream {
+    fn parse_completion_type<'a>(&mut self, input: &'a [ActionToken<'a>]) -> TokenStream {
         match input {
             [ActionToken::Word(w @ "auto"), rest @ ..] => {
-                enum_no_args_branch!(::editor_types::prelude::CompletionType::Auto, w, rest, span)
+                enum_no_args_branch!(self, ::editor_types::prelude::CompletionType::Auto, w, rest)
             },
             [ActionToken::Word(w @ "file"), rest @ ..] => {
-                enum_no_args_branch!(::editor_types::prelude::CompletionType::File, w, rest, span)
+                enum_no_args_branch!(self, ::editor_types::prelude::CompletionType::File, w, rest)
             },
             [ActionToken::Word(w @ "line"), rest @ ..] => {
-                let scope = self.parse_completion_scope(w, rest, span);
+                let scope = self.parse_completion_scope(w, rest);
                 quote! { ::editor_types::prelude::CompletionType::Line(#scope) }
             },
             [ActionToken::Word(w @ "word"), rest @ ..] => {
-                let scope = self.parse_completion_scope(w, rest, span);
+                let scope = self.parse_completion_scope(w, rest);
                 quote! { ::editor_types::prelude::CompletionType::Word(#scope) }
             },
             [ActionToken::Id(i), rest @ ..] => {
-                id_match_branch!(self, i, ::editor_types::prelude::CompletionType, rest, span)
+                id_match_branch!(self, i, ::editor_types::prelude::CompletionType, rest)
             },
-            _ => self.fail("expected a valid completion type", span),
+            _ => self.fail("expected a valid completion type"),
         }
     }
 
-    fn parse_completion_display<'a>(
-        &mut self,
-        input: &'a [ActionToken<'a>],
-        span: Span,
-    ) -> TokenStream {
+    fn parse_completion_display<'a>(&mut self, input: &'a [ActionToken<'a>]) -> TokenStream {
         match input {
             [ActionToken::Word(w @ "none"), rest @ ..] => {
                 enum_no_args_branch!(
+                    self,
                     ::editor_types::prelude::CompletionDisplay::None,
                     w,
-                    rest,
-                    span
+                    rest
                 )
             },
             [ActionToken::Word(w @ "bar"), rest @ ..] => {
-                enum_no_args_branch!(::editor_types::prelude::CompletionDisplay::Bar, w, rest, span)
+                enum_no_args_branch!(self, ::editor_types::prelude::CompletionDisplay::Bar, w, rest)
             },
             [ActionToken::Word(w @ "list"), rest @ ..] => {
                 enum_no_args_branch!(
+                    self,
                     ::editor_types::prelude::CompletionDisplay::List,
                     w,
-                    rest,
-                    span
+                    rest
                 )
             },
             [ActionToken::Word(w), ..] => {
-                self.fail(format!("expected `none`, `bar` or `list`, found `{w}`"), span)
+                self.fail(format!("expected `none`, `bar` or `list`, found `{w}`"))
             },
             [ActionToken::Id(i), rest @ ..] => {
-                id_match_branch!(self, i, ::editor_types::prelude::CompletionDisplay, rest, span)
+                id_match_branch!(self, i, ::editor_types::prelude::CompletionDisplay, rest)
             },
-            _ => self.fail("expected a valid completion display", span),
+            _ => self.fail("expected a valid completion display"),
         }
     }
 
-    fn parse_count<'a>(&mut self, input: &'a [ActionToken<'a>], span: Span) -> TokenStream {
+    fn parse_count<'a>(&mut self, input: &'a [ActionToken<'a>]) -> TokenStream {
         match input {
             [ActionToken::Word(w @ "ctx"), rest @ ..] => {
-                enum_no_args_branch!(::editor_types::prelude::Count::Contextual, w, rest, span)
+                enum_no_args_branch!(self, ::editor_types::prelude::Count::Contextual, w, rest)
             },
             [ActionToken::Word(w @ "ctx-sub-one"), rest @ ..] => {
-                enum_no_args_branch!(::editor_types::prelude::Count::MinusOne, w, rest, span)
+                enum_no_args_branch!(self, ::editor_types::prelude::Count::MinusOne, w, rest)
             },
             [ActionToken::Number(n), rest @ ..] => {
                 if rest.is_empty() {
                     quote! { ::editor_types::prelude::Count::Exact(#n) }
                 } else {
-                    self.fail("numbers cannot have arguments", span)
+                    self.fail("numbers cannot have arguments")
                 }
             },
             [ActionToken::Id(i), rest @ ..] => {
-                id_match_branch!(self, i, ::editor_types::prelude::Count, rest, span)
+                id_match_branch!(self, i, ::editor_types::prelude::Count, rest)
             },
-            _ => self.fail("expected a valid count argument", span),
+            _ => self.fail("expected a valid count argument"),
         }
     }
 
-    fn parse_position_list<'a>(&mut self, input: &'a [ActionToken<'a>], span: Span) -> TokenStream {
+    fn parse_position_list<'a>(&mut self, input: &'a [ActionToken<'a>]) -> TokenStream {
         match input {
             [ActionToken::Word(w @ "jump-list"), rest @ ..] => {
-                enum_no_args_branch!(::editor_types::prelude::PositionList::JumpList, w, rest, span)
+                enum_no_args_branch!(self, ::editor_types::prelude::PositionList::JumpList, w, rest)
             },
             [ActionToken::Word(w @ "change-list"), rest @ ..] => {
                 enum_no_args_branch!(
+                    self,
                     ::editor_types::prelude::PositionList::ChangeList,
                     w,
-                    rest,
-                    span
+                    rest
                 )
             },
             [ActionToken::Word(w), ..] => {
-                self.fail(format!("expected `jump-list` or `change-list`, found `{w}`"), span)
+                self.fail(format!("expected `jump-list` or `change-list`, found `{w}`"))
             },
             [ActionToken::Id(i), rest @ ..] => {
-                id_match_branch!(self, i, ::editor_types::prelude::PositionList, rest, span)
+                id_match_branch!(self, i, ::editor_types::prelude::PositionList, rest)
             },
-            _ => self.fail("expected a valid position list", span),
+            _ => self.fail("expected a valid position list"),
         }
     }
 
-    fn parse_match_action<'a>(&mut self, input: &'a [ActionToken<'a>], span: Span) -> TokenStream {
+    fn parse_match_action<'a>(&mut self, input: &'a [ActionToken<'a>]) -> TokenStream {
         match input {
             [ActionToken::Word(w @ "keep"), rest @ ..] => {
-                enum_no_args_branch!(::editor_types::prelude::MatchAction::Keep, w, rest, span)
+                enum_no_args_branch!(self, ::editor_types::prelude::MatchAction::Keep, w, rest)
             },
             [ActionToken::Word(w @ "drop"), rest @ ..] => {
-                enum_no_args_branch!(::editor_types::prelude::MatchAction::Drop, w, rest, span)
+                enum_no_args_branch!(self, ::editor_types::prelude::MatchAction::Drop, w, rest)
             },
             [ActionToken::Id(i), rest @ ..] => {
-                id_match_branch!(self, i, ::editor_types::prelude::MatchAction, rest, span)
+                id_match_branch!(self, i, ::editor_types::prelude::MatchAction, rest)
             },
             [ActionToken::Word(w), ..] => {
-                self.fail(format!("expected `drop` or `keep`, found `{w}`"), span)
+                self.fail(format!("expected `drop` or `keep`, found `{w}`"))
             },
-            _ => self.fail("expected a valid match action (`drop` or `keep`)", span),
+            _ => self.fail("expected a valid match action (`drop` or `keep`)"),
         }
     }
 
-    fn parse_radix<'a>(&mut self, input: &'a [ActionToken<'a>], span: Span) -> TokenStream {
+    fn parse_radix<'a>(&mut self, input: &'a [ActionToken<'a>]) -> TokenStream {
         match input {
             [ActionToken::Number(2), rest @ ..] => {
-                enum_no_args_branch!(::editor_types::prelude::Radix::Binary, "2", rest, span)
+                enum_no_args_branch!(self, ::editor_types::prelude::Radix::Binary, "2", rest)
             },
             [ActionToken::Number(8), rest @ ..] => {
-                enum_no_args_branch!(::editor_types::prelude::Radix::Octal, "8", rest, span)
+                enum_no_args_branch!(self, ::editor_types::prelude::Radix::Octal, "8", rest)
             },
             [ActionToken::Number(10), rest @ ..] => {
-                enum_no_args_branch!(::editor_types::prelude::Radix::Decimal, "10", rest, span)
+                enum_no_args_branch!(self, ::editor_types::prelude::Radix::Decimal, "10", rest)
             },
             [ActionToken::Number(16), rest @ ..] => {
-                enum_no_args_branch!(::editor_types::prelude::Radix::Hexadecimal, "16", rest, span)
+                enum_no_args_branch!(self, ::editor_types::prelude::Radix::Hexadecimal, "16", rest)
             },
             [ActionToken::Word(w @ ("bin" | "binary")), rest @ ..] => {
-                enum_no_args_branch!(::editor_types::prelude::Radix::Binary, w, rest, span)
+                enum_no_args_branch!(self, ::editor_types::prelude::Radix::Binary, w, rest)
             },
             [ActionToken::Word(w @ ("oct" | "octal")), rest @ ..] => {
-                enum_no_args_branch!(::editor_types::prelude::Radix::Octal, w, rest, span)
+                enum_no_args_branch!(self, ::editor_types::prelude::Radix::Octal, w, rest)
             },
             [ActionToken::Word(w @ ("dec" | "decimal")), rest @ ..] => {
-                enum_no_args_branch!(::editor_types::prelude::Radix::Decimal, w, rest, span)
+                enum_no_args_branch!(self, ::editor_types::prelude::Radix::Decimal, w, rest)
             },
             [ActionToken::Word(w @ ("hex" | "hexadecimal")), rest @ ..] => {
-                enum_no_args_branch!(::editor_types::prelude::Radix::Hexadecimal, w, rest, span)
+                enum_no_args_branch!(self, ::editor_types::prelude::Radix::Hexadecimal, w, rest)
             },
             [ActionToken::Id(i), rest @ ..] => {
-                id_match_branch!(self, i, ::editor_types::prelude::Radix, rest, span)
+                id_match_branch!(self, i, ::editor_types::prelude::Radix, rest)
             },
-            _ => self.fail("expected a valid count argument", span),
+            _ => self.fail("expected a valid radix argument"),
         }
     }
 
-    fn parse_string<'a>(&mut self, input: &'a [ActionToken<'a>], span: Span) -> TokenStream {
+    fn parse_string<'a>(&mut self, input: &'a [ActionToken<'a>]) -> TokenStream {
         match input {
             [ActionToken::Str(s), rest @ ..] => {
                 if rest.is_empty() {
                     quote! { ::std::string::String::from(#s) }
                 } else {
-                    self.fail("strings cannot have arguments", span)
+                    self.fail("strings cannot have arguments")
                 }
             },
             [ActionToken::Id(i), rest @ ..] => {
-                id_match_branch!(self, i, ::std::string::String, rest, span)
+                id_match_branch!(self, i, ::std::string::String, rest)
             },
-            _ => self.fail("expected a string argument", span),
+            _ => self.fail("expected a string argument"),
         }
     }
 
-    fn parse_target_shape<'a>(&mut self, input: &'a [ActionToken<'a>], span: Span) -> TokenStream {
+    fn parse_target_shape<'a>(&mut self, input: &'a [ActionToken<'a>]) -> TokenStream {
         match input {
             [ActionToken::Word(w @ ("char" | "charwise")), rest @ ..] => {
-                enum_no_args_branch!(::editor_types::prelude::TargetShape::CharWise, w, rest, span)
+                enum_no_args_branch!(self, ::editor_types::prelude::TargetShape::CharWise, w, rest)
             },
             [ActionToken::Word(w @ ("line" | "linewise")), rest @ ..] => {
-                enum_no_args_branch!(::editor_types::prelude::TargetShape::LineWise, w, rest, span)
+                enum_no_args_branch!(self, ::editor_types::prelude::TargetShape::LineWise, w, rest)
             },
             [ActionToken::Word(w @ ("block" | "blockwise")), rest @ ..] => {
-                enum_no_args_branch!(::editor_types::prelude::TargetShape::BlockWise, w, rest, span)
+                enum_no_args_branch!(self, ::editor_types::prelude::TargetShape::BlockWise, w, rest)
             },
             [ActionToken::Id(i), rest @ ..] => {
-                id_match_branch!(self, i, ::editor_types::prelude::TargetShape, rest, span)
+                id_match_branch!(self, i, ::editor_types::prelude::TargetShape, rest)
             },
             [ActionToken::Word(w), ..] => {
-                self.fail(
-                    format!("expected `charwise`, `linewise`, or `blockwise`, found `{w}`"),
-                    span,
-                )
+                self.fail(format!("expected `charwise`, `linewise`, or `blockwise`, found `{w}`"))
             },
-            _ => self.fail("expected a valid target shape", span),
+            _ => self.fail("expected a valid target shape"),
         }
     }
 
-    fn parse_dir1d<'a>(&mut self, input: &'a [ActionToken<'a>], span: Span) -> TokenStream {
+    fn parse_dir1d<'a>(&mut self, input: &'a [ActionToken<'a>]) -> TokenStream {
         match input {
             [ActionToken::Word(w @ "next"), rest @ ..] => {
-                enum_no_args_branch!(::editor_types::prelude::MoveDir1D::Next, w, rest, span)
+                enum_no_args_branch!(self, ::editor_types::prelude::MoveDir1D::Next, w, rest)
             },
             [ActionToken::Word(w @ ("prev" | "previous")), rest @ ..] => {
-                enum_no_args_branch!(::editor_types::prelude::MoveDir1D::Previous, w, rest, span)
+                enum_no_args_branch!(self, ::editor_types::prelude::MoveDir1D::Previous, w, rest)
             },
             [ActionToken::Id(i), rest @ ..] => {
-                id_match_branch!(self, i, ::editor_types::prelude::MoveDir1D, rest, span)
+                id_match_branch!(self, i, ::editor_types::prelude::MoveDir1D, rest)
             },
             [ActionToken::Word(w), ..] => {
-                self.fail(format!("expected `next` or `prev`, found `{w}`"), span)
+                self.fail(format!("expected `next` or `prev`, found `{w}`"))
             },
-            _ => self.fail("expected one of the directions `next` or `prev`", span),
+            _ => self.fail("expected one of the directions `next` or `prev`"),
         }
     }
 
-    fn parse_dir2d<'a>(&mut self, input: &'a [ActionToken<'a>], span: Span) -> TokenStream {
+    fn parse_dir2d<'a>(&mut self, input: &'a [ActionToken<'a>]) -> TokenStream {
         match input {
             [ActionToken::Word("up")] => quote! { ::editor_types::prelude::MoveDir2D::Up },
             [ActionToken::Word("down")] => quote! { ::editor_types::prelude::MoveDir2D::Down },
             [ActionToken::Word("left")] => quote! { ::editor_types::prelude::MoveDir2D::Left },
             [ActionToken::Word("right")] => quote! { ::editor_types::prelude::MoveDir2D::Right },
             [ActionToken::Id(i), rest @ ..] => {
-                id_match_branch!(self, i, ::editor_types::prelude::MoveDir2D, rest, span)
+                id_match_branch!(self, i, ::editor_types::prelude::MoveDir2D, rest)
             },
             [ActionToken::Word(w), ..] => {
-                self.fail(format!("expected `up`, `down`, `left`, or `right`, found `{w}`"), span)
+                self.fail(format!("expected `up`, `down`, `left`, or `right`, found `{w}`"))
             },
-            _ => self.fail("expected one of the directions `up`, `down`, `left`, or `right`", span),
+            _ => self.fail("expected one of the directions `up`, `down`, `left`, or `right`"),
         }
     }
 
-    fn parse_move_dir_mod<'a>(&mut self, input: &'a [ActionToken<'a>], span: Span) -> TokenStream {
+    fn parse_move_dir_mod<'a>(&mut self, input: &'a [ActionToken<'a>]) -> TokenStream {
         match input {
             [ActionToken::Word(w @ "same"), rest @ ..] => {
-                enum_no_args_branch!(::editor_types::prelude::MoveDirMod::Same, w, rest, span)
+                enum_no_args_branch!(self, ::editor_types::prelude::MoveDirMod::Same, w, rest)
             },
             [ActionToken::Word(w @ "flip"), rest @ ..] => {
-                enum_no_args_branch!(::editor_types::prelude::MoveDirMod::Flip, w, rest, span)
+                enum_no_args_branch!(self, ::editor_types::prelude::MoveDirMod::Flip, w, rest)
             },
             [ActionToken::Word("exact"), rest @ ..] => {
-                let dir1d = self.parse_dir1d(rest, span);
+                let dir1d = self.parse_dir1d(rest);
                 quote! { ::editor_types::prelude::MoveDirMod::Exact(#dir1d) }
             },
             [ActionToken::Id(i), rest @ ..] => {
-                id_match_branch!(self, i, ::editor_types::prelude::MoveDirMod, rest, span)
+                id_match_branch!(self, i, ::editor_types::prelude::MoveDirMod, rest)
             },
             [ActionToken::Word(w), ..] => {
-                self.fail(format!("expected `same`, `flip`, or `exact`, found `{w}`"), span)
+                self.fail(format!("expected `same`, `flip`, or `exact`, found `{w}`"))
             },
             _ => self.fail(
                 "expected one of the directions `same`, `flip`, `(exact prev)` or `(exact next)`",
-                span,
             ),
         }
     }
 
-    fn parse_focus_change<'a>(&mut self, input: &'a [ActionToken<'a>], span: Span) -> TokenStream {
+    fn parse_focus_change<'a>(&mut self, input: &'a [ActionToken<'a>]) -> TokenStream {
         match input {
             [ActionToken::Word(w @ "current"), rest @ ..] => {
-                enum_no_args_branch!(::editor_types::prelude::FocusChange::Current, w, rest, span)
+                enum_no_args_branch!(self, ::editor_types::prelude::FocusChange::Current, w, rest)
             },
             [
                 ActionToken::Word(w @ ("prev" | "previous" | "previously-focused")),
                 rest @ ..,
             ] => {
                 enum_no_args_branch!(
+                    self,
                     ::editor_types::prelude::FocusChange::PreviouslyFocused,
                     w,
-                    rest,
-                    span
+                    rest
                 )
             },
             [ActionToken::Word(w @ "offset"), rest @ ..] => {
@@ -750,22 +703,22 @@ impl ActionMacroParser {
                     ],
                     rest,
                 ) {
-                    Ok([dir, clamp_last]) => {
-                        let count = self.parse_count(dir, span);
-                        let clamp_last = self.parse_bool(clamp_last, span);
+                    Ok([count, clamp_last]) => {
+                        let count = self.parse_count(count);
+                        let clamp_last = self.parse_bool(clamp_last);
                         quote! { ::editor_types::prelude::FocusChange::Offset(#count, #clamp_last) }
                     },
-                    Err(e) => fail_cmd_flag(w, e, span),
+                    Err(e) => self.fail_cmd_flag(w, e),
                 }
             },
             [ActionToken::Word(w @ ("pos" | "position")), rest @ ..] => {
                 match parse_single_flag(Flag::Position, rest) {
                     Ok(pos) => {
-                        let pos = self.parse_move_position(pos, span);
+                        let pos = self.parse_move_position(pos);
 
                         quote! { ::editor_types::prelude::FocusChange::Position(#pos) }
                     },
-                    Err(e) => fail_cmd_flag(w, e, span),
+                    Err(e) => self.fail_cmd_flag(w, e),
                 }
             },
             [ActionToken::Word(w @ "dir1d"), rest @ ..] => {
@@ -778,12 +731,12 @@ impl ActionMacroParser {
                     rest,
                 ) {
                     Ok([dir, count, wrap]) => {
-                        let dir = self.parse_dir1d(dir, span);
-                        let count = self.parse_count(count, span);
-                        let wrap = self.parse_bool(wrap, span);
+                        let dir = self.parse_dir1d(dir);
+                        let count = self.parse_count(count);
+                        let wrap = self.parse_bool(wrap);
                         quote! { ::editor_types::prelude::FocusChange::Direction1D(#dir, #count, #wrap) }
                     },
-                    Err(e) => fail_cmd_flag(w, e, span),
+                    Err(e) => self.fail_cmd_flag(w, e),
                 }
             },
             [ActionToken::Word(w @ "dir2d"), rest @ ..] => {
@@ -792,143 +745,142 @@ impl ActionMacroParser {
                     rest,
                 ) {
                     Ok([dir, count]) => {
-                        let dir = self.parse_dir2d(dir, span);
-                        let count = self.parse_count(count, span);
+                        let dir = self.parse_dir2d(dir);
+                        let count = self.parse_count(count);
                         quote! { ::editor_types::prelude::FocusChange::Direction2D(#dir, #count) }
                     },
-                    Err(e) => fail_cmd_flag(w, e, span),
+                    Err(e) => self.fail_cmd_flag(w, e),
                 }
             },
             [ActionToken::Id(i), rest @ ..] => {
-                id_match_branch!(self, i, ::editor_types::prelude::FocusChange, rest, span)
+                id_match_branch!(self, i, ::editor_types::prelude::FocusChange, rest)
             },
-            [ActionToken::Word(w), ..] => self.fail(
-                format!(
+            [ActionToken::Word(w), ..] => {
+                self.fail(format!(
                     "expected `current`, `dir1d, `dir2d`, `offset`, `pos` or `prev`, found `{w}`"
-                ),
-                span,
-            ),
-            _ => self.fail("Expected a valid focus change argument", span),
+                ))
+            },
+            _ => self.fail("Expected a valid focus change argument"),
         }
     }
 
-    fn parse_close_flags<'a>(&mut self, input: &'a [ActionToken<'a>], span: Span) -> TokenStream {
+    fn parse_close_flags<'a>(&mut self, input: &'a [ActionToken<'a>]) -> TokenStream {
         match input {
             [ActionToken::Word(w @ "none"), rest @ ..] => {
-                enum_no_args_branch!(::editor_types::prelude::CloseFlags::NONE, w, rest, span)
+                enum_no_args_branch!(self, ::editor_types::prelude::CloseFlags::NONE, w, rest)
             },
             [ActionToken::Word(w @ "force"), rest @ ..] => {
-                enum_no_args_branch!(::editor_types::prelude::CloseFlags::FORCE, w, rest, span)
+                enum_no_args_branch!(self, ::editor_types::prelude::CloseFlags::FORCE, w, rest)
             },
             [ActionToken::Word(w @ "quit"), rest @ ..] => {
-                enum_no_args_branch!(::editor_types::prelude::CloseFlags::QUIT, w, rest, span)
+                enum_no_args_branch!(self, ::editor_types::prelude::CloseFlags::QUIT, w, rest)
             },
             [ActionToken::Word(w @ "write"), rest @ ..] => {
-                enum_no_args_branch!(::editor_types::prelude::CloseFlags::WRITE, w, rest, span)
+                enum_no_args_branch!(self, ::editor_types::prelude::CloseFlags::WRITE, w, rest)
             },
             [ActionToken::Id(i), rest @ ..] => {
-                id_match_branch!(self, i, ::editor_types::prelude::CloseFlags, rest, span)
+                id_match_branch!(self, i, ::editor_types::prelude::CloseFlags, rest)
             },
             [ActionToken::Word(w), ..] => {
-                self.fail(format!("expected `none`, `force` or `quit`, found `{w}`"), span)
+                self.fail(format!("expected `none`, `force` or `quit`, found `{w}`"))
             },
-            _ => self.fail("Expected argument to be valid window closing flags", span),
+            _ => self.fail("Expected argument to be valid window closing flags"),
         }
     }
 
-    fn parse_write_flags<'a>(&mut self, input: &'a [ActionToken<'a>], span: Span) -> TokenStream {
+    fn parse_write_flags<'a>(&mut self, input: &'a [ActionToken<'a>]) -> TokenStream {
         match input {
             [ActionToken::Word(w @ "none"), rest @ ..] => {
-                enum_no_args_branch!(::editor_types::prelude::WriteFlags::NONE, w, rest, span)
+                enum_no_args_branch!(self, ::editor_types::prelude::WriteFlags::NONE, w, rest)
             },
             [ActionToken::Word(w @ "force"), rest @ ..] => {
-                enum_no_args_branch!(::editor_types::prelude::WriteFlags::FORCE, w, rest, span)
+                enum_no_args_branch!(self, ::editor_types::prelude::WriteFlags::FORCE, w, rest)
             },
             [ActionToken::Id(i), rest @ ..] => {
-                id_match_branch!(self, i, ::editor_types::prelude::WriteFlags, rest, span)
+                id_match_branch!(self, i, ::editor_types::prelude::WriteFlags, rest)
             },
             [ActionToken::Word(w), ..] => {
-                self.fail(format!("expected `none` or `force`, found `{w}`"), span)
+                self.fail(format!("expected `none` or `force`, found `{w}`"))
             },
-            _ => self.fail("Expected argument to be valid window write flags", span),
+            _ => self.fail("Expected argument to be valid window write flags"),
         }
     }
 
-    fn parse_window_target<'a>(&mut self, input: &'a [ActionToken<'a>], span: Span) -> TokenStream {
+    fn parse_window_target<'a>(&mut self, input: &'a [ActionToken<'a>]) -> TokenStream {
         match input {
             [ActionToken::Word(w @ "all"), rest @ ..] => {
-                enum_no_args_branch!(::editor_types::prelude::WindowTarget::All, w, rest, span)
+                enum_no_args_branch!(self, ::editor_types::prelude::WindowTarget::All, w, rest)
             },
             [ActionToken::Word("all-but"), rest @ ..] => {
-                let fc = self.parse_focus_change(rest, span);
+                let fc = self.parse_focus_change(rest);
                 quote! { ::editor_types::prelude::WindowTarget::AllBut(#fc) }
             },
             [ActionToken::Word("single"), rest @ ..] => {
-                let fc = self.parse_focus_change(rest, span);
+                let fc = self.parse_focus_change(rest);
                 quote! { ::editor_types::prelude::WindowTarget::Single(#fc) }
             },
             [ActionToken::Id(i), rest @ ..] => {
-                id_match_branch!(self, i, ::editor_types::prelude::WindowTarget, rest, span)
+                id_match_branch!(self, i, ::editor_types::prelude::WindowTarget, rest)
             },
             [ActionToken::Word(w), ..] => {
-                self.fail(format!("expected `all`, `all-but` or `single`, found `{w}`"), span)
+                self.fail(format!("expected `all`, `all-but` or `single`, found `{w}`"))
             },
-            _ => self.fail("Expected a valid window target argument", span),
+            _ => self.fail("Expected a valid window target argument"),
         }
     }
 
-    fn parse_tab_target<'a>(&mut self, input: &'a [ActionToken<'a>], span: Span) -> TokenStream {
+    fn parse_tab_target<'a>(&mut self, input: &'a [ActionToken<'a>]) -> TokenStream {
         match input {
             [ActionToken::Word(w @ "all"), rest @ ..] => {
-                enum_no_args_branch!(::editor_types::prelude::TabTarget::All, w, rest, span)
+                enum_no_args_branch!(self, ::editor_types::prelude::TabTarget::All, w, rest)
             },
             [ActionToken::Word("all-but"), rest @ ..] => {
-                let fc = self.parse_focus_change(rest, span);
+                let fc = self.parse_focus_change(rest);
                 quote! { ::editor_types::prelude::TabTarget::AllBut(#fc) }
             },
             [ActionToken::Word("single"), rest @ ..] => {
-                let fc = self.parse_focus_change(rest, span);
+                let fc = self.parse_focus_change(rest);
                 quote! { ::editor_types::prelude::TabTarget::Single(#fc) }
             },
             [ActionToken::Id(i), rest @ ..] => {
-                id_match_branch!(self, i, ::editor_types::prelude::TabTarget, rest, span)
+                id_match_branch!(self, i, ::editor_types::prelude::TabTarget, rest)
             },
             [ActionToken::Word(w), ..] => {
-                self.fail(format!("expected `all`, `all-but` or `single`, found `{w}`"), span)
+                self.fail(format!("expected `all`, `all-but` or `single`, found `{w}`"))
             },
-            _ => self.fail("Expected a valid tab target argument", span),
+            _ => self.fail("Expected a valid tab target argument"),
         }
     }
 
-    fn parse_open_target<'a>(&mut self, input: &'a [ActionToken<'a>], span: Span) -> TokenStream {
+    fn parse_open_target<'a>(&mut self, input: &'a [ActionToken<'a>]) -> TokenStream {
         match input {
             [ActionToken::Word(w @ "alternate"), rest @ ..] => {
-                enum_no_args_branch!(::editor_types::prelude::OpenTarget::Alternate, w, rest, span)
+                enum_no_args_branch!(self, ::editor_types::prelude::OpenTarget::Alternate, w, rest)
             },
             [ActionToken::Word(w @ "current"), rest @ ..] => {
-                enum_no_args_branch!(::editor_types::prelude::OpenTarget::Current, w, rest, span)
+                enum_no_args_branch!(self, ::editor_types::prelude::OpenTarget::Current, w, rest)
             },
             [ActionToken::Word(w @ "selection"), rest @ ..] => {
-                enum_no_args_branch!(::editor_types::prelude::OpenTarget::Selection, w, rest, span)
+                enum_no_args_branch!(self, ::editor_types::prelude::OpenTarget::Selection, w, rest)
             },
             [ActionToken::Word(w @ "unnamed"), rest @ ..] => {
-                enum_no_args_branch!(::editor_types::prelude::OpenTarget::Unnamed, w, rest, span)
+                enum_no_args_branch!(self, ::editor_types::prelude::OpenTarget::Unnamed, w, rest)
             },
             [ActionToken::Word(w @ "cursor"), rest @ ..] => {
                 let style = parse_single_flag(Flag::Style, rest)
-                    .map(|s| self.parse_word_style(s, span))
-                    .unwrap_or_else(|e| fail_cmd_flag(w, e, span));
+                    .map(|s| self.parse_word_style(s))
+                    .unwrap_or_else(|e| self.fail_cmd_flag(w, e));
 
                 quote! { ::editor_types::prelude::OpenTarget::Cursor(#style) }
             },
             [ActionToken::Word(w @ "list"), rest @ ..] => {
-                let count = self.parse_single_count(w, rest, span);
+                let count = self.parse_single_count(w, rest);
                 quote! { ::editor_types::prelude::OpenTarget::List(#count) }
             },
             [ActionToken::Word(w @ "name"), rest @ ..] => {
                 let name = parse_single_flag(Flag::Input, rest)
-                    .map(|s| self.parse_string(s, span))
-                    .unwrap_or_else(|e| fail_cmd_flag(w, e, span));
+                    .map(|s| self.parse_string(s))
+                    .unwrap_or_else(|e| self.fail_cmd_flag(w, e));
 
                 quote! { ::editor_types::prelude::OpenTarget::Name(#name) }
             },
@@ -938,251 +890,245 @@ impl ActionMacroParser {
                     rest,
                 ) {
                     Ok([dir, count]) => {
-                        let dir = self.parse_dir1d(dir, span);
-                        let count = self.parse_count(count, span);
+                        let dir = self.parse_dir1d(dir);
+                        let count = self.parse_count(count);
                         quote! { ::editor_types::prelude::OpenTarget::Offset(#dir, #count) }
                     },
-                    Err(e) => fail_cmd_flag(w, e, span),
+                    Err(e) => self.fail_cmd_flag(w, e),
                 }
             },
             [ActionToken::Id(i), rest @ ..] => {
-                id_match_branch!(self, i, ::editor_types::prelude::OpenTarget, rest, span)
+                id_match_branch!(self, i, ::editor_types::prelude::OpenTarget, rest)
             },
-            [ActionToken::Word(w), ..] => bad_word_match_branch!(w, "open target", span),
-            _ => self.fail("Expected a valid open target argument", span),
+            [ActionToken::Word(w), ..] => bad_word_match_branch!(self, w, "open target"),
+            _ => self.fail("Expected a valid open target argument"),
         }
     }
 
-    fn parse_axis<'a>(&mut self, input: &'a [ActionToken<'a>], span: Span) -> TokenStream {
+    fn parse_axis<'a>(&mut self, input: &'a [ActionToken<'a>]) -> TokenStream {
         match input {
             [ActionToken::Word(w @ ("h" | "horizontal")), rest @ ..] => {
-                enum_no_args_branch!(::editor_types::prelude::Axis::Horizontal, w, rest, span)
+                enum_no_args_branch!(self, ::editor_types::prelude::Axis::Horizontal, w, rest)
             },
             [ActionToken::Word(w @ ("v" | "vertical")), rest @ ..] => {
-                enum_no_args_branch!(::editor_types::prelude::Axis::Vertical, w, rest, span)
+                enum_no_args_branch!(self, ::editor_types::prelude::Axis::Vertical, w, rest)
             },
-            [ActionToken::Word(w), ..] => bad_word_match_branch!(w, "axis", span),
+            [ActionToken::Word(w), ..] => bad_word_match_branch!(self, w, "axis"),
             [ActionToken::Id(i), rest @ ..] => {
-                id_match_branch!(self, i, ::editor_types::prelude::Axis, rest, span)
+                id_match_branch!(self, i, ::editor_types::prelude::Axis, rest)
             },
-            _ => self.fail("expected a valid axis argument", span),
+            _ => self.fail("expected a valid axis argument"),
         }
     }
 
-    fn parse_move_position<'a>(&mut self, input: &'a [ActionToken<'a>], span: Span) -> TokenStream {
+    fn parse_move_position<'a>(&mut self, input: &'a [ActionToken<'a>]) -> TokenStream {
         match input {
             [ActionToken::Word(w @ ("b" | "beginning")), rest @ ..] => {
                 enum_no_args_branch!(
+                    self,
                     ::editor_types::prelude::MovePosition::Beginning,
                     w,
-                    rest,
-                    span
+                    rest
                 )
             },
             [ActionToken::Word(w @ ("m" | "middle")), rest @ ..] => {
-                enum_no_args_branch!(::editor_types::prelude::MovePosition::Middle, w, rest, span)
+                enum_no_args_branch!(self, ::editor_types::prelude::MovePosition::Middle, w, rest)
             },
             [ActionToken::Word(w @ ("e" | "end")), rest @ ..] => {
-                enum_no_args_branch!(::editor_types::prelude::MovePosition::End, w, rest, span)
+                enum_no_args_branch!(self, ::editor_types::prelude::MovePosition::End, w, rest)
             },
-            [ActionToken::Word(w), ..] => bad_word_match_branch!(w, "move position", span),
+            [ActionToken::Word(w), ..] => bad_word_match_branch!(self, w, "move position"),
             [ActionToken::Id(i), rest @ ..] => {
-                id_match_branch!(self, i, ::editor_types::prelude::MovePosition, rest, span)
+                id_match_branch!(self, i, ::editor_types::prelude::MovePosition, rest)
             },
-            _ => self.fail("expected a valid move position", span),
+            _ => self.fail("expected a valid move position"),
         }
     }
 
-    fn parse_move_terminus<'a>(&mut self, input: &'a [ActionToken<'a>], span: Span) -> TokenStream {
+    fn parse_move_terminus<'a>(&mut self, input: &'a [ActionToken<'a>]) -> TokenStream {
         match input {
             [ActionToken::Word(w @ ("b" | "beginning")), rest @ ..] => {
                 enum_no_args_branch!(
+                    self,
                     ::editor_types::prelude::MoveTerminus::Beginning,
                     w,
-                    rest,
-                    span
+                    rest
                 )
             },
             [ActionToken::Word(w @ ("e" | "end")), rest @ ..] => {
-                enum_no_args_branch!(::editor_types::prelude::MoveTerminus::End, w, rest, span)
+                enum_no_args_branch!(self, ::editor_types::prelude::MoveTerminus::End, w, rest)
             },
-            [ActionToken::Word(w), ..] => bad_word_match_branch!(w, "move terminus", span),
+            [ActionToken::Word(w), ..] => bad_word_match_branch!(self, w, "move terminus"),
             [ActionToken::Id(i), rest @ ..] => {
-                id_match_branch!(self, i, ::editor_types::prelude::MoveTerminus, rest, span)
+                id_match_branch!(self, i, ::editor_types::prelude::MoveTerminus, rest)
             },
-            _ => self.fail("expected a valid move terminus", span),
+            _ => self.fail("expected a valid move terminus"),
         }
     }
 
-    fn parse_scroll_size<'a>(&mut self, input: &'a [ActionToken<'a>], span: Span) -> TokenStream {
+    fn parse_scroll_size<'a>(&mut self, input: &'a [ActionToken<'a>]) -> TokenStream {
         match input {
             [ActionToken::Word(w @ "cell"), rest @ ..] => {
-                enum_no_args_branch!(::editor_types::prelude::ScrollSize::Cell, w, rest, span)
+                enum_no_args_branch!(self, ::editor_types::prelude::ScrollSize::Cell, w, rest)
             },
             [ActionToken::Word(w @ "half-page"), rest @ ..] => {
-                enum_no_args_branch!(::editor_types::prelude::ScrollSize::HalfPage, w, rest, span)
+                enum_no_args_branch!(self, ::editor_types::prelude::ScrollSize::HalfPage, w, rest)
             },
             [ActionToken::Word(w @ "page"), rest @ ..] => {
-                enum_no_args_branch!(::editor_types::prelude::ScrollSize::Page, w, rest, span)
+                enum_no_args_branch!(self, ::editor_types::prelude::ScrollSize::Page, w, rest)
             },
-            [ActionToken::Word(w), ..] => bad_word_match_branch!(w, "scroll size", span),
+            [ActionToken::Word(w), ..] => bad_word_match_branch!(self, w, "scroll size"),
             [ActionToken::Id(i), rest @ ..] => {
-                id_match_branch!(self, i, ::editor_types::prelude::ScrollSize, rest, span)
+                id_match_branch!(self, i, ::editor_types::prelude::ScrollSize, rest)
             },
-            _ => self.fail("expected a valid scroll size", span),
+            _ => self.fail("expected a valid scroll size"),
         }
     }
 
-    fn parse_size_change<'a>(&mut self, input: &'a [ActionToken<'a>], span: Span) -> TokenStream {
+    fn parse_size_change<'a>(&mut self, input: &'a [ActionToken<'a>]) -> TokenStream {
         match input {
             [ActionToken::Word("dec" | "decrease"), rest @ ..] => {
-                let count = self.parse_count(rest, span);
+                let count = self.parse_count(rest);
                 quote! { ::editor_types::prelude::SizeChange::Decrease(#count) }
             },
             [ActionToken::Word("inc" | "increase"), rest @ ..] => {
-                let count = self.parse_count(rest, span);
+                let count = self.parse_count(rest);
                 quote! { ::editor_types::prelude::SizeChange::Increase(#count) }
             },
             [ActionToken::Word("exact"), rest @ ..] => {
-                let count = self.parse_count(rest, span);
+                let count = self.parse_count(rest);
                 quote! { ::editor_types::prelude::SizeChange::Exact(#count) }
             },
             [ActionToken::Word(w @ ("eq" | "equal")), rest @ ..] => {
-                enum_no_args_branch!(::editor_types::prelude::SizeChange::Equal, w, rest, span)
+                enum_no_args_branch!(self, ::editor_types::prelude::SizeChange::Equal, w, rest)
             },
-            [ActionToken::Word(w), ..] => bad_word_match_branch!(w, "size change", span),
+            [ActionToken::Word(w), ..] => bad_word_match_branch!(self, w, "size change"),
             [ActionToken::Id(i), rest @ ..] => {
-                id_match_branch!(self, i, ::editor_types::prelude::SizeChange, rest, span)
+                id_match_branch!(self, i, ::editor_types::prelude::SizeChange, rest)
             },
-            _ => self.fail("expected a valid size change", span),
+            _ => self.fail("expected a valid size change"),
         }
     }
 
-    fn parse_cursor_merge_style(&mut self, input: &[ActionToken], span: Span) -> TokenStream {
+    fn parse_cursor_merge_style(&mut self, input: &[ActionToken]) -> TokenStream {
         match input {
             [ActionToken::Word(w @ "union"), rest @ ..] => {
                 enum_no_args_branch!(
+                    self,
                     ::editor_types::prelude::CursorMergeStyle::Union,
                     w,
-                    rest,
-                    span
+                    rest
                 )
             },
             [ActionToken::Word(w @ "intersect"), rest @ ..] => {
                 enum_no_args_branch!(
+                    self,
                     ::editor_types::prelude::CursorMergeStyle::Intersect,
                     w,
-                    rest,
-                    span
+                    rest
                 )
             },
             [ActionToken::Word("select-cursor"), rest @ ..] => {
-                let dir = self.parse_single_dir1d("select-cursor", rest, span);
+                let dir = self.parse_single_dir1d("select-cursor", rest);
                 quote! { ::editor_types::prelude::CursorMergeStyle::SelectCursor(#dir) }
             },
             [ActionToken::Word(w @ "select-short"), rest @ ..] => {
                 enum_no_args_branch!(
+                    self,
                     ::editor_types::prelude::CursorMergeStyle::SelectShort,
                     w,
-                    rest,
-                    span
+                    rest
                 )
             },
             [ActionToken::Word(w @ "select-long"), rest @ ..] => {
                 enum_no_args_branch!(
+                    self,
                     ::editor_types::prelude::CursorMergeStyle::SelectLong,
                     w,
-                    rest,
-                    span
+                    rest
                 )
             },
             [ActionToken::Word(w), ..] => {
-                self.fail(format!("`merge {w}` is not a valid merge style"), span)
+                self.fail(format!("`merge {w}` is not a valid merge style"))
             },
-            _ => self.fail("expected a valid merge style for combining cursor groups", span),
+            _ => self.fail("expected a valid merge style for combining cursor groups"),
         }
     }
 
-    fn parse_cursor_group_combine(&mut self, input: &[ActionToken], span: Span) -> TokenStream {
+    fn parse_cursor_group_combine(&mut self, input: &[ActionToken]) -> TokenStream {
         match input {
             [ActionToken::Word(w @ "append"), rest @ ..] => {
                 enum_no_args_branch!(
+                    self,
                     ::editor_types::prelude::CursorGroupCombineStyle::Append,
                     w,
-                    rest,
-                    span
+                    rest
                 )
             },
             [ActionToken::Word("merge"), rest @ ..] => {
-                let style = self.parse_cursor_merge_style(rest, span);
+                let style = self.parse_cursor_merge_style(rest);
                 quote! { ::editor_types::prelude::CursorGroupCombineStyle::Merge(#style) }
             },
             [ActionToken::Word(w @ "replace"), rest @ ..] => {
                 enum_no_args_branch!(
+                    self,
                     ::editor_types::prelude::CursorGroupCombineStyle::Replace,
                     w,
-                    rest,
-                    span
+                    rest
                 )
             },
             [ActionToken::Id(i), rest @ ..] => {
-                id_match_branch!(
-                    self,
-                    i,
-                    ::editor_types::prelude::CursorGroupCombineStyle,
-                    rest,
-                    span
-                )
+                id_match_branch!(self, i, ::editor_types::prelude::CursorGroupCombineStyle, rest)
             },
             [ActionToken::Word(w), ..] => {
-                bad_word_match_branch!(w, "cursor group combining style", span)
+                bad_word_match_branch!(self, w, "cursor group combining style")
             },
-            _ => self.fail("expected a valid style for combining cursor groups", span),
+            _ => self.fail("expected a valid style for combining cursor groups"),
         }
     }
 
-    fn parse_cursor_close_target(&mut self, input: &[ActionToken], span: Span) -> TokenStream {
+    fn parse_cursor_close_target(&mut self, input: &[ActionToken]) -> TokenStream {
         match input {
             [ActionToken::Word(w @ "leader"), rest @ ..] => {
                 enum_no_args_branch!(
+                    self,
                     ::editor_types::prelude::CursorCloseTarget::Leader,
                     w,
-                    rest,
-                    span
+                    rest
                 )
             },
             [ActionToken::Word(w @ "followers"), rest @ ..] => {
                 enum_no_args_branch!(
+                    self,
                     ::editor_types::prelude::CursorCloseTarget::Followers,
                     w,
-                    rest,
-                    span
+                    rest
                 )
             },
             [ActionToken::Id(i), rest @ ..] => {
-                id_match_branch!(self, i, ::editor_types::prelude::CursorCloseTarget, rest, span)
+                id_match_branch!(self, i, ::editor_types::prelude::CursorCloseTarget, rest)
             },
-            [ActionToken::Word(w), ..] => bad_word_match_branch!(w, "cursor target", span),
-            _ => self.fail("expected a valid cursor target", span),
+            [ActionToken::Word(w), ..] => bad_word_match_branch!(self, w, "cursor target"),
+            _ => self.fail("expected a valid cursor target"),
         }
     }
 
-    fn parse_word_style(&mut self, input: &[ActionToken], span: Span) -> TokenStream {
+    fn parse_word_style(&mut self, input: &[ActionToken]) -> TokenStream {
         match input {
             [ActionToken::Word(w @ ("alphanum" | "alpha-num")), rest @ ..] => {
-                enum_no_args_branch!(::editor_types::prelude::WordStyle::AlphaNum, w, rest, span)
+                enum_no_args_branch!(self, ::editor_types::prelude::WordStyle::AlphaNum, w, rest)
             },
             [ActionToken::Word(w @ "big"), rest @ ..] => {
-                enum_no_args_branch!(::editor_types::prelude::WordStyle::Big, w, rest, span)
+                enum_no_args_branch!(self, ::editor_types::prelude::WordStyle::Big, w, rest)
             },
             [ActionToken::Word(w @ ("filename" | "file-name")), rest @ ..] => {
-                enum_no_args_branch!(::editor_types::prelude::WordStyle::FileName, w, rest, span)
+                enum_no_args_branch!(self, ::editor_types::prelude::WordStyle::FileName, w, rest)
             },
             [ActionToken::Word(w @ ("filepath" | "file-path")), rest @ ..] => {
-                enum_no_args_branch!(::editor_types::prelude::WordStyle::FilePath, w, rest, span)
+                enum_no_args_branch!(self, ::editor_types::prelude::WordStyle::FilePath, w, rest)
             },
             [ActionToken::Word(w @ "little"), rest @ ..] => {
-                enum_no_args_branch!(::editor_types::prelude::WordStyle::Little, w, rest, span)
+                enum_no_args_branch!(self, ::editor_types::prelude::WordStyle::Little, w, rest)
             },
             [
                 ActionToken::Word(
@@ -1190,96 +1136,99 @@ impl ActionMacroParser {
                 ),
                 rest @ ..,
             ] => {
-                enum_no_args_branch!(::editor_types::prelude::WordStyle::NonAlphaNum, w, rest, span)
+                enum_no_args_branch!(self, ::editor_types::prelude::WordStyle::NonAlphaNum, w, rest)
             },
             [ActionToken::Word("radix"), rest @ ..] => {
-                let radix = self.parse_radix(rest, span);
+                let radix = self.parse_radix(rest);
                 quote! { ::editor_types::prelude::WordStyle::Number(#radix) }
             },
-            [ActionToken::Word("whitespace"), rest @ ..] => {
-                let wrap = self.parse_single_wrap("whitespace", rest, span);
+            [ActionToken::Word(w @ "whitespace"), rest @ ..] => {
+                let wrap = parse_single_flag(Flag::Wrap, rest)
+                    .map(|s| self.parse_bool(s))
+                    .unwrap_or_else(|e| self.fail_cmd_flag(w, e));
+
                 quote! { ::editor_types::prelude::WordStyle::Whitespace(#wrap) }
             },
             [ActionToken::Id(i), rest @ ..] => {
-                id_match_branch!(self, i, ::editor_types::prelude::WordStyle, rest, span)
+                id_match_branch!(self, i, ::editor_types::prelude::WordStyle, rest)
             },
-            [ActionToken::Word(w), ..] => bad_word_match_branch!(w, "word style", span),
-            _ => self.fail("expected a valid word style", span),
+            [ActionToken::Word(w), ..] => bad_word_match_branch!(self, w, "word style"),
+            _ => self.fail("expected a valid word style"),
         }
     }
 
-    fn parse_keyword_target(&mut self, input: &[ActionToken], span: Span) -> TokenStream {
+    fn parse_keyword_target(&mut self, input: &[ActionToken]) -> TokenStream {
         match input {
             [ActionToken::Word(w @ "selection"), rest @ ..] => {
                 enum_no_args_branch!(
+                    self,
                     ::editor_types::prelude::KeywordTarget::Selection,
                     w,
-                    rest,
-                    span
+                    rest
                 )
             },
             [ActionToken::Word("word"), rest @ ..] => {
-                let style = self.parse_word_style(rest, span);
+                let style = self.parse_word_style(rest);
                 quote! { ::editor_types::prelude::KeywordTarget::Word(#style) }
             },
             [ActionToken::Id(i), rest @ ..] => {
-                id_match_branch!(self, i, ::editor_types::prelude::KeywordTarget, rest, span)
+                id_match_branch!(self, i, ::editor_types::prelude::KeywordTarget, rest)
             },
-            [ActionToken::Word(w), ..] => bad_word_match_branch!(w, "keyword target", span),
-            _ => self.fail("expected a valid keyword target", span),
+            [ActionToken::Word(w), ..] => bad_word_match_branch!(self, w, "keyword target"),
+            _ => self.fail("expected a valid keyword target"),
         }
     }
 
-    fn parse_paste_style(&mut self, input: &[ActionToken], span: Span) -> TokenStream {
+    fn parse_paste_style(&mut self, input: &[ActionToken]) -> TokenStream {
         match input {
             [ActionToken::Word(w @ "cursor"), rest @ ..] => {
-                enum_no_args_branch!(::editor_types::prelude::PasteStyle::Cursor, w, rest, span)
+                enum_no_args_branch!(self, ::editor_types::prelude::PasteStyle::Cursor, w, rest)
             },
             [ActionToken::Word("side"), rest @ ..] => {
-                let dir = self.parse_single_dir1d("side", rest, span);
+                let dir = self.parse_single_dir1d("side", rest);
                 quote! { ::editor_types::prelude::PasteStyle::Side(#dir) }
             },
             [ActionToken::Word(w @ "replace"), rest @ ..] => {
-                enum_no_args_branch!(::editor_types::prelude::PasteStyle::Replace, w, rest, span)
+                enum_no_args_branch!(self, ::editor_types::prelude::PasteStyle::Replace, w, rest)
             },
             [ActionToken::Id(id), rest @ ..] => {
-                id_match_branch!(self, id, ::editor_types::prelude::PasteStyle, rest, span)
+                id_match_branch!(self, id, ::editor_types::prelude::PasteStyle, rest)
             },
-            [ActionToken::Word(w), ..] => bad_word_match_branch!(w, "paste style", span),
-            _ => self.fail("expected a valid paste style", span),
+            [ActionToken::Word(w), ..] => bad_word_match_branch!(self, w, "paste style"),
+            _ => self.fail("expected a valid paste style"),
         }
     }
 
-    fn parse_repeat_style(&mut self, input: &[ActionToken], span: Span) -> TokenStream {
+    fn parse_repeat_style(&mut self, input: &[ActionToken]) -> TokenStream {
         match input {
             [ActionToken::Word(w @ "edit-sequence"), rest @ ..] => {
                 enum_no_args_branch!(
+                    self,
                     ::editor_types::prelude::RepeatType::EditSequence,
                     w,
-                    rest,
-                    span
+                    rest
                 )
             },
             [ActionToken::Word(w @ "last-action"), rest @ ..] => {
-                enum_no_args_branch!(::editor_types::prelude::RepeatType::LastAction, w, rest, span)
+                enum_no_args_branch!(self, ::editor_types::prelude::RepeatType::LastAction, w, rest)
             },
             [ActionToken::Word(w @ "last-selection"), rest @ ..] => {
                 enum_no_args_branch!(
+                    self,
                     ::editor_types::prelude::RepeatType::LastSelection,
                     w,
-                    rest,
-                    span
+                    rest
                 )
             },
             [ActionToken::Id(id), rest @ ..] => {
-                id_match_branch!(self, id, ::editor_types::prelude::RepeatType, rest, span)
+                id_match_branch!(self, id, ::editor_types::prelude::RepeatType, rest)
             },
-            [ActionToken::Word(w), ..] => bad_word_match_branch!(w, "repeat style", span),
-            _ => self.fail("expected a valid repetition type", span),
+            [ActionToken::Word(w), ..] => bad_word_match_branch!(self, w, "repeat style"),
+            _ => self.fail("expected a valid repetition type"),
         }
     }
 
-    fn parse_scroll_style(&mut self, input: &[ActionToken], span: Span) -> TokenStream {
+    fn parse_scroll_style(&mut self, input: &[ActionToken]) -> TokenStream {
         match input {
             [ActionToken::Word(w @ "dir2d"), rest @ ..] => {
                 match parse_flags(
@@ -1291,24 +1240,24 @@ impl ActionMacroParser {
                     rest,
                 ) {
                     Ok([dir, size, count]) => {
-                        let dir = self.parse_dir2d(dir, span);
-                        let size = self.parse_scroll_size(size, span);
-                        let count = self.parse_count(count, span);
+                        let dir = self.parse_dir2d(dir);
+                        let size = self.parse_scroll_size(size);
+                        let count = self.parse_count(count);
 
                         quote! { ::editor_types::prelude::ScrollStyle::Direction2D(#dir, #size, #count) }
                     },
-                    Err(e) => fail_cmd_flag(w, e, span),
+                    Err(e) => self.fail_cmd_flag(w, e),
                 }
             },
             [ActionToken::Word(w @ "cursor-pos"), rest @ ..] => {
                 match parse_flags([(Flag::Position, None), (Flag::Short('x'), None)], rest) {
                     Ok([pos, axis]) => {
-                        let pos = self.parse_move_position(pos, span);
-                        let axis = self.parse_axis(axis, span);
+                        let pos = self.parse_move_position(pos);
+                        let axis = self.parse_axis(axis);
 
                         quote! { ::editor_types::prelude::ScrollStyle::CursorPos(#pos, #axis) }
                     },
-                    Err(e) => fail_cmd_flag(w, e, span),
+                    Err(e) => self.fail_cmd_flag(w, e),
                 }
             },
             [ActionToken::Word(w @ "line-pos"), rest @ ..] => {
@@ -1320,98 +1269,98 @@ impl ActionMacroParser {
                     rest,
                 ) {
                     Ok([pos, count]) => {
-                        let pos = self.parse_move_position(pos, span);
-                        let count = self.parse_count(count, span);
+                        let pos = self.parse_move_position(pos);
+                        let count = self.parse_count(count);
 
                         quote! { ::editor_types::prelude::ScrollStyle::LinePos(#pos, #count) }
                     },
-                    Err(e) => fail_cmd_flag(w, e, span),
+                    Err(e) => self.fail_cmd_flag(w, e),
                 }
             },
             [ActionToken::Id(id), rest @ ..] => {
-                id_match_branch!(self, id, ::editor_types::prelude::ScrollStyle, rest, span)
+                id_match_branch!(self, id, ::editor_types::prelude::ScrollStyle, rest)
             },
-            [ActionToken::Word(w), ..] => bad_word_match_branch!(w, "scroll style", span),
-            _ => self.fail("expected a valid scroll style", span),
+            [ActionToken::Word(w), ..] => bad_word_match_branch!(self, w, "scroll style"),
+            _ => self.fail("expected a valid scroll style"),
         }
     }
 
-    fn parse_mark(&mut self, input: &[ActionToken], span: Span) -> TokenStream {
+    fn parse_mark(&mut self, input: &[ActionToken]) -> TokenStream {
         match input {
             [ActionToken::Word(w @ "buffer-last-exited"), rest @ ..] => {
-                enum_no_args_branch!(::editor_types::prelude::Mark::BufferLastExited, w, rest, span)
+                enum_no_args_branch!(self, ::editor_types::prelude::Mark::BufferLastExited, w, rest)
             },
             [ActionToken::Word("buffer-named"), rest @ ..] => {
-                let c = self.parse_std_char(rest, span);
+                let c = self.parse_std_char(rest);
                 quote! { ::editor_types::prelude::Mark::BufferNamed(#c) }
             },
             [ActionToken::Word("global-last-exited"), rest @ ..] => {
-                let n = self.parse_num(rest, span);
+                let n = self.parse_num(rest);
                 quote! { ::editor_types::prelude::Mark::GlobalLastExited(#n) }
             },
             [ActionToken::Word("global-named"), rest @ ..] => {
-                let c = self.parse_std_char(rest, span);
+                let c = self.parse_std_char(rest);
                 quote! { ::editor_types::prelude::Mark::GlobalNamed(#c) }
             },
             [ActionToken::Word(w @ "last-changed"), rest @ ..] => {
-                enum_no_args_branch!(::editor_types::prelude::Mark::LastChanged, w, rest, span)
+                enum_no_args_branch!(self, ::editor_types::prelude::Mark::LastChanged, w, rest)
             },
             [ActionToken::Word(w @ "last-inserted"), rest @ ..] => {
-                enum_no_args_branch!(::editor_types::prelude::Mark::LastInserted, w, rest, span)
+                enum_no_args_branch!(self, ::editor_types::prelude::Mark::LastInserted, w, rest)
             },
             [ActionToken::Word(w @ "last-jump"), rest @ ..] => {
-                enum_no_args_branch!(::editor_types::prelude::Mark::LastJump, w, rest, span)
+                enum_no_args_branch!(self, ::editor_types::prelude::Mark::LastJump, w, rest)
             },
             [ActionToken::Word(w @ "visual-begin"), rest @ ..] => {
-                enum_no_args_branch!(::editor_types::prelude::Mark::VisualBegin, w, rest, span)
+                enum_no_args_branch!(self, ::editor_types::prelude::Mark::VisualBegin, w, rest)
             },
             [ActionToken::Word(w @ "visual-end"), rest @ ..] => {
-                enum_no_args_branch!(::editor_types::prelude::Mark::VisualEnd, w, rest, span)
+                enum_no_args_branch!(self, ::editor_types::prelude::Mark::VisualEnd, w, rest)
             },
             [ActionToken::Word(w @ "last-yanked-begin"), rest @ ..] => {
-                enum_no_args_branch!(::editor_types::prelude::Mark::LastYankedBegin, w, rest, span)
+                enum_no_args_branch!(self, ::editor_types::prelude::Mark::LastYankedBegin, w, rest)
             },
             [ActionToken::Word(w @ "last-yanked-end"), rest @ ..] => {
-                enum_no_args_branch!(::editor_types::prelude::Mark::LastYankedEnd, w, rest, span)
+                enum_no_args_branch!(self, ::editor_types::prelude::Mark::LastYankedEnd, w, rest)
             },
             [ActionToken::Id(id), rest @ ..] => {
-                id_match_branch!(self, id, ::editor_types::prelude::Mark, rest, span)
+                id_match_branch!(self, id, ::editor_types::prelude::Mark, rest)
             },
-            [ActionToken::Word(w), ..] => bad_word_match_branch!(w, "mark", span),
-            _ => self.fail("expected a valid mark", span),
+            [ActionToken::Word(w), ..] => bad_word_match_branch!(self, w, "mark"),
+            _ => self.fail("expected a valid mark"),
         }
     }
 
-    fn parse_specifier_mark(&mut self, input: &[ActionToken], span: Span) -> TokenStream {
+    fn parse_specifier_mark(&mut self, input: &[ActionToken]) -> TokenStream {
         match input {
             [ActionToken::Word(w @ "ctx"), rest @ ..] => {
-                enum_no_args_branch!(::editor_types::prelude::Specifier::Contextual, w, rest, span)
+                enum_no_args_branch!(self, ::editor_types::prelude::Specifier::Contextual, w, rest)
             },
             [ActionToken::Word("exact"), rest @ ..] => {
-                let mark = self.parse_mark(rest, span);
+                let mark = self.parse_mark(rest);
                 quote! { ::editor_types::prelude::Specifier::Exact(#mark) }
             },
             [ActionToken::Id(id), rest @ ..] => {
-                id_match_branch!(self, id, ::editor_types::prelude::Specifier, rest, span)
+                id_match_branch!(self, id, ::editor_types::prelude::Specifier, rest)
             },
-            [ActionToken::Word(w), ..] => bad_word_match_branch!(w, "mark", span),
-            _ => self.fail("expected a valid mark specifier", span),
+            [ActionToken::Word(w), ..] => bad_word_match_branch!(self, w, "mark"),
+            _ => self.fail("expected a valid mark specifier"),
         }
     }
 
-    fn parse_char(&mut self, input: &[ActionToken], span: Span) -> TokenStream {
+    fn parse_char(&mut self, input: &[ActionToken]) -> TokenStream {
         match input {
             [ActionToken::Word(w @ "copy-line"), rest @ ..] => {
                 let dir = parse_single_flag(Flag::Dir, rest)
-                    .map(|d| self.parse_dir1d(d, span))
-                    .unwrap_or_else(|e| fail_cmd_flag(w, e, span));
+                    .map(|d| self.parse_dir1d(d))
+                    .unwrap_or_else(|e| self.fail_cmd_flag(w, e));
 
                 quote! { ::editor_types::prelude::Char::CopyLine(#dir) }
             },
             [ActionToken::Word(w @ "ctrl-seq"), rest @ ..] => {
                 let input = parse_single_flag(Flag::Input, rest)
-                    .map(|d| self.parse_string(d, span))
-                    .unwrap_or_else(|e| fail_cmd_flag(w, e, span));
+                    .map(|d| self.parse_string(d))
+                    .unwrap_or_else(|e| self.fail_cmd_flag(w, e));
 
                 quote! { ::editor_types::prelude::Char::CtrlSeq(#input) }
             },
@@ -1419,17 +1368,17 @@ impl ActionMacroParser {
                 let (c1, rest) = match rest {
                     [ActionToken::Char(c1), rest @ ..] => (quote! { #c1 }, rest),
                     [ActionToken::Id(id), rest @ ..] => {
-                        (id_match_branch!(self, id, ::char, &rest[..0], span), rest)
+                        (id_match_branch!(self, id, ::char, &rest[..0]), rest)
                     },
-                    _ => return self.fail("`digraph` expects exactly two characters", span),
+                    _ => return self.fail("`digraph` expects exactly two characters"),
                 };
 
                 let c2 = match rest {
                     [ActionToken::Char(c2)] => quote! { #c2 },
                     [ActionToken::Id(id), rest @ ..] => {
-                        id_match_branch!(self, id, ::char, rest, span)
+                        id_match_branch!(self, id, ::char, rest)
                     },
-                    _ => return self.fail("`digraph` expects exactly two characters", span),
+                    _ => return self.fail("`digraph` expects exactly two characters"),
                 };
 
                 quote! { ::editor_types::prelude::Char::Digraph(#c1, #c2) }
@@ -1438,179 +1387,170 @@ impl ActionMacroParser {
                 if rest.is_empty() {
                     quote! { ::editor_types::prelude::Char::Single(#c) }
                 } else {
-                    self.fail("characters should not take any arguments", span)
+                    self.fail("characters should not take any arguments")
                 }
             },
             [ActionToken::Id(id), rest @ ..] => {
-                id_match_branch!(self, id, ::editor_types::prelude::Char, rest, span)
+                id_match_branch!(self, id, ::editor_types::prelude::Char, rest)
             },
-            [ActionToken::Word(w), ..] => bad_word_match_branch!(w, "character", span),
-            _ => self.fail("expected a digraph, character, or identifier", span),
+            [ActionToken::Word(w), ..] => bad_word_match_branch!(self, w, "character"),
+            _ => self.fail("expected a digraph, character, or identifier"),
         }
     }
 
-    fn parse_std_char(&mut self, input: &[ActionToken], span: Span) -> TokenStream {
+    fn parse_std_char(&mut self, input: &[ActionToken]) -> TokenStream {
         match input {
             [ActionToken::Char(c), rest @ ..] => {
                 if rest.is_empty() {
                     quote! { #c }
                 } else {
-                    self.fail("characters should not take any arguments", span)
+                    self.fail("characters should not take any arguments")
                 }
             },
             [ActionToken::Id(id), rest @ ..] => {
-                id_match_branch!(self, id, ::char, rest, span)
+                id_match_branch!(self, id, ::char, rest)
             },
-            [ActionToken::Word(w), ..] => bad_word_match_branch!(w, "character", span),
-            _ => self.fail("expected a character", span),
+            [ActionToken::Word(w), ..] => bad_word_match_branch!(self, w, "character"),
+            _ => self.fail("expected a character"),
         }
     }
 
-    fn parse_specifier_char(&mut self, input: &[ActionToken], span: Span) -> TokenStream {
+    fn parse_specifier_char(&mut self, input: &[ActionToken]) -> TokenStream {
         match input {
             [ActionToken::Word(w @ "ctx"), rest @ ..] => {
-                enum_no_args_branch!(::editor_types::prelude::Specifier::Contextual, w, rest, span)
+                enum_no_args_branch!(self, ::editor_types::prelude::Specifier::Contextual, w, rest)
             },
             [ActionToken::Word("exact"), rest @ ..] => {
-                let c = self.parse_char(rest, span);
+                let c = self.parse_char(rest);
                 quote! { ::editor_types::prelude::Specifier::Exact(#c) }
             },
             [ActionToken::Id(id), rest @ ..] => {
-                id_match_branch!(self, id, ::editor_types::prelude::Specifier, rest, span)
+                id_match_branch!(self, id, ::editor_types::prelude::Specifier, rest)
             },
-            [ActionToken::Word(w), ..] => bad_word_match_branch!(w, "char", span),
-            _ => self.fail("expected a valid char", span),
+            [ActionToken::Word(w), ..] => bad_word_match_branch!(self, w, "char"),
+            _ => self.fail("expected a valid char"),
         }
     }
 
-    fn parse_selection_cursor_change(&mut self, input: &[ActionToken], span: Span) -> TokenStream {
+    fn parse_selection_cursor_change(&mut self, input: &[ActionToken]) -> TokenStream {
         match input {
             [ActionToken::Word(w @ ("b" | "beginning")), rest @ ..] => {
                 enum_no_args_branch!(
+                    self,
                     ::editor_types::prelude::SelectionCursorChange::Beginning,
                     w,
-                    rest,
-                    span
+                    rest
                 )
             },
             [ActionToken::Word(w @ ("e" | "end")), rest @ ..] => {
                 enum_no_args_branch!(
+                    self,
                     ::editor_types::prelude::SelectionCursorChange::End,
                     w,
-                    rest,
-                    span
+                    rest
                 )
             },
             [ActionToken::Word(w @ "swap-anchor"), rest @ ..] => {
                 enum_no_args_branch!(
+                    self,
                     ::editor_types::prelude::SelectionCursorChange::SwapAnchor,
                     w,
-                    rest,
-                    span
+                    rest
                 )
             },
             [ActionToken::Word(w @ "swap-side"), rest @ ..] => {
                 enum_no_args_branch!(
+                    self,
                     ::editor_types::prelude::SelectionCursorChange::SwapSide,
                     w,
-                    rest,
-                    span
+                    rest
                 )
             },
             [ActionToken::Word(w), ..] => {
-                self.fail(
-                    format!(
-                        "expected `beginning`, `end`, `swap-anchor` or `swap-side`, found `{w}`"
-                    ),
-                    span,
-                )
+                self.fail(format!(
+                    "expected `beginning`, `end`, `swap-anchor` or `swap-side`, found `{w}`"
+                ))
             },
             [ActionToken::Id(i), rest @ ..] => {
-                id_match_branch!(
-                    self,
-                    i,
-                    ::editor_types::prelude::SelectionCursorChange,
-                    rest,
-                    span
-                )
+                id_match_branch!(self, i, ::editor_types::prelude::SelectionCursorChange, rest)
             },
-            _ => self.fail("Expected a valid selection cursor change", span),
+            _ => self.fail("Expected a valid selection cursor change"),
         }
     }
 
-    fn parse_selection_resize_style(&mut self, input: &[ActionToken], span: Span) -> TokenStream {
+    fn parse_selection_resize_style(&mut self, input: &[ActionToken]) -> TokenStream {
         match input {
             [ActionToken::Word(w @ "extend"), rest @ ..] => {
                 enum_no_args_branch!(
+                    self,
                     ::editor_types::prelude::SelectionResizeStyle::Extend,
                     w,
-                    rest,
-                    span
+                    rest
                 )
             },
             [ActionToken::Word(w @ "object"), rest @ ..] => {
                 enum_no_args_branch!(
+                    self,
                     ::editor_types::prelude::SelectionResizeStyle::Object,
                     w,
-                    rest,
-                    span
+                    rest
                 )
             },
             [ActionToken::Word(w @ "restart"), rest @ ..] => {
                 enum_no_args_branch!(
+                    self,
                     ::editor_types::prelude::SelectionResizeStyle::Restart,
                     w,
-                    rest,
-                    span
+                    rest
                 )
             },
             [ActionToken::Id(i), rest @ ..] => {
-                id_match_branch!(self, i, ::editor_types::prelude::SelectionResizeStyle, rest, span)
+                id_match_branch!(self, i, ::editor_types::prelude::SelectionResizeStyle, rest)
             },
-            _ => self.fail("Expected a valid selection resize argument", span),
+            _ => self.fail("Expected a valid selection resize argument"),
         }
     }
 
-    fn parse_selection_split_style(&mut self, input: &[ActionToken], span: Span) -> TokenStream {
+    fn parse_selection_split_style(&mut self, input: &[ActionToken]) -> TokenStream {
         match input {
             [ActionToken::Word(w @ "anchor"), rest @ ..] => {
                 enum_no_args_branch!(
+                    self,
                     ::editor_types::prelude::SelectionSplitStyle::Anchor,
                     w,
-                    rest,
-                    span
+                    rest
                 )
             },
             [ActionToken::Word(w @ "lines"), rest @ ..] => {
                 enum_no_args_branch!(
+                    self,
                     ::editor_types::prelude::SelectionSplitStyle::Lines,
                     w,
-                    rest,
-                    span
+                    rest
                 )
             },
             [ActionToken::Word("regex"), rest @ ..] => {
-                let act = self.parse_match_action(rest, span);
+                let act = self.parse_match_action(rest);
                 quote! { ::editor_types::prelude::SelectionSplitStyle::Regex(#act) }
             },
             [ActionToken::Word(w), ..] => {
-                self.fail(format!("expected `anchor`, `object` or `regex`, found `{w}`"), span)
+                self.fail(format!("expected `anchor`, `object` or `regex`, found `{w}`"))
             },
             [ActionToken::Id(i), rest @ ..] => {
-                id_match_branch!(self, i, ::editor_types::prelude::SelectionSplitStyle, rest, span)
+                id_match_branch!(self, i, ::editor_types::prelude::SelectionSplitStyle, rest)
             },
-            _ => self.fail("Expected a valid selection split argument", span),
+            _ => self.fail("Expected a valid selection split argument"),
         }
     }
 
-    fn parse_selection_boundary(&mut self, input: &[ActionToken], span: Span) -> TokenStream {
+    fn parse_selection_boundary(&mut self, input: &[ActionToken]) -> TokenStream {
         match input {
             [ActionToken::Word(w @ "line"), rest @ ..] => {
                 enum_no_args_branch!(
+                    self,
                     ::editor_types::prelude::SelectionBoundary::Line,
                     w,
-                    rest,
-                    span
+                    rest
                 )
             },
             [
@@ -1618,86 +1558,86 @@ impl ActionMacroParser {
                 rest @ ..,
             ] => {
                 enum_no_args_branch!(
+                    self,
                     ::editor_types::prelude::SelectionBoundary::NonWhitespace,
                     w,
-                    rest,
-                    span
+                    rest
                 )
             },
             [ActionToken::Id(i), rest @ ..] => {
-                id_match_branch!(self, i, ::editor_types::prelude::SelectionBoundary, rest, span)
+                id_match_branch!(self, i, ::editor_types::prelude::SelectionBoundary, rest)
             },
-            _ => self.fail("expected a valid selection boundary argument", span),
+            _ => self.fail("expected a valid selection boundary argument"),
         }
     }
 
-    fn parse_recall_filter(&mut self, input: &[ActionToken], span: Span) -> TokenStream {
+    fn parse_recall_filter(&mut self, input: &[ActionToken]) -> TokenStream {
         match input {
             [ActionToken::Word(w @ "all"), rest @ ..] => {
-                enum_no_args_branch!(::editor_types::prelude::RecallFilter::All, w, rest, span)
+                enum_no_args_branch!(self, ::editor_types::prelude::RecallFilter::All, w, rest)
             },
             [
                 ActionToken::Word(w @ ("prefix" | "prefix-match")),
                 rest @ ..,
             ] => {
                 enum_no_args_branch!(
+                    self,
                     ::editor_types::prelude::RecallFilter::PrefixMatch,
                     w,
-                    rest,
-                    span
+                    rest
                 )
             },
             [ActionToken::Word(w), ..] => {
-                self.fail(format!("expected `all` or `prefix-match`, found `{w}`"), span)
+                self.fail(format!("expected `all` or `prefix-match`, found `{w}`"))
             },
             [ActionToken::Id(i), rest @ ..] => {
-                id_match_branch!(self, i, ::editor_types::prelude::RecallFilter, rest, span)
+                id_match_branch!(self, i, ::editor_types::prelude::RecallFilter, rest)
             },
-            _ => self.fail("expected a valid prompt recall filter", span),
+            _ => self.fail("expected a valid prompt recall filter"),
         }
     }
 
-    fn parse_target_shape_filter(&mut self, input: &[ActionToken], span: Span) -> TokenStream {
+    fn parse_target_shape_filter(&mut self, input: &[ActionToken]) -> TokenStream {
         match input {
             [ActionToken::Word(w @ "all"), rest @ ..] => {
-                enum_no_args_branch!(::editor_types::prelude::TargetShapeFilter::ALL, w, rest, span)
+                enum_no_args_branch!(self, ::editor_types::prelude::TargetShapeFilter::ALL, w, rest)
             },
             [ActionToken::Word(w @ ("char" | "charwise")), rest @ ..] => {
                 enum_no_args_branch!(
+                    self,
                     ::editor_types::prelude::TargetShapeFilter::CHAR,
                     w,
-                    rest,
-                    span
+                    rest
                 )
             },
             [ActionToken::Word(w @ ("line" | "linewise")), rest @ ..] => {
                 enum_no_args_branch!(
+                    self,
                     ::editor_types::prelude::TargetShapeFilter::LINE,
                     w,
-                    rest,
-                    span
+                    rest
                 )
             },
             [ActionToken::Word(w @ ("block" | "blockwise")), rest @ ..] => {
                 enum_no_args_branch!(
+                    self,
                     ::editor_types::prelude::TargetShapeFilter::BLOCK,
                     w,
-                    rest,
-                    span
+                    rest
                 )
             },
             [ActionToken::Word(w @ "none"), rest @ ..] => {
                 enum_no_args_branch!(
+                    self,
                     ::editor_types::prelude::TargetShapeFilter::NONE,
                     w,
-                    rest,
-                    span
+                    rest
                 )
             },
             [ActionToken::Id(i), rest @ ..] => {
-                id_match_branch!(self, i, ::editor_types::prelude::TargetShapeFilter, rest, span)
+                id_match_branch!(self, i, ::editor_types::prelude::TargetShapeFilter, rest)
             },
-            _ => self.fail("expected a valid target shape filter", span),
+            _ => self.fail("expected a valid target shape filter"),
         }
     }
 }
