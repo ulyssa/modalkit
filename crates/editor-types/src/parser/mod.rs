@@ -193,7 +193,7 @@ impl TryFrom<&[ActionToken<'_>]> for CompletionScope {
             [ActionToken::Word(w @ "global"), rest @ ..] => {
                 enum_no_args_branch!(CompletionScope::Global, w, rest)
             },
-            [t, ..] => bail!("expected `buffer or `global`, found `{t}`"),
+            [t, ..] => bail!("expected `buffer` or `global`, found `{t}`"),
             _ => bail!("expected `buffer` or `global`"),
         }
     }
@@ -511,7 +511,9 @@ impl TryFrom<&[ActionToken<'_>]> for FocusChange {
                 }
             },
             [t, ..] => {
-                bail!("expected `current`, `dir1d, `dir2d`, `offset`, `pos` or `prev`, found `{t}`")
+                bail!(
+                    "expected `current`, `dir1d`, `dir2d`, `offset`, `pos` or `prev`, found `{t}`"
+                )
             },
             _ => bail!("Expected a valid focus change argument"),
         }
@@ -1228,24 +1230,23 @@ impl TryFrom<&[ActionToken<'_>]> for CloseFlags {
     type Error = anyhow::Error;
 
     fn try_from(input: &[ActionToken<'_>]) -> anyhow::Result<Self> {
-        match input {
-            [ActionToken::Word(w @ "none"), rest @ ..] => {
-                enum_no_args_branch!(CloseFlags::NONE, w, rest)
-            },
-            [ActionToken::Word(w @ "force"), rest @ ..] => {
-                enum_no_args_branch!(CloseFlags::FORCE, w, rest)
-            },
-            [ActionToken::Word(w @ "quit"), rest @ ..] => {
-                enum_no_args_branch!(CloseFlags::QUIT, w, rest)
-            },
-            [ActionToken::Word(w @ "write"), rest @ ..] => {
-                enum_no_args_branch!(CloseFlags::WRITE, w, rest)
-            },
-            [t, ..] => {
-                bail!("expected `none`, `force`, `quit` or `write`, found `{t}`")
-            },
-            _ => bail!("Expected argument to be valid window closing flags"),
+        if input.is_empty() {
+            bail!("Expected argument to be valid window closing flags");
         }
+
+        let mut flags = CloseFlags::NONE;
+
+        for token in input {
+            flags |= match token {
+                ActionToken::Word("none") => CloseFlags::NONE,
+                ActionToken::Word("force") => CloseFlags::FORCE,
+                ActionToken::Word("quit") => CloseFlags::QUIT,
+                ActionToken::Word("write") => CloseFlags::WRITE,
+                t => bail!("expected `none`, `force`, `quit` or `write`, found `{t}`"),
+            };
+        }
+
+        Ok(flags)
     }
 }
 
@@ -1253,18 +1254,21 @@ impl TryFrom<&[ActionToken<'_>]> for WriteFlags {
     type Error = anyhow::Error;
 
     fn try_from(input: &[ActionToken<'_>]) -> anyhow::Result<Self> {
-        match input {
-            [ActionToken::Word(w @ "none"), rest @ ..] => {
-                enum_no_args_branch!(WriteFlags::NONE, w, rest)
-            },
-            [ActionToken::Word(w @ "force"), rest @ ..] => {
-                enum_no_args_branch!(WriteFlags::FORCE, w, rest)
-            },
-            [t, ..] => {
-                bail!("expected `none` or `force`, found `{t}`")
-            },
-            _ => bail!("Expected argument to be valid window write flags"),
+        if input.is_empty() {
+            bail!("Expected argument to be valid window write flags");
         }
+
+        let mut flags = WriteFlags::NONE;
+
+        for token in input {
+            flags |= match token {
+                ActionToken::Word("none") => WriteFlags::NONE,
+                ActionToken::Word("force") => WriteFlags::FORCE,
+                t => bail!("expected `none` or `force`, found `{t}`"),
+            };
+        }
+
+        Ok(flags)
     }
 }
 
@@ -1346,7 +1350,8 @@ fn parse_std_bool(input: &[ActionToken<'_>]) -> anyhow::Result<bool> {
                 bail!("booleans should not take any arguments")
             }
         },
-        _ => bail!("expected a character"),
+        [t, ..] => bail!("expected a boolean, not `{t}`"),
+        _ => bail!("expected a boolean"),
     }
 }
 
