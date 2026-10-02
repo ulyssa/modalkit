@@ -75,8 +75,8 @@ impl ActionParser for ActionMacroParser {
         comptype: &[ActionToken],
         display: &[ActionToken],
     ) -> Self::Output {
-        let comptype = self.parse_completion_type(comptype);
         let style = self.parse_completion_style(style);
+        let comptype = self.parse_completion_type(comptype);
         let display = self.parse_completion_display(display);
 
         quote! {
@@ -170,10 +170,12 @@ impl ActionParser for ActionMacroParser {
         }
     }
 
-    fn visit_prompt_abort(&mut self) -> Self::Output {
+    fn visit_prompt_abort(&mut self, empty: &[ActionToken]) -> Self::Output {
+        let empty = self.parse_bool(empty);
+
         quote! {
             ::editor_types::Action::Prompt(
-                ::editor_types::PromptAction::Abort(false)
+                ::editor_types::PromptAction::Abort(#empty)
             )
         }
     }
@@ -410,11 +412,17 @@ impl ActionParser for ActionMacroParser {
     fn visit_window_write(
         &mut self,
         target: &[ActionToken],
+        name: &[ActionToken],
         flags: &[ActionToken],
     ) -> Self::Output {
         let target = self.parse_window_target(target);
+        let name = if name.is_empty() {
+            quote! { ::std::option::Option::None }
+        } else {
+            let name = self.parse_string(name);
+            quote! { ::std::option::Option::Some(#name) }
+        };
         let flags = self.parse_write_flags(flags);
-        let name = quote! { ::std::option::Option::None };
 
         quote! {
             ::editor_types::Action::Window(

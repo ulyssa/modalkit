@@ -112,8 +112,9 @@ where
         Ok(Action::Macro(MacroAction::ToggleRecording))
     }
 
-    fn visit_prompt_abort(&mut self) -> Self::Output {
-        Ok(Action::Prompt(PromptAction::Abort(false)))
+    fn visit_prompt_abort(&mut self, empty: &[ActionToken]) -> Self::Output {
+        let empty = parse_std_bool(empty)?;
+        Ok(Action::Prompt(PromptAction::Abort(empty)))
     }
 
     fn visit_prompt_recall(
@@ -249,11 +250,16 @@ where
     fn visit_window_write(
         &mut self,
         target: &[ActionToken],
+        name: &[ActionToken],
         flags: &[ActionToken],
     ) -> Self::Output {
         let target = WindowTarget::try_from(target)?;
+        let name = if name.is_empty() {
+            None
+        } else {
+            Some(parse_std_string(name)?)
+        };
         let flags = WriteFlags::try_from(flags)?;
-        let name = None;
         Ok(Action::Window(WindowAction::Write(target, name, flags)))
     }
 

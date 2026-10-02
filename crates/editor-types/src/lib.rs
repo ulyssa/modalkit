@@ -1146,6 +1146,12 @@ pub enum PromptAction {
     /// let act: Action = Action::from_str("prompt abort").unwrap();
     /// let exp: Action = PromptAction::Abort(false).into();
     /// assert_eq!(act, exp);
+    /// assert_eq!(Action::from_str("prompt abort --empty false").unwrap(), exp);
+    ///
+    /// // Require the prompt to be empty:
+    /// let act: Action = Action::from_str("prompt abort --empty true").unwrap();
+    /// let exp: Action = PromptAction::Abort(true).into();
+    /// assert_eq!(act, exp);
     /// ```
     ///
     /// ## Example: Using `action!`
@@ -1157,6 +1163,16 @@ pub enum PromptAction {
     /// let act: Action = action!("prompt abort");
     /// let exp: Action = PromptAction::Abort(false).into();
     /// assert_eq!(act, exp);
+    /// assert_eq!(action!("prompt abort --empty false"), exp);
+    ///
+    /// // Require the prompt to be empty:
+    /// let act: Action = action!("prompt abort --empty true");
+    /// let exp: Action = PromptAction::Abort(true).into();
+    /// assert_eq!(act, exp);
+    ///
+    /// // Provide value as an identifier:
+    /// let empty = true;
+    /// assert_eq!(action!("prompt abort --empty {empty}"), exp);
     /// ```
     Abort(bool),
 
@@ -1796,8 +1812,13 @@ pub enum WindowAction<I: ApplicationInfo> {
     ///
     /// let target = WindowTarget::All;
     /// let flags = WriteFlags::NONE;
-    /// let act: Action = WindowAction::Write(target, None, flags).into();
+    /// let act: Action = WindowAction::Write(target.clone(), None, flags).into();
     /// assert_eq!(act, Action::from_str("window write -t all -F none").unwrap());
+    ///
+    /// // Write to a specific path:
+    /// let act: Action = WindowAction::Write(target, Some("out.txt".into()), flags).into();
+    /// let s = r#"window write -t all -i "out.txt" -F none"#;
+    /// assert_eq!(act, Action::from_str(s).unwrap());
     /// ```
     ///
     /// ## Example: Using `action!`
@@ -1808,8 +1829,14 @@ pub enum WindowAction<I: ApplicationInfo> {
     ///
     /// let target = WindowTarget::All;
     /// let flags = WriteFlags::NONE;
-    /// let act: Action = WindowAction::Write(target, None, flags).into();
+    /// let act: Action = WindowAction::Write(target.clone(), None, flags).into();
     /// assert_eq!(act, action!("window write -t all -F none"));
+    ///
+    /// // Write to a specific path:
+    /// let name = String::from("out.txt");
+    /// let act: Action = WindowAction::Write(target, Some(name.clone()), flags).into();
+    /// assert_eq!(act, action!(r#"window write -t all -i "out.txt" -F none"#));
+    /// assert_eq!(act, action!("window write -t all -i {name} -F none"));
     /// ```
     Write(WindowTarget, Option<String>, WriteFlags),
 
@@ -1880,6 +1907,12 @@ pub enum EditorAction {
     /// assert_eq!(act, action!("complete -s prefix -T auto -D list"));
     /// assert_eq!(act, action!("complete -s prefix -T {ct} -D list"));
     /// assert_eq!(act, action!("complete -s prefix -D list"));
+    ///
+    /// // Specify everything as positional arguments:
+    /// let style = CompletionStyle::Prefix;
+    /// let ct = CompletionType::Auto;
+    /// let display = CompletionDisplay::List;
+    /// assert_eq!(act, action!("complete -s {} -T {} -D {}", style, ct, display));
     /// ```
     Complete(CompletionStyle, CompletionType, CompletionDisplay),
 

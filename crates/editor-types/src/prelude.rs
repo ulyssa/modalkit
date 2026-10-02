@@ -4581,9 +4581,14 @@ pub enum CursorGroupCombineStyle {
     /// use editor_types::prelude::*;
     /// use editor_types::{action, Action, CursorAction};
     ///
-    /// let combine = CursorGroupCombineStyle::Merge(CursorMergeStyle::Union);
-    /// let restore: Action = action!("cursor restore -s (merge union)");
-    /// assert_eq!(restore, CursorAction::Restore(combine).into());
+    /// let merge = CursorMergeStyle::Union;
+    /// let combine = CursorGroupCombineStyle::Merge(merge);
+    /// let restore: Action = CursorAction::Restore(combine.clone()).into();
+    /// assert_eq!(restore, action!("cursor restore -s (merge union)"));
+    ///
+    /// // Provide `CursorMergeStyle` as an identifier:
+    /// let save: Action = CursorAction::Save(combine).into();
+    /// assert_eq!(save, action!("cursor save -s (merge {merge})"));
     /// ```
     ///
     /// See the documentation for [CursorMergeStyle] for how to construct each of its
@@ -4624,7 +4629,7 @@ impl From<CursorMergeStyle> for CursorGroupCombineStyle {
 }
 
 /// Ways to combine two selections.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum CursorMergeStyle {
     /// Merge the two selections to form one long selection.
     ///
@@ -4761,10 +4766,79 @@ pub enum CursorMergeStyle {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Count {
     /// Use the count provided by the user, or 1 if one was not given.
+    ///
+    /// In the action DSL, omitting a `-c` flag is always equivalent to passing `-c ctx`.
+    ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, HistoryAction};
+    /// use std::str::FromStr;
+    ///
+    /// let act: Action = HistoryAction::Undo(Count::Contextual).into();
+    /// assert_eq!(act, Action::from_str("history undo -c ctx").unwrap());
+    /// assert_eq!(act, Action::from_str("history undo").unwrap());
+    /// ```
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, HistoryAction};
+    ///
+    /// let act: Action = HistoryAction::Undo(Count::Contextual).into();
+    /// assert_eq!(act, action!("history undo -c ctx"));
+    /// assert_eq!(act, action!("history undo"));
+    /// ```
     Contextual,
+
     /// Use the count provided by the user minus 1, or 0 if one was not given.
+    ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, CursorAction};
+    /// use std::str::FromStr;
+    ///
+    /// let act: Action = CursorAction::Split(Count::MinusOne).into();
+    /// assert_eq!(act, Action::from_str("cursor split -c ctx-sub-one").unwrap());
+    /// ```
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, CursorAction};
+    ///
+    /// let act: Action = CursorAction::Split(Count::MinusOne).into();
+    /// assert_eq!(act, action!("cursor split -c ctx-sub-one"));
+    /// ```
     MinusOne,
+
     /// Ignore the count provided by the user, and use the exact amount specified here.
+    ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, HistoryAction};
+    /// use std::str::FromStr;
+    ///
+    /// let act: Action = HistoryAction::Undo(Count::Exact(5)).into();
+    /// assert_eq!(act, Action::from_str("history undo -c 5").unwrap());
+    /// ```
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, HistoryAction};
+    ///
+    /// let act: Action = HistoryAction::Undo(Count::Exact(5)).into();
+    /// assert_eq!(act, action!("history undo -c 5"));
+    /// ```
     Exact(usize),
 }
 
@@ -4858,9 +4932,9 @@ pub enum Mark {
     /// use editor_types::prelude::*;
     /// use editor_types::{action, Action, EditorAction};
     ///
-    /// let act: Action = action!("mark -m (exact global-last-exited 1)");
-    /// let exp: Action = EditorAction::Mark(Mark::GlobalLastExited(1).into()).into();
-    /// assert_eq!(act, exp);
+    /// let mark: Action = EditorAction::Mark(Mark::GlobalLastExited(1).into()).into();
+    /// assert_eq!(mark, action!("mark -m (exact global-last-exited 1)"));
+    /// assert_eq!(mark, action!("mark -m (exact global-last-exited {})", 1usize));
     /// ```
     GlobalLastExited(usize),
 
@@ -5128,6 +5202,31 @@ impl<T> From<T> for Specifier<T> {
 
 bitflags! {
     /// These flags are used to specify the behaviour while writing a window.
+    ///
+    /// Several flags can be combined by grouping their names together.
+    ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, WindowAction};
+    /// use std::str::FromStr;
+    ///
+    /// let flags = WriteFlags::NONE | WriteFlags::FORCE;
+    /// let act: Action = WindowAction::Write(WindowTarget::All, None, flags).into();
+    /// assert_eq!(act, Action::from_str("window write -t all -F (none force)").unwrap());
+    /// ```
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, WindowAction};
+    ///
+    /// let flags = WriteFlags::NONE | WriteFlags::FORCE;
+    /// let act: Action = WindowAction::Write(WindowTarget::All, None, flags).into();
+    /// assert_eq!(act, action!("window write -t all -F (none force)"));
+    /// ```
     #[derive(Debug, Clone, Copy, Eq, PartialEq)]
     pub struct WriteFlags: u32 {
         /// No flags set.
@@ -5205,6 +5304,31 @@ bitflags! {
 
 bitflags! {
     /// These flags are used to specify the behaviour while closing a window.
+    ///
+    /// Several flags can be combined by grouping their names together.
+    ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, WindowAction};
+    /// use std::str::FromStr;
+    ///
+    /// let flags = CloseFlags::FORCE | CloseFlags::WRITE;
+    /// let act: Action = WindowAction::Close(WindowTarget::All, flags).into();
+    /// assert_eq!(act, Action::from_str("window close -t all -F (force write)").unwrap());
+    /// ```
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, WindowAction};
+    ///
+    /// let flags = CloseFlags::FORCE | CloseFlags::WRITE;
+    /// let act: Action = WindowAction::Close(WindowTarget::All, flags).into();
+    /// assert_eq!(act, action!("window close -t all -F (force write)"));
+    /// ```
     #[derive(Debug, Clone, Copy, Eq, PartialEq)]
     pub struct CloseFlags: u32 {
         /// No flags set.
@@ -5612,18 +5736,138 @@ pub enum SelectionResizeStyle {
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, enum_map::Enum)]
 pub enum CommandType {
     /// Prompt the user for an application-specific entry.
+    ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, CommandBarAction};
+    /// use std::str::FromStr;
+    ///
+    /// let ct = CommandType::Application;
+    /// let act: Action = CommandBarAction::Focus(":".into(), ct, Box::new(Action::NoOp)).into();
+    /// assert_eq!(act, Action::from_str("cmdbar focus -P \":\" -s application -a nop").unwrap());
+    /// ```
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, CommandBarAction};
+    ///
+    /// let ct = CommandType::Application;
+    /// let act: Action = CommandBarAction::Focus(":".into(), ct, Box::new(Action::NoOp)).into();
+    /// assert_eq!(act, action!("cmdbar focus -P \":\" -s application -a nop"));
+    /// assert_eq!(act, action!("cmdbar focus -P \":\" -s {ct} -a nop"));
+    /// ```
     Application,
 
     /// Prompt the user for a command.
+    ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, CommandBarAction};
+    /// use std::str::FromStr;
+    ///
+    /// let ct = CommandType::Command;
+    /// let act: Action = CommandBarAction::Focus(":".into(), ct, Box::new(Action::NoOp)).into();
+    /// assert_eq!(act, Action::from_str("cmdbar focus -P \":\" -s command -a nop").unwrap());
+    /// ```
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, CommandBarAction};
+    ///
+    /// let ct = CommandType::Command;
+    /// let act: Action = CommandBarAction::Focus(":".into(), ct, Box::new(Action::NoOp)).into();
+    /// assert_eq!(act, action!("cmdbar focus -P \":\" -s command -a nop"));
+    /// assert_eq!(act, action!("cmdbar focus -P \":\" -s {ct} -a nop"));
+    /// ```
     Command,
 
     /// Prompt the user for an [OpenTarget::Name] value.
+    ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, CommandBarAction};
+    /// use std::str::FromStr;
+    ///
+    /// let ct = CommandType::Content;
+    /// let act: Action = CommandBarAction::Focus(":".into(), ct, Box::new(Action::NoOp)).into();
+    /// assert_eq!(act, Action::from_str("cmdbar focus -P \":\" -s content -a nop").unwrap());
+    /// ```
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, CommandBarAction};
+    ///
+    /// let ct = CommandType::Content;
+    /// let act: Action = CommandBarAction::Focus(":".into(), ct, Box::new(Action::NoOp)).into();
+    /// assert_eq!(act, action!("cmdbar focus -P \":\" -s content -a nop"));
+    /// assert_eq!(act, action!("cmdbar focus -P \":\" -s {ct} -a nop"));
+    /// ```
     Content,
 
     /// Prompt the user for a search query.
+    ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, CommandBarAction};
+    /// use std::str::FromStr;
+    ///
+    /// let ct = CommandType::Search;
+    /// let act: Action = CommandBarAction::Focus(":".into(), ct, Box::new(Action::NoOp)).into();
+    /// assert_eq!(act, Action::from_str("cmdbar focus -P \":\" -s search -a nop").unwrap());
+    /// ```
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, CommandBarAction};
+    ///
+    /// let ct = CommandType::Search;
+    /// let act: Action = CommandBarAction::Focus(":".into(), ct, Box::new(Action::NoOp)).into();
+    /// assert_eq!(act, action!("cmdbar focus -P \":\" -s search -a nop"));
+    /// assert_eq!(act, action!("cmdbar focus -P \":\" -s {ct} -a nop"));
+    /// ```
     Search,
 
     /// Prompt the user for a shell command.
+    ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, CommandBarAction};
+    /// use std::str::FromStr;
+    ///
+    /// let ct = CommandType::Shell;
+    /// let act: Action = CommandBarAction::Focus(":".into(), ct, Box::new(Action::NoOp)).into();
+    /// assert_eq!(act, Action::from_str("cmdbar focus -P \":\" -s shell -a nop").unwrap());
+    /// ```
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, CommandBarAction};
+    ///
+    /// let ct = CommandType::Shell;
+    /// let act: Action = CommandBarAction::Focus(":".into(), ct, Box::new(Action::NoOp)).into();
+    /// assert_eq!(act, action!("cmdbar focus -P \":\" -s shell -a nop"));
+    /// assert_eq!(act, action!("cmdbar focus -P \":\" -s {ct} -a nop"));
+    /// ```
     Shell,
 }
 

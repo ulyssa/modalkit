@@ -110,9 +110,9 @@ pub enum Flag {
     /// In order to encourage common flag initials, `-f` should always take a `FocusChange`.
     Focus,
 
-    /// A `--input` `-i` flag in the input.
+    /// A `--input` or `-i` flag in the input.
     ///
-    /// In order to encourage common flag initials, `-f` should always take an input `String`.
+    /// In order to encourage common flag initials, `-i` should always take an input `String`.
     Input,
 
     /// A `--mark` or `-m` flag in the input.
@@ -134,7 +134,8 @@ pub enum Flag {
 
     /// A `--target` or `-t` flag in the input.
     ///
-    /// In order to encourage common flag initials, `-t` should always take of the `*Target` types.
+    /// In order to encourage common flag initials, `-t` should always take one of the
+    /// `*Target` types.
     Target,
 
     /// A `--wrap` or `-w` flag in the input.
@@ -253,10 +254,10 @@ pub trait ActionParser {
     /// Parse `cmdbar unfocus`.
     fn visit_cmdbar_unfocus(&mut self) -> Self::Output;
 
-    /// Parse `cmd execute` and its arguments.
+    /// Parse `command execute` and its arguments.
     fn visit_command_execute(&mut self, count: &[ActionToken]) -> Self::Output;
 
-    /// Parse `cmd run` and its arguments.
+    /// Parse `command run` and its arguments.
     fn visit_command_run(&mut self, input: &[ActionToken]) -> Self::Output;
 
     /// Parse `complete` and its arguments.
@@ -292,7 +293,7 @@ pub trait ActionParser {
     fn visit_macro_toggle_recording(&mut self) -> Self::Output;
 
     /// Parse `prompt abort` and its arguments.
-    fn visit_prompt_abort(&mut self) -> Self::Output;
+    fn visit_prompt_abort(&mut self, empty: &[ActionToken]) -> Self::Output;
 
     /// Parse `prompt recall` and its arguments.
     fn visit_prompt_recall(
@@ -339,7 +340,7 @@ pub trait ActionParser {
     fn visit_tab_move(&mut self, fc: &[ActionToken]) -> Self::Output;
 
     /// Parse `window close` and its arguments.
-    fn visit_window_close(&mut self, target: &[ActionToken], falgs: &[ActionToken])
+    fn visit_window_close(&mut self, target: &[ActionToken], flags: &[ActionToken])
     -> Self::Output;
 
     /// Parse `window open` and its arguments.
@@ -372,8 +373,12 @@ pub trait ActionParser {
     fn visit_window_switch(&mut self, input: &[ActionToken]) -> Self::Output;
 
     /// Parse `window write` and its arguments.
-    fn visit_window_write(&mut self, target: &[ActionToken], flags: &[ActionToken])
-    -> Self::Output;
+    fn visit_window_write(
+        &mut self,
+        target: &[ActionToken],
+        name: &[ActionToken],
+        flags: &[ActionToken],
+    ) -> Self::Output;
 
     /// Parse `window exchange` and its arguments.
     fn visit_window_exchange(&mut self, fc: &[ActionToken]) -> Self::Output;
@@ -837,10 +842,9 @@ impl<V: ActionParser> ActionParserExt for V {
 
         match cmd {
             ActionToken::Word("abort") => {
-                if rest.is_empty() {
-                    self.visit_prompt_abort()
-                } else {
-                    self.fail("`prompt abort` takes no arguments")
+                match parse_flags([(Flag::Long("empty".into()), Some(&DEFAULT_FALSE[..]))], rest) {
+                    Ok([empty]) => self.visit_prompt_abort(empty),
+                    Err(e) => fail_cmd_flag(self, "prompt abort", e),
                 }
             },
             ActionToken::Word("recall") => {
@@ -1035,8 +1039,15 @@ impl<V: ActionParser> ActionParserExt for V {
                 }
             },
             ActionToken::Word("write") => {
-                match parse_required_flags([Flag::Target, Flag::Short('F')], rest) {
-                    Ok([target, flags]) => self.visit_window_write(target, flags),
+                match parse_flags(
+                    [
+                        (Flag::Target, None),
+                        (Flag::Input, Some(&EMPTY_ACTION[..])),
+                        (Flag::Short('F'), None),
+                    ],
+                    rest,
+                ) {
+                    Ok([target, name, flags]) => self.visit_window_write(target, name, flags),
                     Err(e) => fail_cmd_flag(self, "window write", e),
                 }
             },
@@ -1723,7 +1734,9 @@ impl<V: EditTargetParser> EditTargetParserExt for V {
             },
 
             t => {
-                self.edit_target_invalid(format!("expected the name of a range type, found `{t}`"))
+                self.edit_target_invalid(format!(
+                    "expected the name of an edit target, found `{t}`"
+                ))
             },
         }
     }

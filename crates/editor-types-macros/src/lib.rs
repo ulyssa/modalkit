@@ -105,7 +105,7 @@ impl ActionMacroParser {
                     self.fail(format!("the boolean `{b}` takes no arguments"))
                 }
             },
-            [ActionToken::Id(i), rest @ ..] => id_match_branch!(self, i, ::bool, rest),
+            [ActionToken::Id(i), rest @ ..] => id_match_branch!(self, i, bool, rest),
             _ => self.fail("expected a valid boolean argument"),
         }
     }
@@ -119,7 +119,7 @@ impl ActionMacroParser {
                     self.fail(format!("the number `{n}` takes no arguments"))
                 }
             },
-            [ActionToken::Id(i), rest @ ..] => id_match_branch!(self, i, ::usize, rest),
+            [ActionToken::Id(i), rest @ ..] => id_match_branch!(self, i, usize, rest),
             _ => self.fail("expected a valid number argument"),
         }
     }
@@ -310,14 +310,28 @@ impl ActionMacroParser {
 
     fn parse_command_type<'a>(&mut self, input: &'a [ActionToken<'a>]) -> TokenStream {
         match input {
+            [ActionToken::Word(w @ "application"), rest @ ..] => {
+                enum_no_args_branch!(
+                    self,
+                    ::editor_types::prelude::CommandType::Application,
+                    w,
+                    rest
+                )
+            },
             [ActionToken::Word(w @ "command"), rest @ ..] => {
                 enum_no_args_branch!(self, ::editor_types::prelude::CommandType::Command, w, rest)
+            },
+            [ActionToken::Word(w @ "content"), rest @ ..] => {
+                enum_no_args_branch!(self, ::editor_types::prelude::CommandType::Content, w, rest)
             },
             [ActionToken::Word(w @ "search"), rest @ ..] => {
                 enum_no_args_branch!(self, ::editor_types::prelude::CommandType::Search, w, rest)
             },
+            [ActionToken::Word(w @ "shell"), rest @ ..] => {
+                enum_no_args_branch!(self, ::editor_types::prelude::CommandType::Shell, w, rest)
+            },
             [ActionToken::Word(w), ..] => {
-                self.fail(format!("expected `command` or `search`, found `{w}`"))
+                self.fail(format!("expected a valid command type, found `{w}`"))
             },
             [ActionToken::Id(i), rest @ ..] => {
                 id_match_branch!(self, i, ::editor_types::prelude::CommandType, rest)
@@ -381,7 +395,7 @@ impl ActionMacroParser {
                 )
             },
             [ActionToken::Word(w), ..] => {
-                self.fail(format!("expected `buffer or `global` after `{cmd}`, found `{w}`"))
+                self.fail(format!("expected `buffer` or `global` after `{cmd}`, found `{w}`"))
             },
             [ActionToken::Id(i), rest @ ..] => {
                 id_match_branch!(self, i, ::editor_types::prelude::CompletionScope, rest)
@@ -757,7 +771,7 @@ impl ActionMacroParser {
             },
             [ActionToken::Word(w), ..] => {
                 self.fail(format!(
-                    "expected `current`, `dir1d, `dir2d`, `offset`, `pos` or `prev`, found `{w}`"
+                    "expected `current`, `dir1d`, `dir2d`, `offset`, `pos` or `prev`, found `{w}`"
                 ))
             },
             _ => self.fail("Expected a valid focus change argument"),
@@ -765,45 +779,52 @@ impl ActionMacroParser {
     }
 
     fn parse_close_flags<'a>(&mut self, input: &'a [ActionToken<'a>]) -> TokenStream {
-        match input {
-            [ActionToken::Word(w @ "none"), rest @ ..] => {
-                enum_no_args_branch!(self, ::editor_types::prelude::CloseFlags::NONE, w, rest)
-            },
-            [ActionToken::Word(w @ "force"), rest @ ..] => {
-                enum_no_args_branch!(self, ::editor_types::prelude::CloseFlags::FORCE, w, rest)
-            },
-            [ActionToken::Word(w @ "quit"), rest @ ..] => {
-                enum_no_args_branch!(self, ::editor_types::prelude::CloseFlags::QUIT, w, rest)
-            },
-            [ActionToken::Word(w @ "write"), rest @ ..] => {
-                enum_no_args_branch!(self, ::editor_types::prelude::CloseFlags::WRITE, w, rest)
-            },
-            [ActionToken::Id(i), rest @ ..] => {
-                id_match_branch!(self, i, ::editor_types::prelude::CloseFlags, rest)
-            },
-            [ActionToken::Word(w), ..] => {
-                self.fail(format!("expected `none`, `force` or `quit`, found `{w}`"))
-            },
-            _ => self.fail("Expected argument to be valid window closing flags"),
+        if let [ActionToken::Id(i), rest @ ..] = input {
+            return id_match_branch!(self, i, ::editor_types::prelude::CloseFlags, rest);
         }
+
+        let mut flags = vec![];
+
+        for token in input {
+            flags.push(match token {
+                ActionToken::Word("none") => quote! { ::editor_types::prelude::CloseFlags::NONE },
+                ActionToken::Word("force") => quote! { ::editor_types::prelude::CloseFlags::FORCE },
+                ActionToken::Word("quit") => quote! { ::editor_types::prelude::CloseFlags::QUIT },
+                ActionToken::Word("write") => quote! { ::editor_types::prelude::CloseFlags::WRITE },
+                t => {
+                    let msg = format!("expected `none`, `force`, `quit` or `write`, found `{t}`");
+                    return self.fail(msg);
+                },
+            });
+        }
+
+        if flags.is_empty() {
+            return self.fail("Expected argument to be valid window closing flags");
+        }
+
+        quote! { #(#flags)|* }
     }
 
     fn parse_write_flags<'a>(&mut self, input: &'a [ActionToken<'a>]) -> TokenStream {
-        match input {
-            [ActionToken::Word(w @ "none"), rest @ ..] => {
-                enum_no_args_branch!(self, ::editor_types::prelude::WriteFlags::NONE, w, rest)
-            },
-            [ActionToken::Word(w @ "force"), rest @ ..] => {
-                enum_no_args_branch!(self, ::editor_types::prelude::WriteFlags::FORCE, w, rest)
-            },
-            [ActionToken::Id(i), rest @ ..] => {
-                id_match_branch!(self, i, ::editor_types::prelude::WriteFlags, rest)
-            },
-            [ActionToken::Word(w), ..] => {
-                self.fail(format!("expected `none` or `force`, found `{w}`"))
-            },
-            _ => self.fail("Expected argument to be valid window write flags"),
+        if let [ActionToken::Id(i), rest @ ..] = input {
+            return id_match_branch!(self, i, ::editor_types::prelude::WriteFlags, rest);
         }
+
+        let mut flags = vec![];
+
+        for token in input {
+            flags.push(match token {
+                ActionToken::Word("none") => quote! { ::editor_types::prelude::WriteFlags::NONE },
+                ActionToken::Word("force") => quote! { ::editor_types::prelude::WriteFlags::FORCE },
+                t => return self.fail(format!("expected `none` or `force`, found `{t}`")),
+            });
+        }
+
+        if flags.is_empty() {
+            return self.fail("Expected argument to be valid window write flags");
+        }
+
+        quote! { #(#flags)|* }
     }
 
     fn parse_window_target<'a>(&mut self, input: &'a [ActionToken<'a>]) -> TokenStream {
@@ -1047,6 +1068,9 @@ impl ActionMacroParser {
                     w,
                     rest
                 )
+            },
+            [ActionToken::Id(i), rest @ ..] => {
+                id_match_branch!(self, i, ::editor_types::prelude::CursorMergeStyle, rest)
             },
             [ActionToken::Word(w), ..] => {
                 self.fail(format!("`merge {w}` is not a valid merge style"))
@@ -1368,7 +1392,7 @@ impl ActionMacroParser {
                 let (c1, rest) = match rest {
                     [ActionToken::Char(c1), rest @ ..] => (quote! { #c1 }, rest),
                     [ActionToken::Id(id), rest @ ..] => {
-                        (id_match_branch!(self, id, ::char, &rest[..0]), rest)
+                        (id_match_branch!(self, id, char, &rest[..0]), rest)
                     },
                     _ => return self.fail("`digraph` expects exactly two characters"),
                 };
@@ -1376,7 +1400,7 @@ impl ActionMacroParser {
                 let c2 = match rest {
                     [ActionToken::Char(c2)] => quote! { #c2 },
                     [ActionToken::Id(id), rest @ ..] => {
-                        id_match_branch!(self, id, ::char, rest)
+                        id_match_branch!(self, id, char, rest)
                     },
                     _ => return self.fail("`digraph` expects exactly two characters"),
                 };
@@ -1408,7 +1432,7 @@ impl ActionMacroParser {
                 }
             },
             [ActionToken::Id(id), rest @ ..] => {
-                id_match_branch!(self, id, ::char, rest)
+                id_match_branch!(self, id, char, rest)
             },
             [ActionToken::Word(w), ..] => bad_word_match_branch!(self, w, "character"),
             _ => self.fail("expected a character"),
