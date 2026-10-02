@@ -1170,6 +1170,7 @@ pub enum PromptAction {
     /// let exp: Action = PromptAction::Abort(true).into();
     /// assert_eq!(act, exp);
     ///
+    /// // Provide value as an identifier:
     /// let empty = true;
     /// assert_eq!(action!("prompt abort --empty {empty}"), exp);
     /// ```
