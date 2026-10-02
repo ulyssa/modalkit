@@ -3,7 +3,7 @@ name = "editor-types-parser"
 version = "0.0.5"
 homepage = "https://github.com/ulyssa/modalkit/tree/main/crates/editor-types-parser"
 readme = "README.md"
-description = "Procedural macros for generating editor-types values at compile time"
+description = "A library for parsing the editor-types action syntax"
 exclude = [".github", "CONTRIBUTING.md"]
 keywords = []
 categories = ["text-editors"]
@@ -15,5 +15,11 @@ license.workspace = true
 rust-version.workspace = true
 
 [dependencies]
-nom = { workspace = true }
+pomelo = "0.2.3"
+logos = "0.16"
 thiserror = { workspace = true }
+unescape_zero_copy = "2.4"
+
+[dev-dependencies]
+proptest = { workspace = true }
+proptest-derive = { workspace = true }

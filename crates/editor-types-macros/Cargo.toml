@@ -3,7 +3,7 @@ name = "editor-types-macros"
 version = "0.0.5"
 homepage = "https://github.com/ulyssa/modalkit/tree/main/crates/editor-types-macros"
 readme = "README.md"
-description = "A library for parsing the editor-types action syntax"
+description = "Procedural macros for generating editor-types values at compile time"
 exclude = [".github", "CONTRIBUTING.md"]
 keywords = []
 categories = ["text-editors"]
@@ -19,7 +19,6 @@ proc-macro = true
 
 [dependencies]
 editor-types-parser = { workspace = true }
-nom = { workspace = true }
 proc-macro2 = "^1.0.75"
 quote = "1.0"
 syn = { version = "3.0.0", features = ["full"] }

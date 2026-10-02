@@ -1,3 +1,4 @@
 /target
 /TODO
 tarpaulin-report.html
+proptest-regressions/

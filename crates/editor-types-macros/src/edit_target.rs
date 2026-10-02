@@ -77,11 +77,7 @@ pub struct EditTargetMacroInput {
 
 impl EditTargetMacroInput {
     pub fn into_stream(self) -> TokenStream {
-        let mut act = TokenStream::new();
-
-        for (ident, expr) in self.args {
-            act.extend(quote! { let #ident = { #expr }; });
-        }
+        let mut act = bind_args(self.args);
 
         act.extend(self.acts);
         quote! { { #act } }
@@ -92,7 +88,7 @@ impl Parse for EditTargetMacroInput {
     fn parse(input: ParseStream) -> syn::Result<Self> {
         let fmt = input.parse::<LitStr>()?;
         let fmt_str = fmt.value();
-        let tokens = tokenize(&fmt_str).expect("EditTarget expression should be valid");
+        let mut tokens = tokenize_fmt("edit_target!", &fmt_str, fmt.span())?;
         let arg_exprs = if input.parse::<Token![,]>().is_ok() {
             Punctuated::<Expr, Token![,]>::parse_separated_nonempty(input)?
         } else {
@@ -108,6 +104,8 @@ impl Parse for EditTargetMacroInput {
         }
 
         let mut parser = ActionMacroParser { params: idents, pos: 0, span: fmt.span() };
+        parser.bind_positional(tokens.as_mut_slice())?;
+
         let acts = EditTargetParserExt::parse_tokens(&mut parser, tokens.as_slice());
         let generator = Self { args, acts };
 

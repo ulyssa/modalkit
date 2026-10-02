@@ -55,11 +55,7 @@ pub struct RangeMacroInput {
 
 impl RangeMacroInput {
     pub fn into_stream(self) -> TokenStream {
-        let mut act = TokenStream::new();
-
-        for (ident, expr) in self.args {
-            act.extend(quote! { let #ident = { #expr }; });
-        }
+        let mut act = bind_args(self.args);
 
         act.extend(self.acts);
         quote! { { #act } }
@@ -70,7 +66,7 @@ impl Parse for RangeMacroInput {
     fn parse(input: ParseStream) -> syn::Result<Self> {
         let fmt = input.parse::<LitStr>()?;
         let fmt_str = fmt.value();
-        let tokens = tokenize(&fmt_str).expect("Range expression should be valid");
+        let mut tokens = tokenize_fmt("range!", &fmt_str, fmt.span())?;
         let arg_exprs = if input.parse::<Token![,]>().is_ok() {
             Punctuated::<Expr, Token![,]>::parse_separated_nonempty(input)?
         } else {
@@ -86,6 +82,8 @@ impl Parse for RangeMacroInput {
         }
 
         let mut parser = ActionMacroParser { params: idents, pos: 0, span: fmt.span() };
+        parser.bind_positional(tokens.as_mut_slice())?;
+
         let acts = RangeParserExt::parse_tokens(&mut parser, tokens.as_slice());
         let generator = Self { args, acts };
 

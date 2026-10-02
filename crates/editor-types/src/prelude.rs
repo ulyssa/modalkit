@@ -2134,6 +2134,11 @@ pub enum RangeType {
     /// let target = EditTarget::Range(r, true, Count::Contextual);
     /// let act: Action = EditorAction::Edit(Specifier::Contextual, target).into();
     /// assert_eq!(act, Action::from_str("edit -t (range -T (quote '\"') --inclusive true)").unwrap());
+    ///
+    /// let r = RangeType::Quote('\'');
+    /// let target = EditTarget::Range(r, true, Count::Contextual);
+    /// let act: Action = EditorAction::Edit(Specifier::Contextual, target).into();
+    /// assert_eq!(act, Action::from_str("edit -t (range -T (quote '\\'') --inclusive true)").unwrap());
     /// ```
     ///
     /// ## Example: Using `range!`
@@ -2144,9 +2149,12 @@ pub enum RangeType {
     ///
     /// let r = RangeType::Quote('"');
     /// assert_eq!(r, range!("quote '\"'"));
+    /// assert_eq!(r, range!(r#"quote '"'"#));
     ///
+    /// // A single quote needs to be escaped. Using `r#"..."#` can help:
     /// let r = RangeType::Quote('\'');
-    /// assert_eq!(r, range!("quote '\''"));
+    /// assert_eq!(r, range!("quote '\\''"));
+    /// assert_eq!(r, range!(r#"quote '\''"#));
     /// ```
     Quote(char),
 
@@ -4039,7 +4047,7 @@ pub enum KeywordTarget {
     /// assert_eq!(act, action!("keyword-lookup -t {target}"));
     /// assert_eq!(act, action!("keyword-lookup -t (word little)"));
     /// assert_eq!(act, action!("keyword-lookup -t (word {})", word.clone()));
-    /// assert_eq!(act, action!("keyword-lookup -t {word}", word.clone()));
+    /// assert_eq!(act, action!("keyword-lookup -t {word}"));
     /// ```
     Word(WordStyle),
 
@@ -4828,6 +4836,12 @@ pub enum Count {
     ///
     /// let act: Action = HistoryAction::Undo(Count::Exact(5)).into();
     /// assert_eq!(act, Action::from_str("history undo -c 5").unwrap());
+    ///
+    /// // Numbers provided can be up to `usize::MAX`:
+    /// let n = usize::MAX;
+    /// let act: Action = HistoryAction::Undo(Count::Exact(n)).into();
+    /// let s = format!("history undo -c {n}");
+    /// assert_eq!(act, Action::from_str(&s).unwrap());
     /// ```
     ///
     /// ## Example: Using `action!`
@@ -4838,6 +4852,11 @@ pub enum Count {
     ///
     /// let act: Action = HistoryAction::Undo(Count::Exact(5)).into();
     /// assert_eq!(act, action!("history undo -c 5"));
+    ///
+    /// // Numbers can be up to `usize::MAX` (18446744073709551615 on 64-bit systems):
+    /// let n = usize::MAX;
+    /// let act: Action = HistoryAction::Undo(Count::Exact(n)).into();
+    /// assert_eq!(act, action!("history undo -c 18446744073709551615"));
     /// ```
     Exact(usize),
 }
