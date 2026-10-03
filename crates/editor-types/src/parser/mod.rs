@@ -1180,25 +1180,24 @@ impl TryFrom<&[ActionToken<'_>]> for TargetShapeFilter {
     type Error = anyhow::Error;
 
     fn try_from(input: &[ActionToken<'_>]) -> anyhow::Result<Self> {
-        match input {
-            [ActionToken::Word(w @ "all"), rest @ ..] => {
-                enum_no_args_branch!(TargetShapeFilter::ALL, w, rest)
-            },
-            [ActionToken::Word(w @ ("char" | "charwise")), rest @ ..] => {
-                enum_no_args_branch!(TargetShapeFilter::CHAR, w, rest)
-            },
-            [ActionToken::Word(w @ ("line" | "linewise")), rest @ ..] => {
-                enum_no_args_branch!(TargetShapeFilter::LINE, w, rest)
-            },
-            [ActionToken::Word(w @ ("block" | "blockwise")), rest @ ..] => {
-                enum_no_args_branch!(TargetShapeFilter::BLOCK, w, rest)
-            },
-            [ActionToken::Word(w @ "none"), rest @ ..] => {
-                enum_no_args_branch!(TargetShapeFilter::NONE, w, rest)
-            },
-            [t, ..] => bail!("expected a valid target shape filter, not `{t}`"),
-            _ => bail!("expected a valid target shape filter"),
+        if input.is_empty() {
+            bail!("expected a valid target shape filter");
         }
+
+        let mut filter = TargetShapeFilter::NONE;
+
+        for token in input {
+            filter |= match token {
+                ActionToken::Word("all") => TargetShapeFilter::ALL,
+                ActionToken::Word("none") => TargetShapeFilter::NONE,
+                ActionToken::Word("char" | "charwise") => TargetShapeFilter::CHAR,
+                ActionToken::Word("line" | "linewise") => TargetShapeFilter::LINE,
+                ActionToken::Word("block" | "blockwise") => TargetShapeFilter::BLOCK,
+                t => bail!("expected a valid target shape filter, not `{t}`"),
+            };
+        }
+
+        Ok(filter)
     }
 }
 

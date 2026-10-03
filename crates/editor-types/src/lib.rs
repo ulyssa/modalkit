@@ -34,6 +34,7 @@ pub mod context;
 pub mod prelude;
 pub mod util;
 
+mod display;
 mod parser;
 
 use self::application::*;
@@ -485,6 +486,11 @@ pub enum SelectionAction {
     /// let style = SelectionBoundary::Line;
     /// let split: Action = Action::from_str("selection expand -b line -t all").unwrap();
     /// assert_eq!(split, SelectionAction::Expand(style, TargetShapeFilter::ALL).into());
+    ///
+    /// // Several shapes can be listed to combine them into one filter:
+    /// let filter = TargetShapeFilter::CHAR | TargetShapeFilter::LINE;
+    /// let split: Action = Action::from_str("selection expand -b line -t (char line)").unwrap();
+    /// assert_eq!(split, SelectionAction::Expand(style, filter).into());
     /// ```
     ///
     /// ## Example: Using `action!`
@@ -496,6 +502,11 @@ pub enum SelectionAction {
     /// let style = SelectionBoundary::Line;
     /// let split: Action = action!("selection expand -b line -t all");
     /// assert_eq!(split, SelectionAction::Expand(style, TargetShapeFilter::ALL).into());
+    ///
+    /// // Several shapes can be listed to combine them into one filter:
+    /// let filter = TargetShapeFilter::CHAR | TargetShapeFilter::LINE;
+    /// let split: Action = action!("selection expand -b line -t (char line)");
+    /// assert_eq!(split, SelectionAction::Expand(style, filter).into());
     /// ```
     Expand(SelectionBoundary, TargetShapeFilter),
 
@@ -2649,6 +2660,7 @@ pub enum Action<I: ApplicationInfo = EmptyInfo> {
     RedrawScreen,
 
     /// Show an [InfoMessage].
+    #[cfg_attr(test, proptest(skip))]
     ShowInfoMessage(InfoMessage),
 
     /// Suspend the process.
