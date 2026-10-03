@@ -1,5 +1,7 @@
+use std::borrow::Cow;
 use std::collections::HashSet;
 
+pub mod error;
 mod tokenizer;
 
 pub use tokenizer::tokenize;
@@ -93,6 +95,7 @@ pub fn flag_pairs<'a>(
     Ok(pairs)
 }
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub enum Flag {
     /// A `--count` or `-c` flag in the input.
     ///
@@ -145,9 +148,11 @@ pub enum Flag {
     Wrap,
 
     /// A short flag with an action-specific meaning.
+    #[cfg_attr(test, proptest(skip))]
     Short(char),
 
     /// A short flag with an action-specific meaning.
+    #[cfg_attr(test, proptest(skip))]
     Long(String),
 }
 
@@ -171,32 +176,71 @@ impl std::fmt::Display for Flag {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ActionToken<'a> {
-    /// A bare word in the input.
+    /// A bare, unquoted word in the input.
     Word(&'a str),
 
     /// An action-specific flag in the input.
     Flag(Flag),
 
     /// A quoted string in the input.
-    Str(String),
+    ///
+    /// Special characters can be escaped in the same way they are within Rust strings.
+    Str(Cow<'a, str>),
 
     /// An `{id}` in the input that expands in the `action!` macro to an identifier.
     ///
     /// This will be `None` when the input is `{}`, and a positional argument will
     /// be used from the macro arguments instead.
-    Id(Option<&'a str>),
+    Id(Option<Cow<'a, str>>),
 
     /// A boolean in the input.
+    ///
+    /// This will always be either `true` or `false` in the input.
     Bool(bool),
 
     /// A number in the input.
+    ///
+    /// This can be a simple number like `5` or `1234567`, or one prefixed with `0x`, `0o`, or `0b`
+    /// in order to parse the suffix in base 16, 8 or 2 respectively.
     Number(usize),
 
     /// A character in the input surrounded by single quotes (e.g., `'c'`).
+    ///
+    /// Special characters can be escaped in the same way they are within Rust.
     Char(char),
 
     /// A collection of tokens between parenthesis (e.g. `(foo bar 5)`).
     Group(Vec<ActionToken<'a>>),
+}
+
+impl ActionToken<'_> {
+    /// Provide identifiers for each of the positional `{}` arguments nested within this [ActionToken].
+    pub fn bind_positional<E, F>(&mut self, f: &mut F) -> Result<(), E>
+    where
+        F: FnMut() -> Result<String, E>,
+    {
+        match self {
+            Self::Bool(..) |
+            Self::Char(..) |
+            Self::Flag(..) |
+            Self::Id(Some(..)) |
+            Self::Number(..) |
+            Self::Str(..) |
+            Self::Word(..) => Ok(()),
+
+            Self::Id(id @ None) => {
+                *id = Some(Cow::Owned(f()?));
+                Ok(())
+            },
+
+            Self::Group(group) => {
+                for token in group.iter_mut() {
+                    token.bind_positional(f)?;
+                }
+                Ok(())
+            },
+        }
+    }
 }
 
 impl std::fmt::Display for ActionToken<'_> {

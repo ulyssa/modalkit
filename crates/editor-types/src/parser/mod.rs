@@ -1359,7 +1359,7 @@ fn parse_std_string(input: &[ActionToken<'_>]) -> anyhow::Result<String> {
     match input {
         [ActionToken::Str(s), rest @ ..] => {
             if rest.is_empty() {
-                Ok(String::from(s))
+                Ok(s.clone().into_owned())
             } else {
                 bail!("strings cannot have arguments")
             }

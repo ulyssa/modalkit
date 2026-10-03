@@ -61,6 +61,32 @@ pub fn range(stream: proc_macro::TokenStream) -> proc_macro::TokenStream {
     input.into_stream().into()
 }
 
+/// Tokenize the format string given to one of the procedural macros.
+///
+/// Any parsing errors are converted into a [ParseError] to get the compiler to print it out for us.
+fn tokenize_fmt<'a>(
+    macro_name: &str,
+    fmt: &'a str,
+    span: Span,
+) -> syn::Result<Vec<ActionToken<'a>>> {
+    tokenize(fmt).map_err(|e| {
+        let msg = format!("invalid `{macro_name}` expression: {e}");
+        ParseError::new(span, msg)
+    })
+}
+
+/// Bind each positional argument to the identifier that the ActionTokens refers to
+/// it by after `bind_positional` has filled them in.
+fn bind_args(args: Vec<(Ident, Expr)>) -> TokenStream {
+    let mut out = TokenStream::new();
+
+    for (ident, expr) in args.into_iter() {
+        out.extend(quote! { let #ident = { #expr }; });
+    }
+
+    out
+}
+
 struct ActionMacroParser {
     params: Vec<Ident>,
     pos: usize,
@@ -72,13 +98,29 @@ impl ActionMacroParser {
         self.fail(err.display(cmd).to_string())
     }
 
-    fn advance(&mut self) -> Option<Ident> {
+    fn advance(&mut self) -> syn::Result<String> {
         if self.pos < self.params.len() {
-            let res = self.params.get(self.pos).cloned();
+            let res = self.params[self.pos].clone();
             self.pos += 1;
-            res
+            Ok(res.to_string())
         } else {
-            None
+            Err(ParseError::new(self.span, "insufficient positional arguments provided"))
+        }
+    }
+
+    fn bind_positional(&mut self, input: &mut [ActionToken<'_>]) -> syn::Result<()> {
+        let mut f = || self.advance();
+
+        for token in input.iter_mut() {
+            // Ensure every positional reference has a binding:
+            token.bind_positional(&mut f)?;
+        }
+
+        if self.pos < self.params.len() {
+            // Don't allow accidentally unused arguments:
+            Err(ParseError::new_spanned(&self.params[self.pos], "unused positional argument"))
+        } else {
+            Ok(())
         }
     }
 

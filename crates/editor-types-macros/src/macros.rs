@@ -8,15 +8,7 @@ macro_rules! id_match_branch {
                 $self.fail(format!("no arguments were expected after `{{{}}}`", id))
             }
         } else {
-            if $rest.is_empty() {
-                if let Some(id) = $self.advance() {
-                    quote! { $path::from(#id) }
-                } else {
-                    $self.fail("expected another positional argument")
-                }
-            } else {
-                $self.fail(format!("no arguments were expected after positional argument"))
-            }
+            $self.fail("all positional arguments should be bound before AST processing; this is likely a bug.")
         }
     };
 }

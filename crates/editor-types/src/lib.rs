@@ -26,6 +26,7 @@
 //! // Scroll the viewport so that line 10 is at the top of the screen.
 //! let _: Action = Action::Scroll(ScrollStyle::LinePos(MovePosition::Beginning, 10.into()));
 //! ```
+use std::borrow::Cow;
 use std::str::FromStr;
 
 pub mod application;
@@ -41,6 +42,57 @@ use self::prelude::*;
 use keybindings::SequenceStatus;
 
 /// A macro that turns a shorthand command DSL into an [Action].
+///
+/// # Interpolation
+///
+/// When using `action!` and the other procedural macros, you can also interpolate values using `{}`
+/// for positional arguments or `{id}` for passing via already-bound identifiers. When doing this,
+/// the values will be converted using the appropriate [From::from] call, which means that you can
+/// pass in a [usize] for [Count] values, for example.
+///
+/// You could write a variant of the above example as:
+///
+/// ```
+/// use editor_types::{action, Action, EditAction, EditorAction};
+/// use editor_types::prelude::*;
+///
+/// let operator = EditAction::Delete;
+/// let movement = MoveType::WordBegin(WordStyle::Little, MoveDir1D::Next);
+/// let count = 5;
+///
+/// let via_enums: Action = EditorAction::Edit(
+///     Specifier::from(operator.clone()),
+///     EditTarget::Motion(movement.clone(), Count::from(count)),
+/// ).into();
+///
+/// // As positional arguments, in varying orders:
+/// assert_eq!(via_enums, action!("edit -o {} -t (motion -T {} -c {})", operator.clone(), movement.clone(), count));
+/// assert_eq!(via_enums, action!("edit -t (motion -T {} -c {}) -o {}", movement.clone(), count, operator.clone()));
+/// assert_eq!(via_enums, action!("edit -t (motion -c {} -T {}) -o {}", count, movement.clone(), operator.clone()));
+///
+/// // As identifiers:
+/// assert_eq!(via_enums, action!("edit -o {operator} -t (motion -T {movement} -c {count})"));
+/// ```
+///
+/// Missing positional arguments will fail to compile:
+///
+/// ```compile_fail
+/// use editor_types::{action, Action};
+///
+/// let action: Action = action!("edit -o {} -t (motion -T {} -c {})");
+/// ```
+///
+/// And similarly, too many arguments will also fail:
+///
+/// ```compile_fail
+/// use editor_types::{action, Action, EditAction, EditorAction};
+/// use editor_types::prelude::*;
+///
+/// let operator = EditAction::Delete;
+/// let movement = MoveType::WordBegin(WordStyle::Little, MoveDir1D::Next);
+/// let count = 5;
+/// let action: Action = action!("edit -o {} -t (motion -T {} -c {count})", operator, movement, count);
+/// ```
 pub use editor_types_macros::action;
 
 /// A macro that turns a shorthand command DSL into an [EditTarget];
@@ -1086,6 +1138,14 @@ pub enum CommandBarAction<I: ApplicationInfo> {
     ///     CommandType::Search,
     ///     Action::Search(MoveDirMod::Same, Count::Contextual).into(),
     /// ).into());
+    ///
+    /// // Provide an empty prompt instead:
+    /// let focus: Action = Action::from_str(r#"cmdbar focus -P "" -s command -a nop"#).unwrap();
+    /// assert_eq!(focus, CommandBarAction::Focus(
+    ///     String::new(),
+    ///     CommandType::Command,
+    ///     Box::new(Action::NoOp),
+    /// ).into());
     /// ```
     ///
     /// ## Example: Using `action!`
@@ -1099,6 +1159,14 @@ pub enum CommandBarAction<I: ApplicationInfo> {
     ///     "/".into(),
     ///     CommandType::Search,
     ///     Action::Search(MoveDirMod::Same, Count::Contextual).into(),
+    /// ).into());
+    ///
+    /// // Provide an empty prompt instead:
+    /// let focus: Action = action!(r#"cmdbar focus -P "" -s command -a nop"#);
+    /// assert_eq!(focus, CommandBarAction::Focus(
+    ///     String::new(),
+    ///     CommandType::Command,
+    ///     Box::new(Action::NoOp),
     /// ).into());
     /// ```
     Focus(String, CommandType, Box<Action<I>>),
@@ -2061,10 +2129,21 @@ pub enum EditorAction {
     /// use editor_types::prelude::*;
     /// use editor_types::{action, Action, EditorAction};
     ///
+    /// // Specify entirely by DSL:
     /// let mark = Mark::LastYankedBegin;
-    /// let set_mark: Action = action!("mark -m {}", mark.clone());
+    /// let set_mark: Action = action!("mark -m (exact last-yanked-begin)");
+    /// assert_eq!(set_mark, EditorAction::Mark(mark.clone().into()).into());
+    ///
+    /// // Provide `Mark` as a positional argument:
+    /// let set_mark: Action = action!("mark -m {}", Mark::LastYankedBegin);
+    /// assert_eq!(set_mark, EditorAction::Mark(mark.clone().into()).into());
+    ///
+    /// // Provide `Mark` as a named identifier:
+    /// let last_yanked = mark.clone();
+    /// let set_mark: Action = action!("mark -m {last_yanked}");
     /// assert_eq!(set_mark, EditorAction::Mark(mark.into()).into());
     ///
+    /// // Use the contextually provided `Mark` instead:
     /// let set_mark: Action = action!("mark -m ctx");
     /// assert_eq!(set_mark, EditorAction::Mark(Specifier::Contextual).into());
     /// ```
@@ -2216,6 +2295,110 @@ impl From<SelectionAction> for EditorAction {
 }
 
 /// The result of either pressing a complete keybinding sequence, or parsing a command.
+///
+/// # Action DSL
+///
+/// This crates provides a basic domain-specific language that can be used  help simplify defining
+/// [Action] values to avoid needing to type out the full type names.
+///
+/// Values written using the DSL can be specified using either [Action::from_str] or the [action]
+/// macro. The [Action::from_str] implementation is useful if you need to source definitions at
+/// runtime, such as from a configuration file, but most of the time you will likely want to write
+/// things using the `action!` macro so that you can get compile-time errors when the input is
+/// invalid and make use of its interpolation support to insert different values into the middle
+/// of its output.
+///
+/// As an example, the three following ways of writing a editing movement are equivalent:
+///
+/// ```
+/// use std::str::FromStr;
+/// use editor_types::{action, Action, EditAction, EditorAction};
+/// use editor_types::prelude::*;
+///
+/// let via_enums: Action = EditorAction::Edit(
+///     Specifier::Exact(EditAction::Delete),
+///     EditTarget::Motion(MoveType::WordBegin(WordStyle::Little, MoveDir1D::Next), Count::Contextual),
+/// ).into();
+///
+/// let via_macro: Action = action!("edit -o (exact delete) -t (motion -T (word-begin -s little -d next))");
+///
+/// let via_str: Action = Action::from_str("edit -o (exact delete) -t (motion -T (word-begin -s little -d next))").unwrap();
+///
+/// assert_eq!(via_enums, via_macro);
+/// assert_eq!(via_enums, via_str);
+/// ```
+///
+/// In addition to the [action] macro, there are also [edit_target], [motion] and [range] macros that
+/// provide access to the relevant subsets of the DSL for the [EditTarget], [MoveType], and
+/// [RangeType] variants respectively.
+///
+/// ## Core Concepts
+///
+/// Actions written in the DSL are made up of the following syntax pieces:
+///
+/// - Keywords, which are used to name the specific [Action] values.
+/// - Flags, which are written in either short form like `-c` or long flags like `--count`.
+/// - Booleans, either `true` or `false`.
+/// - Strings, which are written with surrounding double quotes, such as `"input"`, and can
+///   have any special characters inside it escaped with a backslash, like in Rust.
+/// - Characters, which are written with surrounding single quotes, such as `'i'` or `'\\'`,
+///   and can have any special characters inside it escaped with a backslash, like in Rust.
+/// - Numbers, which are either usual decimal values like `1234`, or prefixed with a radix
+///   indicator, like `0xff`, `0o777`, or `0b0011`.
+/// - Groups, which are written between an opening `(` and `)` and used for grouping together
+///   multiple successive syntax components into a single value when passing an argument to a
+///   flag.
+///
+/// When using the procedural macros you can also provide interpolated values, like `{}` or `{id}`.
+/// See [action] for more details.
+///
+/// ## Character Escapes
+///
+/// If you need to enter in special characters like quotes, you can escape them in the follow ways:
+///
+/// | Escape Sequence | Unescaped Value     |
+/// | :-------------- | :------------------ |
+/// | `\a`            | A bell character    |
+/// | `\b`            | A backspace         |
+/// | `\f`            | A form feed         |
+/// | `\n`            | A line feed         |
+/// | `\r`            | A carriage return   |
+/// | `\t`            | A horizontal tab    |
+/// | `\v`            | A vertical tab      |
+/// | `\\`            | A backslash         |
+/// | `\'`            | A single quote      |
+/// | `\"`            | A double quote      |
+/// | `\u{NN...}`     | A Unicode character |
+///
+/// Using these looks like:
+///
+/// ```
+/// use editor_types::{action, Action, InsertTextAction};
+/// use editor_types::prelude::*;
+///
+/// fn insert_char(c: char) -> Action {
+///     let c = Char::from(c).into();
+///     let d = MoveDir1D::Previous;
+///     InsertTextAction::Type(c, d, Count::Contextual).into()
+/// }
+///
+/// // Special characters:
+/// assert_eq!(insert_char('\u{07}'), action!(r#"insert type -i (exact '\a')"#));
+/// assert_eq!(insert_char('\u{08}'), action!(r#"insert type -i (exact '\b')"#));
+/// assert_eq!(insert_char('\u{09}'), action!(r#"insert type -i (exact '\t')"#));
+/// assert_eq!(insert_char('\u{0A}'), action!(r#"insert type -i (exact '\n')"#));
+/// assert_eq!(insert_char('\u{0B}'), action!(r#"insert type -i (exact '\v')"#));
+/// assert_eq!(insert_char('\u{0C}'), action!(r#"insert type -i (exact '\f')"#));
+/// assert_eq!(insert_char('\u{0D}'), action!(r#"insert type -i (exact '\r')"#));
+///
+/// // Quotes:
+/// assert_eq!(insert_char('\''), action!(r#"insert type -i (exact '\'')"#));
+/// assert_eq!(insert_char('\"'), action!(r#"insert type -i (exact '\"')"#));
+///
+/// // Unicode codepoints:
+/// assert_eq!(insert_char(' '), action!(r#"insert type -i (exact '\u{20}')"#));
+/// assert_eq!(insert_char('»'), action!(r#"insert type -i (exact '\u{00BB}')"#));
+/// ```
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[non_exhaustive]
 pub enum Action<I: ApplicationInfo = EmptyInfo> {
@@ -2633,13 +2816,27 @@ pub enum Action<I: ApplicationInfo = EmptyInfo> {
     Application(I::Action),
 }
 
+/// Shorten `s` for inclusion in an error message, so that long inputs don't result in
+/// unreasonable error messages.
+fn elide(s: &str) -> Cow<'_, str> {
+    const MAX: usize = 80;
+
+    if s.len() <= MAX {
+        return s.into();
+    }
+
+    let end = (0..=MAX).rev().find(|i| s.is_char_boundary(*i)).unwrap_or(0);
+
+    format!("{}...", &s[..end]).into()
+}
+
 impl<I: ApplicationInfo> FromStr for Action<I> {
     type Err = anyhow::Error;
 
     fn from_str(s: &str) -> anyhow::Result<Self> {
         use editor_types_parser::ActionParserExt;
         let tokens = editor_types_parser::tokenize(s)
-            .map_err(|e| anyhow::anyhow!("failed to parse {s:?}: {e}"))?;
+            .map_err(|e| anyhow::anyhow!("failed to parse {:?}: {e}", elide(s)))?;
         let mut reader = parser::ActionReader::default();
         let act = reader.parse_action(&tokens)?;
         Ok(act)
