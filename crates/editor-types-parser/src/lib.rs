@@ -243,6 +243,30 @@ impl ActionToken<'_> {
     }
 }
 
+impl From<char> for ActionToken<'_> {
+    fn from(c: char) -> Self {
+        ActionToken::Char(c)
+    }
+}
+
+impl From<bool> for ActionToken<'_> {
+    fn from(b: bool) -> Self {
+        ActionToken::Bool(b)
+    }
+}
+
+impl From<Flag> for ActionToken<'_> {
+    fn from(f: Flag) -> Self {
+        ActionToken::Flag(f)
+    }
+}
+
+impl From<usize> for ActionToken<'_> {
+    fn from(n: usize) -> Self {
+        ActionToken::Number(n)
+    }
+}
+
 impl std::fmt::Display for ActionToken<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
         match self {

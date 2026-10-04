@@ -1663,47 +1663,41 @@ impl ActionMacroParser {
         }
     }
 
-    fn parse_target_shape_filter(&mut self, input: &[ActionToken]) -> TokenStream {
-        match input {
-            [ActionToken::Word(w @ "all"), rest @ ..] => {
-                enum_no_args_branch!(self, ::editor_types::prelude::TargetShapeFilter::ALL, w, rest)
-            },
-            [ActionToken::Word(w @ ("char" | "charwise")), rest @ ..] => {
-                enum_no_args_branch!(
-                    self,
-                    ::editor_types::prelude::TargetShapeFilter::CHAR,
-                    w,
-                    rest
-                )
-            },
-            [ActionToken::Word(w @ ("line" | "linewise")), rest @ ..] => {
-                enum_no_args_branch!(
-                    self,
-                    ::editor_types::prelude::TargetShapeFilter::LINE,
-                    w,
-                    rest
-                )
-            },
-            [ActionToken::Word(w @ ("block" | "blockwise")), rest @ ..] => {
-                enum_no_args_branch!(
-                    self,
-                    ::editor_types::prelude::TargetShapeFilter::BLOCK,
-                    w,
-                    rest
-                )
-            },
-            [ActionToken::Word(w @ "none"), rest @ ..] => {
-                enum_no_args_branch!(
-                    self,
-                    ::editor_types::prelude::TargetShapeFilter::NONE,
-                    w,
-                    rest
-                )
-            },
-            [ActionToken::Id(i), rest @ ..] => {
-                id_match_branch!(self, i, ::editor_types::prelude::TargetShapeFilter, rest)
-            },
-            _ => self.fail("expected a valid target shape filter"),
+    fn parse_target_shape_filter<'a>(&mut self, input: &'a [ActionToken<'a>]) -> TokenStream {
+        if let [ActionToken::Id(i), rest @ ..] = input {
+            return id_match_branch!(self, i, ::editor_types::prelude::TargetShapeFilter, rest);
         }
+
+        let mut flags = vec![];
+
+        for token in input {
+            flags.push(match token {
+                ActionToken::Word("all") => {
+                    quote! { ::editor_types::prelude::TargetShapeFilter::ALL }
+                },
+                ActionToken::Word("none") => {
+                    quote! { ::editor_types::prelude::TargetShapeFilter::NONE }
+                },
+                ActionToken::Word("char" | "charwise") => {
+                    quote! { ::editor_types::prelude::TargetShapeFilter::CHAR }
+                },
+                ActionToken::Word("line" | "linewise") => {
+                    quote! { ::editor_types::prelude::TargetShapeFilter::LINE }
+                },
+                ActionToken::Word("block" | "blockwise") => {
+                    quote! { ::editor_types::prelude::TargetShapeFilter::BLOCK }
+                },
+                t => {
+                    let msg = format!("expected a valid target shape filter, not `{t}`");
+                    return self.fail(msg);
+                },
+            });
+        }
+
+        if flags.is_empty() {
+            return self.fail("expected a valid target shape filter");
+        }
+
+        quote! { #(#flags)|* }
     }
 }
