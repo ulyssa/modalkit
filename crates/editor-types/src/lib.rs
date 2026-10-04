@@ -41,6 +41,12 @@ use self::context::{EditContext, Resolve};
 use self::prelude::*;
 use keybindings::SequenceStatus;
 
+/// The window identifier for an [ApplicationInfo].
+///
+/// This is a hack to get around how `proptest_derive::Arbitrary` generates its impl. We
+/// leave it private so that it doesn't get inserted into the generated documentation.
+type WindowIdOf<I> = <I as ApplicationInfo>::WindowId;
+
 /// A macro that turns a shorthand command DSL into an [Action].
 ///
 /// # Interpolation
@@ -106,6 +112,7 @@ pub use editor_types_macros::range;
 
 /// The various actions that can be taken on text.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub enum EditAction {
     /// Move the cursor.
     ///
@@ -397,6 +404,7 @@ impl EditAction {
 
 /// Actions for manipulating text selections.
 #[derive(Clone, Debug, Eq, PartialEq)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 #[non_exhaustive]
 pub enum SelectionAction {
     /// Duplicate selections [*n* times](Count) to adjacent lines in [MoveDir1D] direction.
@@ -639,6 +647,7 @@ pub enum SelectionAction {
 
 /// Actions for inserting text into a buffer.
 #[derive(Clone, Debug, Eq, PartialEq)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 #[non_exhaustive]
 pub enum InsertTextAction {
     /// Insert a new line [shape-wise](TargetShape) before or after the current position.
@@ -768,6 +777,7 @@ pub enum InsertTextAction {
 
 /// Actions for manipulating a buffer's history.
 #[derive(Clone, Debug, Eq, PartialEq)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub enum HistoryAction {
     /// Create a new editing history checkpoint.
     ///
@@ -867,6 +877,7 @@ impl HistoryAction {
 
 /// Actions for manipulating cursor groups.
 #[derive(Clone, Debug, Eq, PartialEq)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 #[non_exhaustive]
 pub enum CursorAction {
     /// Close the [targeted cursors](CursorCloseTarget) in the current cursor group.
@@ -1061,6 +1072,7 @@ impl CursorAction {
 
 /// Actions for running application commands (e.g. `:w` or `:quit`).
 #[derive(Clone, Debug, Eq, PartialEq)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 #[non_exhaustive]
 pub enum CommandAction {
     /// Run a command string.
@@ -1122,6 +1134,7 @@ pub enum CommandAction {
 
 /// Actions for manipulating the application's command bar.
 #[derive(Clone, Debug, Eq, PartialEq)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub enum CommandBarAction<I: ApplicationInfo> {
     /// Focus the command bar
     ///
@@ -1169,6 +1182,7 @@ pub enum CommandBarAction<I: ApplicationInfo> {
     ///     Box::new(Action::NoOp),
     /// ).into());
     /// ```
+    #[cfg_attr(test, proptest(skip))]
     Focus(String, CommandType, Box<Action<I>>),
 
     /// Unfocus the command bar.
@@ -1198,6 +1212,7 @@ pub enum CommandBarAction<I: ApplicationInfo> {
 
 /// Actions for manipulating prompts.
 #[derive(Clone, Debug, Eq, PartialEq)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub enum PromptAction {
     /// Abort command entry.
     ///
@@ -1308,6 +1323,7 @@ pub enum PromptAction {
 
 /// Actions for recording and running macros.
 #[derive(Clone, Debug, Eq, PartialEq)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 #[non_exhaustive]
 pub enum MacroAction {
     /// Execute the contents of the contextually specified Register [*n* times](Count).
@@ -1433,6 +1449,8 @@ pub enum MacroAction {
 
 /// Actions for manipulating application tabs.
 #[derive(Clone, Debug, Eq, PartialEq)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
+#[cfg_attr(test, proptest(no_bound))]
 #[non_exhaustive]
 pub enum TabAction<I: ApplicationInfo> {
     /// Close the [TabTarget] tabs with [CloseFlags] options.
@@ -1576,11 +1594,13 @@ pub enum TabAction<I: ApplicationInfo> {
     ///
     /// See the documentation for [OpenTarget] and [FocusChange] for how to construct each of their
     /// variants with [action].
-    Open(OpenTarget<I::WindowId>, FocusChange),
+    Open(OpenTarget<WindowIdOf<I>>, FocusChange),
 }
 
 /// Actions for manipulating application windows.
 #[derive(Clone, Debug, Eq, PartialEq)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
+#[cfg_attr(test, proptest(no_bound))]
 #[non_exhaustive]
 pub enum WindowAction<I: ApplicationInfo> {
     /// Close the [WindowTarget] windows with [CloseFlags] options.
@@ -1724,7 +1744,7 @@ pub enum WindowAction<I: ApplicationInfo> {
     /// assert_eq!(act, action!("window open -t unnamed -x horizontal -d next -c ctx"));
     /// assert_eq!(act, action!("window open -t unnamed -x horizontal -d next"));
     /// ```
-    Open(OpenTarget<I::WindowId>, Axis, MoveDir1D, Count),
+    Open(OpenTarget<WindowIdOf<I>>, Axis, MoveDir1D, Count),
 
     /// Visually rotate the windows in [MoveDir2D] direction.
     ///
@@ -1787,7 +1807,7 @@ pub enum WindowAction<I: ApplicationInfo> {
     /// assert_eq!(act, action!("window split -t current -x vertical -d next -c ctx"));
     /// assert_eq!(act, action!("window split -t current -x vertical -d next"));
     /// ```
-    Split(OpenTarget<I::WindowId>, Axis, MoveDir1D, Count),
+    Split(OpenTarget<WindowIdOf<I>>, Axis, MoveDir1D, Count),
 
     /// Switch what content the window is currently showing.
     ///
@@ -1816,7 +1836,7 @@ pub enum WindowAction<I: ApplicationInfo> {
     /// let switch: Action = WindowAction::Switch(target).into();
     /// assert_eq!(switch, action!("window switch -t (offset -d next -c 5)"));
     /// ```
-    Switch(OpenTarget<I::WindowId>),
+    Switch(OpenTarget<WindowIdOf<I>>),
 
     /// Clear all of the explicitly set window sizes, and instead try to equally distribute
     /// available rows and columns.
@@ -1936,6 +1956,7 @@ pub enum WindowAction<I: ApplicationInfo> {
 
 /// Actions for editing text within buffer.
 #[derive(Clone, Debug, Eq, PartialEq)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 #[non_exhaustive]
 pub enum EditorAction {
     /// Complete the text before the cursor group leader.
@@ -2400,6 +2421,8 @@ impl From<SelectionAction> for EditorAction {
 /// assert_eq!(insert_char('»'), action!(r#"insert type -i (exact '\u{00BB}')"#));
 /// ```
 #[derive(Clone, Debug, Eq, PartialEq)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
+#[cfg_attr(test, proptest(no_bound))]
 #[non_exhaustive]
 pub enum Action<I: ApplicationInfo = EmptyInfo> {
     /// Do nothing.
@@ -2813,6 +2836,7 @@ pub enum Action<I: ApplicationInfo = EmptyInfo> {
     Window(WindowAction<I>),
 
     /// Application-specific command.
+    #[cfg_attr(test, proptest(skip))]
     Application(I::Action),
 }
 

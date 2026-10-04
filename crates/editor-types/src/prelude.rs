@@ -35,6 +35,7 @@ use crate::*;
 
 /// Specify how to change the case of a string.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub enum Case {
     /// Make the targeted text uppercase.
     ///
@@ -143,6 +144,7 @@ pub enum Case {
 
 /// Specify how to join lines together.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub enum JoinStyle {
     /// Leave whitespace around the join point as-is.
     ///
@@ -232,6 +234,7 @@ pub enum JoinStyle {
 
 /// Specify how to insert register contents into a buffer.
 #[derive(Clone, Debug, Eq, PartialEq)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub enum PasteStyle {
     /// Paste text before the cursor.
     ///
@@ -322,6 +325,7 @@ pub enum PasteStyle {
 
 /// The source to search for completion candidates.
 #[derive(Clone, Debug, Eq, PartialEq)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub enum CompletionScope {
     /// Only use completion candidates from the current buffer.
     ///
@@ -386,6 +390,7 @@ pub enum CompletionScope {
 
 /// What type of phrase we are completing.
 #[derive(Clone, Debug, Eq, PartialEq)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub enum CompletionStyle {
     /// Navigate through the list of completion candidates.
     ///
@@ -540,6 +545,7 @@ pub enum CompletionStyle {
 /// variants are provided here to accomodate keybindings that specifically
 /// complete context-independent values.
 #[derive(Clone, Debug, Eq, PartialEq)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub enum CompletionType {
     /// Determine what to complete by the buffer context.
     ///
@@ -664,6 +670,7 @@ pub enum CompletionType {
 
 /// How to display completion candidates.
 #[derive(Clone, Debug, Eq, PartialEq)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub enum CompletionDisplay {
     /// Don't display candidates.
     ///
@@ -762,6 +769,7 @@ pub enum CompletionDisplay {
 
 /// Specify what is targeted by an editing action.
 #[derive(Clone, Debug, Eq, PartialEq)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 #[non_exhaustive]
 pub enum EditTarget {
     /// Move to one of the sides of a range.
@@ -1060,6 +1068,7 @@ impl From<RangeType> for EditTarget {
 
 /// Determines where to leave the cursor after editing text.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub enum CursorEnd {
     /// Keep the current cursor position as best as possible.
     Keep,
@@ -1115,6 +1124,7 @@ impl<Cursor: Ord> EditRange<Cursor> {
 
 /// Different action sequences that can be repeated.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub enum RepeatType {
     /// A sequence of changes made to a buffer.
     ///
@@ -1191,6 +1201,7 @@ pub enum RepeatType {
 
 /// Specify a range within the text around the current cursor position.
 #[derive(Clone, Debug, Eq, PartialEq)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub enum SearchType {
     /// Search for the character indicated by [EditContext::get_search_char].
     ///
@@ -1230,6 +1241,7 @@ impl SearchType {
 
 /// The different ways of grouping a buffer's contents into words.
 #[derive(Clone, Debug, Eq, PartialEq)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub enum WordStyle {
     /// A run of alphanumeric characters.
     ///
@@ -1292,6 +1304,7 @@ pub enum WordStyle {
     Big,
 
     /// A sequence of characters that match a test function.
+    #[cfg_attr(test, proptest(skip))]
     CharSet(fn(char) -> bool),
 
     /// A name of a directory or file.
@@ -1733,6 +1746,7 @@ impl From<Radix> for WordStyle {
 
 /// Specify the base for a number.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub enum Radix {
     /// A base 2 number.
     ///
@@ -1926,6 +1940,7 @@ pub trait BoundaryTest {
 
 /// Specify a range within the text around the current cursor position.
 #[derive(Clone, Debug, Eq, PartialEq)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 #[non_exhaustive]
 pub enum RangeType {
     /// Select from the beginning to the end of a [word](WordStyle).
@@ -2189,6 +2204,7 @@ pub enum RangeType {
 
 /// Specify a movement away from the current cursor position.
 #[derive(Clone, Debug, Eq, PartialEq)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 #[non_exhaustive]
 pub enum MoveType {
     /// Move to a line at a position relative to the buffer.
@@ -2782,6 +2798,7 @@ pub enum MoveType {
 
 /// Represent movement along a 1-dimensional line.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub enum MoveDir1D {
     /// Move backwards, or to a previous point.
     ///
@@ -2840,6 +2857,7 @@ pub enum MoveDir1D {
 
 /// Represent movement along the horizontal or vertical axes.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub enum MoveDir2D {
     /// Move leftwards.
     ///
@@ -2940,6 +2958,7 @@ pub enum MoveDir2D {
 
 /// Represents the two sides of a range that has no meaningful middle.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub enum MoveTerminus {
     /// The beginning of a range.
     ///
@@ -2998,6 +3017,7 @@ pub enum MoveTerminus {
 
 /// Represent movement to a position along a 1-dimensional line.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub enum MovePosition {
     /// Move to the beginning of some range.
     ///
@@ -3092,6 +3112,7 @@ pub enum MovePosition {
 
 /// Represents a modification of a previous [MoveDir1D] movement.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub enum MoveDirMod {
     /// Use the same movement previously used.
     ///
@@ -3182,6 +3203,7 @@ pub enum MoveDirMod {
 
 /// This represents a selection of a 2-dimensional axis.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub enum Axis {
     /// The horizontal axis.
     ///
@@ -3262,6 +3284,7 @@ impl Axis {
 
 /// This represents the units used when scrolling.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub enum ScrollSize {
     /// Scroll by number of character cells.
     ///
@@ -3344,6 +3367,7 @@ pub enum ScrollSize {
 
 /// This represents the way in which the viewport should be scrolled.
 #[derive(Clone, Debug, Eq, PartialEq)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub enum ScrollStyle {
     /// Scroll the viewport in [MoveDir2D] direction by [ScrollSize] units, [*n* times](Count).
     ///
@@ -3436,6 +3460,7 @@ pub enum ScrollStyle {
 /// Place the cursor at a specified position in a visual selection, with the anchor now at the
 /// opposite end.
 #[derive(Clone, Debug, Eq, PartialEq)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub enum SelectionCursorChange {
     /// Place the cursor in the first line of the selection, in the first column of the selection.
     ///
@@ -3554,6 +3579,7 @@ pub enum SelectionCursorChange {
 
 /// This represents what UI element is targeted during an Action.
 #[derive(Clone, Debug, Eq, PartialEq)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub enum FocusChange {
     /// Target the currently focused UI element.
     ///
@@ -3737,7 +3763,8 @@ pub enum FocusChange {
 
 /// This represents how to change the size of a window.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub enum SizeChange<I = Count> {
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
+pub enum SizeChange<I: 'static = Count> {
     /// Make the window and others along the specified axis the same size.
     ///
     /// ## Example: Using `Action::from_str`
@@ -3859,7 +3886,8 @@ pub enum SizeChange<I = Count> {
 
 /// This represents how to change the indentation of a range.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub enum IndentChange<I = Count> {
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
+pub enum IndentChange<I: 'static = Count> {
     /// Automatically determine indentation level.
     ///
     /// ## Example: Using `Action::from_str`
@@ -3951,6 +3979,7 @@ pub enum IndentChange<I = Count> {
 
 /// This represents how to change a number in text.
 #[derive(Clone, Debug, Eq, PartialEq)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub enum NumberChange {
     /// Decrease the first number in the targeted text by [*n*](Count).
     ///
@@ -4015,6 +4044,7 @@ pub enum NumberChange {
 
 /// Targets for [Action::KeywordLookup].
 #[derive(Clone, Debug, Eq, PartialEq)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub enum KeywordTarget {
     /// Lookup the [word][WordStyle] surrounding the cursor.
     ///
@@ -4094,6 +4124,8 @@ impl From<WordStyle> for KeywordTarget {
 /// [WindowAction::Open]: crate::WindowAction::Open
 /// [WindowAction::Switch]: crate::WindowAction::Switch
 #[derive(Clone, Debug, Eq, PartialEq)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
+#[cfg_attr(test, proptest(no_bound))]
 pub enum OpenTarget<W: ApplicationWindowId> {
     /// An alternate window. This is usually the previous window.
     ///
@@ -4122,6 +4154,7 @@ pub enum OpenTarget<W: ApplicationWindowId> {
     Alternate,
 
     /// An application-specific [identifier][ApplicationWindowId] to switch to.
+    #[cfg_attr(test, proptest(skip))]
     Application(W),
 
     /// Use the current window as the target.
@@ -4312,6 +4345,7 @@ pub enum OpenTarget<W: ApplicationWindowId> {
 
 /// This represents what tabs are targeted by a tab command.
 #[derive(Clone, Debug, Eq, PartialEq)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub enum TabTarget {
     /// Close the tab targeted by FocusChange.
     ///
@@ -4400,6 +4434,7 @@ pub enum TabTarget {
 
 /// This represents what windows are targeted by a window command.
 #[derive(Clone, Debug, Eq, PartialEq)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub enum WindowTarget {
     /// Close the window targeted by [FocusChange].
     ///
@@ -4488,6 +4523,7 @@ pub enum WindowTarget {
 
 /// Target cursors in a cursor group.
 #[derive(Clone, Debug, Eq, PartialEq)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub enum CursorCloseTarget {
     /// Target the cursor group's leader.
     ///
@@ -4540,6 +4576,7 @@ pub enum CursorCloseTarget {
 
 /// Ways to combine a newer cursor group with an already existing one.
 #[derive(Clone, Debug, Eq, PartialEq)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub enum CursorGroupCombineStyle {
     /// Use all of the selections from both groups.
     ///
@@ -4638,6 +4675,7 @@ impl From<CursorMergeStyle> for CursorGroupCombineStyle {
 
 /// Ways to combine two selections.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub enum CursorMergeStyle {
     /// Merge the two selections to form one long selection.
     ///
@@ -4772,6 +4810,7 @@ pub enum CursorMergeStyle {
 
 /// This represents how to determine what count argument should be applied to an action.
 #[derive(Clone, Debug, Eq, PartialEq)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub enum Count {
     /// Use the count provided by the user, or 1 if one was not given.
     ///
@@ -4869,6 +4908,7 @@ impl From<usize> for Count {
 
 /// Saved cursor positions.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub enum Mark {
     /// The position of the cursor in the current buffer when it last exited.
     ///
@@ -5204,7 +5244,8 @@ impl Mark {
 
 /// A value that may not be known now, but is present in the context.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub enum Specifier<T> {
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
+pub enum Specifier<T: 'static> {
     /// Look for a value of `T` in the [EditContext].
     #[default]
     Contextual,
@@ -5247,6 +5288,7 @@ bitflags! {
     /// assert_eq!(act, action!("window write -t all -F (none force)"));
     /// ```
     #[derive(Debug, Clone, Copy, Eq, PartialEq)]
+    #[repr(transparent)]
     pub struct WriteFlags: u32 {
         /// No flags set.
         ///
@@ -5306,6 +5348,17 @@ bitflags! {
     }
 }
 
+#[cfg(test)]
+impl proptest::arbitrary::Arbitrary for WriteFlags {
+    type Parameters = ();
+    type Strategy = proptest::strategy::Map<std::ops::RangeInclusive<u32>, fn(u32) -> Self>;
+
+    fn arbitrary_with(_: ()) -> Self::Strategy {
+        let range = 0..=Self::all().bits();
+        proptest::strategy::Strategy::prop_map(range, Self::from_bits_truncate)
+    }
+}
+
 bitflags! {
     /// These flags are used to specify the behaviour while opening a window.
     #[derive(Debug, Clone, Copy, Eq, PartialEq)]
@@ -5318,6 +5371,17 @@ bitflags! {
 
         /// Attemp to create the target content if it doesn't already exist.
         const CREATE = 0b00000010;
+    }
+}
+
+#[cfg(test)]
+impl proptest::arbitrary::Arbitrary for OpenFlags {
+    type Parameters = ();
+    type Strategy = proptest::strategy::Map<std::ops::RangeInclusive<u32>, fn(u32) -> Self>;
+
+    fn arbitrary_with(_: ()) -> Self::Strategy {
+        let range = 0..=Self::all().bits();
+        proptest::strategy::Strategy::prop_map(range, Self::from_bits_truncate)
     }
 }
 
@@ -5470,8 +5534,20 @@ bitflags! {
     }
 }
 
+#[cfg(test)]
+impl proptest::arbitrary::Arbitrary for CloseFlags {
+    type Parameters = ();
+    type Strategy = proptest::strategy::Map<std::ops::RangeInclusive<u32>, fn(u32) -> Self>;
+
+    fn arbitrary_with(_: ()) -> Self::Strategy {
+        let range = 0..=Self::all().bits();
+        proptest::strategy::Strategy::prop_map(range, Self::from_bits_truncate)
+    }
+}
+
 /// Different ways to expand or trim selections.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 #[non_exhaustive]
 pub enum SelectionBoundary {
     /// A selection that starts at the beginning of a line and ends on a newline.
@@ -5560,6 +5636,7 @@ impl BoundaryTest for SelectionBoundary {
 
 /// Different ways to split existing selections into new ones.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 #[non_exhaustive]
 pub enum SelectionSplitStyle {
     /// Split a selection into two [TargetShape::CharWise] selections, one at the current cursor
@@ -5653,6 +5730,7 @@ pub enum SelectionSplitStyle {
 
 /// Different ways to change the boundaries of a visual selection.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 #[non_exhaustive]
 pub enum SelectionResizeStyle {
     /// Extend (or possibly shrink) the selection by moving the cursor.
@@ -5753,6 +5831,7 @@ pub enum SelectionResizeStyle {
 /// instead which registers the submitted value is stored in and what history the
 /// user can access in the command bar.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, enum_map::Enum)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub enum CommandType {
     /// Prompt the user for an application-specific entry.
     ///
@@ -5929,6 +6008,7 @@ impl<V> IndexMut<CommandType> for CommandMap<V> {
 
 /// What history items to recall during [PromptAction::Recall].
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub enum RecallFilter {
     /// Include all items in the prompt's history.
     ///
@@ -5993,6 +6073,7 @@ pub enum RecallFilter {
 
 /// This specifies which list of cursors to use when jumping, the change list or the jump list.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub enum PositionList {
     /// The change list contains positions where changes were previously made.
     ///
@@ -6054,6 +6135,7 @@ pub enum PositionList {
 
 /// This specifies the behaviour of entering and backspacing over characters.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub enum InsertStyle {
     /// This specifies that typed characters should leave existing ones as is, and backspacing
     /// should remove characters.
@@ -6066,6 +6148,7 @@ pub enum InsertStyle {
 
 /// A character.
 #[derive(Clone, Debug, Eq, PartialEq)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub enum Char {
     /// An exact character.
     ///
@@ -6204,6 +6287,7 @@ impl From<char> for Char {
 
 /// Locations for temporarily storing text shared between buffers.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 #[non_exhaustive]
 pub enum Register {
     /// The default register.
@@ -6307,6 +6391,7 @@ impl Register {
 
 /// This specifies either the shape of a visual selection, or a forced motion.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub enum TargetShape {
     /// A series of characters.
     ///
@@ -6438,6 +6523,17 @@ bitflags! {
     }
 }
 
+#[cfg(test)]
+impl proptest::arbitrary::Arbitrary for TargetShapeFilter {
+    type Parameters = ();
+    type Strategy = proptest::strategy::Map<std::ops::RangeInclusive<u32>, fn(u32) -> Self>;
+
+    fn arbitrary_with(_: ()) -> Self::Strategy {
+        let range = 0..=Self::all().bits();
+        proptest::strategy::Strategy::prop_map(range, Self::from_bits_truncate)
+    }
+}
+
 impl TargetShapeFilter {
     /// Check whether this filter applies to a given [TargetShape].
     pub fn matches(&self, shape: &TargetShape) -> bool {
@@ -6461,6 +6557,7 @@ impl From<TargetShape> for TargetShapeFilter {
 
 /// Action to take on targets when filtering with a regular expression.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub enum MatchAction {
     /// Keep targets of the regular expression.
     ///
@@ -6888,6 +6985,7 @@ impl From<MoveDir1D> for MoveDirMod {
 
 /// Information to show the user at the bottom of the screen after an action.
 #[derive(Clone, Debug, Eq, PartialEq)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub enum InfoMessage {
     /// Print a simple, informational message on the status line.
     Message(String),

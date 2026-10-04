@@ -23,5 +23,9 @@ enum-map = { workspace = true }
 keybindings = { workspace = true }
 regex = { workspace = true }
 
+[dev-dependencies]
+proptest = { workspace = true }
+proptest-derive = { workspace = true }
+
 [lints]
 workspace = true

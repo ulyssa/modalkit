@@ -461,6 +461,8 @@ dependencies = [
  "editor-types-parser",
  "enum-map",
  "keybindings",
+ "proptest",
+ "proptest-derive",
  "regex",
 ]
 

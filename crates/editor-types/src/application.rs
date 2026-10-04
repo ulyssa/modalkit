@@ -158,7 +158,7 @@ use keybindings::SequenceStatus;
 /// by this crate.
 ///
 /// [Action::Application]: crate::Action::Application
-pub trait ApplicationAction: Clone + Debug + Eq + PartialEq + Send {
+pub trait ApplicationAction: Clone + Debug + Eq + PartialEq + Send + 'static {
     /// Allows controlling how application-specific actions are included in
     /// [RepeatType::EditSequence](crate::prelude::RepeatType::EditSequence).
     fn is_edit_sequence(&self, ctx: &EditContext) -> SequenceStatus;
@@ -208,7 +208,7 @@ pub trait ApplicationStore {}
 impl ApplicationStore for () {}
 
 /// Trait for window identifiers in an application.
-pub trait ApplicationWindowId: Clone + Debug + Eq + Hash + Send {}
+pub trait ApplicationWindowId: Clone + Debug + Eq + Hash + Send + 'static {}
 
 impl ApplicationWindowId for () {}
 impl ApplicationWindowId for usize {}
@@ -216,7 +216,7 @@ impl ApplicationWindowId for Option<usize> {}
 impl ApplicationWindowId for String {}
 
 /// Trait for identifiers of specific content within a window in an application.
-pub trait ApplicationContentId: Clone + Debug + Eq + Hash + Send {}
+pub trait ApplicationContentId: Clone + Debug + Eq + Hash + Send + 'static {}
 
 impl ApplicationContentId for () {}
 impl ApplicationContentId for usize {}
@@ -225,7 +225,7 @@ impl ApplicationContentId for String {}
 
 /// Trait for objects that describe application-specific behaviour and types.
 #[allow(unused)]
-pub trait ApplicationInfo: Clone + Debug + Eq + PartialEq {
+pub trait ApplicationInfo: Clone + Debug + Eq + PartialEq + 'static {
     /// An application-specific error type.
     type Error: ApplicationError;
 
