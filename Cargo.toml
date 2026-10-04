@@ -33,7 +33,7 @@ version = "0.0.30"
 [workspace.dependencies]
 anyhow = "1.0.104"
 proptest = "1.11"
-proptest-derive = "0.8"
+proptest-derive = { version = "0.8", features = ["boxed_union"] }
 bitflags = "2.4.2"
 crossterm = "0.29"
 enum-map = "2.7.3"
