@@ -156,8 +156,8 @@ impl ListItem<EditorInfo> for DirectoryItem {
         &self,
         selected: bool,
         _: &ViewportContext<ListCursor>,
-        _: &mut Store<EditorInfo>,
-    ) -> Text {
+        _: &Store<EditorInfo>,
+    ) -> Text<'_> {
         let mut style = Style::default();
 
         if selected {
@@ -383,7 +383,7 @@ impl Window<EditorInfo> for EditorWindow {
         }
     }
 
-    fn get_win_title(&self, _: &mut Store<EditorInfo>) -> Line {
+    fn get_win_title(&self, _: &mut Store<EditorInfo>) -> Line<'_> {
         match self.id() {
             EditorContentId::Command(CommandType::Application) => Line::from("[Application]"),
             EditorContentId::Command(CommandType::Command) => Line::from("[Command Line]"),

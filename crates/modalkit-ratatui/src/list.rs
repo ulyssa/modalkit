@@ -115,12 +115,12 @@ where
     type Section: Clone + PartialEq + Into<Line<'static>>;
 
     /// Return a representation of this item to show in the terminal window.
-    fn show(
-        &self,
+    fn show<'a>(
+        &'a self,
         selected: bool,
         viewport: &ViewportContext<ListCursor>,
-        store: &mut Store<I>,
-    ) -> Text<'_>;
+        store: &'a Store<I>,
+    ) -> Text<'a>;
 
     /// Return a word that represents this list item.
     ///
@@ -148,7 +148,7 @@ where
 {
     type Section = String;
 
-    fn show(&self, selected: bool, _: &ViewportContext<ListCursor>, _: &mut Store<I>) -> Text<'_> {
+    fn show(&self, selected: bool, _: &ViewportContext<ListCursor>, _: &Store<I>) -> Text<'_> {
         if selected {
             let hl = Style::default().add_modifier(StyleModifier::REVERSED);
 
@@ -1532,12 +1532,7 @@ mod tests {
     {
         type Section = String;
 
-        fn show(
-            &self,
-            selected: bool,
-            _: &ViewportContext<ListCursor>,
-            _: &mut Store<I>,
-        ) -> Text<'_> {
+        fn show(&self, selected: bool, _: &ViewportContext<ListCursor>, _: &Store<I>) -> Text<'_> {
             let style = if selected {
                 Style::default().add_modifier(StyleModifier::REVERSED)
             } else {
