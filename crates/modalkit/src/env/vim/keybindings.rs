@@ -48,6 +48,8 @@
 //!     assert_eq!(keybindings.pop(), None);
 //! }
 //! ```
+use std::str::FromStr;
+
 use bitflags::bitflags;
 
 use crate::actions::{
@@ -279,7 +281,7 @@ impl InternalAction {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 enum ExternalAction<I: ApplicationInfo> {
     Something(Action<I>),
     CountAlters(Vec<Action<I>>, Vec<Action<I>>),
@@ -394,6 +396,15 @@ impl<I: ApplicationInfo> InputStep<I> {
     pub fn actions(mut self, acts: Vec<Action<I>>) -> Self {
         self.external = acts.into_iter().map(ExternalAction::Something).collect();
         self
+    }
+}
+
+impl<I: ApplicationInfo> FromStr for InputStep<I> {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> anyhow::Result<Self> {
+        let act = Action::from_str(s)?;
+        Ok(Self::new().actions(vec![act]))
     }
 }
 
@@ -2375,6 +2386,23 @@ mod tests {
 
     fn mkctx() -> VimState<EmptyInfo> {
         VimState::default()
+    }
+
+    #[test]
+    fn test_input_step_fromstr() {
+        let step = InputStep::<EmptyInfo>::from_str("no-op").unwrap();
+        assert_eq!(step.external[0], ExternalAction::Something(Action::NoOp));
+        assert_eq!(step.external.len(), 1);
+        assert_eq!(step.internal.len(), 0);
+        assert_eq!(step.fallthrough_mode, None);
+        assert_eq!(step.nextm, None);
+
+        let step = InputStep::<EmptyInfo>::from_str("history checkpoint").unwrap();
+        assert_eq!(step.external[0], ExternalAction::Something(HistoryAction::Checkpoint.into()));
+        assert_eq!(step.external.len(), 1);
+        assert_eq!(step.internal.len(), 0);
+        assert_eq!(step.fallthrough_mode, None);
+        assert_eq!(step.nextm, None);
     }
 
     #[test]

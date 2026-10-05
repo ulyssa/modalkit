@@ -1069,6 +1069,7 @@ dependencies = [
 name = "modalkit"
 version = "0.0.30"
 dependencies = [
+ "anyhow",
  "anymap2",
  "arboard",
  "bitflags 2.13.1",

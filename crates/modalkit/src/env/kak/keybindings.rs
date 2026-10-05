@@ -44,6 +44,8 @@
 //!     assert_eq!(keybindings.pop(), None);
 //! }
 //! ```
+use std::str::FromStr;
+
 use bitflags::bitflags;
 
 use editor_types::{
@@ -159,7 +161,7 @@ impl InternalAction {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Eq, PartialEq)]
 enum ExternalAction<I: ApplicationInfo> {
     CountOnly(Action<I>),
     ObjectSelect(RangeType, Option<RangeType>),
@@ -212,6 +214,15 @@ impl<I: ApplicationInfo> ExternalAction<I> {
             },
             ExternalAction::Something(act) => vec![act.clone()],
         }
+    }
+}
+
+impl<I: ApplicationInfo> FromStr for InputStep<I> {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> anyhow::Result<Self> {
+        let act = Action::from_str(s)?;
+        Ok(Self::new().actions(vec![act]))
     }
 }
 
@@ -1115,6 +1126,23 @@ mod tests {
 
     fn mkctx() -> KakouneState<EmptyInfo> {
         KakouneState::default()
+    }
+
+    #[test]
+    fn test_input_step_fromstr() {
+        let step = InputStep::<EmptyInfo>::from_str("no-op").unwrap();
+        assert_eq!(step.external[0], ExternalAction::Something(Action::NoOp));
+        assert_eq!(step.external.len(), 1);
+        assert_eq!(step.internal.len(), 0);
+        assert_eq!(step.fallthrough_mode, None);
+        assert_eq!(step.nextm, None);
+
+        let step = InputStep::<EmptyInfo>::from_str("history checkpoint").unwrap();
+        assert_eq!(step.external[0], ExternalAction::Something(HistoryAction::Checkpoint.into()));
+        assert_eq!(step.external.len(), 1);
+        assert_eq!(step.internal.len(), 0);
+        assert_eq!(step.fallthrough_mode, None);
+        assert_eq!(step.nextm, None);
     }
 
     #[test]

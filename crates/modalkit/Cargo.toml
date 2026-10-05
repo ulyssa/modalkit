@@ -19,6 +19,7 @@ default = []
 clipboard = ["dep:arboard"]
 
 [dependencies]
+anyhow = { workspace = true }
 anymap2 = "0.13.0"
 bitflags = { workspace = true }
 crossterm = { workspace = true }
