@@ -1253,8 +1253,8 @@ macro_rules! window_split {
 }
 
 macro_rules! window_file {
-    ($target: expr) => {
-        window!(WindowAction::Split($target, Axis::Horizontal, MoveDir1D::Previous, 1.into()))
+    ($target: expr, $axis: expr) => {
+        window!(WindowAction::Split($target, $axis, MoveDir1D::Previous, 1.into()))
     };
 }
 
@@ -1427,7 +1427,6 @@ fn default_keys<I: ApplicationInfo>() -> Vec<(MappedModes, &'static str, InputSt
         ( NVMAP, "<C-W>K", window!(WindowAction::MoveSide(MoveDir2D::Up)) ),
         ( NVMAP, "<C-W>l", window_focus!(FocusChange::Direction2D(MoveDir2D::Right, Count::Contextual)) ),
         ( NVMAP, "<C-W>L", window!(WindowAction::MoveSide(MoveDir2D::Right)) ),
-        ( NVMAP, "<C-W>n", window_file!(OpenTarget::Unnamed) ),
         ( NVMAP, "<C-W>o", window_quit!(WindowTarget::AllBut, FocusChange::Current, FocusChange::Offset(Count::Contextual, true)) ),
         ( NVMAP, "<C-W>p", window_focus!(FocusChange::PreviouslyFocused) ),
         ( NVMAP, "<C-W>q", window_quit!(WindowTarget::Single, FocusChange::Current, FocusChange::Offset(Count::Contextual, true)) ),
@@ -1457,7 +1456,6 @@ fn default_keys<I: ApplicationInfo>() -> Vec<(MappedModes, &'static str, InputSt
         ( NVMAP, "<C-W><C-J>", window_focus!(FocusChange::Direction2D(MoveDir2D::Down, Count::Contextual)) ),
         ( NVMAP, "<C-W><C-K>", window_focus!(FocusChange::Direction2D(MoveDir2D::Up, Count::Contextual)) ),
         ( NVMAP, "<C-W><C-L>", window_focus!(FocusChange::Direction2D(MoveDir2D::Right, Count::Contextual)) ),
-        ( NVMAP, "<C-W><C-N>", window_file!(OpenTarget::Unnamed) ),
         ( NVMAP, "<C-W><C-O>", window_quit!(WindowTarget::AllBut, FocusChange::Current, FocusChange::Offset(Count::Contextual, true)) ),
         ( NVMAP, "<C-W><C-Q>", window_quit!(WindowTarget::Single, FocusChange::Current, FocusChange::Offset(Count::Contextual, true)) ),
         ( NVMAP, "<C-W><C-R>", window!(WindowAction::Rotate(MoveDir1D::Next)) ),
@@ -1700,9 +1698,7 @@ fn default_keys<I: ApplicationInfo>() -> Vec<(MappedModes, &'static str, InputSt
         ( XMAP, "?", search!(MoveDir1D::Previous, VimMode::Visual) ),
         ( XMAP, "/", search!(MoveDir1D::Next, VimMode::Visual) ),
         ( XMAP, "<C-G>", goto!(VimMode::Select) ),
-        ( XMAP, "<C-W>f", window_file!(OpenTarget::Selection) ),
         ( XMAP, "<C-W>gf", tab_open!(OpenTarget::Selection, FocusChange::Current) ),
-        ( XMAP, "<C-W><C-F>", window_file!(OpenTarget::Selection) ),
 
         // Select mode
         ( SMAP, "<C-G>", goto!(VimMode::Visual) ),
@@ -1958,12 +1954,16 @@ fn ctrlcd_is_abort<I: ApplicationInfo>() -> Vec<(MappedModes, &'static str, Inpu
 }
 
 #[rustfmt::skip]
-fn cursor_open<I: ApplicationInfo>(style: WordStyle) -> Vec<(MappedModes, &'static str, InputStep<I>)> {
+fn cursor_open<I: ApplicationInfo>(style: WordStyle, axis: Axis) -> Vec<(MappedModes, &'static str, InputStep<I>)> {
     [
+        ( NVMAP, "<C-W>n", window_file!(OpenTarget::Unnamed, axis) ),
+        ( NVMAP, "<C-W><C-N>", window_file!(OpenTarget::Unnamed, axis) ),
+        ( XMAP, "<C-W>f", window_file!(OpenTarget::Selection, axis) ),
+        ( XMAP, "<C-W><C-F>", window_file!(OpenTarget::Selection, axis) ),
         ( NMAP, "gf", window_switch!(OpenTarget::Cursor(style.clone())) ),
-        ( NMAP, "<C-W>f", window_file!(OpenTarget::Cursor(style.clone())) ),
+        ( NMAP, "<C-W>f", window_file!(OpenTarget::Cursor(style.clone()), axis) ),
         ( NMAP, "<C-W>gf", tab_open!(OpenTarget::Cursor(style.clone()), FocusChange::Current) ),
-        ( NMAP, "<C-W><C-F>", window_file!(OpenTarget::Cursor(style)) ),
+        ( NMAP, "<C-W><C-F>", window_file!(OpenTarget::Cursor(style), axis) ),
     ].to_vec()
 }
 
@@ -2010,47 +2010,78 @@ fn add_mapping<I: ApplicationInfo>(
 /// A configurable collection of Vim bindings that can be added to a [ModalMachine].
 #[derive(Debug)]
 pub struct VimBindings<I: ApplicationInfo> {
-    prefixes: Vec<(MappedModes, &'static str, Option<InputStep<I>>)>,
-    mappings: Vec<(MappedModes, &'static str, InputStep<I>)>,
-    enter: Vec<(MappedModes, &'static str, InputStep<I>)>,
-    search: Vec<(MappedModes, &'static str, InputStep<I>)>,
-    ctrlcd: Vec<(MappedModes, &'static str, InputStep<I>)>,
-    cursor_open: Vec<(MappedModes, &'static str, InputStep<I>)>,
-    kw_lookup: Vec<(MappedModes, &'static str, InputStep<I>)>,
+    submit_on_enter: Option<bool>,
+    search_is_action: bool,
+    ctrlcd: bool,
+    cursor_open: WordStyle,
+    default_split: Axis,
+    kw_lookup: WordStyle,
+    _p: std::marker::PhantomData<I>,
 }
 
 impl<I: ApplicationInfo> VimBindings<I> {
+    fn get_mappings_enter(&self) -> Vec<(MappedModes, &'static str, InputStep<I>)> {
+        if let Some(insert_mode_newline) = self.submit_on_enter {
+            submit_on_enter(insert_mode_newline)
+        } else {
+            default_enter()
+        }
+    }
+
+    fn get_mappings_search(&self) -> Vec<(MappedModes, &'static str, InputStep<I>)> {
+        if self.search_is_action {
+            search_is_action()
+        } else {
+            default_search()
+        }
+    }
+
+    fn get_mappings_ctrlcd(&self) -> Vec<(MappedModes, &'static str, InputStep<I>)> {
+        if self.ctrlcd {
+            ctrlcd_is_abort()
+        } else {
+            default_ctrlcd()
+        }
+    }
+
     /// Remap the Enter key in Normal, Visual, and Select mode to [submit](PromptAction::Submit)
     /// instead.
     ///
     /// `insert_mode_newline` decides whether Enter in Insert mode adds a newline as usual or
     /// triggers [submit](PromptAction::Submit) as well.
     pub fn submit_on_enter(mut self, insert_mode_newline: bool) -> Self {
-        self.enter = submit_on_enter(insert_mode_newline);
+        self.submit_on_enter = Some(insert_mode_newline);
         self
     }
 
     /// Remap `n` and `N` in Normal mode to perform [Action::Search] instead.
     pub fn search_is_action(mut self) -> Self {
-        self.search = search_is_action();
+        self.search_is_action = true;
         self
     }
 
     /// Remap `<C-D>` in Normal and Insert mode to abort entry when the prompt is empty.
     pub fn ctrlcd_is_abort(mut self) -> Self {
-        self.ctrlcd = ctrlcd_is_abort();
+        self.ctrlcd = true;
+        self
+    }
+
+    /// Change what [Axis] is used with keys that open window splits and don't have a specific
+    /// direction associated with them.
+    pub fn default_split(mut self, axis: Axis) -> Self {
+        self.default_split = axis;
         self
     }
 
     /// Change what [WordStyle] is used with keys that map to a [OpenTarget::Cursor] value.
     pub fn cursor_open(mut self, style: WordStyle) -> Self {
-        self.cursor_open = cursor_open(style);
+        self.cursor_open = style;
         self
     }
 
     /// Change what [WordStyle] is used with keys that map to a [KeywordTarget::Word] value.
     pub fn keyword_lookup(mut self, style: WordStyle) -> Self {
-        self.kw_lookup = keyword_lookup(style);
+        self.kw_lookup = style;
         self
     }
 }
@@ -2064,40 +2095,46 @@ impl<I: ApplicationInfo> ShellBindings for VimBindings<I> {
 impl<I: ApplicationInfo> Default for VimBindings<I> {
     fn default() -> Self {
         VimBindings {
-            prefixes: default_pfxs(),
-            mappings: default_keys(),
-            enter: default_enter(),
-            search: default_search(),
-            ctrlcd: default_ctrlcd(),
-            cursor_open: cursor_open(WordStyle::FilePath),
-            kw_lookup: keyword_lookup(WordStyle::Little),
+            submit_on_enter: None,
+            search_is_action: false,
+            ctrlcd: false,
+            cursor_open: WordStyle::FilePath,
+            kw_lookup: WordStyle::Little,
+            default_split: Axis::Horizontal,
+            _p: std::marker::PhantomData,
         }
     }
 }
 
 impl<I: ApplicationInfo> InputBindings<TerminalKey, InputStep<I>> for VimBindings<I> {
     fn setup(&self, machine: &mut VimMachine<TerminalKey, I>) {
-        for (modes, keys, action) in self.prefixes.iter() {
+        for (modes, keys, action) in default_pfxs().iter() {
             add_prefix(machine, modes, keys, action);
         }
 
-        for (modes, keys, action) in self.mappings.iter() {
+        for (modes, keys, action) in default_keys().iter() {
             add_mapping(machine, modes, keys, action);
         }
 
-        for (modes, keys, action) in self.enter.iter() {
+        for (modes, keys, action) in self.get_mappings_search().iter() {
             add_mapping(machine, modes, keys, action);
         }
 
-        for (modes, keys, action) in self.search.iter() {
+        for (modes, keys, action) in self.get_mappings_enter().iter() {
             add_mapping(machine, modes, keys, action);
         }
 
-        for (modes, keys, action) in self.ctrlcd.iter() {
+        for (modes, keys, action) in self.get_mappings_ctrlcd().iter() {
             add_mapping(machine, modes, keys, action);
         }
 
-        for (modes, keys, action) in self.cursor_open.iter() {
+        for (modes, keys, action) in
+            cursor_open(self.cursor_open.clone(), self.default_split).iter()
+        {
+            add_mapping(machine, modes, keys, action);
+        }
+
+        for (modes, keys, action) in keyword_lookup(self.kw_lookup.clone()).iter() {
             add_mapping(machine, modes, keys, action);
         }
     }
