@@ -248,6 +248,16 @@ where
         self.items.len()
     }
 
+    /// Returns the viewport used in the last operation.
+    pub fn last_viewctx(&self) -> &ViewportContext<ListCursor> {
+        &self.viewctx
+    }
+
+    /// Returns the current list of items
+    pub fn get_items(&self) -> &[T] {
+        &self.items
+    }
+
     fn _clamp(&mut self) {
         _clamp_cursor(&mut self.cursor, self.items.len());
     }
