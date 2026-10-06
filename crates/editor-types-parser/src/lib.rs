@@ -14,6 +14,8 @@ pub const DEFAULT_COUNT: [ActionToken<'static>; 1] = [ActionToken::Word("ctx")];
 pub const DEFAULT_MARK: [ActionToken<'static>; 1] = [ActionToken::Word("ctx")];
 pub const DEFAULT_OP: [ActionToken<'static>; 1] = [ActionToken::Word("ctx")];
 pub const DEFAULT_PREV: [ActionToken<'static>; 1] = [ActionToken::Word("previous")];
+pub const DEFAULT_REGISTER: [ActionToken<'static>; 1] = [ActionToken::Word("ctx")];
+pub const DEFAULT_REGISTER_UPDATE: [ActionToken<'static>; 1] = [ActionToken::Word("ctx")];
 
 const EMPTY_ACTION: [ActionToken<'static>; 0] = [];
 
@@ -129,6 +131,11 @@ pub enum Flag {
     /// `MovePosition` or `MoveTerminus`.
     Position,
 
+    /// A `--register` or `-r` flag in the input.
+    ///
+    /// In order to encourage common flag initials, `-r` should always take an input `Register`.
+    Register,
+
     /// A `--style` or `-s` flag in the input.
     ///
     /// In order to encourage common flag initials, `-s` should always take one of the `*Style`
@@ -165,6 +172,7 @@ impl std::fmt::Display for Flag {
             Flag::Input => write!(f, "--input"),
             Flag::Mark => write!(f, "--mark"),
             Flag::Position => write!(f, "--position"),
+            Flag::Register => write!(f, "--register"),
             Flag::Style => write!(f, "--style"),
             Flag::Target => write!(f, "--target"),
             Flag::Long(s) => write!(f, "--{s}"),
@@ -349,7 +357,7 @@ pub trait ActionParser {
     fn visit_history_redo(&mut self, count: &[ActionToken]) -> Self::Output;
 
     /// Parse `macro execute` and its arguments.
-    fn visit_macro_execute(&mut self, count: &[ActionToken]) -> Self::Output;
+    fn visit_macro_execute(&mut self, reg: &[ActionToken], count: &[ActionToken]) -> Self::Output;
 
     /// Parse `macro run` and its arguments.
     fn visit_macro_run(&mut self, input: &[ActionToken], count: &[ActionToken]) -> Self::Output;
@@ -357,8 +365,12 @@ pub trait ActionParser {
     /// Parse `macro repeat` and its arguments.
     fn visit_macro_repeat(&mut self, count: &[ActionToken]) -> Self::Output;
 
-    /// Parse `macro toggle-recording`.
-    fn visit_macro_toggle_recording(&mut self) -> Self::Output;
+    /// Parse `macro toggle-recording` and its arguments.
+    fn visit_macro_toggle_recording(
+        &mut self,
+        reg: &[ActionToken],
+        style: &[ActionToken],
+    ) -> Self::Output;
 
     /// Parse `prompt abort` and its arguments.
     fn visit_prompt_abort(&mut self, empty: &[ActionToken]) -> Self::Output;
@@ -381,13 +393,13 @@ pub trait ActionParser {
     fn visit_cursor_close(&mut self, target: &[ActionToken]) -> Self::Output;
 
     /// Parse `cursor restore` and its arguments.
-    fn visit_cursor_restore(&mut self, style: &[ActionToken]) -> Self::Output;
+    fn visit_cursor_restore(&mut self, reg: &[ActionToken], style: &[ActionToken]) -> Self::Output;
 
     /// Parse `cursor rotate` and its arguments.
     fn visit_cursor_rotate(&mut self, dir: &[ActionToken], count: &[ActionToken]) -> Self::Output;
 
     /// Parse `cursor save` and its arguments.
-    fn visit_cursor_save(&mut self, style: &[ActionToken]) -> Self::Output;
+    fn visit_cursor_save(&mut self, reg: &[ActionToken], style: &[ActionToken]) -> Self::Output;
 
     /// Parse `cursor split` and its arguments.
     fn visit_cursor_split(&mut self, count: &[ActionToken]) -> Self::Output;
@@ -491,7 +503,12 @@ pub trait ActionParser {
     ) -> Self::Output;
 
     /// Parse `insert paste` and its arguments.
-    fn visit_insert_paste(&mut self, style: &[ActionToken], count: &[ActionToken]) -> Self::Output;
+    fn visit_insert_paste(
+        &mut self,
+        style: &[ActionToken],
+        reg: &[ActionToken],
+        count: &[ActionToken],
+    ) -> Self::Output;
 
     /// Parse `jump` and its arguments.
     fn visit_jump(
@@ -864,8 +881,14 @@ impl<V: ActionParser> ActionParserExt for V {
 
         match cmd {
             ActionToken::Word("execute" | "exec") => {
-                match parse_single_count(rest) {
-                    Ok(count) => self.visit_macro_execute(count),
+                match parse_flags(
+                    [
+                        (Flag::Register, Some(&DEFAULT_REGISTER[..])),
+                        (Flag::Count, Some(&DEFAULT_COUNT[..])),
+                    ],
+                    rest,
+                ) {
+                    Ok([reg, count]) => self.visit_macro_execute(reg, count),
                     Err(e) => fail_cmd_flag(self, "macro execute", e),
                 }
             },
@@ -885,10 +908,15 @@ impl<V: ActionParser> ActionParserExt for V {
                 }
             },
             ActionToken::Word("toggle-recording") => {
-                if rest.is_empty() {
-                    self.visit_macro_toggle_recording()
-                } else {
-                    self.fail("`macro toggle-recording` takes no arguments")
+                match parse_flags(
+                    [
+                        (Flag::Register, Some(&DEFAULT_REGISTER[..])),
+                        (Flag::Style, Some(&DEFAULT_REGISTER_UPDATE[..])),
+                    ],
+                    rest,
+                ) {
+                    Ok([reg, style]) => self.visit_macro_toggle_recording(reg, style),
+                    Err(e) => fail_cmd_flag(self, "macro toggle-recording", e),
                 }
             },
             ActionToken::Word(w) => self.fail(format!("`macro {w}` is not a valid action")),
@@ -953,8 +981,14 @@ impl<V: ActionParser> ActionParserExt for V {
                 }
             },
             ActionToken::Word("restore") => {
-                match parse_single_flag(Flag::Style, rest) {
-                    Ok(style) => self.visit_cursor_restore(style),
+                match parse_flags(
+                    [
+                        (Flag::Register, Some(&DEFAULT_REGISTER[..])),
+                        (Flag::Style, None),
+                    ],
+                    rest,
+                ) {
+                    Ok([reg, style]) => self.visit_cursor_restore(reg, style),
                     Err(e) => fail_cmd_flag(self, "cursor restore", e),
                 }
             },
@@ -968,8 +1002,14 @@ impl<V: ActionParser> ActionParserExt for V {
                 }
             },
             ActionToken::Word("save") => {
-                match parse_single_flag(Flag::Style, rest) {
-                    Ok(style) => self.visit_cursor_save(style),
+                match parse_flags(
+                    [
+                        (Flag::Register, Some(&DEFAULT_REGISTER[..])),
+                        (Flag::Style, None),
+                    ],
+                    rest,
+                ) {
+                    Ok([reg, style]) => self.visit_cursor_save(reg, style),
                     Err(e) => fail_cmd_flag(self, "cursor save", e),
                 }
             },
@@ -1159,10 +1199,14 @@ impl<V: ActionParser> ActionParserExt for V {
             },
             ActionToken::Word("paste") => {
                 match parse_flags(
-                    [(Flag::Style, None), (Flag::Count, Some(&DEFAULT_COUNT[..]))],
+                    [
+                        (Flag::Style, None),
+                        (Flag::Register, Some(&DEFAULT_REGISTER[..])),
+                        (Flag::Count, Some(&DEFAULT_COUNT[..])),
+                    ],
                     rest,
                 ) {
-                    Ok([style, count]) => self.visit_insert_paste(style, count),
+                    Ok([style, reg, count]) => self.visit_insert_paste(style, reg, count),
                     Err(e) => fail_cmd_flag(self, "insert paste", e),
                 }
             },

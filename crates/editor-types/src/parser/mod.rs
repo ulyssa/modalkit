@@ -4,6 +4,8 @@ use editor_types_parser::{
     ActionParserExt,
     ActionToken,
     DEFAULT_COUNT,
+    DEFAULT_REGISTER,
+    DEFAULT_REGISTER_UPDATE,
     DEFAULT_TRUE,
     EditTargetParser,
     EditTargetParserExt,
@@ -385,10 +387,36 @@ impl TryFrom<&[ActionToken<'_>]> for EditAction {
                 enum_no_args_branch!(EditAction::Motion, w, rest)
             },
             [ActionToken::Word(w @ "delete"), rest @ ..] => {
-                enum_no_args_branch!(EditAction::Delete, w, rest)
+                match parse_flags(
+                    [
+                        (Flag::Register, Some(&DEFAULT_REGISTER)),
+                        (Flag::Style, Some(&DEFAULT_REGISTER_UPDATE)),
+                    ],
+                    rest,
+                ) {
+                    Ok([reg, style]) => {
+                        let reg = parse_specifier::<Register>(reg)?;
+                        let style = parse_specifier::<RegisterUpdateStyle>(style)?;
+                        Ok(EditAction::Delete(reg, style))
+                    },
+                    Err(e) => bail!("{}", e.display(w)),
+                }
             },
             [ActionToken::Word(w @ "yank"), rest @ ..] => {
-                enum_no_args_branch!(EditAction::Yank, w, rest)
+                match parse_flags(
+                    [
+                        (Flag::Register, Some(&DEFAULT_REGISTER)),
+                        (Flag::Style, Some(&DEFAULT_REGISTER_UPDATE)),
+                    ],
+                    rest,
+                ) {
+                    Ok([reg, style]) => {
+                        let reg = parse_specifier::<Register>(reg)?;
+                        let style = parse_specifier::<RegisterUpdateStyle>(style)?;
+                        Ok(EditAction::Yank(reg, style))
+                    },
+                    Err(e) => bail!("{}", e.display(w)),
+                }
             },
             [ActionToken::Word(w @ "format"), rest @ ..] => {
                 enum_no_args_branch!(EditAction::Format, w, rest)
@@ -888,6 +916,79 @@ impl TryFrom<&[ActionToken<'_>]> for RecallFilter {
                 bail!("expected `all` or `prefix-match`, found `{t}`")
             },
             _ => bail!("expected a valid prompt recall filter"),
+        }
+    }
+}
+
+impl TryFrom<&[ActionToken<'_>]> for Register {
+    type Error = anyhow::Error;
+
+    fn try_from(input: &[ActionToken<'_>]) -> anyhow::Result<Self> {
+        match input {
+            [ActionToken::Word(w @ "alt-buf-name"), rest @ ..] => {
+                enum_no_args_branch!(Register::AltBufName, w, rest)
+            },
+            [ActionToken::Word(w @ "blackhole"), rest @ ..] => {
+                enum_no_args_branch!(Register::Blackhole, w, rest)
+            },
+            [ActionToken::Word(w @ "cur-buf-name"), rest @ ..] => {
+                enum_no_args_branch!(Register::CurBufName, w, rest)
+            },
+            [ActionToken::Word("last-command"), rest @ ..] => {
+                let ct = CommandType::try_from(rest)?;
+                Ok(Register::LastCommand(ct))
+            },
+            [ActionToken::Word(w @ "last-inserted"), rest @ ..] => {
+                enum_no_args_branch!(Register::LastInserted, w, rest)
+            },
+            [ActionToken::Word(w @ "last-yanked"), rest @ ..] => {
+                enum_no_args_branch!(Register::LastYanked, w, rest)
+            },
+            [ActionToken::Word("named"), rest @ ..] => {
+                let c = parse_std_char(rest)?;
+                Ok(Register::Named(c))
+            },
+            [ActionToken::Word("recently-deleted"), rest @ ..] => {
+                let n = parse_std_num(rest)?;
+                Ok(Register::RecentlyDeleted(n))
+            },
+            [ActionToken::Word(w @ "selection-clipboard"), rest @ ..] => {
+                enum_no_args_branch!(Register::SelectionClipboard, w, rest)
+            },
+            [ActionToken::Word(w @ "selection-primary"), rest @ ..] => {
+                enum_no_args_branch!(Register::SelectionPrimary, w, rest)
+            },
+            [ActionToken::Word(w @ "small-delete"), rest @ ..] => {
+                enum_no_args_branch!(Register::SmallDelete, w, rest)
+            },
+            [ActionToken::Word(w @ "unnamed"), rest @ ..] => {
+                enum_no_args_branch!(Register::Unnamed, w, rest)
+            },
+            [ActionToken::Word(w @ "unnamed-cursor-group"), rest @ ..] => {
+                enum_no_args_branch!(Register::UnnamedCursorGroup, w, rest)
+            },
+            [ActionToken::Word(w @ "unnamed-macro"), rest @ ..] => {
+                enum_no_args_branch!(Register::UnnamedMacro, w, rest)
+            },
+            [t, ..] => bail!("expected a valid register name, not `{t}`"),
+            _ => bail!("expected a valid register name"),
+        }
+    }
+}
+
+impl TryFrom<&[ActionToken<'_>]> for RegisterUpdateStyle {
+    type Error = anyhow::Error;
+
+    fn try_from(input: &[ActionToken<'_>]) -> anyhow::Result<Self> {
+        match input {
+            [ActionToken::Word(w @ "append"), rest @ ..] => {
+                enum_no_args_branch!(RegisterUpdateStyle::Append, w, rest)
+            },
+            [ActionToken::Word(w @ "replace"), rest @ ..] => {
+                enum_no_args_branch!(RegisterUpdateStyle::Replace, w, rest)
+            },
+            [t, ..] => bail!("expected `append` or `replace`, found `{t}`"),
+            _ => bail!("expected a valid register update style"),
         }
     }
 }

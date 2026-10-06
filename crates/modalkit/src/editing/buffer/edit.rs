@@ -21,6 +21,8 @@ where
         &mut self,
         range: &CursorRange,
         change_start: Option<&Cursor>,
+        reg: &Specifier<Register>,
+        update: &Specifier<RegisterUpdateStyle>,
         ctx: &C,
         store: &mut Store<I>,
     ) -> EditResult<(CursorChoice, Vec<CursorAdjustment>), I>;
@@ -28,6 +30,8 @@ where
     fn yank(
         &mut self,
         range: &CursorRange,
+        reg: &Specifier<Register>,
+        update: &Specifier<RegisterUpdateStyle>,
         ctx: &C,
         store: &mut Store<I>,
     ) -> EditResult<CursorChoice, I>;
@@ -90,6 +94,8 @@ where
         &mut self,
         range: &CursorRange,
         change_start: Option<&Cursor>,
+        reg: &Specifier<Register>,
+        update: &Specifier<RegisterUpdateStyle>,
         ctx: &CursorMovementsContext<'a, Cursor>,
         store: &mut Store<I>,
     ) -> EditResult<(CursorChoice, Vec<CursorAdjustment>), I> {
@@ -151,13 +157,9 @@ where
         let cell = RegisterCell::new(shape, deleted);
         let register = ctx
             .context
-            .get_register()
+            .resolve(reg)
             .unwrap_or_else(|| store.registers.get_default_register());
-        let mut flags = RegisterPutFlags::DELETE;
-
-        if ctx.context.get_register_append() {
-            flags |= RegisterPutFlags::APPEND
-        }
+        let flags = RegisterPutFlags::DELETE | RegisterPutFlags::from(ctx.context.resolve(update));
 
         store.registers.put(&register, cell, flags)?;
 
@@ -169,6 +171,8 @@ where
     fn yank(
         &mut self,
         range: &CursorRange,
+        reg: &Specifier<Register>,
+        update: &Specifier<RegisterUpdateStyle>,
         ctx: &CursorMovementsContext<'a, Cursor>,
         store: &mut Store<I>,
     ) -> EditResult<CursorChoice, I> {
@@ -196,13 +200,9 @@ where
         let cell = RegisterCell::new(shape, yanked);
         let register = ctx
             .context
-            .get_register()
+            .resolve(reg)
             .unwrap_or_else(|| store.registers.get_default_register());
-        let mut flags = RegisterPutFlags::NONE;
-
-        if ctx.context.get_register_append() {
-            flags |= RegisterPutFlags::APPEND;
-        }
+        let flags = RegisterPutFlags::from(ctx.context.resolve(update));
 
         store.registers.put(&register, cell, flags)?;
 
@@ -498,7 +498,13 @@ mod tests {
         assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 6));
 
         // Test that we use the unnamed register ("") by default.
-        edit!(ebuf, EditAction::Yank, mv!(mov), ctx!(curid, vwctx, vctx), store);
+        edit!(
+            ebuf,
+            EditAction::Yank(Specifier::Contextual, Specifier::Contextual),
+            mv!(mov),
+            ctx!(curid, vwctx, vctx),
+            store
+        );
         assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 6));
 
         // Both "" and "0 should now be updated.
@@ -508,7 +514,13 @@ mod tests {
         // Test using the named 'a' register ("a).
         vctx.action.count = Some(3);
         vctx.action.register = Some(Register::Named('a'));
-        edit!(ebuf, EditAction::Yank, mv!(mov), ctx!(curid, vwctx, vctx), store);
+        edit!(
+            ebuf,
+            EditAction::Yank(Specifier::Contextual, Specifier::Contextual),
+            mv!(mov),
+            ctx!(curid, vwctx, vctx),
+            store
+        );
         assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 6));
 
         // Both "" and "a should now be updated, and "0 untouched.
@@ -519,8 +531,14 @@ mod tests {
         // Append a line to the 'a' register ("A).
         vctx.action.count = None;
         vctx.action.register = Some(Register::Named('a'));
-        vctx.action.register_append = true;
-        edit!(ebuf, EditAction::Yank, range!(RangeType::Line), ctx!(curid, vwctx, vctx), store);
+        vctx.action.register_update = RegisterUpdateStyle::Append;
+        edit!(
+            ebuf,
+            EditAction::Yank(Specifier::Contextual, Specifier::Contextual),
+            range!(RangeType::Line),
+            ctx!(curid, vwctx, vctx),
+            store
+        );
         assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 6));
 
         // Both "" and "a should contain appended text, and "0 be untouched.
@@ -534,8 +552,14 @@ mod tests {
         // The blackhole register ("_) discards the yanked text.
         vctx.action.count = None;
         vctx.action.register = Some(Register::Blackhole);
-        vctx.action.register_append = false;
-        edit!(ebuf, EditAction::Yank, mv!(mov), ctx!(curid, vwctx, vctx), store);
+        vctx.action.register_update = RegisterUpdateStyle::Replace;
+        edit!(
+            ebuf,
+            EditAction::Yank(Specifier::Contextual, Specifier::Contextual),
+            mv!(mov),
+            ctx!(curid, vwctx, vctx),
+            store
+        );
         assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 6));
 
         // All registers should be untouched, and "_ should not return the word "world".
@@ -549,11 +573,73 @@ mod tests {
     }
 
     #[test]
+    fn test_yank_exact_register() {
+        let (mut ebuf, curid, vwctx, mut vctx, mut store) =
+            mkfivestr("hello world\na b c d e\nfoo bar baz");
+
+        let mov = MoveType::WordBegin(WordStyle::Little, MoveDir1D::Next);
+        vctx.action.register = Some(Register::Named('a'));
+
+        // Ignore "a in the context and yank to "_ instead:
+        edit!(
+            ebuf,
+            EditAction::Yank(Specifier::Exact(Register::Blackhole), Specifier::Contextual),
+            mv!(mov),
+            ctx!(curid, vwctx, vctx),
+            store
+        );
+
+        // Nothing should have been stored in any one of "_, "a or "":
+        assert_eq!(get_reg!(store, Register::Blackhole), cell!(CharWise, ""));
+        assert_eq!(get_named_reg!(store, 'a'), cell!(CharWise, ""));
+        assert_eq!(get_reg!(store, Register::Unnamed), cell!(CharWise, ""));
+        assert_eq!(get_reg!(store, Register::LastYanked), cell!(CharWise, ""));
+
+        // Using a specific register that isn't "_ still ignores "a in the context:
+        edit!(
+            ebuf,
+            EditAction::Yank(Specifier::Exact(Register::Named('z')), Specifier::Contextual),
+            mv!(mov),
+            ctx!(curid, vwctx, vctx),
+            store
+        );
+
+        assert_eq!(get_named_reg!(store, 'z'), cell!(CharWise, "hello "));
+        assert_eq!(get_reg!(store, Register::Unnamed), cell!(CharWise, "hello "));
+        assert_eq!(get_named_reg!(store, 'a'), cell!(CharWise, ""));
+
+        edit!(
+            ebuf,
+            EditAction::Yank(
+                Specifier::Exact(Register::Named('z')),
+                Specifier::Exact(RegisterUpdateStyle::Append)
+            ),
+            mv!(mov),
+            ctx!(curid, vwctx, vctx),
+            store
+        );
+
+        assert_eq!(get_named_reg!(store, 'z'), cell!(CharWise, "hello hello "));
+        assert_eq!(get_named_reg!(store, 'a'), cell!(CharWise, ""));
+
+        // Finally, actually use the context and update "a:
+        edit!(
+            ebuf,
+            EditAction::Yank(Specifier::Contextual, Specifier::Contextual),
+            mv!(mov),
+            ctx!(curid, vwctx, vctx),
+            store
+        );
+
+        assert_eq!(get_named_reg!(store, 'a'), cell!(CharWise, "hello "));
+    }
+
+    #[test]
     fn test_yank_word_search() {
         let (mut ebuf, gid, vwctx, vctx, mut store) =
             mkfivestr("hello world\nhellfire hello brimstone\nhello hell\n");
 
-        let op = EditAction::Yank;
+        let op = EditAction::Yank(Specifier::Contextual, Specifier::Contextual);
         let word = EditTarget::Search(
             SearchType::Word(WordStyle::Little, false),
             MoveDirMod::Same,
@@ -575,7 +661,13 @@ mod tests {
 
         // Test deleting a word.
         let mov = MoveType::WordBegin(WordStyle::Little, MoveDir1D::Next);
-        edit!(ebuf, EditAction::Delete, mv!(mov), ctx!(curid, vwctx, vctx), store);
+        edit!(
+            ebuf,
+            EditAction::Delete(Specifier::Contextual, Specifier::Contextual),
+            mv!(mov),
+            ctx!(curid, vwctx, vctx),
+            store
+        );
         assert_eq!(ebuf.get_text(), "world\na b c d e f\n\n\n1 2 3 4 5 6\n");
         assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 0));
         assert_eq!(get_reg!(store, Register::LastYanked), RegisterCell::default());
@@ -585,7 +677,13 @@ mod tests {
         assert_eq!(get_recent_del_reg!(store, 0), RegisterCell::default());
 
         // Test that deleting multiple words crosses lines.
-        edit!(ebuf, EditAction::Delete, mv!(mov, 3), ctx!(curid, vwctx, vctx), store);
+        edit!(
+            ebuf,
+            EditAction::Delete(Specifier::Contextual, Specifier::Contextual),
+            mv!(mov, 3),
+            ctx!(curid, vwctx, vctx),
+            store
+        );
         assert_eq!(ebuf.get_text(), "c d e f\n\n\n1 2 3 4 5 6\n");
         assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 0));
 
@@ -594,7 +692,13 @@ mod tests {
         assert_eq!(get_recent_del_reg!(store, 0), cell!(CharWise, "world\na b "));
 
         // Test that the behaviour changes if the last word is at the end of a line.
-        edit!(ebuf, EditAction::Delete, mv!(mov, 4), ctx!(curid, vwctx, vctx), store);
+        edit!(
+            ebuf,
+            EditAction::Delete(Specifier::Contextual, Specifier::Contextual),
+            mv!(mov, 4),
+            ctx!(curid, vwctx, vctx),
+            store
+        );
         assert_eq!(ebuf.get_text(), "\n\n\n1 2 3 4 5 6\n");
         assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 0));
 
@@ -605,7 +709,7 @@ mod tests {
         // Test deleting blank lines.
         edit!(
             ebuf,
-            EditAction::Delete,
+            EditAction::Delete(Specifier::Contextual, Specifier::Contextual),
             range!(RangeType::Line, 3),
             ctx!(curid, vwctx, vctx),
             store
@@ -624,7 +728,13 @@ mod tests {
         assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 4));
 
         // Test deleting in middle of string.
-        edit!(ebuf, EditAction::Delete, mv!(mov, 2), ctx!(curid, vwctx, vctx), store);
+        edit!(
+            ebuf,
+            EditAction::Delete(Specifier::Contextual, Specifier::Contextual),
+            mv!(mov, 2),
+            ctx!(curid, vwctx, vctx),
+            store
+        );
         assert_eq!(ebuf.get_text(), "1 2 5 6\n");
         assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 4));
 
@@ -636,7 +746,7 @@ mod tests {
         // Test that deleting more lines than exists deletes whole string.
         edit!(
             ebuf,
-            EditAction::Delete,
+            EditAction::Delete(Specifier::Contextual, Specifier::Contextual),
             range!(RangeType::Line, 3),
             ctx!(curid, vwctx, vctx),
             store
@@ -668,7 +778,13 @@ mod tests {
 
         // Delete previous character ("<BS>").
         let mov = MoveType::Column(MoveDir1D::Previous, true);
-        edit!(ebuf, EditAction::Delete, mv!(mov), ctx!(curid, vwctx, vctx), store);
+        edit!(
+            ebuf,
+            EditAction::Delete(Specifier::Contextual, Specifier::Contextual),
+            mv!(mov),
+            ctx!(curid, vwctx, vctx),
+            store
+        );
         assert_eq!(ebuf.get_text(), "hell wold\nab cd e f\n\n 2 3 4 5 6\n");
         assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 4));
         assert_eq!(ebuf.get_followers(curid), vec![
@@ -681,7 +797,13 @@ mod tests {
 
         // And again:
         let mov = MoveType::Column(MoveDir1D::Previous, true);
-        edit!(ebuf, EditAction::Delete, mv!(mov), ctx!(curid, vwctx, vctx), store);
+        edit!(
+            ebuf,
+            EditAction::Delete(Specifier::Contextual, Specifier::Contextual),
+            mv!(mov),
+            ctx!(curid, vwctx, vctx),
+            store
+        );
         assert_eq!(ebuf.get_text(), "hel wld\nb d e f 2 3 4 5 6\n");
         assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 3));
         assert_eq!(ebuf.get_followers(curid), vec![
@@ -705,7 +827,7 @@ mod tests {
         vctx.persist.shape = Some(TargetShape::BlockWise);
         edit!(
             ebuf,
-            EditAction::Delete,
+            EditAction::Delete(Specifier::Contextual, Specifier::Contextual),
             range!(RangeType::Line, 3),
             ctx!(curid, vwctx, vctx),
             store
@@ -729,7 +851,13 @@ mod tests {
 
         // Delete from cursor to the end of the line ("d$").
         let mov = MoveType::LinePos(MovePosition::End);
-        edit!(ebuf, EditAction::Delete, mv!(mov, 0), ctx!(curid, vwctx, vctx), store);
+        edit!(
+            ebuf,
+            EditAction::Delete(Specifier::Contextual, Specifier::Contextual),
+            mv!(mov, 0),
+            ctx!(curid, vwctx, vctx),
+            store
+        );
         assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 2));
         assert_eq!(ebuf.get_text(), "hel\na b c d e f\n\n\n1 2 3 4 5 6\n");
     }
@@ -746,25 +874,49 @@ mod tests {
 
         // Delete from cursor to the end of the line ("c$").
         let mov = MoveType::LinePos(MovePosition::End);
-        edit!(ebuf, EditAction::Delete, mv!(mov, 0), ctx!(curid, vwctx, vctx), store);
+        edit!(
+            ebuf,
+            EditAction::Delete(Specifier::Contextual, Specifier::Contextual),
+            mv!(mov, 0),
+            ctx!(curid, vwctx, vctx),
+            store
+        );
         assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 3));
         assert_eq!(ebuf.get_text(), "hel\na b c d e f\n\n\n1 2 3 4 5 6\n");
 
         // Delete previous character ("<BS>").
         let mov = MoveType::Column(MoveDir1D::Previous, true);
-        edit!(ebuf, EditAction::Delete, mv!(mov), ctx!(curid, vwctx, vctx), store);
+        edit!(
+            ebuf,
+            EditAction::Delete(Specifier::Contextual, Specifier::Contextual),
+            mv!(mov),
+            ctx!(curid, vwctx, vctx),
+            store
+        );
         assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 2));
         assert_eq!(ebuf.get_text(), "he\na b c d e f\n\n\n1 2 3 4 5 6\n");
 
         // Delete previous word ("^W").
         let mov = MoveType::WordBegin(WordStyle::Little, MoveDir1D::Previous);
-        edit!(ebuf, EditAction::Delete, mv!(mov), ctx!(curid, vwctx, vctx), store);
+        edit!(
+            ebuf,
+            EditAction::Delete(Specifier::Contextual, Specifier::Contextual),
+            mv!(mov),
+            ctx!(curid, vwctx, vctx),
+            store
+        );
         assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 0));
         assert_eq!(ebuf.get_text(), "\na b c d e f\n\n\n1 2 3 4 5 6\n");
 
         // Delete next character ("<Del>").
         let mov = MoveType::Column(MoveDir1D::Next, true);
-        edit!(ebuf, EditAction::Delete, mv!(mov), ctx!(curid, vwctx, vctx), store);
+        edit!(
+            ebuf,
+            EditAction::Delete(Specifier::Contextual, Specifier::Contextual),
+            mv!(mov),
+            ctx!(curid, vwctx, vctx),
+            store
+        );
         assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 0));
         assert_eq!(ebuf.get_text(), "a b c d e f\n\n\n1 2 3 4 5 6\n");
 
@@ -773,14 +925,26 @@ mod tests {
 
         // Delete previous newline character ("<BS>").
         let mov = MoveType::Column(MoveDir1D::Previous, true);
-        edit!(ebuf, EditAction::Delete, mv!(mov), ctx!(curid, vwctx, vctx), store);
+        edit!(
+            ebuf,
+            EditAction::Delete(Specifier::Contextual, Specifier::Contextual),
+            mv!(mov),
+            ctx!(curid, vwctx, vctx),
+            store
+        );
         assert_eq!(ebuf.get_leader(curid), Cursor::new(2, 0));
         assert_eq!(ebuf.get_text(), "a b c d e f\n\n1 2 3 4 5 6\n");
 
         // Delete two previous newline characters ("<BS>").
         let mov = MoveType::Column(MoveDir1D::Previous, true);
         vctx.action.count = Some(2);
-        edit!(ebuf, EditAction::Delete, mv!(mov), ctx!(curid, vwctx, vctx), store);
+        edit!(
+            ebuf,
+            EditAction::Delete(Specifier::Contextual, Specifier::Contextual),
+            mv!(mov),
+            ctx!(curid, vwctx, vctx),
+            store
+        );
         assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 11));
         assert_eq!(ebuf.get_text(), "a b c d e f1 2 3 4 5 6\n");
     }
@@ -898,7 +1062,7 @@ mod tests {
         let (mut ebuf, curid, vwctx, mut vctx, mut store) =
             mkfivestr("hello\nworld\na b c d e\n    word\n");
 
-        let op = EditAction::Yank;
+        let op = EditAction::Yank(Specifier::Contextual, Specifier::Contextual);
         vctx.persist.shape = Some(TargetShape::CharWise);
 
         // Move to (0, 2) to begin.
@@ -937,7 +1101,7 @@ mod tests {
         let (mut ebuf, curid, vwctx, mut vctx, mut store) =
             mkfivestr("hello\nworld\na b c d e\n1 2 3 4 5 6");
 
-        let op = EditAction::Yank;
+        let op = EditAction::Yank(Specifier::Contextual, Specifier::Contextual);
         vctx.persist.shape = Some(TargetShape::LineWise);
 
         // Move to (0, 2) to begin.
@@ -978,12 +1142,24 @@ mod tests {
         let mov = MoveType::Line(MoveDir1D::Next);
 
         // Forced linewise into blockwise motion ("1y<C-V>j")
-        edit!(ebuf, EditAction::Yank, mv!(mov, 1), ctx!(curid, vwctx, vctx), store);
+        edit!(
+            ebuf,
+            EditAction::Yank(Specifier::Contextual, Specifier::Contextual),
+            mv!(mov, 1),
+            ctx!(curid, vwctx, vctx),
+            store
+        );
         assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 0));
         assert_eq!(get_reg!(store, Register::Unnamed), cell!(BlockWise, "h\nw"));
 
         // Forced linewise into blockwise motion ("3y<C-V>j").
-        edit!(ebuf, EditAction::Yank, mv!(mov, 3), ctx!(curid, vwctx, vctx), store);
+        edit!(
+            ebuf,
+            EditAction::Yank(Specifier::Contextual, Specifier::Contextual),
+            mv!(mov, 3),
+            ctx!(curid, vwctx, vctx),
+            store
+        );
         assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 0));
         assert_eq!(get_reg!(store, Register::Unnamed), cell!(BlockWise, "h\nw\na\n1"));
 
@@ -993,7 +1169,13 @@ mod tests {
         let mov = MoveType::Line(MoveDir1D::Previous);
 
         // Force linewise into blockwise motion ("3y<C-V>k").
-        edit!(ebuf, EditAction::Yank, mv!(mov, 3), ctx!(curid, vwctx, vctx), store);
+        edit!(
+            ebuf,
+            EditAction::Yank(Specifier::Contextual, Specifier::Contextual),
+            mv!(mov, 3),
+            ctx!(curid, vwctx, vctx),
+            store
+        );
         assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 4));
         assert_eq!(get_reg!(store, Register::Unnamed), cell!(BlockWise, "o\nd\nc d\n3 4"));
 
@@ -1004,7 +1186,13 @@ mod tests {
 
         // Force charwise into blockwise motion ("y<C-V>`a").
         let target = EditTarget::CharJump(Specifier::Exact(mark!('a')));
-        edit!(ebuf, EditAction::Yank, target, ctx!(curid, vwctx, vctx), store);
+        edit!(
+            ebuf,
+            EditAction::Yank(Specifier::Contextual, Specifier::Contextual),
+            target,
+            ctx!(curid, vwctx, vctx),
+            store
+        );
         assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 2));
         assert_eq!(get_reg!(store, Register::Unnamed), cell!(BlockWise, "llo\nrld\nb c d\n2 3 4"));
 
@@ -1015,7 +1203,13 @@ mod tests {
 
         // Test with a bottom cursor w/ a column that comes before the top cursor's column.
         let target = EditTarget::CharJump(Specifier::Exact(mark!('a')));
-        edit!(ebuf, EditAction::Yank, target, ctx!(curid, vwctx, vctx), store);
+        edit!(
+            ebuf,
+            EditAction::Yank(Specifier::Contextual, Specifier::Contextual),
+            target,
+            ctx!(curid, vwctx, vctx),
+            store
+        );
         assert_eq!(ebuf.get_leader(curid), Cursor::new(0, 0));
         assert_eq!(
             get_reg!(store, Register::Unnamed),

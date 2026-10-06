@@ -27,6 +27,7 @@ where
     fn paste(
         &mut self,
         style: &PasteStyle,
+        reg: &Specifier<Register>,
         count: &Count,
         ctx: &C,
         store: &mut Store<I>,
@@ -110,6 +111,7 @@ where
     fn paste(
         &mut self,
         style: &PasteStyle,
+        reg: &Specifier<Register>,
         count: &Count,
         ctx: &CursorGroupIdContext<'a>,
         store: &mut Store<I>,
@@ -118,7 +120,7 @@ where
         let insty = ctx.2.get_insert_style();
         let register = ctx
             .2
-            .get_register()
+            .resolve(reg)
             .unwrap_or_else(|| store.registers.get_default_register());
         let cell = store.registers.get(&register)?;
         let text = cell.value.repeat(cell.shape, count);
@@ -402,7 +404,13 @@ mod tests {
 
         let mov = MoveType::WordBegin(WordStyle::Little, MoveDir1D::Previous);
 
-        edit!(ebuf, EditAction::Delete, mv!(mov), ctx!(gid, vwctx, vctx), store);
+        edit!(
+            ebuf,
+            EditAction::Delete(Specifier::Contextual, Specifier::Contextual),
+            mv!(mov),
+            ctx!(gid, vwctx, vctx),
+            store
+        );
         assert_eq!(ebuf.get_text(), "hello\n");
         assert_eq!(ebuf.get_leader(gid), Cursor::new(0, 0));
     }
@@ -487,45 +495,105 @@ mod tests {
 
         let mov = MoveType::WordBegin(WordStyle::Little, MoveDir1D::Previous);
 
-        edit!(ebuf, EditAction::Delete, mv!(mov), ctx!(gid, vwctx, vctx), store);
+        edit!(
+            ebuf,
+            EditAction::Delete(Specifier::Contextual, Specifier::Contextual),
+            mv!(mov),
+            ctx!(gid, vwctx, vctx),
+            store
+        );
         assert_eq!(ebuf.get_text(), "calyxes\n\nworld\n");
         assert_eq!(ebuf.get_leader(gid), Cursor::new(1, 0));
 
         let mov = MoveType::Column(MoveDir1D::Previous, true);
 
-        edit!(ebuf, EditAction::Delete, mv!(mov), ctx!(gid, vwctx, vctx), store);
+        edit!(
+            ebuf,
+            EditAction::Delete(Specifier::Contextual, Specifier::Contextual),
+            mv!(mov),
+            ctx!(gid, vwctx, vctx),
+            store
+        );
         assert_eq!(ebuf.get_text(), "calyxes\nworld\n");
         assert_eq!(ebuf.get_leader(gid), Cursor::new(0, 7));
 
-        edit!(ebuf, EditAction::Delete, mv!(mov), ctx!(gid, vwctx, vctx), store);
+        edit!(
+            ebuf,
+            EditAction::Delete(Specifier::Contextual, Specifier::Contextual),
+            mv!(mov),
+            ctx!(gid, vwctx, vctx),
+            store
+        );
         assert_eq!(ebuf.get_text(), "calyxe\nworld\n");
         assert_eq!(ebuf.get_leader(gid), Cursor::new(0, 6));
 
-        edit!(ebuf, EditAction::Delete, mv!(mov), ctx!(gid, vwctx, vctx), store);
+        edit!(
+            ebuf,
+            EditAction::Delete(Specifier::Contextual, Specifier::Contextual),
+            mv!(mov),
+            ctx!(gid, vwctx, vctx),
+            store
+        );
         assert_eq!(ebuf.get_text(), "calyx\nworld\n");
         assert_eq!(ebuf.get_leader(gid), Cursor::new(0, 5));
 
-        edit!(ebuf, EditAction::Delete, mv!(mov), ctx!(gid, vwctx, vctx), store);
+        edit!(
+            ebuf,
+            EditAction::Delete(Specifier::Contextual, Specifier::Contextual),
+            mv!(mov),
+            ctx!(gid, vwctx, vctx),
+            store
+        );
         assert_eq!(ebuf.get_text(), "calyo\nworld\n");
         assert_eq!(ebuf.get_leader(gid), Cursor::new(0, 4));
 
-        edit!(ebuf, EditAction::Delete, mv!(mov), ctx!(gid, vwctx, vctx), store);
+        edit!(
+            ebuf,
+            EditAction::Delete(Specifier::Contextual, Specifier::Contextual),
+            mv!(mov),
+            ctx!(gid, vwctx, vctx),
+            store
+        );
         assert_eq!(ebuf.get_text(), "callo\nworld\n");
         assert_eq!(ebuf.get_leader(gid), Cursor::new(0, 3));
 
-        edit!(ebuf, EditAction::Delete, mv!(mov), ctx!(gid, vwctx, vctx), store);
+        edit!(
+            ebuf,
+            EditAction::Delete(Specifier::Contextual, Specifier::Contextual),
+            mv!(mov),
+            ctx!(gid, vwctx, vctx),
+            store
+        );
         assert_eq!(ebuf.get_text(), "callo\nworld\n");
         assert_eq!(ebuf.get_leader(gid), Cursor::new(0, 2));
 
-        edit!(ebuf, EditAction::Delete, mv!(mov), ctx!(gid, vwctx, vctx), store);
+        edit!(
+            ebuf,
+            EditAction::Delete(Specifier::Contextual, Specifier::Contextual),
+            mv!(mov),
+            ctx!(gid, vwctx, vctx),
+            store
+        );
         assert_eq!(ebuf.get_text(), "cello\nworld\n");
         assert_eq!(ebuf.get_leader(gid), Cursor::new(0, 1));
 
-        edit!(ebuf, EditAction::Delete, mv!(mov), ctx!(gid, vwctx, vctx), store);
+        edit!(
+            ebuf,
+            EditAction::Delete(Specifier::Contextual, Specifier::Contextual),
+            mv!(mov),
+            ctx!(gid, vwctx, vctx),
+            store
+        );
         assert_eq!(ebuf.get_text(), "hello\nworld\n");
         assert_eq!(ebuf.get_leader(gid), Cursor::new(0, 0));
 
-        edit!(ebuf, EditAction::Delete, mv!(mov), ctx!(gid, vwctx, vctx), store);
+        edit!(
+            ebuf,
+            EditAction::Delete(Specifier::Contextual, Specifier::Contextual),
+            mv!(mov),
+            ctx!(gid, vwctx, vctx),
+            store
+        );
         assert_eq!(ebuf.get_text(), "hello\nworld\n");
         assert_eq!(ebuf.get_leader(gid), Cursor::new(0, 0));
     }

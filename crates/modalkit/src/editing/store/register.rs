@@ -12,7 +12,7 @@ use std::cell::{RefCell, RefMut};
 use crate::editing::history::HistoryList;
 use crate::editing::rope::EditRope;
 use crate::prelude::TargetShape::{self, BlockWise, CharWise, LineWise};
-use crate::prelude::{CommandMap, CommandType, Register};
+use crate::prelude::{CommandMap, CommandType, Register, RegisterUpdateStyle};
 
 #[cfg(all(feature = "clipboard", target_os = "linux"))]
 mod clipboard {
@@ -93,6 +93,15 @@ bitflags! {
         /// This will skip setting [Register::Unnamed] to have the same value as the updated
         /// register.
         const NOTEXT = 0b00000100;
+    }
+}
+
+impl From<RegisterUpdateStyle> for RegisterPutFlags {
+    fn from(style: RegisterUpdateStyle) -> Self {
+        match style {
+            RegisterUpdateStyle::Append => RegisterPutFlags::APPEND,
+            RegisterUpdateStyle::Replace => RegisterPutFlags::NONE,
+        }
     }
 }
 

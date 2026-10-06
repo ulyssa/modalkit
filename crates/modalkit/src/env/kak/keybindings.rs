@@ -633,18 +633,27 @@ macro_rules! object_whitespace_end {
 
 macro_rules! delete_selection {
     () => {
-        editor!(EditorAction::Edit(Specifier::Exact(EditAction::Delete), EditTarget::Selection))
+        editor!(EditorAction::Edit(
+            Specifier::Exact(EditAction::Delete(Specifier::Contextual, Specifier::Contextual)),
+            EditTarget::Selection
+        ))
     };
     ($nm: expr) => {
         editor!(
-            EditorAction::Edit(Specifier::Exact(EditAction::Delete), EditTarget::Selection),
+            EditorAction::Edit(
+                Specifier::Exact(EditAction::Delete(Specifier::Contextual, Specifier::Contextual)),
+                EditTarget::Selection
+            ),
             $nm
         )
     };
     ($nm: expr, $register: expr) => {
         is!(
             InternalAction::SetRegister($register),
-            EditorAction::Edit(Specifier::Exact(EditAction::Delete), EditTarget::Selection),
+            EditorAction::Edit(
+                Specifier::Exact(EditAction::Delete(Specifier::Contextual, Specifier::Contextual)),
+                EditTarget::Selection
+            ),
             $nm
         )
     };
@@ -785,7 +794,7 @@ fn default_keys<I: ApplicationInfo>() -> Vec<(MappedModes, &'static str, InputSt
         ( NMAP, "W", extend!(MoveType::WordBegin(WordStyle::Little, MoveDir1D::Next)) ),
         ( NMAP, "x", selection_resize!(SelectionResizeStyle::Object, RangeType::Line.into()) ),
         ( NMAP, "X", extend_target!(RangeType::Line.into()) ),
-        ( NMAP, "y", edit_selection!(EditAction::Yank) ),
+        ( NMAP, "y", edit_selection!(EditAction::Yank(Specifier::Contextual, Specifier::Contextual)) ),
         ( NMAP, "z", action_step!("cursor save -s replace") ),
         ( NMAP, "Z", action_step!("cursor restore -s replace") ),
         ( NMAP, "<", edit_selection!(EditAction::Indent(IndentChange::Decrease(Count::Contextual))) ),
@@ -1105,7 +1114,7 @@ mod tests {
             $ctx.action.count = None;
             $ctx.action.cursor_end = CursorEnd::Auto;
             $ctx.action.register = None;
-            $ctx.action.register_append = false;
+            $ctx.action.register_update = RegisterUpdateStyle::Replace;
             $ctx.action.shape = None;
             $ctx.ch = Default::default();
         };

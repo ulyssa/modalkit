@@ -131,12 +131,13 @@ impl ActionParser for ActionMacroParser {
         }
     }
 
-    fn visit_macro_execute(&mut self, count: &[ActionToken]) -> Self::Output {
+    fn visit_macro_execute(&mut self, reg: &[ActionToken], count: &[ActionToken]) -> Self::Output {
+        let reg = self.parse_specifier_register(reg);
         let count = self.parse_count(count);
 
         quote! {
             ::editor_types::Action::Macro(
-                ::editor_types::MacroAction::Execute(#count)
+                ::editor_types::MacroAction::Execute(#reg, #count)
             )
         }
     }
@@ -162,10 +163,17 @@ impl ActionParser for ActionMacroParser {
         }
     }
 
-    fn visit_macro_toggle_recording(&mut self) -> Self::Output {
+    fn visit_macro_toggle_recording(
+        &mut self,
+        reg: &[ActionToken],
+        style: &[ActionToken],
+    ) -> Self::Output {
+        let reg = self.parse_specifier_register(reg);
+        let style = self.parse_specifier_register_update_style(style);
+
         quote! {
             ::editor_types::Action::Macro(
-                ::editor_types::MacroAction::ToggleRecording
+                ::editor_types::MacroAction::ToggleRecording(#reg, #style)
             )
         }
     }
@@ -280,13 +288,14 @@ impl ActionParser for ActionMacroParser {
         }
     }
 
-    fn visit_cursor_restore(&mut self, style: &[ActionToken]) -> Self::Output {
+    fn visit_cursor_restore(&mut self, reg: &[ActionToken], style: &[ActionToken]) -> Self::Output {
+        let reg = self.parse_specifier_register(reg);
         let style = self.parse_cursor_group_combine(style);
 
         quote! {
             ::editor_types::Action::Editor(
                 ::editor_types::EditorAction::Cursor(
-                    ::editor_types::CursorAction::Restore(#style)
+                    ::editor_types::CursorAction::Restore(#reg, #style)
                 )
             )
         }
@@ -305,13 +314,14 @@ impl ActionParser for ActionMacroParser {
         }
     }
 
-    fn visit_cursor_save(&mut self, style: &[ActionToken]) -> Self::Output {
+    fn visit_cursor_save(&mut self, reg: &[ActionToken], style: &[ActionToken]) -> Self::Output {
+        let reg = self.parse_specifier_register(reg);
         let style = self.parse_cursor_group_combine(style);
 
         quote! {
             ::editor_types::Action::Editor(
                 ::editor_types::EditorAction::Cursor(
-                    ::editor_types::CursorAction::Save(#style)
+                    ::editor_types::CursorAction::Save(#reg, #style)
                 )
             )
         }
@@ -544,14 +554,20 @@ impl ActionParser for ActionMacroParser {
         }
     }
 
-    fn visit_insert_paste(&mut self, style: &[ActionToken], count: &[ActionToken]) -> Self::Output {
+    fn visit_insert_paste(
+        &mut self,
+        style: &[ActionToken],
+        reg: &[ActionToken],
+        count: &[ActionToken],
+    ) -> Self::Output {
         let style = self.parse_paste_style(style);
+        let reg = self.parse_specifier_register(reg);
         let count = self.parse_count(count);
 
         quote! {
             ::editor_types::Action::Editor(
                 ::editor_types::EditorAction::InsertText(
-                    ::editor_types::InsertTextAction::Paste(#style, #count)
+                    ::editor_types::InsertTextAction::Paste(#style, #reg, #count)
                 )
             )
         }

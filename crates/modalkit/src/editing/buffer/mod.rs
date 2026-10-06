@@ -1090,9 +1090,9 @@ where
 
             let (choice, mut adjustments) = match (self._target(state, target, ctx, store)?, action)
             {
-                (Some(range), EditAction::Delete) => {
+                (Some(range), EditAction::Delete(reg, style)) => {
                     let change_start = changed.map(|c| c.cursor());
-                    self.delete(&range, change_start, ctx, store)?
+                    self.delete(&range, change_start, reg, style, ctx, store)?
                 },
                 (Some(range), EditAction::Join(spaces)) => {
                     self.join(*spaces, &range, ctx, store)?
@@ -1103,7 +1103,9 @@ where
                 (Some(range), EditAction::ChangeNumber(change, mul)) => {
                     self.changenum(change, *mul, &range, ctx, store)?
                 },
-                (Some(range), EditAction::Yank) => (self.yank(&range, ctx, store)?, vec![]),
+                (Some(range), EditAction::Yank(reg, style)) => {
+                    (self.yank(&range, reg, style, ctx, store)?, vec![])
+                },
                 (Some(range), EditAction::Replace(v)) => {
                     let Some(c) = ctx.context.get_replace_char() else {
                         let msg = "No replacement character".to_string();
@@ -1179,7 +1181,7 @@ where
             InsertTextAction::OpenLine(shape, dir, count) => {
                 self.open_line(*shape, *dir, count, ctx, store)
             },
-            InsertTextAction::Paste(style, count) => self.paste(style, count, ctx, store),
+            InsertTextAction::Paste(style, reg, count) => self.paste(style, reg, count, ctx, store),
             InsertTextAction::Transcribe(s, dir, count) => {
                 self.transcribe(s.as_str(), *dir, count, ctx, store)
             },
@@ -1237,9 +1239,9 @@ where
         match act {
             CursorAction::Close(target) => self.cursor_close(target, ctx, store),
             CursorAction::Split(count) => self.cursor_split(count, ctx, store),
-            CursorAction::Restore(style) => self.cursor_restore(style, ctx, store),
+            CursorAction::Restore(reg, style) => self.cursor_restore(reg, style, ctx, store),
             CursorAction::Rotate(dir, count) => self.cursor_rotate(*dir, count, ctx, store),
-            CursorAction::Save(style) => self.cursor_save(style, ctx, store),
+            CursorAction::Save(reg, style) => self.cursor_save(reg, style, ctx, store),
             _ => Err(EditError::Unimplemented(format!("unknown cursor action: {act:?}"))),
         }
     }
@@ -1619,7 +1621,13 @@ mod tests {
         assert_mark!(store, 'j', Cursor::new(14, 4));
 
         // Delete the pasted lines.
-        edit!(ebuf, EditAction::Delete, range!(RangeType::Line, 6), ctx!(gid, vwctx, vctx), store);
+        edit!(
+            ebuf,
+            EditAction::Delete(Specifier::Contextual, Specifier::Contextual),
+            range!(RangeType::Line, 6),
+            ctx!(gid, vwctx, vctx),
+            store
+        );
         assert_eq!(
             ebuf.get_text(),
             "12345\n67890\nabcq\nfoo\nhello hello de\nfghij\nklmno\npqrst\nuvwxy\n"
@@ -1638,7 +1646,13 @@ mod tests {
 
         // Delete the pasted words.
         let mov = MoveType::WordBegin(WordStyle::Little, MoveDir1D::Next);
-        edit!(ebuf, EditAction::Delete, mv!(mov, 2), ctx!(gid, vwctx, vctx), store);
+        edit!(
+            ebuf,
+            EditAction::Delete(Specifier::Contextual, Specifier::Contextual),
+            mv!(mov, 2),
+            ctx!(gid, vwctx, vctx),
+            store
+        );
         assert_eq!(ebuf.get_text(), "12345\n67890\nabcq\nfoo\nde\nfghij\nklmno\npqrst\nuvwxy\n");
         assert_eq!(ebuf.get_leader(gid), Cursor::new(4, 0));
         assert_mark!(store, 'a', Cursor::new(0, 4));
@@ -1654,7 +1668,13 @@ mod tests {
 
         // Delete the word containing 'd, sending it to column 0.
         let mov = MoveType::WordBegin(WordStyle::Little, MoveDir1D::Next);
-        edit!(ebuf, EditAction::Delete, mv!(mov), ctx!(gid, vwctx, vctx), store);
+        edit!(
+            ebuf,
+            EditAction::Delete(Specifier::Contextual, Specifier::Contextual),
+            mv!(mov),
+            ctx!(gid, vwctx, vctx),
+            store
+        );
         assert_eq!(ebuf.get_text(), "12345\n67890\nabcq\nfoo\n\nfghij\nklmno\npqrst\nuvwxy\n");
         assert_eq!(ebuf.get_leader(gid), Cursor::new(4, 0));
         assert_mark!(store, 'a', Cursor::new(0, 4));
@@ -1669,7 +1689,13 @@ mod tests {
         assert_mark!(store, 'j', Cursor::new(8, 4));
 
         // Delete the lines containing marks 'd, 'e and 'f, sending them to (0, 0).
-        edit!(ebuf, EditAction::Delete, range!(RangeType::Line, 3), ctx!(gid, vwctx, vctx), store);
+        edit!(
+            ebuf,
+            EditAction::Delete(Specifier::Contextual, Specifier::Contextual),
+            range!(RangeType::Line, 3),
+            ctx!(gid, vwctx, vctx),
+            store
+        );
         assert_eq!(ebuf.get_text(), "12345\n67890\nabcq\nfoo\npqrst\nuvwxy\n");
         assert_eq!(ebuf.get_leader(gid), Cursor::new(4, 0));
         assert_mark!(store, 'a', Cursor::new(0, 4));
@@ -1703,7 +1729,13 @@ mod tests {
         // Test that marks get adjusted after blockwise deletes.
         let target = EditTarget::CharJump(Specifier::Exact(mark!('b')));
         vctx.persist.shape = Some(TargetShape::BlockWise);
-        edit!(ebuf, EditAction::Delete, target, ctx!(gid, vwctx, vctx), store);
+        edit!(
+            ebuf,
+            EditAction::Delete(Specifier::Contextual, Specifier::Contextual),
+            target,
+            ctx!(gid, vwctx, vctx),
+            store
+        );
         assert_eq!(ebuf.get_text(), "12345\n60\na\nf\npqrst\nubarvwxy\n");
         assert_eq!(ebuf.get_leader(gid), Cursor::new(1, 1));
         assert_mark!(store, 'a', Cursor::new(0, 4));
@@ -1817,7 +1849,13 @@ mod tests {
         ebuf.set_leader(gid, Cursor::new(1, 3));
 
         // Delete the "6", pushing current position into the changelist.
-        edit!(ebuf, EditAction::Delete, EditTarget::CurrentPosition, ctx!(gid, vwctx, vctx), store);
+        edit!(
+            ebuf,
+            EditAction::Delete(Specifier::Contextual, Specifier::Contextual),
+            EditTarget::CurrentPosition,
+            ctx!(gid, vwctx, vctx),
+            store
+        );
         assert_eq!(ebuf.get_leader(gid), Cursor::new(1, 3));
         assert_eq!(ebuf.get_text(), "12345\n   7890\nabcde\nfghij\n klmno\n");
 
@@ -1827,7 +1865,13 @@ mod tests {
         assert_eq!(ebuf.get_text(), "12345\n   7890\nabcde\nfghij\n klmno\n");
 
         // Delete the "d", no change made to changelist.
-        edit!(ebuf, EditAction::Delete, EditTarget::CurrentPosition, ctx!(gid, vwctx, vctx), store);
+        edit!(
+            ebuf,
+            EditAction::Delete(Specifier::Contextual, Specifier::Contextual),
+            EditTarget::CurrentPosition,
+            ctx!(gid, vwctx, vctx),
+            store
+        );
         assert_eq!(ebuf.get_leader(gid), Cursor::new(2, 3));
         assert_eq!(ebuf.get_text(), "12345\n   7890\nabce\nfghij\n klmno\n");
 
@@ -1981,13 +2025,25 @@ mod tests {
 
         // Delete from cursor to the second "a" ("d2fa").
         vctx.action.count = Some(2);
-        edit!(ebuf, EditAction::Delete, same, ctx!(gid, vwctx, vctx), store);
+        edit!(
+            ebuf,
+            EditAction::Delete(Specifier::Contextual, Specifier::Contextual),
+            same,
+            ctx!(gid, vwctx, vctx),
+            store
+        );
         assert_eq!(ebuf.get_leader(gid), Cursor::new(0, 4));
         assert_eq!(ebuf.get_text(), "a b  b c 1 2 3\na b c a b c 1 2 3 a b c 1 2 3\n");
 
         // Trying to delete to a third "a" should do nothing, since it hits the line ending ("d3;").
         vctx.action.count = Some(3);
-        edit!(ebuf, EditAction::Delete, same, ctx!(gid, vwctx, vctx), store);
+        edit!(
+            ebuf,
+            EditAction::Delete(Specifier::Contextual, Specifier::Contextual),
+            same,
+            ctx!(gid, vwctx, vctx),
+            store
+        );
         assert_eq!(ebuf.get_leader(gid), Cursor::new(0, 4));
         assert_eq!(ebuf.get_text(), "a b  b c 1 2 3\na b c a b c 1 2 3 a b c 1 2 3\n");
 
@@ -1995,13 +2051,25 @@ mod tests {
         let target =
             EditTarget::Search(SearchType::Char(true), MoveDirMod::Same, Count::Contextual);
         vctx.action.count = Some(3);
-        edit!(ebuf, EditAction::Delete, target, ctx!(gid, vwctx, vctx), store);
+        edit!(
+            ebuf,
+            EditAction::Delete(Specifier::Contextual, Specifier::Contextual),
+            target,
+            ctx!(gid, vwctx, vctx),
+            store
+        );
         assert_eq!(ebuf.get_leader(gid), Cursor::new(0, 4));
         assert_eq!(ebuf.get_text(), "a b  b c 1 2 3\n");
 
         // Delete to the previous occurrence of "a" ("d,").
         vctx.action.count = Some(1);
-        edit!(ebuf, EditAction::Delete, flip, ctx!(gid, vwctx, vctx), store);
+        edit!(
+            ebuf,
+            EditAction::Delete(Specifier::Contextual, Specifier::Contextual),
+            flip,
+            ctx!(gid, vwctx, vctx),
+            store
+        );
         assert_eq!(ebuf.get_leader(gid), Cursor::new(0, 0));
         assert_eq!(ebuf.get_text(), " b c 1 2 3\n");
     }
@@ -2024,7 +2092,13 @@ mod tests {
 
         // Trying to delete multiple b's with multiline = false fails ("2dFb").
         vctx.action.count = Some(2);
-        edit!(ebuf, EditAction::Delete, same, ctx!(gid, vwctx, vctx), store);
+        edit!(
+            ebuf,
+            EditAction::Delete(Specifier::Contextual, Specifier::Contextual),
+            same,
+            ctx!(gid, vwctx, vctx),
+            store
+        );
         assert_eq!(ebuf.get_leader(gid), Cursor::new(1, 4));
         assert_eq!(
             ebuf.get_text(),
@@ -2035,19 +2109,37 @@ mod tests {
         let target =
             EditTarget::Search(SearchType::Char(true), MoveDirMod::Same, Count::Contextual);
         vctx.action.count = Some(2);
-        edit!(ebuf, EditAction::Delete, target, ctx!(gid, vwctx, vctx), store);
+        edit!(
+            ebuf,
+            EditAction::Delete(Specifier::Contextual, Specifier::Contextual),
+            target,
+            ctx!(gid, vwctx, vctx),
+            store
+        );
         assert_eq!(ebuf.get_leader(gid), Cursor::new(0, 20));
         assert_eq!(ebuf.get_text(), "a b c a b c 1 2 3 a c a b c 1 2 3 a b c 1 2 3\n");
 
         // Delete backwards for one 'b' ("dFb").
         vctx.action.count = None;
-        edit!(ebuf, EditAction::Delete, same, ctx!(gid, vwctx, vctx), store);
+        edit!(
+            ebuf,
+            EditAction::Delete(Specifier::Contextual, Specifier::Contextual),
+            same,
+            ctx!(gid, vwctx, vctx),
+            store
+        );
         assert_eq!(ebuf.get_leader(gid), Cursor::new(0, 8));
         assert_eq!(ebuf.get_text(), "a b c a c a b c 1 2 3 a b c 1 2 3\n");
 
         // Delete twice in the flipped direction ("2d,").
         vctx.action.count = Some(2);
-        edit!(ebuf, EditAction::Delete, flip, ctx!(gid, vwctx, vctx), store);
+        edit!(
+            ebuf,
+            EditAction::Delete(Specifier::Contextual, Specifier::Contextual),
+            flip,
+            ctx!(gid, vwctx, vctx),
+            store
+        );
         assert_eq!(ebuf.get_leader(gid), Cursor::new(0, 8));
         assert_eq!(ebuf.get_text(), "a b c a  c 1 2 3\n");
     }

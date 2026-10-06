@@ -17,7 +17,6 @@ use regex::{Match, Regex};
 use ropey::str_utils::{byte_to_char_idx, char_to_byte_idx};
 use ropey::{Rope, RopeSlice};
 
-use crate::actions::EditAction;
 use crate::editing::{
     context::Resolve,
     cursor::{Adjustable, Cursor, CursorAdjustment, CursorChoice, CursorState},
@@ -2692,16 +2691,13 @@ impl CursorMovements<Cursor> for EditRope {
                 let start = cursor.clone();
                 let mut end = cursor.clone();
 
-                match ctx.action {
-                    EditAction::Yank => {
-                        // Place end cursor count lines away.
-                        end.line(MoveDir1D::Next, count, cctx);
-                    },
-                    _ => {
-                        // Place end cursor on the first word count lines away.
-                        end.line(MoveDir1D::Next, count, cctx);
-                        end.first_word(cctx);
-                    },
+                if ctx.action.is_yank() {
+                    // Place end cursor count lines away.
+                    end.line(MoveDir1D::Next, count, cctx);
+                } else {
+                    // Place end cursor on the first word count lines away.
+                    end.line(MoveDir1D::Next, count, cctx);
+                    end.first_word(cctx);
                 }
 
                 EditRange::exclusive(start, end, TargetShape::LineWise).into()
@@ -2858,6 +2854,7 @@ mod tests {
     use crate::editing::context::EditContext;
     use crate::editing::cursor::CursorState;
     use crate::env::vim::VimState;
+    use editor_types::EditAction;
 
     macro_rules! cmctx {
         ($vwctx: expr, $vctx: expr) => {

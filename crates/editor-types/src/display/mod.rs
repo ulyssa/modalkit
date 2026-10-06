@@ -203,8 +203,24 @@ impl From<&EditAction> for ActionToken<'_> {
     fn from(input: &EditAction) -> Self {
         match input {
             EditAction::Motion => ActionToken::Word("motion"),
-            EditAction::Delete => ActionToken::Word("delete"),
-            EditAction::Yank => ActionToken::Word("yank"),
+            EditAction::Delete(reg, style) => {
+                ActionToken::Group(vec![
+                    ActionToken::Word("delete"),
+                    ActionToken::Flag(Flag::Register),
+                    specifier(reg),
+                    ActionToken::Flag(Flag::Style),
+                    specifier(style),
+                ])
+            },
+            EditAction::Yank(reg, style) => {
+                ActionToken::Group(vec![
+                    ActionToken::Word("yank"),
+                    ActionToken::Flag(Flag::Register),
+                    specifier(reg),
+                    ActionToken::Flag(Flag::Style),
+                    specifier(style),
+                ])
+            },
             EditAction::Format => ActionToken::Word("format"),
             EditAction::Replace(virt) => {
                 ActionToken::Group(vec![
@@ -507,6 +523,37 @@ impl From<&RecallFilter> for ActionToken<'_> {
         match input {
             RecallFilter::All => ActionToken::Word("all"),
             RecallFilter::PrefixMatch => ActionToken::Word("prefix-match"),
+        }
+    }
+}
+
+impl From<&Register> for ActionToken<'_> {
+    fn from(input: &Register) -> Self {
+        match input {
+            Register::AltBufName => ActionToken::Word("alt-buf-name"),
+            Register::Blackhole => ActionToken::Word("blackhole"),
+            Register::CurBufName => ActionToken::Word("cur-buf-name"),
+            Register::LastInserted => ActionToken::Word("last-inserted"),
+            Register::LastYanked => ActionToken::Word("last-yanked"),
+            Register::SelectionClipboard => ActionToken::Word("selection-clipboard"),
+            Register::SelectionPrimary => ActionToken::Word("selection-primary"),
+            Register::SmallDelete => ActionToken::Word("small-delete"),
+            Register::Unnamed => ActionToken::Word("unnamed"),
+            Register::UnnamedCursorGroup => ActionToken::Word("unnamed-cursor-group"),
+            Register::UnnamedMacro => ActionToken::Word("unnamed-macro"),
+
+            Register::LastCommand(ct) => prefixed("last-command", ActionToken::from(ct)),
+            Register::Named(c) => prefixed("named", ActionToken::Char(*c)),
+            Register::RecentlyDeleted(n) => prefixed("recently-deleted", ActionToken::Number(*n)),
+        }
+    }
+}
+
+impl From<&RegisterUpdateStyle> for ActionToken<'_> {
+    fn from(input: &RegisterUpdateStyle) -> Self {
+        match input {
+            RegisterUpdateStyle::Append => ActionToken::Word("append"),
+            RegisterUpdateStyle::Replace => ActionToken::Word("replace"),
         }
     }
 }

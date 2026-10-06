@@ -19,6 +19,15 @@ macro_rules! bad_word_match_branch {
     };
 }
 
+macro_rules! bad_specifier_match_branch {
+    ($self: ident, $input: expr) => {
+        match $input {
+            [t, ..] => $self.fail(format!("expected either `ctx` or `exact`, not `{t}`")),
+            _ => $self.fail("expected either `ctx` or `exact`"),
+        }
+    };
+}
+
 macro_rules! enum_no_args_branch {
     ($self: ident, $path: path, $w: expr, $rest: ident) => {
         if $rest.is_empty() {

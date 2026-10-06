@@ -36,7 +36,7 @@
 //!     keybindings.input_key(key(KeyCode::Char('d'), KeyModifiers::NONE).into());
 //!
 //!     let (act, ctx) = keybindings.pop().unwrap();
-//!     let exp = EditorAction::Edit(EditAction::Delete.into(), RangeType::Line.into());
+//!     let exp = EditorAction::Edit(EditAction::Delete(Specifier::Contextual, Specifier::Contextual).into(), RangeType::Line.into());
 //!     assert_eq!(act, Action::from(exp));
 //!     assert_eq!(ctx.resolve(&Count::Contextual), 5);
 //!
@@ -334,13 +334,17 @@ impl<I: ApplicationInfo> ExternalAction<I> {
                 } else if recording {
                     context.persist.recording = None;
                 } else if let Some(ref reg) = context.action.register {
-                    let append = context.action.register_append;
-                    context.persist.recording = Some((reg.clone(), append));
+                    let style = context.action.register_update;
+                    context.persist.recording = Some((reg.clone(), style));
                 } else {
-                    context.persist.recording = Some((Register::UnnamedMacro, false));
+                    context.persist.recording =
+                        Some((Register::UnnamedMacro, RegisterUpdateStyle::Replace));
                 }
 
-                vec![MacroAction::ToggleRecording.into()]
+                vec![
+                    MacroAction::ToggleRecording(Specifier::Contextual, Specifier::Contextual)
+                        .into(),
+                ]
             },
         }
     }
@@ -670,7 +674,14 @@ macro_rules! change_target {
         isv!(
             vec![InternalAction::SetInsertStyle(InsertStyle::Insert)],
             vec![ExternalAction::Something(
-                EditorAction::Edit(Specifier::Exact(EditAction::Delete), $et).into()
+                EditorAction::Edit(
+                    Specifier::Exact(EditAction::Delete(
+                        Specifier::Contextual,
+                        Specifier::Contextual
+                    )),
+                    $et
+                )
+                .into()
             )],
             VimMode::Insert
         )
@@ -760,8 +771,14 @@ macro_rules! change_selection_lines {
                 InternalAction::SetInsertStyle(InsertStyle::Insert),
             ],
             vec![ExternalAction::Something(
-                EditorAction::Edit(Specifier::Exact(EditAction::Delete), EditTarget::Selection)
-                    .into()
+                EditorAction::Edit(
+                    Specifier::Exact(EditAction::Delete(
+                        Specifier::Contextual,
+                        Specifier::Contextual
+                    )),
+                    EditTarget::Selection
+                )
+                .into()
             )],
             VimMode::Insert
         )
@@ -965,13 +982,21 @@ macro_rules! paste_register {
     ($dir: expr, $reg: expr) => {
         is!(
             InternalAction::SetRegister($reg),
-            InsertTextAction::Paste(PasteStyle::Side($dir), Count::Contextual)
+            InsertTextAction::Paste(
+                PasteStyle::Side($dir),
+                Specifier::Contextual,
+                Count::Contextual
+            )
         )
     };
     ($dir: expr, $reg: expr, $nm: expr) => {
         is!(
             InternalAction::SetRegister($reg),
-            InsertTextAction::Paste(PasteStyle::Side($dir), Count::Contextual),
+            InsertTextAction::Paste(
+                PasteStyle::Side($dir),
+                Specifier::Contextual,
+                Count::Contextual
+            ),
             $nm
         )
     };
@@ -1017,7 +1042,11 @@ macro_rules! delete_selection_nochar {
                 ),
                 ExternalAction::Something(SelectionAction::CursorSet($cursor).into()),
                 ExternalAction::Something(
-                    EditorAction::Edit(EditAction::Delete.into(), $et).into()
+                    EditorAction::Edit(
+                        EditAction::Delete(Specifier::Contextual, Specifier::Contextual).into(),
+                        $et
+                    )
+                    .into()
                 ),
             ],
             VimMode::Normal
@@ -1039,7 +1068,11 @@ macro_rules! change_selection_nochar {
                 ),
                 ExternalAction::Something(SelectionAction::CursorSet($cursor).into()),
                 ExternalAction::Something(
-                    EditorAction::Edit(EditAction::Delete.into(), $et).into()
+                    EditorAction::Edit(
+                        EditAction::Delete(Specifier::Contextual, Specifier::Contextual).into(),
+                        $et
+                    )
+                    .into()
                 ),
                 ExternalAction::Something(CursorAction::Split(Count::MinusOne).into()),
             ],
@@ -1094,7 +1127,11 @@ macro_rules! change_visual {
                 ),
                 ExternalAction::Something(SelectionAction::CursorSet($cursor).into()),
                 ExternalAction::Something(
-                    EditorAction::Edit(EditAction::Delete.into(), $et).into()
+                    EditorAction::Edit(
+                        EditAction::Delete(Specifier::Contextual, Specifier::Contextual).into(),
+                        $et
+                    )
+                    .into()
                 ),
                 ExternalAction::Something(CursorAction::Split(Count::MinusOne).into()),
             ],
@@ -1569,14 +1606,14 @@ fn default_keys<I: ApplicationInfo>() -> Vec<(MappedModes, &'static str, InputSt
         // Normal mode keys
         ( NMAP, "a", insert!(InsertStyle::Insert, MoveType::Column(MoveDir1D::Next, false)) ),
         ( NMAP, "A", insert!(InsertStyle::Insert, MoveType::LinePos(MovePosition::End), 0) ),
-        ( NMAP, "c", edit_motion!(EditAction::Delete, VimMode::Insert, InsertStyle::Insert) ),
+        ( NMAP, "c", edit_motion!(EditAction::Delete(Specifier::Contextual, Specifier::Contextual), VimMode::Insert, InsertStyle::Insert) ),
         ( NMAP, "cc", edit_range_end!(RangeType::Line, false) ),
         ( NMAP, "cw", edit_end!(MoveType::WordEnd(WordStyle::Little, MoveDir1D::Next)) ),
         ( NMAP, "cW", edit_end!(MoveType::WordEnd(WordStyle::Big, MoveDir1D::Next)) ),
         ( NMAP, "C", change!(MoveType::LinePos(MovePosition::End), Count::MinusOne) ),
-        ( NMAP, "d", edit_motion!(EditAction::Delete) ),
-        ( NMAP, "dd", edit_lines!(EditAction::Delete) ),
-        ( NMAP, "D", edit!(EditAction::Delete, MoveType::LinePos(MovePosition::End), Count::MinusOne) ),
+        ( NMAP, "d", edit_motion!(EditAction::Delete(Specifier::Contextual, Specifier::Contextual)) ),
+        ( NMAP, "dd", edit_lines!(EditAction::Delete(Specifier::Contextual, Specifier::Contextual)) ),
+        ( NMAP, "D", edit!(EditAction::Delete(Specifier::Contextual, Specifier::Contextual), MoveType::LinePos(MovePosition::End), Count::MinusOne) ),
         ( NMAP, "ga", unmapped!() ),
         ( NMAP, "gi", unmapped!() ),
         ( NMAP, "gI", insert!(InsertStyle::Insert, MoveType::LinePos(MovePosition::Beginning), 0) ),
@@ -1619,11 +1656,11 @@ fn default_keys<I: ApplicationInfo>() -> Vec<(MappedModes, &'static str, InputSt
         ( NMAP, "S", change_range!(RangeType::Line, false) ),
         ( NMAP, "u", history!(HistoryAction::Undo(Count::Contextual)) ),
         ( NMAP, "U", unmapped!() ),
-        ( NMAP, "x", edit!(EditAction::Delete, MoveType::Column(MoveDir1D::Next, false)) ),
-        ( NMAP, "X", edit!(EditAction::Delete, MoveType::Column(MoveDir1D::Previous, false)) ),
-        ( NMAP, "y", edit_motion!(EditAction::Yank) ),
-        ( NMAP, "yy", edit_lines!(EditAction::Yank) ),
-        ( NMAP, "Y", edit_lines!(EditAction::Yank) ),
+        ( NMAP, "x", edit!(EditAction::Delete(Specifier::Contextual, Specifier::Contextual), MoveType::Column(MoveDir1D::Next, false)) ),
+        ( NMAP, "X", edit!(EditAction::Delete(Specifier::Contextual, Specifier::Contextual), MoveType::Column(MoveDir1D::Previous, false)) ),
+        ( NMAP, "y", edit_motion!(EditAction::Yank(Specifier::Contextual, Specifier::Contextual)) ),
+        ( NMAP, "yy", edit_lines!(EditAction::Yank(Specifier::Contextual, Specifier::Contextual)) ),
+        ( NMAP, "Y", edit_lines!(EditAction::Yank(Specifier::Contextual, Specifier::Contextual)) ),
         ( NMAP, "ZZ", window_close_one!(WindowTarget::Single, FocusChange::Current, CloseFlags::WQ) ),
         ( NMAP, "ZQ", window_close_one!(WindowTarget::Single, FocusChange::Current, CloseFlags::FQ) ),
         ( NMAP, "=", edit_motion!(EditAction::Indent(IndentChange::Auto)) ),
@@ -1636,7 +1673,7 @@ fn default_keys<I: ApplicationInfo>() -> Vec<(MappedModes, &'static str, InputSt
         ( NMAP, "/", search!(MoveDir1D::Next, VimMode::Normal) ),
         ( NMAP, "~", tilde!() ),
         ( NMAP, ".", act!(Action::Repeat(RepeatType::EditSequence)) ),
-        ( NMAP, "@{register}", act!(MacroAction::Execute(Count::Contextual)) ),
+        ( NMAP, "@{register}", act!(MacroAction::Execute(Specifier::Contextual, Count::Contextual)) ),
         ( NMAP, "@:", command!(CommandAction::Execute(Count::Contextual)) ),
         ( NMAP, "@@", act!(MacroAction::Repeat(Count::Contextual)) ),
         ( NMAP, "<C-A>", edit_target!(EditAction::ChangeNumber(NumberChange::Increase(Count::Contextual), false), EditTarget::Motion(MoveType::LinePos(MovePosition::End), 0.into())) ),
@@ -1651,7 +1688,7 @@ fn default_keys<I: ApplicationInfo>() -> Vec<(MappedModes, &'static str, InputSt
         ( NMAP, "<C-[>", normal!() ),
         ( NMAP, "<C-^>", window_switch!(OpenTarget::Alternate, OpenTarget::List(Count::Contextual)) ),
         ( NMAP, "<C-6>", window_switch!(OpenTarget::Alternate, OpenTarget::List(Count::Contextual)) ),
-        ( NMAP, "<Del>", edit_nocount!(EditAction::Delete, MoveType::Column(MoveDir1D::Next, false)) ),
+        ( NMAP, "<Del>", edit_nocount!(EditAction::Delete(Specifier::Contextual, Specifier::Contextual), MoveType::Column(MoveDir1D::Next, false)) ),
         ( NMAP, "<Esc>", normal!() ),
         ( NMAP, "<Insert>", insert!(InsertStyle::Insert) ),
         ( NMAP, "<Tab>", jump!(PositionList::JumpList, MoveDir1D::Next) ),
@@ -1663,7 +1700,7 @@ fn default_keys<I: ApplicationInfo>() -> Vec<(MappedModes, &'static str, InputSt
         ( VMAP, "<C-L>", act!(Action::RedrawScreen) ),
         ( VMAP, "<C-X>", edit_selection!(EditAction::ChangeNumber(NumberChange::Decrease(Count::Contextual), false)) ),
         ( VMAP, "<C-Z>", act!(Action::Suspend) ),
-        ( VMAP, "<Del>", edit_selection_nocount!(EditAction::Delete) ),
+        ( VMAP, "<Del>", edit_selection_nocount!(EditAction::Delete(Specifier::Contextual, Specifier::Contextual)) ),
         ( VMAP, "<C-[>", normal!() ),
         ( VMAP, "<Esc>", normal!() ),
 
@@ -1671,7 +1708,7 @@ fn default_keys<I: ApplicationInfo>() -> Vec<(MappedModes, &'static str, InputSt
         ( XMAP, "A", insert_visual!(SelectionCursorChange::End, MoveType::Column(MoveDir1D::Next, false), 1.into()) ),
         ( XMAP, "c", change_visual!(SelectionCursorChange::Beginning, EditTarget::Selection) ),
         ( XMAP, "C", change_selection_nochar!(SelectionCursorChange::Beginning, EditTarget::Motion(MoveType::LinePos(MovePosition::End), Count::Exact(0))) ),
-        ( XMAP, "d", edit_selection!(EditAction::Delete) ),
+        ( XMAP, "d", edit_selection!(EditAction::Delete(Specifier::Contextual, Specifier::Contextual)) ),
         ( XMAP, "D", delete_selection_nochar!(SelectionCursorChange::Beginning, EditTarget::Motion(MoveType::LinePos(MovePosition::End), Count::Exact(0))) ),
         ( XMAP, "gf", window_switch!(OpenTarget::Selection) ),
         ( XMAP, "gJ", edit_selection!(EditAction::Join(JoinStyle::NoChange)) ),
@@ -1698,10 +1735,10 @@ fn default_keys<I: ApplicationInfo>() -> Vec<(MappedModes, &'static str, InputSt
         ( XMAP, "U", edit_selection!(EditAction::ChangeCase(Case::Upper)) ),
         ( XMAP, "v", visual!(TargetShape::CharWise) ),
         ( XMAP, "V", visual!(TargetShape::LineWise) ),
-        ( XMAP, "x", edit_selection!(EditAction::Delete) ),
+        ( XMAP, "x", edit_selection!(EditAction::Delete(Specifier::Contextual, Specifier::Contextual)) ),
         ( XMAP, "X", delete_selection_nochar!(SelectionCursorChange::Beginning, EditTarget::Selection) ),
-        ( XMAP, "y", edit_selection!(EditAction::Yank) ),
-        ( XMAP, "Y", edit_selection_nochar!(EditAction::Yank) ),
+        ( XMAP, "y", edit_selection!(EditAction::Yank(Specifier::Contextual, Specifier::Contextual)) ),
+        ( XMAP, "Y", edit_selection_nochar!(EditAction::Yank(Specifier::Contextual, Specifier::Contextual)) ),
         ( XMAP, "~", edit_selection!(EditAction::ChangeCase(Case::Toggle)) ),
         ( XMAP, "=", edit_selection!(EditAction::Indent(IndentChange::Auto)) ),
         ( XMAP, "<", edit_selection!(EditAction::Indent(IndentChange::Decrease(Count::Contextual))) ),
@@ -2188,7 +2225,7 @@ mod tests {
             $ctx.action.mark = None;
             $ctx.action.operation = EditAction::Motion;
             $ctx.action.register = None;
-            $ctx.action.register_append = false;
+            $ctx.action.register_update = RegisterUpdateStyle::Replace;
             $ctx.action.replace = None;
             $ctx.ch = Default::default();
         };
@@ -2664,7 +2701,7 @@ mod tests {
 
         // "2c/" should take us to Command mode, with a pending entry into Insert mode.
         ctx.action.count = Some(2);
-        ctx.action.operation = EditAction::Delete;
+        ctx.action.operation = EditAction::Delete(Specifier::Contextual, Specifier::Contextual);
         ctx.persist.insert = Some(InsertStyle::Insert);
         ctx.persist.regexsearch_dir = MoveDir1D::Next;
         vm.input_key(key!('2'));
@@ -2682,7 +2719,7 @@ mod tests {
 
         // <Enter> submits and takes us to Insert mode.
         ctx.action.count = Some(2);
-        ctx.action.operation = EditAction::Delete;
+        ctx.action.operation = EditAction::Delete(Specifier::Contextual, Specifier::Contextual);
         vm.input_key(key!(KeyCode::Enter));
         assert_pop2!(vm, Action::from(PromptAction::Submit), ctx);
         assert_eq!(vm.mode(), VimMode::Insert);
@@ -2850,7 +2887,7 @@ mod tests {
 
         ctx.persist.insert = Some(InsertStyle::Insert);
 
-        let mov = selop!(EditAction::Delete);
+        let mov = selop!(EditAction::Delete(Specifier::Contextual, Specifier::Contextual));
         vm.input_key(key!('H'));
         assert_pop1!(vm, mov, ctx);
         assert_pop1!(vm, typechar!('H'), ctx);
@@ -2945,7 +2982,7 @@ mod tests {
         assert_pop1!(vm, mov, ctx);
         assert_normal!(vm, ctx);
 
-        ctx.action.operation = EditAction::Delete;
+        ctx.action.operation = EditAction::Delete(Specifier::Contextual, Specifier::Contextual);
 
         // Operator-Pending mode count is multiplied by Normal mode count.
         ctx.action.count = Some(4);
@@ -2986,9 +3023,9 @@ mod tests {
         let mut vm: VimMachine<TerminalKey> = default_vim_keys();
         let mut ctx = mkctx();
 
-        let op = EditAction::Yank;
-        let mov = rangeop!(op, RangeType::Line);
-        ctx.action.operation = EditAction::Yank;
+        let op = EditAction::Yank(Specifier::Contextual, Specifier::Contextual);
+        let mov = rangeop!(op.clone(), RangeType::Line);
+        ctx.action.operation = op;
 
         ctx.action.register = None;
         vm.input_key(key!('y'));
@@ -2997,7 +3034,7 @@ mod tests {
         assert_normal!(vm, ctx);
 
         ctx.action.register = Some(Register::Named('a'));
-        ctx.action.register_append = false;
+        ctx.action.register_update = RegisterUpdateStyle::Replace;
         vm.input_key(key!('"'));
         vm.input_key(key!('a'));
         vm.input_key(key!('y'));
@@ -3006,7 +3043,7 @@ mod tests {
         assert_normal!(vm, ctx);
 
         ctx.action.register = Some(Register::Named('a'));
-        ctx.action.register_append = true;
+        ctx.action.register_update = RegisterUpdateStyle::Append;
         vm.input_key(key!('"'));
         vm.input_key(key!('A'));
         vm.input_key(key!('y'));
@@ -3015,7 +3052,7 @@ mod tests {
         assert_normal!(vm, ctx);
 
         ctx.action.register = Some(Register::LastYanked);
-        ctx.action.register_append = false;
+        ctx.action.register_update = RegisterUpdateStyle::Replace;
         vm.input_key(key!('"'));
         vm.input_key(key!('0'));
         vm.input_key(key!('y'));
@@ -3095,7 +3132,7 @@ mod tests {
 
         let mov = mv!(MoveType::WordBegin(WordStyle::Little, MoveDir1D::Next));
 
-        ctx.action.operation = EditAction::Yank;
+        ctx.action.operation = EditAction::Yank(Specifier::Contextual, Specifier::Contextual);
         vm.input_key(key!('y'));
         vm.input_key(key!('w'));
         assert_pop1!(vm, mov, ctx);
@@ -3208,7 +3245,7 @@ mod tests {
         let mut vm: VimMachine<TerminalKey> = default_vim_keys();
         let mut ctx = mkctx();
 
-        let op = EditAction::Delete;
+        let op = EditAction::Delete(Specifier::Contextual, Specifier::Contextual);
 
         let mov = mv!(MoveType::WordBegin(WordStyle::Little, MoveDir1D::Next));
         ctx.action.operation = op.clone();
@@ -3247,7 +3284,7 @@ mod tests {
 
         // Change a word around the cursor with "caw".
         let mov = range!(RangeType::Word(WordStyle::Little));
-        ctx.action.operation = EditAction::Delete;
+        ctx.action.operation = EditAction::Delete(Specifier::Contextual, Specifier::Contextual);
         ctx.persist.insert = Some(InsertStyle::Insert);
         vm.input_key(key!('c'));
         vm.input_key(key!('a'));
@@ -3261,7 +3298,7 @@ mod tests {
 
         // Change from cursor to end of a word with "cw".
         let mov = mv!(MoveType::WordEnd(WordStyle::Little, MoveDir1D::Next));
-        ctx.action.operation = EditAction::Delete;
+        ctx.action.operation = EditAction::Delete(Specifier::Contextual, Specifier::Contextual);
         ctx.persist.insert = Some(InsertStyle::Insert);
         vm.input_key(key!('c'));
         vm.input_key(key!('w'));
@@ -3274,7 +3311,7 @@ mod tests {
 
         // Change from cursor to end of a WORD with "cW".
         let mov = mv!(MoveType::WordEnd(WordStyle::Big, MoveDir1D::Next));
-        ctx.action.operation = EditAction::Delete;
+        ctx.action.operation = EditAction::Delete(Specifier::Contextual, Specifier::Contextual);
         ctx.persist.insert = Some(InsertStyle::Insert);
         vm.input_key(key!('c'));
         vm.input_key(key!('W'));
@@ -3286,7 +3323,7 @@ mod tests {
         assert_insert_exit!(vm, ctx);
 
         // Substitute a character with "s".
-        let op = EditAction::Delete;
+        let op = EditAction::Delete(Specifier::Contextual, Specifier::Contextual);
         let mov = mvop!(op, MoveType::Column(MoveDir1D::Next, false));
         ctx.persist.insert = Some(InsertStyle::Insert);
         vm.input_key(key!('s'));
@@ -3298,7 +3335,7 @@ mod tests {
         assert_insert_exit!(vm, ctx);
 
         // Change from cursor to end of the line with "C".
-        let op = EditAction::Delete;
+        let op = EditAction::Delete(Specifier::Contextual, Specifier::Contextual);
         let mov = mvop!(op, MoveType::LinePos(MovePosition::End), Count::MinusOne);
         ctx.persist.insert = Some(InsertStyle::Insert);
         vm.input_key(key!('C'));
@@ -3310,7 +3347,7 @@ mod tests {
         assert_insert_exit!(vm, ctx);
 
         // Change the current line with "S".
-        let op = EditAction::Delete;
+        let op = EditAction::Delete(Specifier::Contextual, Specifier::Contextual);
         let mov = rangeop!(op, RangeType::Line, false);
         ctx.persist.insert = Some(InsertStyle::Insert);
         vm.input_key(key!('S'));
@@ -3324,7 +3361,7 @@ mod tests {
         // Change the current line with "cc".
         let mov = range!(RangeType::Line, false);
         ctx.persist.insert = Some(InsertStyle::Insert);
-        ctx.action.operation = EditAction::Delete;
+        ctx.action.operation = EditAction::Delete(Specifier::Contextual, Specifier::Contextual);
         vm.input_key(key!('c'));
         vm.input_key(key!('c'));
         assert_pop2!(vm, mov, ctx);
@@ -3335,7 +3372,7 @@ mod tests {
         assert_insert_exit!(vm, ctx);
 
         // Pressing c^C should not go to Insert mode.
-        ctx.action.operation = EditAction::Delete;
+        ctx.action.operation = EditAction::Delete(Specifier::Contextual, Specifier::Contextual);
         ctx.persist.insert = Some(InsertStyle::Insert);
         vm.input_key(key!('c'));
         vm.input_key(ctl!('c'));
@@ -3551,7 +3588,7 @@ mod tests {
         assert_eq!(vm.mode(), VimMode::Visual);
 
         // Delete with "d"
-        let mov = selop!(EditAction::Delete);
+        let mov = selop!(EditAction::Delete(Specifier::Contextual, Specifier::Contextual));
         vm.input_key(key!('d'));
         assert_pop1!(vm, mov, ctx);
 
@@ -3568,7 +3605,7 @@ mod tests {
         assert_eq!(vm.mode(), VimMode::Visual);
 
         // Yank with "y"
-        let mov = selop!(EditAction::Yank);
+        let mov = selop!(EditAction::Yank(Specifier::Contextual, Specifier::Contextual));
         vm.input_key(key!('y'));
         assert_pop1!(vm, mov, ctx);
 
@@ -3621,7 +3658,7 @@ mod tests {
         assert_eq!(vm.mode(), VimMode::Visual);
 
         // Shape made LineWise with "D"
-        let op = EditAction::Delete;
+        let op = EditAction::Delete(Specifier::Contextual, Specifier::Contextual);
         let mov = mvop!(op, MoveType::LinePos(MovePosition::End), 0);
         ctx.persist.shape = Some(TargetShape::LineWise);
         vm.input_key(key!('D'));
@@ -3642,7 +3679,7 @@ mod tests {
         assert_eq!(vm.mode(), VimMode::Visual);
 
         // Shape made LineWise with "Y".
-        let mov = selop!(EditAction::Yank);
+        let mov = selop!(EditAction::Yank(Specifier::Contextual, Specifier::Contextual));
         ctx.persist.shape = Some(TargetShape::LineWise);
         vm.input_key(key!('Y'));
         assert_pop1!(vm, mov, ctx);
@@ -3660,7 +3697,7 @@ mod tests {
         assert_eq!(vm.mode(), VimMode::Visual);
 
         // Shape made LineWise with "X"
-        let mov = selop!(EditAction::Delete);
+        let mov = selop!(EditAction::Delete(Specifier::Contextual, Specifier::Contextual));
         ctx.persist.shape = Some(TargetShape::LineWise);
         vm.input_key(key!('X'));
         assert_pop1!(vm, SEL_SPLIT, ctx);
@@ -3680,7 +3717,7 @@ mod tests {
         assert_eq!(vm.mode(), VimMode::Visual);
 
         // Shape made LineWise with "R"
-        let mov = selop!(EditAction::Delete);
+        let mov = selop!(EditAction::Delete(Specifier::Contextual, Specifier::Contextual));
         ctx.persist.shape = Some(TargetShape::LineWise);
         ctx.persist.insert = Some(InsertStyle::Insert);
         vm.input_key(key!('R'));
@@ -3702,7 +3739,7 @@ mod tests {
         assert_eq!(vm.mode(), VimMode::Visual);
 
         // Shape made LineWise with "S"
-        let mov = selop!(EditAction::Delete);
+        let mov = selop!(EditAction::Delete(Specifier::Contextual, Specifier::Contextual));
         ctx.persist.shape = Some(TargetShape::LineWise);
         ctx.persist.insert = Some(InsertStyle::Insert);
         vm.input_key(key!('S'));
@@ -3724,7 +3761,7 @@ mod tests {
         assert_eq!(vm.mode(), VimMode::Visual);
 
         // Shape remains BlockWise with "X"
-        let mov = selop!(EditAction::Delete);
+        let mov = selop!(EditAction::Delete(Specifier::Contextual, Specifier::Contextual));
         vm.input_key(key!('X'));
         assert_pop1!(vm, SEL_SPLIT, ctx);
         assert_pop1!(vm, BLOCK_BEG, ctx);
@@ -3743,7 +3780,7 @@ mod tests {
         assert_eq!(vm.mode(), VimMode::Visual);
 
         // Shape remains BlockWise with "Y".
-        let mov = selop!(EditAction::Yank);
+        let mov = selop!(EditAction::Yank(Specifier::Contextual, Specifier::Contextual));
         vm.input_key(key!('Y'));
         assert_pop1!(vm, mov, ctx);
 
@@ -3812,7 +3849,7 @@ mod tests {
 
         // Change block ("c").
         ctx.persist.insert = Some(InsertStyle::Insert);
-        let act = selop!(EditAction::Delete);
+        let act = selop!(EditAction::Delete(Specifier::Contextual, Specifier::Contextual));
         vm.input_key(key!('c'));
         assert_pop1!(vm, BLOCK_SPLIT, ctx);
         assert_pop1!(vm, BLOCK_BEG, ctx);
@@ -3913,7 +3950,7 @@ mod tests {
 
         let mov = mv!(MoveType::WordBegin(WordStyle::Little, MoveDir1D::Next));
 
-        ctx.action.operation = EditAction::Delete;
+        ctx.action.operation = EditAction::Delete(Specifier::Contextual, Specifier::Contextual);
 
         // By default, there's no shape in the context.
         ctx.persist.shape = None;
@@ -4052,9 +4089,10 @@ mod tests {
         assert_pop1!(vm, mov, ctx);
         assert_eq!(vm.mode(), VimMode::Insert);
 
-        let it = InsertTextAction::Paste(PasteStyle::Cursor, Count::Exact(1));
+        let it =
+            InsertTextAction::Paste(PasteStyle::Cursor, Specifier::Contextual, Count::Exact(1));
         ctx.action.register = Some(Register::Named('z'));
-        ctx.action.register_append = false;
+        ctx.action.register_update = RegisterUpdateStyle::Replace;
         vm.input_key(ctl!('r'));
         assert_eq!(vm.pop(), None);
         assert_eq!(vm.get_cursor_hint().get_indicator(), Some('"'));
@@ -4101,11 +4139,14 @@ mod tests {
         let mut vm: VimMachine<TerminalKey> = default_vim_keys();
         let mut ctx = mkctx();
 
-        let step = InputStep::new().operator(EditAction::Delete, Some(VimMode::Insert));
+        let step = InputStep::new().operator(
+            EditAction::Delete(Specifier::Contextual, Specifier::Contextual),
+            Some(VimMode::Insert),
+        );
         add_mapping(&mut vm, &NMAP, "R", &step);
 
         let mov = mv!(MoveType::WordBegin(WordStyle::Little, MoveDir1D::Next));
-        ctx.action.operation = EditAction::Delete;
+        ctx.action.operation = EditAction::Delete(Specifier::Contextual, Specifier::Contextual);
         ctx.action.count = Some(5);
         ctx.persist.insert = Some(InsertStyle::Insert);
         vm.input_key(key!('5'));
@@ -4176,7 +4217,7 @@ mod tests {
         assert_pop1!(vm, mot, ctx);
         assert_normal!(vm, ctx);
 
-        ctx.action.operation = EditAction::Delete;
+        ctx.action.operation = EditAction::Delete(Specifier::Contextual, Specifier::Contextual);
         vm.input_key(key!('d'));
         vm.input_key(key!('%'));
         assert_pop1!(vm, mot, ctx);
@@ -4193,7 +4234,7 @@ mod tests {
         assert_normal!(vm, ctx);
 
         ctx.action.count = Some(88);
-        ctx.action.operation = EditAction::Yank;
+        ctx.action.operation = EditAction::Yank(Specifier::Contextual, Specifier::Contextual);
         vm.input_key(key!('8'));
         vm.input_key(key!('8'));
         vm.input_key(key!('y'));
@@ -4202,7 +4243,7 @@ mod tests {
         assert_normal!(vm, ctx);
 
         ctx.action.count = Some(101);
-        ctx.action.operation = EditAction::Delete;
+        ctx.action.operation = EditAction::Delete(Specifier::Contextual, Specifier::Contextual);
         vm.input_key(key!('d'));
         vm.input_key(key!('1'));
         vm.input_key(key!('0'));
@@ -4462,7 +4503,7 @@ mod tests {
         vm.input_key(key!('c'));
         vm.input_key(key!('z'));
 
-        ctx.action.operation = EditAction::Delete;
+        ctx.action.operation = EditAction::Delete(Specifier::Contextual, Specifier::Contextual);
         ctx.persist.insert = Some(InsertStyle::Insert);
         assert_pop1!(vm, Action::NoOp, ctx);
         assert_normal!(vm, ctx);
@@ -4481,7 +4522,7 @@ mod tests {
         let mut ctx = mkctx();
 
         // Without a count, Delete deletes one character.
-        let op = EditAction::Delete;
+        let op = EditAction::Delete(Specifier::Contextual, Specifier::Contextual);
         let mov = MoveType::Column(MoveDir1D::Next, false);
         let mov = EditTarget::Motion(mov, Count::Contextual);
         let mov = EditorAction::Edit(op.into(), mov);
@@ -4503,7 +4544,10 @@ mod tests {
         let mut vm: VimMachine<TerminalKey> = default_vim_keys();
         let mut ctx = mkctx();
 
-        let toggle = Action::from(MacroAction::ToggleRecording);
+        let toggle = Action::from(MacroAction::ToggleRecording(
+            Specifier::Contextual,
+            Specifier::Contextual,
+        ));
 
         // The first "q" does nothing.
         vm.input_key(key!('q'));
@@ -4517,7 +4561,10 @@ mod tests {
 
         ctx.action.register = None;
         assert_normal!(vm, ctx);
-        assert_eq!(vm.state().persist.recording, Some((Register::Named('q'), false)));
+        assert_eq!(
+            vm.state().persist.recording,
+            Some((Register::Named('q'), RegisterUpdateStyle::Replace))
+        );
 
         // Type "gqq" to format.
         let format = rangeop!(EditAction::Format, RangeType::Line);
@@ -4544,7 +4591,7 @@ mod tests {
         let col = MoveType::Column(MoveDir1D::Next, false);
 
         // Feed in a tracked sequence.
-        ctx.action.operation = EditAction::Delete;
+        ctx.action.operation = EditAction::Delete(Specifier::Contextual, Specifier::Contextual);
         ctx.action.count = Some(2);
         vm.input_key(key!('2'));
         vm.input_key(key!('d'));
@@ -4567,7 +4614,7 @@ mod tests {
         assert_pop1!(vm, Action::Repeat(RepeatType::EditSequence), ctx);
 
         // Check that repeating does 2dw action.
-        ctx.action.operation = EditAction::Delete;
+        ctx.action.operation = EditAction::Delete(Specifier::Contextual, Specifier::Contextual);
         ctx.action.count = Some(2);
         vm.repeat(RepeatType::EditSequence, None);
         assert_pop1!(vm, mv!(col), ctx);
@@ -4582,7 +4629,7 @@ mod tests {
         assert_pop1!(vm, Action::Repeat(RepeatType::EditSequence), ctx);
 
         // Check that we can override the count and register.
-        ctx.action.operation = EditAction::Delete;
+        ctx.action.operation = EditAction::Delete(Specifier::Contextual, Specifier::Contextual);
         ctx.action.count = Some(4);
         ctx.action.register = Some(Register::Named('a'));
         vm.repeat(RepeatType::EditSequence, Some(ctx.clone().into()));
@@ -4599,7 +4646,7 @@ mod tests {
         assert_pop1!(vm, Action::Repeat(RepeatType::EditSequence), ctx);
 
         // Repeating without a context now uses the overriden context.
-        ctx.action.operation = EditAction::Delete;
+        ctx.action.operation = EditAction::Delete(Specifier::Contextual, Specifier::Contextual);
         ctx.action.count = Some(4);
         ctx.action.register = Some(Register::Named('a'));
         vm.repeat(RepeatType::EditSequence, None);
@@ -4644,7 +4691,7 @@ mod tests {
         // Repeat the whole change sequence.
         vm.repeat(RepeatType::EditSequence, None);
 
-        ctx.action.operation = EditAction::Delete;
+        ctx.action.operation = EditAction::Delete(Specifier::Contextual, Specifier::Contextual);
         ctx.action.count = Some(2);
         ctx.persist.insert = Some(InsertStyle::Insert);
         assert_pop1!(vm, mv!(col), ctx);
