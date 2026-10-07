@@ -126,19 +126,18 @@ pub(crate) fn common_prefix<'a>(a: &'a str, b: &str) -> &'a str {
         return a;
     }
 
-    let mut idx = 0;
     let itera = UnicodeSegmentation::grapheme_indices(a, false);
     let iterb = UnicodeSegmentation::graphemes(b, false);
+    let mut iter = itera.zip(iterb);
 
-    for ((i, ga), gb) in itera.zip(iterb) {
-        idx = i;
-
+    for ((i, ga), gb) in &mut iter {
         if ga != gb {
-            break;
+            return &a[..i];
         }
     }
 
-    return &a[..idx];
+    // One is an exact prefix of the other, return the shortest:
+    if a.len() < b.len() { a } else { &a[..b.len()] }
 }
 
 /// Utility function for calculating bounded and possibly wrapped offsets.
@@ -378,5 +377,24 @@ mod tests {
         assert_eq!(idx, 2);
         assert_eq!(idxlast, 3);
         assert_eq!(v, vec!['b', 'c', 'a', 'd', 'e']);
+    }
+
+    #[test]
+    fn test_common_prefix() {
+        // A is entirely a prefix of B:
+        let a = common_prefix("rightb", "rightbelow");
+        assert_eq!(a, "rightb");
+
+        // B is entirely a prefix of A:
+        let b = common_prefix("rightbelow", "rightb");
+        assert_eq!(b, "rightb");
+
+        // Diverge after several characters:
+        let p = common_prefix("rightbelow", "rightabove");
+        assert_eq!(p, "right");
+
+        // No common prefix:
+        let e = common_prefix("leftabove", "rightbelow");
+        assert_eq!(e, "");
     }
 }
