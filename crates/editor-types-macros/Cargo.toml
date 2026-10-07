@@ -1,6 +1,6 @@
 [package]
 name = "editor-types-macros"
-version = "0.0.5"
+version = "0.0.6"
 homepage = "https://github.com/ulyssa/modalkit/tree/main/crates/editor-types-macros"
 readme = "README.md"
 description = "Procedural macros for generating editor-types values at compile time"
