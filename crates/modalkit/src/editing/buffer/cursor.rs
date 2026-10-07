@@ -19,6 +19,7 @@ where
 
     fn cursor_restore(
         &mut self,
+        reg: &Specifier<Register>,
         style: &CursorGroupCombineStyle,
         ctx: &C,
         store: &mut S,
@@ -34,6 +35,7 @@ where
 
     fn cursor_save(
         &mut self,
+        reg: &Specifier<Register>,
         style: &CursorGroupCombineStyle,
         ctx: &C,
         store: &mut S,
@@ -74,11 +76,12 @@ where
 
     fn cursor_restore(
         &mut self,
+        reg: &Specifier<Register>,
         style: &CursorGroupCombineStyle,
         ctx: &CursorGroupIdContext<'a>,
         store: &mut Store<I>,
     ) -> EditResult<EditInfo, I> {
-        let reg = ctx.2.get_register().unwrap_or(Register::UnnamedCursorGroup);
+        let reg = ctx.2.resolve(reg).unwrap_or(Register::UnnamedCursorGroup);
         let gid = ctx.0;
 
         // Get saved group.
@@ -94,11 +97,12 @@ where
 
     fn cursor_save(
         &mut self,
+        reg: &Specifier<Register>,
         style: &CursorGroupCombineStyle,
         ctx: &CursorGroupIdContext<'a>,
         store: &mut Store<I>,
     ) -> EditResult<EditInfo, I> {
-        let reg = ctx.2.get_register().unwrap_or(Register::UnnamedCursorGroup);
+        let reg = ctx.2.resolve(reg).unwrap_or(Register::UnnamedCursorGroup);
         let gid = ctx.0;
 
         // Get currently saved group.

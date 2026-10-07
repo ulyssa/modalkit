@@ -247,7 +247,7 @@ pub enum PasteStyle {
     ///
     /// let style = PasteStyle::Cursor;
     /// let paste: Action = Action::from_str("insert paste -s cursor").unwrap();
-    /// assert_eq!(paste, InsertTextAction::Paste(style, Count::Contextual).into());
+    /// assert_eq!(paste, InsertTextAction::Paste(style, Specifier::Contextual, Count::Contextual).into());
     /// ```
     ///
     /// ## Example: Using `action!`
@@ -258,7 +258,7 @@ pub enum PasteStyle {
     ///
     /// let style = PasteStyle::Cursor;
     /// let paste: Action = action!("insert paste -s cursor");
-    /// assert_eq!(paste, InsertTextAction::Paste(style, Count::Contextual).into());
+    /// assert_eq!(paste, InsertTextAction::Paste(style, Specifier::Contextual, Count::Contextual).into());
     /// ```
     Cursor,
 
@@ -273,11 +273,11 @@ pub enum PasteStyle {
     ///
     /// let style = PasteStyle::Side(MoveDir1D::Next);
     /// let paste: Action = Action::from_str("insert paste -s (side -d next)").unwrap();
-    /// assert_eq!(paste, InsertTextAction::Paste(style, Count::Contextual).into());
+    /// assert_eq!(paste, InsertTextAction::Paste(style, Specifier::Contextual, Count::Contextual).into());
     ///
     /// let style = PasteStyle::Side(MoveDir1D::Previous);
     /// let paste: Action = Action::from_str("insert paste -s (side -d prev)").unwrap();
-    /// assert_eq!(paste, InsertTextAction::Paste(style, Count::Contextual).into());
+    /// assert_eq!(paste, InsertTextAction::Paste(style, Specifier::Contextual, Count::Contextual).into());
     /// ```
     ///
     /// ## Example: Using `action!`
@@ -288,11 +288,11 @@ pub enum PasteStyle {
     ///
     /// let style = PasteStyle::Side(MoveDir1D::Next);
     /// let paste: Action = action!("insert paste -s (side -d next)");
-    /// assert_eq!(paste, InsertTextAction::Paste(style, Count::Contextual).into());
+    /// assert_eq!(paste, InsertTextAction::Paste(style, Specifier::Contextual, Count::Contextual).into());
     ///
     /// let style = PasteStyle::Side(MoveDir1D::Previous);
     /// let paste: Action = action!("insert paste -s (side -d prev)");
-    /// assert_eq!(paste, InsertTextAction::Paste(style, Count::Contextual).into());
+    /// assert_eq!(paste, InsertTextAction::Paste(style, Specifier::Contextual, Count::Contextual).into());
     /// ```
     Side(MoveDir1D),
 
@@ -307,7 +307,7 @@ pub enum PasteStyle {
     ///
     /// let style = PasteStyle::Replace;
     /// let paste: Action = Action::from_str("insert paste -s replace").unwrap();
-    /// assert_eq!(paste, InsertTextAction::Paste(style, Count::Contextual).into());
+    /// assert_eq!(paste, InsertTextAction::Paste(style, Specifier::Contextual, Count::Contextual).into());
     /// ```
     ///
     /// ## Example: Using `action!`
@@ -318,7 +318,7 @@ pub enum PasteStyle {
     ///
     /// let style = PasteStyle::Replace;
     /// let paste: Action = action!("insert paste -s replace");
-    /// assert_eq!(paste, InsertTextAction::Paste(style, Count::Contextual).into());
+    /// assert_eq!(paste, InsertTextAction::Paste(style, Specifier::Contextual, Count::Contextual).into());
     /// ```
     Replace,
 }
@@ -4589,7 +4589,7 @@ pub enum CursorGroupCombineStyle {
     ///
     /// let combine = CursorGroupCombineStyle::Append;
     /// let restore: Action = Action::from_str("cursor restore -s append").unwrap();
-    /// assert_eq!(restore, CursorAction::Restore(combine).into());
+    /// assert_eq!(restore, CursorAction::Restore(Specifier::Contextual, combine).into());
     /// ```
     ///
     /// ## Example: Using `action!`
@@ -4600,7 +4600,7 @@ pub enum CursorGroupCombineStyle {
     ///
     /// let combine = CursorGroupCombineStyle::Append;
     /// let restore: Action = action!("cursor restore -s append");
-    /// assert_eq!(restore, CursorAction::Restore(combine).into());
+    /// assert_eq!(restore, CursorAction::Restore(Specifier::Contextual, combine).into());
     /// ```
     Append,
 
@@ -4617,7 +4617,7 @@ pub enum CursorGroupCombineStyle {
     ///
     /// let combine = CursorGroupCombineStyle::Merge(CursorMergeStyle::Union);
     /// let restore: Action = Action::from_str("cursor restore -s (merge union)").unwrap();
-    /// assert_eq!(restore, CursorAction::Restore(combine).into());
+    /// assert_eq!(restore, CursorAction::Restore(Specifier::Contextual, combine).into());
     /// ```
     ///
     /// ## Example: Using `action!`
@@ -4628,11 +4628,11 @@ pub enum CursorGroupCombineStyle {
     ///
     /// let merge = CursorMergeStyle::Union;
     /// let combine = CursorGroupCombineStyle::Merge(merge);
-    /// let restore: Action = CursorAction::Restore(combine.clone()).into();
+    /// let restore: Action = CursorAction::Restore(Specifier::Contextual, combine.clone()).into();
     /// assert_eq!(restore, action!("cursor restore -s (merge union)"));
     ///
     /// // Provide `CursorMergeStyle` as an identifier:
-    /// let save: Action = CursorAction::Save(combine).into();
+    /// let save: Action = CursorAction::Save(Specifier::Contextual, combine).into();
     /// assert_eq!(save, action!("cursor save -s (merge {merge})"));
     /// ```
     ///
@@ -4651,7 +4651,7 @@ pub enum CursorGroupCombineStyle {
     ///
     /// let combine = CursorGroupCombineStyle::Replace;
     /// let restore: Action = Action::from_str("cursor restore -s replace").unwrap();
-    /// assert_eq!(restore, CursorAction::Restore(combine).into());
+    /// assert_eq!(restore, CursorAction::Restore(Specifier::Contextual, combine).into());
     /// ```
     ///
     /// ## Example: Using `action!`
@@ -4662,7 +4662,7 @@ pub enum CursorGroupCombineStyle {
     ///
     /// let combine = CursorGroupCombineStyle::Replace;
     /// let restore: Action = action!("cursor restore -s replace");
-    /// assert_eq!(restore, CursorAction::Restore(combine).into());
+    /// assert_eq!(restore, CursorAction::Restore(Specifier::Contextual, combine).into());
     /// ```
     Replace,
 }
@@ -4688,7 +4688,7 @@ pub enum CursorMergeStyle {
     ///
     /// let merge = CursorMergeStyle::Union;
     /// let save: Action = Action::from_str("cursor save -s (merge union)").unwrap();
-    /// assert_eq!(save, CursorAction::Save(CursorGroupCombineStyle::Merge(merge)).into());
+    /// assert_eq!(save, CursorAction::Save(Specifier::Contextual, CursorGroupCombineStyle::Merge(merge)).into());
     /// ```
     ///
     /// ## Example: Using `action!`
@@ -4699,7 +4699,7 @@ pub enum CursorMergeStyle {
     ///
     /// let merge = CursorMergeStyle::Union;
     /// let save: Action = action!("cursor save -s (merge union)");
-    /// assert_eq!(save, CursorAction::Save(CursorGroupCombineStyle::Merge(merge)).into());
+    /// assert_eq!(save, CursorAction::Save(Specifier::Contextual, CursorGroupCombineStyle::Merge(merge)).into());
     /// ```
     Union,
 
@@ -4714,7 +4714,7 @@ pub enum CursorMergeStyle {
     ///
     /// let merge = CursorMergeStyle::Intersect;
     /// let save: Action = Action::from_str("cursor save -s (merge intersect)").unwrap();
-    /// assert_eq!(save, CursorAction::Save(CursorGroupCombineStyle::Merge(merge)).into());
+    /// assert_eq!(save, CursorAction::Save(Specifier::Contextual, CursorGroupCombineStyle::Merge(merge)).into());
     /// ```
     ///
     /// ## Example: Using `action!`
@@ -4725,7 +4725,7 @@ pub enum CursorMergeStyle {
     ///
     /// let merge = CursorMergeStyle::Intersect;
     /// let save: Action = action!("cursor save -s (merge intersect)");
-    /// assert_eq!(save, CursorAction::Save(CursorGroupCombineStyle::Merge(merge)).into());
+    /// assert_eq!(save, CursorAction::Save(Specifier::Contextual, CursorGroupCombineStyle::Merge(merge)).into());
     /// ```
     Intersect,
 
@@ -4740,7 +4740,7 @@ pub enum CursorMergeStyle {
     ///
     /// let merge = CursorMergeStyle::SelectCursor(MoveDir1D::Previous);
     /// let save: Action = Action::from_str("cursor save -s (merge select-cursor -d prev)").unwrap();
-    /// assert_eq!(save, CursorAction::Save(CursorGroupCombineStyle::Merge(merge)).into());
+    /// assert_eq!(save, CursorAction::Save(Specifier::Contextual, CursorGroupCombineStyle::Merge(merge)).into());
     /// ```
     ///
     /// ## Example: Using `action!`
@@ -4751,7 +4751,7 @@ pub enum CursorMergeStyle {
     ///
     /// let merge = CursorMergeStyle::SelectCursor(MoveDir1D::Previous);
     /// let save: Action = action!("cursor save -s (merge select-cursor -d prev)");
-    /// assert_eq!(save, CursorAction::Save(CursorGroupCombineStyle::Merge(merge)).into());
+    /// assert_eq!(save, CursorAction::Save(Specifier::Contextual, CursorGroupCombineStyle::Merge(merge)).into());
     /// ```
     SelectCursor(MoveDir1D),
 
@@ -4766,7 +4766,7 @@ pub enum CursorMergeStyle {
     ///
     /// let merge = CursorMergeStyle::SelectShort;
     /// let save: Action = Action::from_str("cursor save -s (merge select-short)").unwrap();
-    /// assert_eq!(save, CursorAction::Save(CursorGroupCombineStyle::Merge(merge)).into());
+    /// assert_eq!(save, CursorAction::Save(Specifier::Contextual, CursorGroupCombineStyle::Merge(merge)).into());
     /// ```
     ///
     /// ## Example: Using `action!`
@@ -4777,7 +4777,7 @@ pub enum CursorMergeStyle {
     ///
     /// let merge = CursorMergeStyle::SelectShort;
     /// let save: Action = action!("cursor save -s (merge select-short)");
-    /// assert_eq!(save, CursorAction::Save(CursorGroupCombineStyle::Merge(merge)).into());
+    /// assert_eq!(save, CursorAction::Save(Specifier::Contextual, CursorGroupCombineStyle::Merge(merge)).into());
     /// ```
     SelectShort,
 
@@ -4792,7 +4792,7 @@ pub enum CursorMergeStyle {
     ///
     /// let merge = CursorMergeStyle::SelectLong;
     /// let save: Action = Action::from_str("cursor save -s (merge select-long)").unwrap();
-    /// assert_eq!(save, CursorAction::Save(CursorGroupCombineStyle::Merge(merge)).into());
+    /// assert_eq!(save, CursorAction::Save(Specifier::Contextual, CursorGroupCombineStyle::Merge(merge)).into());
     /// ```
     ///
     /// ## Example: Using `action!`
@@ -4803,7 +4803,7 @@ pub enum CursorMergeStyle {
     ///
     /// let merge = CursorMergeStyle::SelectLong;
     /// let save: Action = action!("cursor save -s (merge select-long)");
-    /// assert_eq!(save, CursorAction::Save(CursorGroupCombineStyle::Merge(merge)).into());
+    /// assert_eq!(save, CursorAction::Save(Specifier::Contextual, CursorGroupCombineStyle::Merge(merge)).into());
     /// ```
     SelectLong,
 }
@@ -6293,42 +6293,234 @@ pub enum Register {
     /// The default register.
     ///
     /// For example, `""` in Vim.
+    ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{Action, EditAction, EditorAction};
+    /// use std::str::FromStr;
+    ///
+    /// let op = EditAction::Yank(Register::Unnamed.into(), Specifier::Contextual);
+    /// let yank: Action = EditorAction::Edit(op.into(), EditTarget::Selection).into();
+    /// let s = "edit -o (exact yank -r (exact unnamed)) -t selection";
+    /// assert_eq!(yank, Action::from_str(s).unwrap());
+    /// ```
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, EditAction, EditorAction};
+    ///
+    /// let op = EditAction::Yank(Register::Unnamed.into(), Specifier::Contextual);
+    /// let yank: Action = EditorAction::Edit(op.into(), EditTarget::Selection).into();
+    /// assert_eq!(yank, action!("edit -o (exact yank -r (exact unnamed)) -t selection"));
+    /// ```
     Unnamed,
 
     /// The default macro register.
     ///
     /// For example, `"@` in Kakoune.
+    ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{Action, EditAction, EditorAction};
+    /// use std::str::FromStr;
+    ///
+    /// let op = EditAction::Yank(Register::UnnamedMacro.into(), Specifier::Contextual);
+    /// let yank: Action = EditorAction::Edit(op.into(), EditTarget::Selection).into();
+    /// let s = "edit -o (exact yank -r (exact unnamed-macro)) -t selection";
+    /// assert_eq!(yank, Action::from_str(s).unwrap());
+    /// ```
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, EditAction, EditorAction};
+    ///
+    /// let op = EditAction::Yank(Register::UnnamedMacro.into(), Specifier::Contextual);
+    /// let yank: Action = EditorAction::Edit(op.into(), EditTarget::Selection).into();
+    /// assert_eq!(yank, action!("edit -o (exact yank -r (exact unnamed-macro)) -t selection"));
+    /// ```
     UnnamedMacro,
 
     /// The default cursor group register.
     ///
     ///
     /// For example, `"^` in Kakoune.
+    ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{Action, EditAction, EditorAction};
+    /// use std::str::FromStr;
+    ///
+    /// let op = EditAction::Yank(Register::UnnamedCursorGroup.into(), Specifier::Contextual);
+    /// let yank: Action = EditorAction::Edit(op.into(), EditTarget::Selection).into();
+    /// let s = "edit -o (exact yank -r (exact unnamed-cursor-group)) -t selection";
+    /// assert_eq!(yank, Action::from_str(s).unwrap());
+    /// ```
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, EditAction, EditorAction};
+    ///
+    /// let op = EditAction::Yank(Register::UnnamedCursorGroup.into(), Specifier::Contextual);
+    /// let yank: Action = EditorAction::Edit(op.into(), EditTarget::Selection).into();
+    /// assert_eq!(yank, action!("edit -o (exact yank -r (exact unnamed-cursor-group)) -t selection"));
+    /// ```
     UnnamedCursorGroup,
 
     /// Recently deleted text.
     ///
     /// For example, `"[1-9]` in Vim.
+    ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{Action, EditAction, EditorAction};
+    /// use std::str::FromStr;
+    ///
+    /// let op = EditAction::Yank(Register::RecentlyDeleted(3).into(), Specifier::Contextual);
+    /// let yank: Action = EditorAction::Edit(op.into(), EditTarget::Selection).into();
+    /// let s = "edit -o (exact yank -r (exact recently-deleted 3)) -t selection";
+    /// assert_eq!(yank, Action::from_str(s).unwrap());
+    /// ```
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, EditAction, EditorAction};
+    ///
+    /// let op = EditAction::Yank(Register::RecentlyDeleted(3).into(), Specifier::Contextual);
+    /// let yank: Action = EditorAction::Edit(op.into(), EditTarget::Selection).into();
+    /// assert_eq!(yank, action!("edit -o (exact yank -r (exact recently-deleted 3)) -t selection"));
+    /// ```
     RecentlyDeleted(usize),
 
     /// Most recently deleted text that was shorted than a line.
     ///
     /// For example, `"-` in Vim.
+    ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{Action, EditAction, EditorAction};
+    /// use std::str::FromStr;
+    ///
+    /// let op = EditAction::Yank(Register::SmallDelete.into(), Specifier::Contextual);
+    /// let yank: Action = EditorAction::Edit(op.into(), EditTarget::Selection).into();
+    /// let s = "edit -o (exact yank -r (exact small-delete)) -t selection";
+    /// assert_eq!(yank, Action::from_str(s).unwrap());
+    /// ```
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, EditAction, EditorAction};
+    ///
+    /// let op = EditAction::Yank(Register::SmallDelete.into(), Specifier::Contextual);
+    /// let yank: Action = EditorAction::Edit(op.into(), EditTarget::Selection).into();
+    /// assert_eq!(yank, action!("edit -o (exact yank -r (exact small-delete)) -t selection"));
+    /// ```
     SmallDelete,
 
     /// A register containing the last inserted text.
     ///
     /// For example, `".` in Vim.
+    ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{Action, EditAction, EditorAction};
+    /// use std::str::FromStr;
+    ///
+    /// let op = EditAction::Yank(Register::LastInserted.into(), Specifier::Contextual);
+    /// let yank: Action = EditorAction::Edit(op.into(), EditTarget::Selection).into();
+    /// let s = "edit -o (exact yank -r (exact last-inserted)) -t selection";
+    /// assert_eq!(yank, Action::from_str(s).unwrap());
+    /// ```
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, EditAction, EditorAction};
+    ///
+    /// let op = EditAction::Yank(Register::LastInserted.into(), Specifier::Contextual);
+    /// let yank: Action = EditorAction::Edit(op.into(), EditTarget::Selection).into();
+    /// assert_eq!(yank, action!("edit -o (exact yank -r (exact last-inserted)) -t selection"));
+    /// ```
     LastInserted,
 
     /// A register containing the last value entered for a [CommandType].
     ///
     /// For example, `":` and `"/` in Vim.
+    ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{Action, EditAction, EditorAction};
+    /// use std::str::FromStr;
+    ///
+    /// let op = EditAction::Yank(Register::LastCommand(CommandType::Search).into(), Specifier::Contextual);
+    /// let yank: Action = EditorAction::Edit(op.into(), EditTarget::Selection).into();
+    /// let s = "edit -o (exact yank -r (exact last-command search)) -t selection";
+    /// assert_eq!(yank, Action::from_str(s).unwrap());
+    /// ```
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, EditAction, EditorAction};
+    ///
+    /// let op = EditAction::Yank(Register::LastCommand(CommandType::Search).into(), Specifier::Contextual);
+    /// let yank: Action = EditorAction::Edit(op.into(), EditTarget::Selection).into();
+    /// assert_eq!(yank, action!("edit -o (exact yank -r (exact last-command search)) -t selection"));
+    /// ```
     LastCommand(CommandType),
 
     /// A register containing the last copied text.
     ///
     /// For eample, `"0` in Vim.
+    ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{Action, EditAction, EditorAction};
+    /// use std::str::FromStr;
+    ///
+    /// let op = EditAction::Yank(Register::LastYanked.into(), Specifier::Contextual);
+    /// let yank: Action = EditorAction::Edit(op.into(), EditTarget::Selection).into();
+    /// let s = "edit -o (exact yank -r (exact last-yanked)) -t selection";
+    /// assert_eq!(yank, Action::from_str(s).unwrap());
+    /// ```
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, EditAction, EditorAction};
+    ///
+    /// let op = EditAction::Yank(Register::LastYanked.into(), Specifier::Contextual);
+    /// let yank: Action = EditorAction::Edit(op.into(), EditTarget::Selection).into();
+    /// assert_eq!(yank, action!("edit -o (exact yank -r (exact last-yanked)) -t selection"));
+    /// ```
     LastYanked,
 
     /// A register named by `char`.
@@ -6337,32 +6529,176 @@ pub enum Register {
     /// on.
     ///
     /// For example, `"[a-zA-Z]` in Vim.
+    ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{Action, EditAction, EditorAction};
+    /// use std::str::FromStr;
+    ///
+    /// let op = EditAction::Yank(Register::Named('a').into(), Specifier::Contextual);
+    /// let yank: Action = EditorAction::Edit(op.into(), EditTarget::Selection).into();
+    /// let s = "edit -o (exact yank -r (exact named 'a')) -t selection";
+    /// assert_eq!(yank, Action::from_str(s).unwrap());
+    /// ```
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, EditAction, EditorAction};
+    ///
+    /// let op = EditAction::Yank(Register::Named('a').into(), Specifier::Contextual);
+    /// let yank: Action = EditorAction::Edit(op.into(), EditTarget::Selection).into();
+    /// assert_eq!(yank, action!("edit -o (exact yank -r (exact named 'a')) -t selection"));
+    /// ```
     Named(char),
 
     /// A read-only register containing the alternate buffer name.
     ///
     /// For example, `"#` in Vim.
+    ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{Action, EditAction, EditorAction};
+    /// use std::str::FromStr;
+    ///
+    /// let op = EditAction::Yank(Register::AltBufName.into(), Specifier::Contextual);
+    /// let yank: Action = EditorAction::Edit(op.into(), EditTarget::Selection).into();
+    /// let s = "edit -o (exact yank -r (exact alt-buf-name)) -t selection";
+    /// assert_eq!(yank, Action::from_str(s).unwrap());
+    /// ```
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, EditAction, EditorAction};
+    ///
+    /// let op = EditAction::Yank(Register::AltBufName.into(), Specifier::Contextual);
+    /// let yank: Action = EditorAction::Edit(op.into(), EditTarget::Selection).into();
+    /// assert_eq!(yank, action!("edit -o (exact yank -r (exact alt-buf-name)) -t selection"));
+    /// ```
     AltBufName,
 
     /// A read-only register containing the current buffer name.
     ///
     /// For example, `"%` in Vim.
+    ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{Action, EditAction, EditorAction};
+    /// use std::str::FromStr;
+    ///
+    /// let op = EditAction::Yank(Register::CurBufName.into(), Specifier::Contextual);
+    /// let yank: Action = EditorAction::Edit(op.into(), EditTarget::Selection).into();
+    /// let s = "edit -o (exact yank -r (exact cur-buf-name)) -t selection";
+    /// assert_eq!(yank, Action::from_str(s).unwrap());
+    /// ```
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, EditAction, EditorAction};
+    ///
+    /// let op = EditAction::Yank(Register::CurBufName.into(), Specifier::Contextual);
+    /// let yank: Action = EditorAction::Edit(op.into(), EditTarget::Selection).into();
+    /// assert_eq!(yank, action!("edit -o (exact yank -r (exact cur-buf-name)) -t selection"));
+    /// ```
     CurBufName,
 
     /// A register that discards all content written to it.
     ///
     /// For example, `"_` in Vim.
+    ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{Action, EditAction, EditorAction};
+    /// use std::str::FromStr;
+    ///
+    /// let op = EditAction::Yank(Register::Blackhole.into(), Specifier::Contextual);
+    /// let yank: Action = EditorAction::Edit(op.into(), EditTarget::Selection).into();
+    /// let s = "edit -o (exact yank -r (exact blackhole)) -t selection";
+    /// assert_eq!(yank, Action::from_str(s).unwrap());
+    /// ```
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, EditAction, EditorAction};
+    ///
+    /// let op = EditAction::Yank(Register::Blackhole.into(), Specifier::Contextual);
+    /// let yank: Action = EditorAction::Edit(op.into(), EditTarget::Selection).into();
+    /// assert_eq!(yank, action!("edit -o (exact yank -r (exact blackhole)) -t selection"));
+    /// ```
     Blackhole,
 
     /// A register representing the windowing environment's most recently selected text.
     ///
     /// For example, `"*` in Vim, or what clicking the mouse's middle button pastes in X and
     /// Wayland.
+    ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{Action, EditAction, EditorAction};
+    /// use std::str::FromStr;
+    ///
+    /// let op = EditAction::Yank(Register::SelectionPrimary.into(), Specifier::Contextual);
+    /// let yank: Action = EditorAction::Edit(op.into(), EditTarget::Selection).into();
+    /// let s = "edit -o (exact yank -r (exact selection-primary)) -t selection";
+    /// assert_eq!(yank, Action::from_str(s).unwrap());
+    /// ```
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, EditAction, EditorAction};
+    ///
+    /// let op = EditAction::Yank(Register::SelectionPrimary.into(), Specifier::Contextual);
+    /// let yank: Action = EditorAction::Edit(op.into(), EditTarget::Selection).into();
+    /// assert_eq!(yank, action!("edit -o (exact yank -r (exact selection-primary)) -t selection"));
+    /// ```
     SelectionPrimary,
 
     /// A register representing the windowing environment's most recently copied text.
     ///
     /// For example, `"+` in Vim, or what the keyboard shortcut pastes in X and Wayland.
+    ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{Action, EditAction, EditorAction};
+    /// use std::str::FromStr;
+    ///
+    /// let op = EditAction::Yank(Register::SelectionClipboard.into(), Specifier::Contextual);
+    /// let yank: Action = EditorAction::Edit(op.into(), EditTarget::Selection).into();
+    /// let s = "edit -o (exact yank -r (exact selection-clipboard)) -t selection";
+    /// assert_eq!(yank, Action::from_str(s).unwrap());
+    /// ```
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, EditAction, EditorAction};
+    ///
+    /// let op = EditAction::Yank(Register::SelectionClipboard.into(), Specifier::Contextual);
+    /// let yank: Action = EditorAction::Edit(op.into(), EditTarget::Selection).into();
+    /// assert_eq!(yank, action!("edit -o (exact yank -r (exact selection-clipboard)) -t selection"));
+    /// ```
     SelectionClipboard,
 }
 
@@ -6387,6 +6723,69 @@ impl Register {
             Register::SelectionClipboard => false,
         }
     }
+}
+
+/// How an update to a [Register] should combine with the value it already holds.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
+pub enum RegisterUpdateStyle {
+    /// Replace the register's existing contents with new text.
+    ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{Action, EditAction, EditorAction};
+    /// use std::str::FromStr;
+    ///
+    /// let op = EditAction::Yank(Specifier::Contextual, RegisterUpdateStyle::Replace.into());
+    /// let yank: Action = EditorAction::Edit(op.into(), EditTarget::Selection).into();
+    /// assert_eq!(yank, Action::from_str("edit -o (exact yank -s (exact replace)) -t selection").unwrap());
+    /// ```
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, EditAction, EditorAction};
+    ///
+    /// let op = EditAction::Yank(Specifier::Contextual, RegisterUpdateStyle::Replace.into());
+    /// let yank: Action = EditorAction::Edit(op.into(), EditTarget::Selection).into();
+    /// assert_eq!(yank, action!("edit -o (exact yank -s (exact replace)) -t selection"));
+    /// ```
+    Replace,
+
+    /// Append new text to the end of the text already in the register.
+    ///
+    /// For example, yanking using `"A` or another uppercase letter for a register name in Vim in
+    /// order to append to the lowercase variation of the register name.
+    ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{Action, EditAction, EditorAction};
+    /// use std::str::FromStr;
+    ///
+    /// let reg = Register::Named('a');
+    /// let op = EditAction::Yank(reg.into(), RegisterUpdateStyle::Append.into());
+    /// let yank: Action = EditorAction::Edit(op.into(), EditTarget::Selection).into();
+    /// let s = "edit -o (exact yank -r (exact named 'a') -s (exact append)) -t selection";
+    /// assert_eq!(yank, Action::from_str(s).unwrap());
+    /// ```
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, EditAction, EditorAction};
+    ///
+    /// let reg = Register::Named('a');
+    /// let op = EditAction::Yank(reg.into(), RegisterUpdateStyle::Append.into());
+    /// let yank: Action = EditorAction::Edit(op.into(), EditTarget::Selection).into();
+    /// assert_eq!(yank, action!("edit -o (exact yank -r (exact named 'a') -s (exact append)) -t selection"));
+    /// ```
+    Append,
 }
 
 /// This specifies either the shape of a visual selection, or a forced motion.

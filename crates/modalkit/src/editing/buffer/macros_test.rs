@@ -24,7 +24,9 @@ macro_rules! edit {
 
 macro_rules! paste {
     ($ebuf: expr, $style: expr, $c: expr, $ctx: expr, $store: expr) => {
-        $ebuf.paste(&$style, &$c, $ctx, &mut $store).unwrap()
+        $ebuf
+            .paste(&$style, &Specifier::Contextual, &$c, $ctx, &mut $store)
+            .unwrap()
     };
 }
 

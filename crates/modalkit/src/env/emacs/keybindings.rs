@@ -347,28 +347,28 @@ macro_rules! motion {
 
 macro_rules! yank_target {
     ($target: expr) => {
-        edit_target!(EditAction::Yank, $target)
+        edit_target!(EditAction::Yank(Specifier::Contextual, Specifier::Contextual), $target)
     };
     ($target: expr, $c: expr) => {
-        edit_target!(EditAction::Yank, $target, $c)
+        edit_target!(EditAction::Yank(Specifier::Contextual, Specifier::Contextual), $target, $c)
     };
 }
 
 macro_rules! kill_target {
     ($target: expr) => {
-        edit_target!(EditAction::Delete, $target)
+        edit_target!(EditAction::Delete(Specifier::Contextual, Specifier::Contextual), $target)
     };
     ($target: expr, $c: expr) => {
-        edit_target!(EditAction::Delete, $target, $c)
+        edit_target!(EditAction::Delete(Specifier::Contextual, Specifier::Contextual), $target, $c)
     };
 }
 
 macro_rules! kill {
     ($mt: expr) => {
-        edit!(EditAction::Delete, $mt)
+        edit!(EditAction::Delete(Specifier::Contextual, Specifier::Contextual), $mt)
     };
     ($mt: expr, $c: expr) => {
-        edit!(EditAction::Delete, $mt, $c)
+        edit!(EditAction::Delete(Specifier::Contextual, Specifier::Contextual), $mt, $c)
     };
 }
 
@@ -376,7 +376,7 @@ macro_rules! just_one_space {
     () => {
         isv!(vec![InternalAction::SetRegister(Register::Blackhole)], vec![
             Action::from(EditorAction::Edit(
-                EditAction::Delete.into(),
+                EditAction::Delete(Specifier::Contextual, Specifier::Contextual).into(),
                 RangeType::Word(WordStyle::Whitespace(false)).into()
             ))
             .into(),

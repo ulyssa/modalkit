@@ -52,7 +52,7 @@ where
     bindings: Box<dyn BindingMachine<K, A, S, EditContext, CursorStyle>>,
     keystack: VecDeque<K>,
 
-    recording: Option<(Register, bool)>,
+    recording: Option<(Register, RegisterUpdateStyle)>,
     macro_exec_depth: usize,
     commit_on_input: bool,
     committed: EditRope,
@@ -92,8 +92,8 @@ where
         K: InputKey<Error = MacroError>,
     {
         let (mstr, count) = match act {
-            MacroAction::Execute(count) => {
-                let reg = ctx.get_register().unwrap_or(Register::UnnamedMacro);
+            MacroAction::Execute(reg, count) => {
+                let reg = ctx.resolve(reg).unwrap_or(Register::UnnamedMacro);
                 let rope = store.registers.get_macro(reg)?;
 
                 (rope.to_string(), ctx.resolve(count))
@@ -103,17 +103,13 @@ where
                 let rope = store.registers.get_last_macro()?;
                 (rope.to_string(), ctx.resolve(count))
             },
-            MacroAction::ToggleRecording => {
-                if let Some((reg, append)) = &self.recording {
+            MacroAction::ToggleRecording(reg, style) => {
+                if let Some((reg, style)) = &self.recording {
                     // Save macro to register.
                     let mut rope = EditRope::from("");
                     std::mem::swap(&mut rope, &mut self.committed);
 
-                    let mut flags = RegisterPutFlags::NOTEXT;
-
-                    if *append {
-                        flags |= RegisterPutFlags::APPEND;
-                    }
+                    let flags = RegisterPutFlags::NOTEXT | RegisterPutFlags::from(*style);
 
                     store.registers.put(reg, rope.into(), flags)?;
 
@@ -122,9 +118,10 @@ where
                     self.commit_on_input = false;
                     self.pending = EditRope::from("");
                 } else {
-                    let reg = ctx.get_register().unwrap_or(Register::UnnamedMacro);
+                    let reg = ctx.resolve(reg).unwrap_or(Register::UnnamedMacro);
+                    let style = ctx.resolve(style);
 
-                    self.recording = Some((reg, ctx.get_register_append()));
+                    self.recording = Some((reg, style));
                 }
 
                 return Ok(None);
@@ -369,7 +366,11 @@ mod tests {
                 (Once, Key("q".parse().unwrap())),
                 (Once, Key("q".parse().unwrap())),
             ],
-            &TestAction::Macro(MacroAction::ToggleRecording).into(),
+            &TestAction::Macro(MacroAction::ToggleRecording(
+                Specifier::Contextual,
+                Specifier::Contextual,
+            ))
+            .into(),
         );
         bindings.add_mapping(
             TestMode::Normal,
@@ -379,7 +380,8 @@ mod tests {
         bindings.add_mapping(
             TestMode::Normal,
             &[(Once, Key("Q".parse().unwrap()))],
-            &TestAction::Macro(MacroAction::Execute(Count::Contextual)).into(),
+            &TestAction::Macro(MacroAction::Execute(Specifier::Contextual, Count::Contextual))
+                .into(),
         );
         bindings.add_mapping(
             TestMode::Normal,

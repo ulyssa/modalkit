@@ -253,7 +253,7 @@ impl<I: ApplicationInfo> From<EmacsState<I>> for EditContext {
             .insert_style(ctx.persist.insert.into())
             .last_column(true)
             .register(ctx.action.register.clone())
-            .register_append(false)
+            .register_update(RegisterUpdateStyle::Replace)
             .search_incremental(ctx.persist.regexsearch_inc)
             .build()
     }

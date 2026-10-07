@@ -139,10 +139,12 @@ impl ToTokens for CursorAction {
                     ActionToken::from(target),
                 ]
             },
-            CursorAction::Restore(style) => {
+            CursorAction::Restore(reg, style) => {
                 vec![
                     ActionToken::Word("cursor"),
                     ActionToken::Word("restore"),
+                    ActionToken::Flag(Flag::Register),
+                    specifier(reg),
                     ActionToken::Flag(Flag::Style),
                     ActionToken::from(style),
                 ]
@@ -157,10 +159,12 @@ impl ToTokens for CursorAction {
                     ActionToken::from(count),
                 ]
             },
-            CursorAction::Save(style) => {
+            CursorAction::Save(reg, style) => {
                 vec![
                     ActionToken::Word("cursor"),
                     ActionToken::Word("save"),
+                    ActionToken::Flag(Flag::Register),
+                    specifier(reg),
                     ActionToken::Flag(Flag::Style),
                     ActionToken::from(style),
                 ]
@@ -221,12 +225,14 @@ impl ToTokens for InsertTextAction {
                     ActionToken::from(count),
                 ]
             },
-            InsertTextAction::Paste(style, count) => {
+            InsertTextAction::Paste(style, reg, count) => {
                 vec![
                     ActionToken::Word("insert"),
                     ActionToken::Word("paste"),
                     ActionToken::Flag(Flag::Style),
                     ActionToken::from(style),
+                    ActionToken::Flag(Flag::Register),
+                    specifier(reg),
                     ActionToken::Flag(Flag::Count),
                     ActionToken::from(count),
                 ]
@@ -386,10 +392,12 @@ where
 impl ToTokens for MacroAction {
     fn to_tokens(&self) -> Vec<ActionToken<'_>> {
         match self {
-            MacroAction::Execute(count) => {
+            MacroAction::Execute(reg, count) => {
                 vec![
                     ActionToken::Word("macro"),
                     ActionToken::Word("execute"),
+                    ActionToken::Flag(Flag::Register),
+                    specifier(reg),
                     ActionToken::Flag(Flag::Count),
                     ActionToken::from(count),
                 ]
@@ -412,10 +420,14 @@ impl ToTokens for MacroAction {
                     ActionToken::from(count),
                 ]
             },
-            MacroAction::ToggleRecording => {
+            MacroAction::ToggleRecording(reg, style) => {
                 vec![
                     ActionToken::Word("macro"),
                     ActionToken::Word("toggle-recording"),
+                    ActionToken::Flag(Flag::Register),
+                    specifier(reg),
+                    ActionToken::Flag(Flag::Style),
+                    specifier(style),
                 ]
             },
         }

@@ -244,7 +244,8 @@ impl<I: ApplicationInfo> ModeKeys<TerminalKey, Action<I>, VimState<I>> for VimMo
                 if let Some(c) = ke.get_char() {
                     ctx.persist.insert = Some(InsertStyle::Insert);
 
-                    let delete = EditAction::Delete.into();
+                    let delete =
+                        EditAction::Delete(Specifier::Contextual, Specifier::Contextual).into();
                     let delete = EditorAction::Edit(delete, EditTarget::Selection);
 
                     let ch = Char::Single(c).into();
@@ -303,7 +304,7 @@ pub(crate) struct ActionContext {
     // Other arguments to key sequences.
     pub(crate) replace: Option<Char>,
     pub(crate) register: Option<Register>,
-    pub(crate) register_append: bool,
+    pub(crate) register_update: RegisterUpdateStyle,
     pub(crate) mark: Option<Mark>,
 
     // An editing action to take, and what text to target.
@@ -333,7 +334,7 @@ pub(crate) struct PersistentContext {
     pub(crate) charsearch: Option<Char>,
     pub(crate) shape: Option<TargetShape>,
     pub(crate) insert: Option<InsertStyle>,
-    pub(crate) recording: Option<(Register, bool)>,
+    pub(crate) recording: Option<(Register, RegisterUpdateStyle)>,
     pub(crate) postcmd: (VimMode, Option<TargetShape>, Option<Box<ActionContext>>),
 }
 
@@ -378,7 +379,7 @@ impl<I: ApplicationInfo> InputState for VimState<I> {
         }
 
         if let reg @ Some(_) = overrides.get_register() {
-            builder = builder.register(reg).register_append(overrides.get_register_append());
+            builder = builder.register(reg).register_update(overrides.get_register_update());
         }
 
         builder.build()
@@ -420,9 +421,9 @@ impl<I: ApplicationInfo> InputKeyState<TerminalKey, CommonKeyClass> for VimState
                 }
             },
             EdgeEvent::Class(CommonKeyClass::Register) => {
-                if let Some((reg, append)) = key_to_register(ke) {
+                if let Some((reg, style)) = key_to_register(ke) {
                     self.action.register = Some(reg);
-                    self.action.register_append = append;
+                    self.action.register_update = style;
                 }
             },
 
@@ -488,7 +489,7 @@ impl<I: ApplicationInfo> From<VimState<I>> for EditContext {
             .insert_style(ctx.persist.insert)
             .last_column(ctx.persist.insert.is_some())
             .register(ctx.action.register.clone())
-            .register_append(ctx.action.register_append)
+            .register_update(ctx.action.register_update)
             .search_incremental(ctx.persist.regexsearch_inc)
             .build()
     }
@@ -502,7 +503,7 @@ impl Default for ActionContext {
 
             replace: None,
             register: None,
-            register_append: false,
+            register_update: RegisterUpdateStyle::Replace,
             mark: None,
 
             operation: EditAction::Motion,
@@ -546,13 +547,12 @@ impl<I: ApplicationInfo> Default for VimState<I> {
     }
 }
 
-fn register_to_char((reg, append): &(Register, bool)) -> Option<String> {
+fn register_to_char((reg, style): &(Register, RegisterUpdateStyle)) -> Option<String> {
     let c = match reg {
         Register::Named(c) => {
-            if *append {
-                return c.to_uppercase().to_string().into();
-            } else {
-                return c.to_string().into();
+            match style {
+                RegisterUpdateStyle::Append => return c.to_uppercase().to_string().into(),
+                RegisterUpdateStyle::Replace => return c.to_string().into(),
             }
         },
         Register::RecentlyDeleted(n) => {
@@ -581,7 +581,7 @@ fn register_to_char((reg, append): &(Register, bool)) -> Option<String> {
     return c.to_string().into();
 }
 
-fn char_to_register(c: char) -> Option<(Register, bool)> {
+fn char_to_register(c: char) -> Option<(Register, RegisterUpdateStyle)> {
     let r = match c {
         // Numbers
         '0' => Register::LastYanked,
@@ -599,7 +599,9 @@ fn char_to_register(c: char) -> Option<(Register, bool)> {
         c @ 'a'..='z' => Register::Named(c),
 
         // Uppercase letters
-        c @ 'A'..='Z' => return Some((Register::Named(c.to_ascii_lowercase()), true)),
+        c @ 'A'..='Z' => {
+            return Some((Register::Named(c.to_ascii_lowercase()), RegisterUpdateStyle::Append));
+        },
 
         // Special Characters
         '"' => Register::Unnamed,
@@ -616,10 +618,10 @@ fn char_to_register(c: char) -> Option<(Register, bool)> {
         _ => return None,
     };
 
-    return Some((r, false));
+    return Some((r, RegisterUpdateStyle::Replace));
 }
 
-fn key_to_register(ke: &TerminalKey) -> Option<(Register, bool)> {
+fn key_to_register(ke: &TerminalKey) -> Option<(Register, RegisterUpdateStyle)> {
     ke.get_char().and_then(char_to_register)
 }
 
@@ -701,15 +703,30 @@ mod tests {
 
     #[test]
     fn test_char_to_register() {
-        assert_eq!(char_to_register('a'), Some((Register::Named('a'), false)));
-        assert_eq!(char_to_register('A'), Some((Register::Named('a'), true)));
-        assert_eq!(char_to_register('0'), Some((Register::LastYanked, false)));
-        assert_eq!(char_to_register('1'), Some((Register::RecentlyDeleted(0), false)));
-        assert_eq!(char_to_register('3'), Some((Register::RecentlyDeleted(2), false)));
-        assert_eq!(char_to_register('"'), Some((Register::Unnamed, false)));
+        assert_eq!(
+            char_to_register('a'),
+            Some((Register::Named('a'), RegisterUpdateStyle::Replace))
+        );
+        assert_eq!(
+            char_to_register('A'),
+            Some((Register::Named('a'), RegisterUpdateStyle::Append))
+        );
+        assert_eq!(
+            char_to_register('0'),
+            Some((Register::LastYanked, RegisterUpdateStyle::Replace))
+        );
+        assert_eq!(
+            char_to_register('1'),
+            Some((Register::RecentlyDeleted(0), RegisterUpdateStyle::Replace))
+        );
+        assert_eq!(
+            char_to_register('3'),
+            Some((Register::RecentlyDeleted(2), RegisterUpdateStyle::Replace))
+        );
+        assert_eq!(char_to_register('"'), Some((Register::Unnamed, RegisterUpdateStyle::Replace)));
         assert_eq!(
             char_to_register('/'),
-            Some((Register::LastCommand(CommandType::Search), false))
+            Some((Register::LastCommand(CommandType::Search), RegisterUpdateStyle::Replace))
         );
 
         // Unmapped names.
@@ -718,18 +735,45 @@ mod tests {
 
     #[test]
     fn test_register_to_char() {
-        assert_eq!(register_to_char(&(Register::Named('a'), false)).unwrap(), "a");
-        assert_eq!(register_to_char(&(Register::Named('a'), true)).unwrap(), "A");
-        assert_eq!(register_to_char(&(Register::LastYanked, false)).unwrap(), "0");
-        assert_eq!(register_to_char(&(Register::RecentlyDeleted(0), false)).unwrap(), "1");
-        assert_eq!(register_to_char(&(Register::RecentlyDeleted(2), false)).unwrap(), "3");
-        assert_eq!(register_to_char(&(Register::Unnamed, false)).unwrap(), "\"");
         assert_eq!(
-            register_to_char(&(Register::LastCommand(CommandType::Search), false)).unwrap(),
+            register_to_char(&(Register::Named('a'), RegisterUpdateStyle::Replace)).unwrap(),
+            "a"
+        );
+        assert_eq!(
+            register_to_char(&(Register::Named('a'), RegisterUpdateStyle::Append)).unwrap(),
+            "A"
+        );
+        assert_eq!(
+            register_to_char(&(Register::LastYanked, RegisterUpdateStyle::Replace)).unwrap(),
+            "0"
+        );
+        assert_eq!(
+            register_to_char(&(Register::RecentlyDeleted(0), RegisterUpdateStyle::Replace))
+                .unwrap(),
+            "1"
+        );
+        assert_eq!(
+            register_to_char(&(Register::RecentlyDeleted(2), RegisterUpdateStyle::Replace))
+                .unwrap(),
+            "3"
+        );
+        assert_eq!(
+            register_to_char(&(Register::Unnamed, RegisterUpdateStyle::Replace)).unwrap(),
+            "\""
+        );
+        assert_eq!(
+            register_to_char(&(
+                Register::LastCommand(CommandType::Search),
+                RegisterUpdateStyle::Replace
+            ))
+            .unwrap(),
             "/"
         );
 
         // Registers that don't have names.
-        assert_eq!(register_to_char(&(Register::UnnamedCursorGroup, false)), None);
+        assert_eq!(
+            register_to_char(&(Register::UnnamedCursorGroup, RegisterUpdateStyle::Replace)),
+            None
+        );
     }
 }

@@ -11,6 +11,8 @@ use editor_types_parser::{
     ActionToken,
     ArgError,
     DEFAULT_COUNT,
+    DEFAULT_REGISTER,
+    DEFAULT_REGISTER_UPDATE,
     DEFAULT_TRUE,
     EditTargetParser,
     EditTargetParserExt,
@@ -248,10 +250,36 @@ impl ActionMacroParser {
                 enum_no_args_branch!(self, ::editor_types::EditAction::Motion, w, rest)
             },
             [ActionToken::Word(w @ "delete"), rest @ ..] => {
-                enum_no_args_branch!(self, ::editor_types::EditAction::Delete, w, rest)
+                match parse_flags(
+                    [
+                        (Flag::Register, Some(&DEFAULT_REGISTER[..])),
+                        (Flag::Style, Some(&DEFAULT_REGISTER_UPDATE[..])),
+                    ],
+                    rest,
+                ) {
+                    Ok([reg, style]) => {
+                        let reg = self.parse_specifier_register(reg);
+                        let style = self.parse_specifier_register_update_style(style);
+                        quote! { ::editor_types::EditAction::Delete(#reg, #style) }
+                    },
+                    Err(e) => self.fail_cmd_flag(w, e),
+                }
             },
             [ActionToken::Word(w @ "yank"), rest @ ..] => {
-                enum_no_args_branch!(self, ::editor_types::EditAction::Yank, w, rest)
+                match parse_flags(
+                    [
+                        (Flag::Register, Some(&DEFAULT_REGISTER[..])),
+                        (Flag::Style, Some(&DEFAULT_REGISTER_UPDATE[..])),
+                    ],
+                    rest,
+                ) {
+                    Ok([reg, style]) => {
+                        let reg = self.parse_specifier_register(reg);
+                        let style = self.parse_specifier_register_update_style(style);
+                        quote! { ::editor_types::EditAction::Yank(#reg, #style) }
+                    },
+                    Err(e) => self.fail_cmd_flag(w, e),
+                }
             },
             [ActionToken::Word(w @ "format"), rest @ ..] => {
                 enum_no_args_branch!(self, ::editor_types::EditAction::Format, w, rest)
@@ -316,7 +344,7 @@ impl ActionMacroParser {
             [ActionToken::Id(i), rest @ ..] => {
                 id_match_branch!(self, i, ::editor_types::prelude::Specifier, rest)
             },
-            _ => self.fail("expected a valid edit action specifier"),
+            _ => bad_specifier_match_branch!(self, input),
         }
     }
 
@@ -1409,8 +1437,135 @@ impl ActionMacroParser {
             [ActionToken::Id(id), rest @ ..] => {
                 id_match_branch!(self, id, ::editor_types::prelude::Specifier, rest)
             },
-            [ActionToken::Word(w), ..] => bad_word_match_branch!(self, w, "mark"),
-            _ => self.fail("expected a valid mark specifier"),
+            _ => bad_specifier_match_branch!(self, input),
+        }
+    }
+
+    fn parse_register(&mut self, input: &[ActionToken]) -> TokenStream {
+        match input {
+            [ActionToken::Word(w @ "alt-buf-name"), rest @ ..] => {
+                enum_no_args_branch!(self, ::editor_types::prelude::Register::AltBufName, w, rest)
+            },
+            [ActionToken::Word(w @ "blackhole"), rest @ ..] => {
+                enum_no_args_branch!(self, ::editor_types::prelude::Register::Blackhole, w, rest)
+            },
+            [ActionToken::Word(w @ "cur-buf-name"), rest @ ..] => {
+                enum_no_args_branch!(self, ::editor_types::prelude::Register::CurBufName, w, rest)
+            },
+            [ActionToken::Word("last-command"), rest @ ..] => {
+                let ct = self.parse_command_type(rest);
+                quote! { ::editor_types::prelude::Register::LastCommand(#ct) }
+            },
+            [ActionToken::Word(w @ "last-inserted"), rest @ ..] => {
+                enum_no_args_branch!(self, ::editor_types::prelude::Register::LastInserted, w, rest)
+            },
+            [ActionToken::Word(w @ "last-yanked"), rest @ ..] => {
+                enum_no_args_branch!(self, ::editor_types::prelude::Register::LastYanked, w, rest)
+            },
+            [ActionToken::Word("named"), rest @ ..] => {
+                let c = self.parse_std_char(rest);
+                quote! { ::editor_types::prelude::Register::Named(#c) }
+            },
+            [ActionToken::Word("recently-deleted"), rest @ ..] => {
+                let n = self.parse_num(rest);
+                quote! { ::editor_types::prelude::Register::RecentlyDeleted(#n) }
+            },
+            [ActionToken::Word(w @ "selection-clipboard"), rest @ ..] => {
+                enum_no_args_branch!(
+                    self,
+                    ::editor_types::prelude::Register::SelectionClipboard,
+                    w,
+                    rest
+                )
+            },
+            [ActionToken::Word(w @ "selection-primary"), rest @ ..] => {
+                enum_no_args_branch!(
+                    self,
+                    ::editor_types::prelude::Register::SelectionPrimary,
+                    w,
+                    rest
+                )
+            },
+            [ActionToken::Word(w @ "small-delete"), rest @ ..] => {
+                enum_no_args_branch!(self, ::editor_types::prelude::Register::SmallDelete, w, rest)
+            },
+            [ActionToken::Word(w @ "unnamed"), rest @ ..] => {
+                enum_no_args_branch!(self, ::editor_types::prelude::Register::Unnamed, w, rest)
+            },
+            [ActionToken::Word(w @ "unnamed-cursor-group"), rest @ ..] => {
+                enum_no_args_branch!(
+                    self,
+                    ::editor_types::prelude::Register::UnnamedCursorGroup,
+                    w,
+                    rest
+                )
+            },
+            [ActionToken::Word(w @ "unnamed-macro"), rest @ ..] => {
+                enum_no_args_branch!(self, ::editor_types::prelude::Register::UnnamedMacro, w, rest)
+            },
+            [ActionToken::Id(id), rest @ ..] => {
+                id_match_branch!(self, id, ::editor_types::prelude::Register, rest)
+            },
+            [ActionToken::Word(w), ..] => bad_word_match_branch!(self, w, "register"),
+            _ => self.fail("expected a valid register"),
+        }
+    }
+
+    fn parse_specifier_register(&mut self, input: &[ActionToken]) -> TokenStream {
+        match input {
+            [ActionToken::Word(w @ "ctx"), rest @ ..] => {
+                enum_no_args_branch!(self, ::editor_types::prelude::Specifier::Contextual, w, rest)
+            },
+            [ActionToken::Word("exact"), rest @ ..] => {
+                let reg = self.parse_register(rest);
+                quote! { ::editor_types::prelude::Specifier::Exact(#reg) }
+            },
+            [ActionToken::Id(id), rest @ ..] => {
+                id_match_branch!(self, id, ::editor_types::prelude::Specifier, rest)
+            },
+            _ => bad_specifier_match_branch!(self, input),
+        }
+    }
+
+    fn parse_register_update_style(&mut self, input: &[ActionToken]) -> TokenStream {
+        match input {
+            [ActionToken::Word(w @ "append"), rest @ ..] => {
+                enum_no_args_branch!(
+                    self,
+                    ::editor_types::prelude::RegisterUpdateStyle::Append,
+                    w,
+                    rest
+                )
+            },
+            [ActionToken::Word(w @ "replace"), rest @ ..] => {
+                enum_no_args_branch!(
+                    self,
+                    ::editor_types::prelude::RegisterUpdateStyle::Replace,
+                    w,
+                    rest
+                )
+            },
+            [ActionToken::Id(id), rest @ ..] => {
+                id_match_branch!(self, id, ::editor_types::prelude::RegisterUpdateStyle, rest)
+            },
+            [ActionToken::Word(w), ..] => bad_word_match_branch!(self, w, "register update style"),
+            _ => self.fail("expected a valid register update style"),
+        }
+    }
+
+    fn parse_specifier_register_update_style(&mut self, input: &[ActionToken]) -> TokenStream {
+        match input {
+            [ActionToken::Word(w @ "ctx"), rest @ ..] => {
+                enum_no_args_branch!(self, ::editor_types::prelude::Specifier::Contextual, w, rest)
+            },
+            [ActionToken::Word("exact"), rest @ ..] => {
+                let style = self.parse_register_update_style(rest);
+                quote! { ::editor_types::prelude::Specifier::Exact(#style) }
+            },
+            [ActionToken::Id(id), rest @ ..] => {
+                id_match_branch!(self, id, ::editor_types::prelude::Specifier, rest)
+            },
+            _ => bad_specifier_match_branch!(self, input),
         }
     }
 
@@ -1493,8 +1648,7 @@ impl ActionMacroParser {
             [ActionToken::Id(id), rest @ ..] => {
                 id_match_branch!(self, id, ::editor_types::prelude::Specifier, rest)
             },
-            [ActionToken::Word(w), ..] => bad_word_match_branch!(self, w, "char"),
-            _ => self.fail("expected a valid char"),
+            _ => bad_specifier_match_branch!(self, input),
         }
     }
 

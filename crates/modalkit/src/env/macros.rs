@@ -39,16 +39,16 @@ macro_rules! insert_text {
 
 macro_rules! paste {
     ($style: expr) => {
-        insert_text!(InsertTextAction::Paste($style, Count::Contextual))
+        insert_text!(InsertTextAction::Paste($style, Specifier::Contextual, Count::Contextual))
     };
     ($style: expr, $c: literal) => {
-        insert_text!(InsertTextAction::Paste($style, Count::Exact($c)))
+        insert_text!(InsertTextAction::Paste($style, Specifier::Contextual, Count::Exact($c)))
     };
     ($style: expr, $c: expr) => {
-        insert_text!(InsertTextAction::Paste($style, $c))
+        insert_text!(InsertTextAction::Paste($style, Specifier::Contextual, $c))
     };
     ($style: expr, $c: expr, $nm: expr) => {
-        insert_text!(InsertTextAction::Paste($style, $c), $nm)
+        insert_text!(InsertTextAction::Paste($style, Specifier::Contextual, $c), $nm)
     };
 }
 
@@ -206,7 +206,10 @@ macro_rules! edit_selection {
 
 macro_rules! erase_target {
     ($et: expr) => {
-        blackhole!(EditorAction::Edit(EditAction::Delete.into(), $et))
+        blackhole!(EditorAction::Edit(
+            EditAction::Delete(Specifier::Contextual, Specifier::Contextual).into(),
+            $et
+        ))
     };
 }
 

@@ -755,7 +755,7 @@ where
 
                 return Ok(None);
             },
-            EditAction::Yank => {
+            EditAction::Yank(reg, style) => {
                 let mut info = None;
 
                 let cmc = CursorMovementsContext {
@@ -833,14 +833,9 @@ where
                     }
 
                     let cell = RegisterCell::new(TargetShape::LineWise, yanked);
-                    let register = ctx
-                        .get_register()
-                        .unwrap_or_else(|| store.registers.get_default_register());
-                    let mut flags = RegisterPutFlags::NONE;
-
-                    if ctx.get_register_append() {
-                        flags |= RegisterPutFlags::APPEND;
-                    }
+                    let register =
+                        ctx.resolve(reg).unwrap_or_else(|| store.registers.get_default_register());
+                    let flags = RegisterPutFlags::from(ctx.resolve(style));
 
                     store.registers.put(&register, cell, flags)?;
 
@@ -855,7 +850,7 @@ where
             // Everything else is a modifying action.
             EditAction::ChangeCase(_) => Err(EditError::ReadOnly),
             EditAction::ChangeNumber(_, _) => Err(EditError::ReadOnly),
-            EditAction::Delete => Err(EditError::ReadOnly),
+            EditAction::Delete(..) => Err(EditError::ReadOnly),
             EditAction::Format => Err(EditError::ReadOnly),
             EditAction::Indent(_) => Err(EditError::ReadOnly),
             EditAction::Join(_) => Err(EditError::ReadOnly),
@@ -932,8 +927,8 @@ where
             CursorAction::Rotate(_, _) => Ok(None),
             CursorAction::Split(_) => Ok(None),
 
-            CursorAction::Restore(_) => {
-                let reg = ctx.get_register().unwrap_or(Register::UnnamedCursorGroup);
+            CursorAction::Restore(reg, _) => {
+                let reg = ctx.resolve(reg).unwrap_or(Register::UnnamedCursorGroup);
 
                 // Get saved group.
                 let ngroup = store.cursors.get_group(self.id.clone(), &reg)?;
@@ -947,8 +942,8 @@ where
 
                 Ok(None)
             },
-            CursorAction::Save(_) => {
-                let reg = ctx.get_register().unwrap_or(Register::UnnamedCursorGroup);
+            CursorAction::Save(reg, _) => {
+                let reg = ctx.resolve(reg).unwrap_or(Register::UnnamedCursorGroup);
 
                 // Lists don't have groups; override any previously saved group.
                 let cursor = Cursor::new(self.cursor.position, 0);
@@ -1925,7 +1920,7 @@ mod tests {
     #[test]
     fn test_yank() {
         let (mut list, mut ctx, mut store) = mklist();
-        let op = EditAction::Yank;
+        let op = EditAction::Yank(Specifier::Contextual, Specifier::Contextual);
         let end = EditTarget::Motion(MoveType::BufferPos(MovePosition::End), 1.into());
         list.cursor.position = 4;
         ctx = EditContextBuilder::from(ctx).register(Some(Register::Named('c'))).build();

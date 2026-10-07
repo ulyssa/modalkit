@@ -25,7 +25,7 @@ pub struct EditContext {
     pub(crate) insert_style: Option<InsertStyle>,
     pub(crate) last_column: bool,
     pub(crate) register: Option<Register>,
-    pub(crate) register_append: bool,
+    pub(crate) register_update: RegisterUpdateStyle,
     pub(crate) search_regex_dir: MoveDir1D,
     pub(crate) search_char: Option<(MoveDir1D, bool, Char)>,
     pub(crate) replace_char: Option<Char>,
@@ -45,7 +45,7 @@ impl Default for EditContext {
             insert_style: None,
             last_column: true,
             register: None,
-            register_append: false,
+            register_update: RegisterUpdateStyle::Replace,
             search_regex_dir: MoveDir1D::Next,
             search_char: None,
             replace_char: None,
@@ -85,9 +85,9 @@ impl EditContext {
         self.register.clone()
     }
 
-    /// Indicates whether should be appended to the target register when yanking or deleting text.
-    pub fn get_register_append(&self) -> bool {
-        self.register_append
+    /// Indicates how existing text should be treated when updating the register.
+    pub fn get_register_update(&self) -> RegisterUpdateStyle {
+        self.register_update
     }
 
     /// Get the direction in which to search.
@@ -149,6 +149,24 @@ impl Resolve<Specifier<EditAction>, EditAction> for EditContext {
     }
 }
 
+impl Resolve<Specifier<Register>, Option<Register>> for EditContext {
+    fn resolve(&self, reg: &Specifier<Register>) -> Option<Register> {
+        match reg {
+            Specifier::Contextual => self.register.clone(),
+            Specifier::Exact(r) => Some(r.clone()),
+        }
+    }
+}
+
+impl Resolve<Specifier<RegisterUpdateStyle>, RegisterUpdateStyle> for EditContext {
+    fn resolve(&self, style: &Specifier<RegisterUpdateStyle>) -> RegisterUpdateStyle {
+        match style {
+            Specifier::Contextual => self.register_update,
+            Specifier::Exact(s) => *s,
+        }
+    }
+}
+
 /// Build a new [EditContext].
 #[derive(Default)]
 pub struct EditContextBuilder(EditContext);
@@ -199,12 +217,11 @@ impl EditContextBuilder {
         self
     }
 
-    /// Set whether this operation should append contents to the register or replace the existing
-    /// ones.
+    /// Set how the register should be updated during an action.
     ///
-    /// Defaults to [false].
-    pub fn register_append(mut self, v: bool) -> Self {
-        self.0.register_append = v;
+    /// Defaults to [RegisterUpdateStyle::Replace].
+    pub fn register_update(mut self, style: RegisterUpdateStyle) -> Self {
+        self.0.register_update = style;
         self
     }
 

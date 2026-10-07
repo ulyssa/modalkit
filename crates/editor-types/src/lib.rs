@@ -5,26 +5,38 @@
 //! The types in this crate provides a defunctionalized view of a text editor. Consumers of these
 //! types should map them into text manipulation or user interface actions.
 //!
+//! This crate contains a large number of abstractions, some of which may be irrelevant depending
+//! on the kind of application you're writing. Depending on how much you need or don't need, you
+//! will likely either want to create your own version of the `Action` type or ignore some of its
+//! variants during processing. (For example, if your application only has a single text box then
+//! you may want to just ignore [WindowAction] and [TabAction] but consume everything else.)
+//!
+//! While processing [Action] is usually just a matter of dispatching to different functions and
+//! methods based on the variants, building up specific values (like in keybindings definitions)
+//! can turn into a lot of code due to the nested values. Using the DSL supported by [action] can
+//! help simplify generating these values at compile time.
+//!
 //! ## Examples
 //!
 //! ```
-//! use editor_types::{Action, EditAction, EditorAction};
+//! use editor_types::{action, Action, EditAction, EditorAction};
 //! use editor_types::prelude::*;
 //!
 //! // Delete the current text selection.
-//! let _: Action = EditorAction::Edit(EditAction::Delete.into(), EditTarget::Selection).into();
+//! let op = EditAction::Delete(Specifier::Contextual, Specifier::Contextual);
+//! let _: Action = EditorAction::Edit(op.into(), EditTarget::Selection).into();
 //!
 //! // Copy the next three lines.
-//! let _: Action = EditorAction::Edit(EditAction::Yank.into(), EditTarget::Range(RangeType::Line, true, 3.into())).into();
+//! let op = EditAction::Yank(Specifier::Contextual, Specifier::Contextual);
+//! let range = EditTarget::Range(RangeType::Line, true, 3.into());
+//! let _: Action = EditorAction::Edit(op.into(), range).into();
 //!
 //! // Make some contextually specified number of words lowercase.
-//! let _: Action = EditorAction::Edit(
-//!     EditAction::ChangeCase(Case::Lower).into(),
-//!     EditTarget::Motion(MoveType::WordBegin(WordStyle::Big, MoveDir1D::Next), Count::Contextual)
-//! ).into();
+//! let _: Action = action!("edit -t (motion -T (word-begin -s big -d next)) -o (exact change-case -s lower)");
 //!
 //! // Scroll the viewport so that line 10 is at the top of the screen.
-//! let _: Action = Action::Scroll(ScrollStyle::LinePos(MovePosition::Beginning, 10.into()));
+//! let scroll = ScrollStyle::LinePos(MovePosition::Beginning, 10.into());
+//! let _: Action = Action::Scroll(scroll);
 //! ```
 use std::borrow::Cow;
 use std::str::FromStr;
@@ -63,7 +75,7 @@ type WindowIdOf<I> = <I as ApplicationInfo>::WindowId;
 /// use editor_types::{action, Action, EditAction, EditorAction};
 /// use editor_types::prelude::*;
 ///
-/// let operator = EditAction::Delete;
+/// let operator = EditAction::Delete(Specifier::Contextual, Specifier::Contextual);
 /// let movement = MoveType::WordBegin(WordStyle::Little, MoveDir1D::Next);
 /// let count = 5;
 ///
@@ -95,7 +107,7 @@ type WindowIdOf<I> = <I as ApplicationInfo>::WindowId;
 /// use editor_types::{action, Action, EditAction, EditorAction};
 /// use editor_types::prelude::*;
 ///
-/// let operator = EditAction::Delete;
+/// let operator = EditAction::Delete(Specifier::Contextual, Specifier::Contextual);
 /// let movement = MoveType::WordBegin(WordStyle::Little, MoveDir1D::Next);
 /// let count = 5;
 /// let action: Action = action!("edit -o {} -t (motion -T {} -c {count})", operator, movement, count);
@@ -155,8 +167,9 @@ pub enum EditAction {
     /// use editor_types::{action, Action, EditAction, EditorAction};
     /// use std::str::FromStr;
     ///
-    /// let act: Action = EditorAction::Edit(
-    ///     EditAction::Delete.into(), EditTarget::Selection).into();
+    /// // Delete the selection into the contextually-provided register:
+    /// let op = EditAction::Delete(Specifier::Contextual, Specifier::Contextual);
+    /// let act: Action = EditorAction::Edit(op.into(), EditTarget::Selection).into();
     /// assert_eq!(act, Action::from_str("edit -t selection -o (exact delete)").unwrap());
     /// ```
     ///
@@ -166,11 +179,24 @@ pub enum EditAction {
     /// use editor_types::prelude::*;
     /// use editor_types::{action, Action, EditAction, EditorAction};
     ///
-    /// let act: Action = EditorAction::Edit(
-    ///     EditAction::Delete.into(), EditTarget::Selection).into();
+    /// // Delete the selection into the contextually-provided register:
+    /// let op = EditAction::Delete(Specifier::Contextual, Specifier::Contextual);
+    /// let act: Action = EditorAction::Edit(op.into(), EditTarget::Selection).into();
     /// assert_eq!(act, action!("edit -t selection -o (exact delete)"));
     /// ```
-    Delete,
+    ///
+    /// ## Example: Discarding the deleted text
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, EditAction, EditorAction};
+    ///
+    /// // Delete into the blackhole register, so the deleted text is thrown away:
+    /// let op = EditAction::Delete(Register::Blackhole.into(), Specifier::Contextual);
+    /// let act: Action = EditorAction::Edit(op.into(), EditTarget::Selection).into();
+    /// assert_eq!(act, action!("edit -t selection -o (exact delete -r (exact blackhole))"));
+    /// ```
+    Delete(Specifier<Register>, Specifier<RegisterUpdateStyle>),
 
     /// Yank the targeted text into a [Register].
     ///
@@ -181,8 +207,8 @@ pub enum EditAction {
     /// use editor_types::{action, Action, EditAction, EditorAction};
     /// use std::str::FromStr;
     ///
-    /// let act: Action = EditorAction::Edit(
-    ///     EditAction::Yank.into(), EditTarget::Selection).into();
+    /// let op = EditAction::Yank(Specifier::Contextual, Specifier::Contextual);
+    /// let act: Action = EditorAction::Edit(op.into(), EditTarget::Selection).into();
     /// assert_eq!(act, Action::from_str("edit -t selection -o (exact yank)").unwrap());
     /// ```
     ///
@@ -192,11 +218,26 @@ pub enum EditAction {
     /// use editor_types::prelude::*;
     /// use editor_types::{action, Action, EditAction, EditorAction};
     ///
-    /// let act: Action = EditorAction::Edit(
-    ///     EditAction::Yank.into(), EditTarget::Selection).into();
+    /// let op = EditAction::Yank(Specifier::Contextual, Specifier::Contextual);
+    /// let act: Action = EditorAction::Edit(op.into(), EditTarget::Selection).into();
     /// assert_eq!(act, action!("edit -t selection -o (exact yank)"));
     /// ```
-    Yank,
+    ///
+    /// ## Example: Using an explicit register
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, EditAction, EditorAction};
+    /// use std::str::FromStr;
+    ///
+    /// // Append to register `a`, the way `"Ayy` does in Vim:
+    /// let op = EditAction::Yank(Register::Named('a').into(), RegisterUpdateStyle::Append.into());
+    /// let act: Action = EditorAction::Edit(op.into(), EditTarget::Selection).into();
+    /// let s = "edit -t selection -o (exact yank -r (exact named 'a') -s (exact append))";
+    /// assert_eq!(act, Action::from_str(s).unwrap());
+    /// assert_eq!(act, action!("edit -t selection -o (exact yank -r (exact named 'a') -s (exact append))"));
+    /// ```
+    Yank(Specifier<Register>, Specifier<RegisterUpdateStyle>),
 
     /// Replace characters within the targeted text with a new character.
     ///
@@ -379,11 +420,11 @@ impl EditAction {
     pub fn is_readonly(&self) -> bool {
         match self {
             EditAction::Motion => true,
-            EditAction::Yank => true,
+            EditAction::Yank(..) => true,
 
             EditAction::ChangeCase(_) => false,
             EditAction::ChangeNumber(_, _) => false,
-            EditAction::Delete => false,
+            EditAction::Delete(..) => false,
             EditAction::Format => false,
             EditAction::Indent(_) => false,
             EditAction::Join(_) => false,
@@ -394,6 +435,11 @@ impl EditAction {
     /// Returns true if the value is [EditAction::Motion].
     pub fn is_motion(&self) -> bool {
         matches!(self, EditAction::Motion)
+    }
+
+    /// Returns true if the value is [EditAction::Yank].
+    pub fn is_yank(&self) -> bool {
+        matches!(self, EditAction::Yank(..))
     }
 
     /// Returns true if this [EditAction] is allowed to trigger a [WindowAction::Switch] after an
@@ -705,7 +751,7 @@ pub enum InsertTextAction {
     /// use std::str::FromStr;
     ///
     /// let paste: Action = Action::from_str("insert paste -s (side -d next) -c 5").unwrap();
-    /// assert_eq!(paste, InsertTextAction::Paste(PasteStyle::Side(MoveDir1D::Next), Count::Exact(5)).into());
+    /// assert_eq!(paste, InsertTextAction::Paste(PasteStyle::Side(MoveDir1D::Next), Specifier::Contextual, Count::Exact(5)).into());
     /// ```
     ///
     /// ## Example: Using `action!`
@@ -716,9 +762,21 @@ pub enum InsertTextAction {
     ///
     /// let count = 5;
     /// let paste: Action = action!("insert paste -s (side -d next) -c {count}");
-    /// assert_eq!(paste, InsertTextAction::Paste(PasteStyle::Side(MoveDir1D::Next), Count::Exact(5)).into());
+    /// assert_eq!(paste, InsertTextAction::Paste(PasteStyle::Side(MoveDir1D::Next), Specifier::Contextual, Count::Exact(5)).into());
     /// ```
-    Paste(PasteStyle, Count),
+    ///
+    /// ## Example: Pasting from a specific register
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, EditorAction, InsertTextAction};
+    ///
+    /// let reg = Register::Named('a').into();
+    /// let paste = InsertTextAction::Paste(PasteStyle::Cursor, reg, Count::Contextual);
+    /// let act: Action = EditorAction::InsertText(paste).into();
+    /// assert_eq!(act, action!("insert paste -s cursor -r (exact named 'a')"));
+    /// ```
+    Paste(PasteStyle, Specifier<Register>, Count),
 
     /// Insert the contents of a [String] on [either side](MoveDir1D) of the cursor.
     ///
@@ -934,13 +992,13 @@ pub enum CursorAction {
     /// use std::str::FromStr;
     ///
     /// let restore: Action = Action::from_str("cursor restore -s append").unwrap();
-    /// assert_eq!(restore, CursorAction::Restore(CursorGroupCombineStyle::Append).into());
+    /// assert_eq!(restore, CursorAction::Restore(Specifier::Contextual, CursorGroupCombineStyle::Append).into());
     ///
     /// let restore: Action = Action::from_str("cursor restore -s replace").unwrap();
-    /// assert_eq!(restore, CursorAction::Restore(CursorGroupCombineStyle::Replace).into());
+    /// assert_eq!(restore, CursorAction::Restore(Specifier::Contextual, CursorGroupCombineStyle::Replace).into());
     ///
     /// let restore: Action = Action::from_str("cursor restore -s (merge select-cursor -d prev)").unwrap();
-    /// assert_eq!(restore, CursorAction::Restore(CursorGroupCombineStyle::Merge(CursorMergeStyle::SelectCursor(MoveDir1D::Previous))).into());
+    /// assert_eq!(restore, CursorAction::Restore(Specifier::Contextual, CursorGroupCombineStyle::Merge(CursorMergeStyle::SelectCursor(MoveDir1D::Previous))).into());
     /// ```
     ///
     /// ## Example: Using `action!`
@@ -950,18 +1008,29 @@ pub enum CursorAction {
     /// use editor_types::{action, Action, CursorAction};
     ///
     /// let restore: Action = action!("cursor restore -s append");
-    /// assert_eq!(restore, CursorAction::Restore(CursorGroupCombineStyle::Append).into());
+    /// assert_eq!(restore, CursorAction::Restore(Specifier::Contextual, CursorGroupCombineStyle::Append).into());
     ///
     /// let restore: Action = action!("cursor restore -s replace");
-    /// assert_eq!(restore, CursorAction::Restore(CursorGroupCombineStyle::Replace).into());
+    /// assert_eq!(restore, CursorAction::Restore(Specifier::Contextual, CursorGroupCombineStyle::Replace).into());
     ///
     /// let restore: Action = action!("cursor restore -s (merge select-cursor -d prev)");
-    /// assert_eq!(restore, CursorAction::Restore(CursorGroupCombineStyle::Merge(CursorMergeStyle::SelectCursor(MoveDir1D::Previous))).into());
+    /// assert_eq!(restore, CursorAction::Restore(Specifier::Contextual, CursorGroupCombineStyle::Merge(CursorMergeStyle::SelectCursor(MoveDir1D::Previous))).into());
     /// ```
     ///
     /// See the documentation for [CursorGroupCombineStyle] for how to construct each of its
     /// variants with [action].
-    Restore(CursorGroupCombineStyle),
+    ///
+    /// ## Example: Restoring from a specific register
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, CursorAction};
+    ///
+    /// let reg = Register::Named('z').into();
+    /// let restore: Action = CursorAction::Restore(reg, CursorGroupCombineStyle::Append).into();
+    /// assert_eq!(restore, action!("cursor restore -r (exact named 'z') -s append"));
+    /// ```
+    Restore(Specifier<Register>, CursorGroupCombineStyle),
 
     /// Rotate which cursor in the cursor group is the current leader .
     ///
@@ -1006,13 +1075,13 @@ pub enum CursorAction {
     /// use std::str::FromStr;
     ///
     /// let save: Action = Action::from_str("cursor save -s append").unwrap();
-    /// assert_eq!(save, CursorAction::Save(CursorGroupCombineStyle::Append).into());
+    /// assert_eq!(save, CursorAction::Save(Specifier::Contextual, CursorGroupCombineStyle::Append).into());
     ///
     /// let save: Action = Action::from_str("cursor save -s replace").unwrap();
-    /// assert_eq!(save, CursorAction::Save(CursorGroupCombineStyle::Replace).into());
+    /// assert_eq!(save, CursorAction::Save(Specifier::Contextual, CursorGroupCombineStyle::Replace).into());
     ///
     /// let save: Action = Action::from_str("cursor save -s (merge union)").unwrap();
-    /// assert_eq!(save, CursorAction::Save(CursorGroupCombineStyle::Merge(CursorMergeStyle::Union)).into());
+    /// assert_eq!(save, CursorAction::Save(Specifier::Contextual, CursorGroupCombineStyle::Merge(CursorMergeStyle::Union)).into());
     /// ```
     ///
     /// ## Example: Using `action!`
@@ -1022,18 +1091,29 @@ pub enum CursorAction {
     /// use editor_types::{action, Action, CursorAction};
     ///
     /// let save: Action = action!("cursor save -s append");
-    /// assert_eq!(save, CursorAction::Save(CursorGroupCombineStyle::Append).into());
+    /// assert_eq!(save, CursorAction::Save(Specifier::Contextual, CursorGroupCombineStyle::Append).into());
     ///
     /// let save: Action = action!("cursor save -s replace");
-    /// assert_eq!(save, CursorAction::Save(CursorGroupCombineStyle::Replace).into());
+    /// assert_eq!(save, CursorAction::Save(Specifier::Contextual, CursorGroupCombineStyle::Replace).into());
     ///
     /// let save: Action = action!("cursor save -s (merge union)");
-    /// assert_eq!(save, CursorAction::Save(CursorGroupCombineStyle::Merge(CursorMergeStyle::Union)).into());
+    /// assert_eq!(save, CursorAction::Save(Specifier::Contextual, CursorGroupCombineStyle::Merge(CursorMergeStyle::Union)).into());
     /// ```
     ///
     /// See the documentation for [CursorGroupCombineStyle] for how to construct each of its
     /// variants with [action].
-    Save(CursorGroupCombineStyle),
+    ///
+    /// ## Example: Saving into a specific register
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, CursorAction};
+    ///
+    /// let reg = Register::Named('z').into();
+    /// let save: Action = CursorAction::Save(reg, CursorGroupCombineStyle::Replace).into();
+    /// assert_eq!(save, action!("cursor save -r (exact named 'z') -s replace"));
+    /// ```
+    Save(Specifier<Register>, CursorGroupCombineStyle),
 
     /// Split each cursor in the cursor group [*n*](Count) times.
     ///
@@ -1071,11 +1151,11 @@ impl CursorAction {
     /// error.
     pub fn is_switchable(&self, _: &EditContext) -> bool {
         match self {
-            CursorAction::Restore(_) => true,
+            CursorAction::Restore(..) => true,
 
             CursorAction::Close(_) => false,
             CursorAction::Rotate(..) => false,
-            CursorAction::Save(_) => false,
+            CursorAction::Save(..) => false,
             CursorAction::Split(_) => false,
         }
     }
@@ -1348,7 +1428,7 @@ pub enum MacroAction {
     /// use editor_types::{action, Action, MacroAction};
     /// use std::str::FromStr;
     ///
-    /// let act: Action = MacroAction::Execute(Count::Contextual).into();
+    /// let act: Action = MacroAction::Execute(Specifier::Contextual, Count::Contextual).into();
     ///
     /// // All of these are equivalent:
     /// assert_eq!(act, Action::from_str("macro execute -c ctx").unwrap());
@@ -1362,14 +1442,25 @@ pub enum MacroAction {
     /// use editor_types::prelude::*;
     /// use editor_types::{action, Action, MacroAction};
     ///
-    /// let act: Action = MacroAction::Execute(Count::Contextual).into();
+    /// let act: Action = MacroAction::Execute(Specifier::Contextual, Count::Contextual).into();
     ///
     /// // All of these are equivalent:
     /// assert_eq!(act, action!("macro execute -c ctx"));
     /// assert_eq!(act, action!("macro execute"));
     /// assert_eq!(act, action!("macro exec"));
     /// ```
-    Execute(Count),
+    ///
+    /// ## Example: Running the macro in a specific register
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, MacroAction};
+    ///
+    /// // Run the macro in register `q` three times, the way `3@q` does in Vim.
+    /// let exec: Action = MacroAction::Execute(Register::Named('q').into(), 3.into()).into();
+    /// assert_eq!(exec, action!("macro execute -r (exact named 'q') -c 3"));
+    /// ```
+    Execute(Specifier<Register>, Count),
 
     /// Run the given macro string [*n* times](Count).
     ///
@@ -1442,7 +1533,7 @@ pub enum MacroAction {
     /// use editor_types::{action, Action, MacroAction};
     /// use std::str::FromStr;
     ///
-    /// let act: Action = MacroAction::ToggleRecording.into();
+    /// let act: Action = MacroAction::ToggleRecording(Specifier::Contextual, Specifier::Contextual).into();
     /// assert_eq!(act, Action::from_str("macro toggle-recording").unwrap());
     /// ```
     ///
@@ -1452,10 +1543,22 @@ pub enum MacroAction {
     /// use editor_types::prelude::*;
     /// use editor_types::{action, Action, MacroAction};
     ///
-    /// let act: Action = MacroAction::ToggleRecording.into();
+    /// let act: Action = MacroAction::ToggleRecording(Specifier::Contextual, Specifier::Contextual).into();
     /// assert_eq!(act, action!("macro toggle-recording"));
     /// ```
-    ToggleRecording,
+    ///
+    /// ## Example: Recording into a specific register
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, MacroAction};
+    ///
+    /// // Start recording into register `q`, the way `qq` does in Vim.
+    /// let reg = Register::Named('q').into();
+    /// let rec: Action = MacroAction::ToggleRecording(reg, Specifier::Contextual).into();
+    /// assert_eq!(rec, action!("macro toggle-recording -r (exact named 'q')"));
+    /// ```
+    ToggleRecording(Specifier<Register>, Specifier<RegisterUpdateStyle>),
 }
 
 /// Actions for manipulating application tabs.
@@ -2032,7 +2135,7 @@ pub enum EditorAction {
     /// assert_eq!(close, CursorAction::Close(CursorCloseTarget::Leader).into());
     ///
     /// let restore: Action = Action::from_str("cursor restore -s append").unwrap();
-    /// assert_eq!(restore, CursorAction::Restore(CursorGroupCombineStyle::Append).into());
+    /// assert_eq!(restore, CursorAction::Restore(Specifier::Contextual, CursorGroupCombineStyle::Append).into());
     /// ```
     ///
     /// ## Example: Using `action!`
@@ -2045,7 +2148,7 @@ pub enum EditorAction {
     /// assert_eq!(close, CursorAction::Close(CursorCloseTarget::Leader).into());
     ///
     /// let restore: Action = action!("cursor restore -s append");
-    /// assert_eq!(restore, CursorAction::Restore(CursorGroupCombineStyle::Append).into());
+    /// assert_eq!(restore, CursorAction::Restore(Specifier::Contextual, CursorGroupCombineStyle::Append).into());
     /// ```
     Cursor(CursorAction),
 
@@ -2124,7 +2227,7 @@ pub enum EditorAction {
     /// use std::str::FromStr;
     ///
     /// let paste: Action = Action::from_str("insert paste -s cursor -c 10").unwrap();
-    /// assert_eq!(paste, InsertTextAction::Paste(PasteStyle::Cursor, 10.into()).into());
+    /// assert_eq!(paste, InsertTextAction::Paste(PasteStyle::Cursor, Specifier::Contextual, 10.into()).into());
     /// ```
     ///
     /// ## Example: Using `action!`
@@ -2134,7 +2237,7 @@ pub enum EditorAction {
     /// use editor_types::{action, Action, InsertTextAction};
     ///
     /// let paste: Action = action!("insert paste -s cursor -c 10");
-    /// assert_eq!(paste, InsertTextAction::Paste(PasteStyle::Cursor, 10.into()).into());
+    /// assert_eq!(paste, InsertTextAction::Paste(PasteStyle::Cursor, Specifier::Contextual, 10.into()).into());
     /// ```
     InsertText(InsertTextAction),
 
@@ -2239,7 +2342,7 @@ impl EditorAction {
             EditorAction::Edit(act, _) => {
                 match ctx.resolve(act) {
                     EditAction::Motion => motion,
-                    EditAction::Yank => SequenceStatus::Ignore,
+                    EditAction::Yank(..) => SequenceStatus::Ignore,
                     _ => SequenceStatus::Track,
                 }
             },
@@ -2348,7 +2451,7 @@ impl From<SelectionAction> for EditorAction {
 /// use editor_types::prelude::*;
 ///
 /// let via_enums: Action = EditorAction::Edit(
-///     Specifier::Exact(EditAction::Delete),
+///     Specifier::Exact(EditAction::Delete(Specifier::Contextual, Specifier::Contextual)),
 ///     EditTarget::Motion(MoveType::WordBegin(WordStyle::Little, MoveDir1D::Next), Count::Contextual),
 /// ).into();
 ///
@@ -2506,7 +2609,7 @@ pub enum Action<I: ApplicationInfo = EmptyInfo> {
     /// use std::str::FromStr;
     ///
     /// let act: Action = Action::from_str("macro toggle-recording").unwrap();
-    /// assert_eq!(act, Action::Macro(MacroAction::ToggleRecording));
+    /// assert_eq!(act, Action::Macro(MacroAction::ToggleRecording(Specifier::Contextual, Specifier::Contextual)));
     /// ```
     ///
     /// ## Example: Using `action!`
@@ -2516,7 +2619,7 @@ pub enum Action<I: ApplicationInfo = EmptyInfo> {
     /// use editor_types::{action, Action, MacroAction};
     ///
     /// let act: Action = action!("macro toggle-recording");
-    /// assert_eq!(act, Action::Macro(MacroAction::ToggleRecording));
+    /// assert_eq!(act, Action::Macro(MacroAction::ToggleRecording(Specifier::Contextual, Specifier::Contextual)));
     /// ```
     Macro(MacroAction),
 
@@ -3080,7 +3183,7 @@ mod tests {
         assert_eq!(act.is_readonly(&ctx), true);
 
         let act = EditorAction::Edit(Specifier::Contextual, EditTarget::CurrentPosition);
-        ctx.operation = EditAction::Delete;
+        ctx.operation = EditAction::Delete(Specifier::Contextual, Specifier::Contextual);
         assert_eq!(act.is_readonly(&ctx), false);
     }
 }

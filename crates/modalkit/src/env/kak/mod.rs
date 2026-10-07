@@ -216,7 +216,7 @@ pub(crate) struct ActionContext {
 
     // Other arguments to key sequences.
     pub(crate) register: Option<Register>,
-    pub(crate) register_append: bool,
+    pub(crate) register_update: RegisterUpdateStyle,
 
     // Where to place the cursor after performing an operation.
     pub(crate) cursor_end: CursorEnd,
@@ -237,7 +237,7 @@ impl Default for ActionContext {
             count: None,
 
             register: None,
-            register_append: false,
+            register_update: RegisterUpdateStyle::Replace,
 
             cursor_end: CursorEnd::Auto,
 
@@ -356,9 +356,9 @@ impl<I: ApplicationInfo> InputKeyState<TerminalKey, CommonKeyClass> for KakouneS
                 }
             },
             EdgeEvent::Class(CommonKeyClass::Register) => {
-                if let Some((reg, append)) = key_to_register(ke) {
+                if let Some((reg, style)) = key_to_register(ke) {
                     self.action.register = Some(reg);
-                    self.action.register_append = append;
+                    self.action.register_update = style;
                 }
             },
 
@@ -424,7 +424,7 @@ impl<I: ApplicationInfo> From<KakouneState<I>> for EditContext {
             .insert_style(ctx.persist.insert)
             .last_column(true)
             .register(ctx.action.register.clone())
-            .register_append(ctx.action.register_append)
+            .register_update(ctx.action.register_update)
             .search_incremental(ctx.persist.regexsearch_inc)
             .build()
     }
@@ -455,7 +455,7 @@ fn register_to_char(reg: &Register) -> Option<char> {
     }
 }
 
-fn char_to_register(c: char) -> Option<(Register, bool)> {
+fn char_to_register(c: char) -> Option<(Register, RegisterUpdateStyle)> {
     let r = match c {
         // Lowercase letters
         c @ 'a'..='z' => Register::Named(c),
@@ -482,10 +482,10 @@ fn char_to_register(c: char) -> Option<(Register, bool)> {
         _ => return None,
     };
 
-    return Some((r, false));
+    return Some((r, RegisterUpdateStyle::Replace));
 }
 
-fn key_to_register(ke: &TerminalKey) -> Option<(Register, bool)> {
+fn key_to_register(ke: &TerminalKey) -> Option<(Register, RegisterUpdateStyle)> {
     char_to_register(ke.get_char()?)
 }
 

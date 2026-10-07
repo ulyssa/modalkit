@@ -89,10 +89,11 @@ where
         Ok(Action::Editor(EditorAction::History(HistoryAction::Redo(count))))
     }
 
-    fn visit_macro_execute(&mut self, count: &[ActionToken]) -> Self::Output {
+    fn visit_macro_execute(&mut self, reg: &[ActionToken], count: &[ActionToken]) -> Self::Output {
+        let reg = parse_specifier::<Register>(reg)?;
         let count = Count::try_from(count)?;
 
-        Ok(Action::Macro(MacroAction::Execute(count)))
+        Ok(Action::Macro(MacroAction::Execute(reg, count)))
     }
 
     fn visit_macro_run(&mut self, input: &[ActionToken], count: &[ActionToken]) -> Self::Output {
@@ -108,8 +109,15 @@ where
         Ok(Action::Macro(MacroAction::Repeat(count)))
     }
 
-    fn visit_macro_toggle_recording(&mut self) -> Self::Output {
-        Ok(Action::Macro(MacroAction::ToggleRecording))
+    fn visit_macro_toggle_recording(
+        &mut self,
+        reg: &[ActionToken],
+        style: &[ActionToken],
+    ) -> Self::Output {
+        let reg = parse_specifier::<Register>(reg)?;
+        let style = parse_specifier::<RegisterUpdateStyle>(style)?;
+
+        Ok(Action::Macro(MacroAction::ToggleRecording(reg, style)))
     }
 
     fn visit_prompt_abort(&mut self, empty: &[ActionToken]) -> Self::Output {
@@ -171,9 +179,10 @@ where
         Ok(Action::Editor(EditorAction::Cursor(CursorAction::Close(target))))
     }
 
-    fn visit_cursor_restore(&mut self, style: &[ActionToken]) -> Self::Output {
+    fn visit_cursor_restore(&mut self, reg: &[ActionToken], style: &[ActionToken]) -> Self::Output {
+        let reg = parse_specifier::<Register>(reg)?;
         let style = CursorGroupCombineStyle::try_from(style)?;
-        Ok(Action::Editor(EditorAction::Cursor(CursorAction::Restore(style))))
+        Ok(Action::Editor(EditorAction::Cursor(CursorAction::Restore(reg, style))))
     }
 
     fn visit_cursor_rotate(&mut self, dir: &[ActionToken], count: &[ActionToken]) -> Self::Output {
@@ -182,9 +191,10 @@ where
         Ok(Action::Editor(EditorAction::Cursor(CursorAction::Rotate(dir, count))))
     }
 
-    fn visit_cursor_save(&mut self, style: &[ActionToken]) -> Self::Output {
+    fn visit_cursor_save(&mut self, reg: &[ActionToken], style: &[ActionToken]) -> Self::Output {
+        let reg = parse_specifier::<Register>(reg)?;
         let style = CursorGroupCombineStyle::try_from(style)?;
-        Ok(Action::Editor(EditorAction::Cursor(CursorAction::Save(style))))
+        Ok(Action::Editor(EditorAction::Cursor(CursorAction::Save(reg, style))))
     }
 
     fn visit_cursor_split(&mut self, count: &[ActionToken]) -> Self::Output {
@@ -330,11 +340,17 @@ where
         Ok(Action::Editor(EditorAction::InsertText(InsertTextAction::Type(c, dir, count))))
     }
 
-    fn visit_insert_paste(&mut self, style: &[ActionToken], count: &[ActionToken]) -> Self::Output {
+    fn visit_insert_paste(
+        &mut self,
+        style: &[ActionToken],
+        reg: &[ActionToken],
+        count: &[ActionToken],
+    ) -> Self::Output {
         let style = PasteStyle::try_from(style)?;
+        let reg = parse_specifier::<Register>(reg)?;
         let count = Count::try_from(count)?;
 
-        Ok(Action::Editor(EditorAction::InsertText(InsertTextAction::Paste(style, count))))
+        Ok(Action::Editor(EditorAction::InsertText(InsertTextAction::Paste(style, reg, count))))
     }
 
     fn visit_jump(
