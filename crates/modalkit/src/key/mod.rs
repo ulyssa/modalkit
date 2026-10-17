@@ -111,7 +111,7 @@ impl TerminalKey {
                         ' ' | '@' => 0x0,
                         '4'..='7' => c as u32 - b'4' as u32 + 0x1C,
                         _ => {
-                            panic!("unknown control key: {c:?}")
+                            return None;
                         },
                     };
 
@@ -374,5 +374,20 @@ mod tests {
         // <C-[> is sometimes sent as <Esc>, but we should be able to represent both.
         roundtrip("<C-[>");
         roundtrip("<Esc>");
+    }
+
+    #[test]
+    fn test_literal_char() {
+        let k = TerminalKey::new(KeyCode::Char('@'), KeyModifiers::CONTROL);
+        assert_eq!(k.get_literal_char(), Some('\0'));
+
+        let k = TerminalKey::new(KeyCode::Char('A'), KeyModifiers::CONTROL);
+        assert_eq!(k.get_literal_char(), Some('\x01'));
+
+        let k = TerminalKey::new(KeyCode::Char('B'), KeyModifiers::CONTROL);
+        assert_eq!(k.get_literal_char(), Some('\x02'));
+
+        let k = TerminalKey::new(KeyCode::Char('.'), KeyModifiers::CONTROL);
+        assert_eq!(k.get_literal_char(), None);
     }
 }
