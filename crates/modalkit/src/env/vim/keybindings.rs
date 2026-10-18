@@ -1186,7 +1186,7 @@ macro_rules! tab {
 
 macro_rules! tab_open {
     ($target: expr, $fc: expr) => {
-        tab!(TabAction::Open($target, $fc))
+        tab!(TabAction::Open($target, OpenFlags::NONE, $fc))
     };
 }
 
@@ -1210,10 +1210,13 @@ macro_rules! window {
 
 macro_rules! window_switch {
     ($st: expr) => {
-        window!(WindowAction::Switch($st))
+        window!(WindowAction::Switch($st, OpenFlags::NONE))
     };
     ($st1: expr, $st2: expr) => {
-        window!(WindowAction::Switch($st1), WindowAction::Switch($st2))
+        window!(
+            WindowAction::Switch($st1, OpenFlags::NONE),
+            WindowAction::Switch($st2, OpenFlags::NONE)
+        )
     };
 }
 
@@ -1279,6 +1282,7 @@ macro_rules! window_split {
                 vec![
                     WindowAction::Split(
                         OpenTarget::Current,
+                        OpenFlags::NONE,
                         $axis,
                         MoveDir1D::Previous,
                         Count::Contextual
@@ -1288,6 +1292,7 @@ macro_rules! window_split {
                 vec![
                     WindowAction::Open(
                         OpenTarget::Current,
+                        OpenFlags::NONE,
                         $axis,
                         MoveDir1D::Previous,
                         Count::Contextual
@@ -1302,7 +1307,7 @@ macro_rules! window_split {
 
 macro_rules! window_file {
     ($target: expr, $axis: expr) => {
-        window!(WindowAction::Split($target, $axis, MoveDir1D::Previous, 1.into()))
+        window!(WindowAction::Split($target, OpenFlags::NONE, $axis, MoveDir1D::Previous, 1.into()))
     };
 }
 
@@ -4295,6 +4300,7 @@ mod tests {
         // Without a count ^Wv splits the window.
         let act: Action = WindowAction::Split(
             OpenTarget::Current,
+            OpenFlags::NONE,
             Axis::Vertical,
             MoveDir1D::Previous,
             Count::Contextual,
@@ -4309,6 +4315,7 @@ mod tests {
         // With a count ^Wv splits the window and resizes it.
         let acts: Action = WindowAction::Open(
             OpenTarget::Current,
+            OpenFlags::NONE,
             Axis::Vertical,
             MoveDir1D::Previous,
             Count::Contextual,

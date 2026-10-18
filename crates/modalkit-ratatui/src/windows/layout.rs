@@ -1199,7 +1199,7 @@ where
     {
         match self {
             WindowLayoutDescription::Window { window, .. } => {
-                let w = W::open(window, store)?;
+                let w = W::open(window, OpenFlags::NONE, store)?;
                 let v = Value::Window(w, WindowInfo::default());
 
                 Ok(v)
@@ -1336,10 +1336,11 @@ where
     pub fn from_target(
         &self,
         target: &OpenTarget<I::WindowId>,
+        flags: OpenFlags,
         ctx: &EditContext,
         store: &mut Store<I>,
     ) -> UIResult<Self, I> {
-        let w = self._open(target, ctx, store)?;
+        let w = self._open(target, flags, ctx, store)?;
         let layout = WindowLayoutState::new(w);
 
         Ok(layout)
@@ -1503,6 +1504,7 @@ where
     fn _open(
         &self,
         target: &OpenTarget<I::WindowId>,
+        flags: OpenFlags,
         ctx: &EditContext,
         store: &mut Store<I>,
     ) -> UIResult<W, I> {
@@ -1515,7 +1517,7 @@ where
                     None => Err(UIError::Failure("No alternate window".into())),
                 }
             },
-            OpenTarget::Application(id) => W::open(id.clone(), store),
+            OpenTarget::Application(id) => W::open(id.clone(), flags, store),
             OpenTarget::Current => {
                 let slot = self.get_slot().ok_or(UIError::NoWindow)?;
 
@@ -1525,7 +1527,7 @@ where
                 let slot = self.get_slot().ok_or(UIError::NoWindow)?;
 
                 if let Some(text) = slot.get().get_cursor_word(style) {
-                    W::find(text, store)
+                    W::find(text, flags, store)
                 } else {
                     let msg = "No word under cursor".to_string();
                     let err = UIError::Failure(msg);
@@ -1533,8 +1535,8 @@ where
                     Err(err)
                 }
             },
-            OpenTarget::List(count) => W::posn(ctx.resolve(count), store),
-            OpenTarget::Name(name) => W::find(name.clone(), store),
+            OpenTarget::List(count) => W::posn(ctx.resolve(count), flags, store),
+            OpenTarget::Name(name) => W::find(name.clone(), flags, store),
             OpenTarget::Offset(dir, count) => {
                 let slot = self.get_slot().ok_or(UIError::NoWindow)?;
                 let count = ctx.resolve(count);
@@ -1548,7 +1550,7 @@ where
                 let slot = self.get_slot().ok_or(UIError::NoWindow)?;
 
                 if let Some(text) = slot.get().get_selected_word() {
-                    W::find(text, store)
+                    W::find(text, flags, store)
                 } else {
                     let msg = "No text currently selected".to_string();
                     let err = UIError::Failure(msg);
@@ -1556,7 +1558,7 @@ where
                     Err(err)
                 }
             },
-            OpenTarget::Unnamed => W::unnamed(store),
+            OpenTarget::Unnamed => W::unnamed(flags, store),
         }
     }
 
@@ -1668,6 +1670,7 @@ where
     fn window_split(
         &mut self,
         target: &OpenTarget<I::WindowId>,
+        flags: OpenFlags,
         axis: Axis,
         rel: MoveDir1D,
         count: &Count,
@@ -1675,7 +1678,7 @@ where
         store: &mut Store<I>,
     ) -> UIResult<EditInfo, I> {
         let count = ctx.resolve(count);
-        let w = self._open(target, ctx, store)?;
+        let w = self._open(target, flags, ctx, store)?;
 
         self.zoom = false;
 
@@ -1761,6 +1764,7 @@ where
     fn window_open(
         &mut self,
         target: &OpenTarget<I::WindowId>,
+        flags: OpenFlags,
         axis: Axis,
         rel: MoveDir1D,
         count: &Count,
@@ -1768,7 +1772,7 @@ where
         store: &mut Store<I>,
     ) -> UIResult<EditInfo, I> {
         let count: u16 = ctx.resolve(count).try_into().map_err(EditError::from)?;
-        let w = self._open(target, ctx, store)?;
+        let w = self._open(target, flags, ctx, store)?;
 
         self.open(w, Some(count), axis, rel, store);
 
@@ -1778,6 +1782,7 @@ where
     fn window_switch(
         &mut self,
         target: &OpenTarget<I::WindowId>,
+        flags: OpenFlags,
         ctx: &EditContext,
         store: &mut Store<I>,
     ) -> UIResult<EditInfo, I> {
@@ -1789,11 +1794,11 @@ where
 
                 return Ok(None);
             },
-            OpenTarget::Application(id) => W::open(id.clone(), store)?,
+            OpenTarget::Application(id) => W::open(id.clone(), flags, store)?,
             OpenTarget::Current => slot.get().dup(store),
             OpenTarget::Cursor(style) => {
                 if let Some(text) = slot.get().get_cursor_word(style) {
-                    W::find(text, store)?
+                    W::find(text, flags, store)?
                 } else {
                     let msg = "No word under cursor".to_string();
                     let err = UIError::Failure(msg);
@@ -1801,8 +1806,8 @@ where
                     return Err(err);
                 }
             },
-            OpenTarget::List(count) => W::posn(ctx.resolve(count), store)?,
-            OpenTarget::Name(name) => W::find(name.clone(), store)?,
+            OpenTarget::List(count) => W::posn(ctx.resolve(count), flags, store)?,
+            OpenTarget::Name(name) => W::find(name.clone(), flags, store)?,
             OpenTarget::Offset(dir, count) => {
                 slot.offset(*dir, ctx.resolve(count));
 
@@ -1810,7 +1815,7 @@ where
             },
             OpenTarget::Selection => {
                 if let Some(text) = slot.get().get_selected_word() {
-                    W::find(text, store)?
+                    W::find(text, flags, store)?
                 } else {
                     let msg = "No text currently selected".to_string();
                     let err = UIError::Failure(msg);
@@ -1818,7 +1823,7 @@ where
                     return Err(err);
                 }
             },
-            OpenTarget::Unnamed => W::unnamed(store)?,
+            OpenTarget::Unnamed => W::unnamed(flags, store)?,
         };
 
         slot.open(w);
@@ -1917,17 +1922,19 @@ where
             WindowAction::Exchange(target) => self.window_exchange(target, ctx, store)?,
             WindowAction::Focus(target) => self.window_focus(target, ctx, store)?,
             WindowAction::MoveSide(dir) => self.window_move_side(*dir, ctx, store)?,
-            WindowAction::Open(target, axis, rel, count) => {
-                self.window_open(target, *axis, *rel, count, ctx, store)?
+            WindowAction::Open(target, flags, axis, rel, count) => {
+                self.window_open(target, *flags, *axis, *rel, count, ctx, store)?
             },
             WindowAction::Resize(target, axis, size) => {
                 self.window_resize(target, *axis, size, ctx, store)?
             },
             WindowAction::Rotate(dir) => self.window_rotate(*dir, ctx, store)?,
-            WindowAction::Split(target, axis, rel, count) => {
-                self.window_split(target, *axis, *rel, count, ctx, store)?
+            WindowAction::Split(target, flags, axis, rel, count) => {
+                self.window_split(target, *flags, *axis, *rel, count, ctx, store)?
             },
-            WindowAction::Switch(target) => self.window_switch(target, ctx, store)?,
+            WindowAction::Switch(target, flags) => {
+                self.window_switch(target, *flags, ctx, store)?
+            },
             WindowAction::Write(target, path, flags) => {
                 let path = path.as_ref().map(String::as_str);
 
@@ -2164,14 +2171,24 @@ mod tests {
 
     macro_rules! window_switch {
         ($tree: expr, $target: expr, $ctx: expr, $store: expr) => {
-            $tree.window_switch(&$target, $ctx, &mut $store).unwrap()
+            $tree
+                .window_switch(&$target, OpenFlags::NONE, $ctx, &mut $store)
+                .unwrap()
         };
     }
 
     macro_rules! window_split {
         ($tree: expr, $axis: expr, $dir: expr, $count: expr, $ctx: expr, $store: expr) => {
             $tree
-                .window_split(&OpenTarget::Current, $axis, $dir, &$count, $ctx, &mut $store)
+                .window_split(
+                    &OpenTarget::Current,
+                    OpenFlags::NONE,
+                    $axis,
+                    $dir,
+                    &$count,
+                    $ctx,
+                    &mut $store,
+                )
                 .unwrap()
         };
     }
@@ -2196,17 +2213,29 @@ mod tests {
         dirty: bool,
         term_area: Rect,
         id: Option<usize>,
+        flags: OpenFlags,
     }
 
     impl TestWindow {
-        fn new() -> Self {
-            TestWindow { dirty: true, term_area: Rect::default(), id: None }
+        fn new(id: Option<usize>, flags: OpenFlags) -> Self {
+            TestWindow { id, flags, ..Default::default() }
+        }
+    }
+
+    impl Default for TestWindow {
+        fn default() -> Self {
+            TestWindow {
+                dirty: true,
+                term_area: Rect::default(),
+                id: None,
+                flags: OpenFlags::NONE,
+            }
         }
     }
 
     impl From<Option<usize>> for TestWindow {
         fn from(id: Option<usize>) -> Self {
-            TestWindow { dirty: true, term_area: Rect::default(), id }
+            TestWindow::new(id, OpenFlags::NONE)
         }
     }
 
@@ -2279,23 +2308,27 @@ mod tests {
             Line::from("Window Title")
         }
 
-        fn open(id: Option<usize>, _: &mut Store<TestApp>) -> UIResult<Self, TestApp> {
-            Ok(TestWindow::from(id))
+        fn open(
+            id: Option<usize>,
+            flags: OpenFlags,
+            _: &mut Store<TestApp>,
+        ) -> UIResult<Self, TestApp> {
+            Ok(TestWindow::new(id, flags))
         }
 
-        fn find(name: String, _: &mut Store<TestApp>) -> UIResult<Self, TestApp> {
+        fn find(name: String, flags: OpenFlags, _: &mut Store<TestApp>) -> UIResult<Self, TestApp> {
             match name.parse::<usize>() {
-                Ok(n) => Ok(TestWindow::from(Some(n))),
+                Ok(n) => Ok(TestWindow::new(Some(n), flags)),
                 Err(e) => Err(EditError::from(e).into()),
             }
         }
 
-        fn posn(index: usize, _: &mut Store<TestApp>) -> UIResult<Self, TestApp> {
-            Ok(TestWindow::from(Some(index)))
+        fn posn(index: usize, flags: OpenFlags, _: &mut Store<TestApp>) -> UIResult<Self, TestApp> {
+            Ok(TestWindow::new(Some(index), flags))
         }
 
-        fn unnamed(_: &mut Store<TestApp>) -> UIResult<Self, TestApp> {
-            Ok(TestWindow::from(None))
+        fn unnamed(flags: OpenFlags, _: &mut Store<TestApp>) -> UIResult<Self, TestApp> {
+            Ok(TestWindow::new(None, flags))
         }
     }
 
@@ -2317,7 +2350,7 @@ mod tests {
 
     fn mktree() -> (WindowLayoutState<TestWindow, TestApp>, Store<TestApp>, EditContext) {
         let (store, ctx) = mkstorectx();
-        let tree = WindowLayoutState::new(TestWindow::new());
+        let tree = WindowLayoutState::new(TestWindow::default());
 
         return (tree, store, ctx);
     }
@@ -2380,7 +2413,7 @@ mod tests {
         let flags = CloseFlags::QUIT;
 
         // Repeatedly delete the last window.
-        let mut tree = WindowLayoutState::new(TestWindow::new());
+        let mut tree = WindowLayoutState::new(TestWindow::default());
         window_split!(tree, Axis::Horizontal, MoveDir1D::Next, Count::Exact(99), &ctx, store);
         assert_eq!(tree.root.size(), 100);
 
@@ -2390,7 +2423,7 @@ mod tests {
         }
 
         // Repeatedly delete the first window.
-        let mut tree = WindowLayoutState::new(TestWindow::new());
+        let mut tree = WindowLayoutState::new(TestWindow::default());
         window_split!(tree, Axis::Horizontal, MoveDir1D::Next, Count::Exact(99), &ctx, store);
         assert_eq!(tree.root.size(), 100);
 
@@ -2400,7 +2433,7 @@ mod tests {
         }
 
         // Generate random insertions and then deletions.
-        let mut tree = WindowLayoutState::new(TestWindow::new());
+        let mut tree = WindowLayoutState::new(TestWindow::default());
         let mut rng = rand::rng();
 
         assert_eq!(tree.root.size(), 1);
@@ -2424,7 +2457,7 @@ mod tests {
     #[test]
     fn test_window_split() {
         let (mut store, ctx) = mkstorectx();
-        let mut tree = WindowLayoutState::new(TestWindow::new());
+        let mut tree = WindowLayoutState::new(TestWindow::default());
 
         assert_eq!(tree.root.size(), 1);
         assert_eq!(tree.focused, 0);
@@ -2445,7 +2478,7 @@ mod tests {
     #[test]
     fn test_window_nav_1d() {
         let (mut store, ctx) = mkstorectx();
-        let mut tree = WindowLayoutState::new(TestWindow::new());
+        let mut tree = WindowLayoutState::new(TestWindow::default());
 
         window_split!(tree, Axis::Horizontal, MoveDir1D::Previous, Count::Exact(5), &ctx, store);
         assert_eq!(tree.root.size(), 6);
@@ -2784,7 +2817,7 @@ mod tests {
         assert_eq!(tree.root.get(8).unwrap().get().term_area, Rect::new(67, 67, 33, 33));
 
         // Open a window that is 5 columns wide.
-        let w = TestWindow::new();
+        let w = TestWindow::default();
         tree.open(w, Some(5), Vertical, MoveDir1D::Previous, &mut store);
 
         // We should now have one more window.
@@ -2839,7 +2872,7 @@ mod tests {
         assert_eq!(tree.root.get(8).unwrap().get().term_area, Rect::new(67, 67, 33, 33));
 
         // Open a new window without specifying a height.
-        let w = TestWindow::new();
+        let w = TestWindow::default();
         tree.open(w, None, Vertical, MoveDir1D::Previous, &mut store);
 
         // We should now have one more window.
@@ -2866,9 +2899,81 @@ mod tests {
     }
 
     #[test]
+    fn test_window_constructor_open_flags() {
+        let (mut store, ctx) = mkstorectx();
+        let mut tree = WindowLayoutState::new(TestWindow::default());
+        let ro = OpenFlags::READONLY;
+
+        // Using OpenTarget::Name should call Window::find() with flags:
+        tree.window_switch(&OpenTarget::Name("1".into()), ro, &ctx, &mut store)
+            .unwrap();
+        assert_eq!(tree.get().unwrap().id, Some(1));
+        assert_eq!(tree.get().unwrap().flags, ro);
+
+        // Using OpenTarget::Application should call Window::open() with flags:
+        tree.window_switch(&OpenTarget::Application(2.into()), ro, &ctx, &mut store)
+            .unwrap();
+        assert_eq!(tree.get().unwrap().id, Some(2));
+        assert_eq!(tree.get().unwrap().flags, ro);
+
+        // Using OpenTarget::List should call Window::posn() with flags:
+        tree.window_switch(&OpenTarget::List(3.into()), ro, &ctx, &mut store)
+            .unwrap();
+        assert_eq!(tree.get().unwrap().id, Some(3));
+        assert_eq!(tree.get().unwrap().flags, ro);
+
+        // Using OpenTarget::Unnamed should call Window::unnamed with flags:
+        tree.window_switch(&OpenTarget::Unnamed, ro, &ctx, &mut store).unwrap();
+        assert_eq!(tree.get().unwrap().id, None);
+        assert_eq!(tree.get().unwrap().flags, ro);
+
+        // And the window tree should leave flags alone (i.e., NONE stays NONE):
+        tree.window_switch(&OpenTarget::Name("4".into()), OpenFlags::NONE, &ctx, &mut store)
+            .unwrap();
+        assert_eq!(tree.get().unwrap().flags, OpenFlags::NONE);
+    }
+
+    #[test]
+    fn test_window_split_open_flags() {
+        let (mut store, ctx) = mkstorectx();
+        let mut tree = WindowLayoutState::new(TestWindow::default());
+
+        let next = MoveDir1D::Next;
+        let horiz = Axis::Horizontal;
+        let force = OpenFlags::FORCE;
+        let ro = OpenFlags::READONLY;
+
+        tree.window_split(
+            &OpenTarget::Name("1".into()),
+            ro,
+            horiz,
+            next,
+            &1.into(),
+            &ctx,
+            &mut store,
+        )
+        .unwrap();
+        assert_eq!(tree.get().unwrap().id, Some(1));
+        assert_eq!(tree.get().unwrap().flags, ro);
+
+        tree.window_open(
+            &OpenTarget::Name("2".into()),
+            force,
+            horiz,
+            next,
+            &1.into(),
+            &ctx,
+            &mut store,
+        )
+        .unwrap();
+        assert_eq!(tree.get().unwrap().id, Some(2));
+        assert_eq!(tree.get().unwrap().flags, force);
+    }
+
+    #[test]
     fn test_window_switch_and_jump() {
         let (mut store, ctx) = mkstorectx();
-        let mut tree = WindowLayoutState::new(TestWindow::new());
+        let mut tree = WindowLayoutState::new(TestWindow::default());
         let next = MoveDir1D::Next;
         let prev = MoveDir1D::Previous;
         let jl = PositionList::JumpList;
@@ -2909,7 +3014,7 @@ mod tests {
     #[test]
     fn test_window_switch_split_and_jump() {
         let (mut store, ctx) = mkstorectx();
-        let mut tree = WindowLayoutState::new(TestWindow::new());
+        let mut tree = WindowLayoutState::new(TestWindow::default());
         let next = MoveDir1D::Next;
         let prev = MoveDir1D::Previous;
         let jl = PositionList::JumpList;
@@ -2925,6 +3030,7 @@ mod tests {
 
         tree.window_split(
             &OpenTarget::Name("4".into()),
+            OpenFlags::NONE,
             Axis::Vertical,
             next,
             &Count::Exact(1),

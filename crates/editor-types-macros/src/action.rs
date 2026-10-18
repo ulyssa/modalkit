@@ -245,13 +245,19 @@ impl ActionParser for ActionMacroParser {
         }
     }
 
-    fn visit_tab_open(&mut self, target: &[ActionToken], fc: &[ActionToken]) -> Self::Output {
+    fn visit_tab_open(
+        &mut self,
+        target: &[ActionToken],
+        flags: &[ActionToken],
+        fc: &[ActionToken],
+    ) -> Self::Output {
         let target = self.parse_open_target(target);
+        let flags = self.parse_open_flags(flags);
         let fc = self.parse_focus_change(fc);
 
         quote! {
             ::editor_types::Action::Tab(
-                ::editor_types::TabAction::Open(#target, #fc)
+                ::editor_types::TabAction::Open(#target, #flags, #fc)
             )
         }
     }
@@ -357,18 +363,20 @@ impl ActionParser for ActionMacroParser {
     fn visit_window_open(
         &mut self,
         target: &[ActionToken],
+        flags: &[ActionToken],
         axis: &[ActionToken],
         dir: &[ActionToken],
         count: &[ActionToken],
     ) -> Self::Output {
         let target = self.parse_open_target(target);
+        let flags = self.parse_open_flags(flags);
         let axis = self.parse_axis(axis);
         let dir = self.parse_dir1d(dir);
         let count = self.parse_count(count);
 
         quote! {
             ::editor_types::Action::Window(
-                ::editor_types::WindowAction::Open(#target, #axis, #dir, #count)
+                ::editor_types::WindowAction::Open(#target, #flags, #axis, #dir, #count)
             )
         }
     }
@@ -393,28 +401,35 @@ impl ActionParser for ActionMacroParser {
     fn visit_window_split(
         &mut self,
         target: &[ActionToken],
+        flags: &[ActionToken],
         axis: &[ActionToken],
         dir: &[ActionToken],
         count: &[ActionToken],
     ) -> Self::Output {
         let target = self.parse_open_target(target);
+        let flags = self.parse_open_flags(flags);
         let axis = self.parse_axis(axis);
         let dir = self.parse_dir1d(dir);
         let count = self.parse_count(count);
 
         quote! {
             ::editor_types::Action::Window(
-                ::editor_types::WindowAction::Split(#target, #axis, #dir, #count)
+                ::editor_types::WindowAction::Split(#target, #flags, #axis, #dir, #count)
             )
         }
     }
 
-    fn visit_window_switch(&mut self, target: &[ActionToken]) -> Self::Output {
+    fn visit_window_switch(
+        &mut self,
+        target: &[ActionToken],
+        flags: &[ActionToken],
+    ) -> Self::Output {
         let target = self.parse_open_target(target);
+        let flags = self.parse_open_flags(flags);
 
         quote! {
             ::editor_types::Action::Window(
-                ::editor_types::WindowAction::Switch(#target)
+                ::editor_types::WindowAction::Switch(#target, #flags)
             )
         }
     }

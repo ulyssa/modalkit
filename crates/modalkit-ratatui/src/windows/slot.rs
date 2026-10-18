@@ -268,19 +268,19 @@ where
         self.current.get_tab_title(store)
     }
 
-    fn open(id: I::WindowId, store: &mut Store<I>) -> UIResult<Self, I> {
-        W::open(id, store).map(WindowSlot::new)
+    fn open(id: I::WindowId, flags: OpenFlags, store: &mut Store<I>) -> UIResult<Self, I> {
+        W::open(id, flags, store).map(WindowSlot::new)
     }
 
-    fn find(name: String, store: &mut Store<I>) -> UIResult<Self, I> {
-        W::find(name, store).map(WindowSlot::new)
+    fn find(name: String, flags: OpenFlags, store: &mut Store<I>) -> UIResult<Self, I> {
+        W::find(name, flags, store).map(WindowSlot::new)
     }
 
-    fn posn(index: usize, store: &mut Store<I>) -> UIResult<Self, I> {
-        W::posn(index, store).map(WindowSlot::new)
+    fn posn(index: usize, flags: OpenFlags, store: &mut Store<I>) -> UIResult<Self, I> {
+        W::posn(index, flags, store).map(WindowSlot::new)
     }
 
-    fn unnamed(store: &mut Store<I>) -> UIResult<Self, I> {
-        W::unnamed(store).map(WindowSlot::new)
+    fn unnamed(flags: OpenFlags, store: &mut Store<I>) -> UIResult<Self, I> {
+        W::unnamed(flags, store).map(WindowSlot::new)
     }
 }

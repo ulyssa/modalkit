@@ -53,7 +53,7 @@ use modalkit::{
         cursor::Cursor,
         key::KeyManager,
         rope::EditRope,
-        store::Store,
+        store::{SharedBuffer, Store},
     },
     env::mixed::{MixedChoice, MixedMachine},
     env::vim::command::{VimCommandMachine, complete_cmdbar},
@@ -128,7 +128,7 @@ impl Promptable<EditContext, Store<EditorInfo>, EditorInfo> for DirectoryItem {
     ) -> EditResult<Vec<(Action<EditorInfo>, EditContext)>, EditorInfo> {
         if let PromptAction::Submit = act {
             let target = OpenTarget::Name(self.entry.clone());
-            let act = WindowAction::Switch(target);
+            let act = WindowAction::Switch(target, OpenFlags::NONE);
 
             Ok(vec![(act.into(), ctx.clone())])
         } else {
@@ -193,6 +193,14 @@ impl ApplicationStore for EditorStore {}
 enum EditorWindow {
     Text(TextBoxState<EditorInfo>),
     Listing(ListState<DirectoryItem, EditorInfo>),
+}
+
+impl EditorWindow {
+    pub fn text(buffer: SharedBuffer<EditorInfo>, flags: OpenFlags) -> Self {
+        let mut tbox = TextBoxState::new(buffer);
+        tbox.set_readonly(flags.contains(OpenFlags::READONLY));
+        tbox.into()
+    }
 }
 
 impl From<ListState<DirectoryItem, EditorInfo>> for EditorWindow {
@@ -320,7 +328,11 @@ impl WindowOps<EditorInfo> for EditorWindow {
     }
 }
 
-fn load_file(name: String, store: &mut Store<EditorInfo>) -> UIResult<EditorWindow, EditorInfo> {
+fn load_file(
+    name: String,
+    flags: OpenFlags,
+    store: &mut Store<EditorInfo>,
+) -> UIResult<EditorWindow, EditorInfo> {
     let name = shellexpand::full(&name).map(Cow::into_owned).unwrap_or(name);
     let path = Path::new(name.as_str());
 
@@ -358,9 +370,9 @@ fn load_file(name: String, store: &mut Store<EditorInfo>) -> UIResult<EditorWind
 
             v.insert(buffer.clone());
 
-            TextBoxState::new(buffer).into()
+            EditorWindow::text(buffer, flags)
         },
-        Entry::Occupied(o) => TextBoxState::new(o.get().clone()).into(),
+        Entry::Occupied(o) => EditorWindow::text(o.get().clone(), flags),
     };
 
     if index == store.application.fileindex {
@@ -396,14 +408,18 @@ impl Window<EditorInfo> for EditorWindow {
         }
     }
 
-    fn open(id: EditorContentId, store: &mut Store<EditorInfo>) -> UIResult<Self, EditorInfo> {
+    fn open(
+        id: EditorContentId,
+        flags: OpenFlags,
+        store: &mut Store<EditorInfo>,
+    ) -> UIResult<Self, EditorInfo> {
         match id {
             id @ (EditorContentId::Scratch | EditorContentId::File(_)) => {
                 let buffer = store.load_buffer(id);
 
-                Ok(TextBoxState::new(buffer).into())
+                Ok(EditorWindow::text(buffer, flags))
             },
-            EditorContentId::Directory(name) => load_file(name, store),
+            EditorContentId::Directory(name) => load_file(name, flags, store),
             EditorContentId::Command(_) => {
                 let msg = "Cannot open command bar in a window";
 
@@ -412,20 +428,23 @@ impl Window<EditorInfo> for EditorWindow {
         }
     }
 
-    fn find(name: String, store: &mut Store<EditorInfo>) -> UIResult<Self, EditorInfo> {
-        return load_file(name, store);
+    fn find(
+        name: String,
+        flags: OpenFlags,
+        store: &mut Store<EditorInfo>,
+    ) -> UIResult<Self, EditorInfo> {
+        return load_file(name, flags, store);
     }
 
-    fn posn(index: usize, store: &mut Store<EditorInfo>) -> UIResult<Self, EditorInfo> {
+    fn posn(
+        index: usize,
+        flags: OpenFlags,
+        store: &mut Store<EditorInfo>,
+    ) -> UIResult<Self, EditorInfo> {
         let id = EditorContentId::File(index);
 
         match store.buffers.entry(id) {
-            Entry::Occupied(o) => {
-                let ebuf = o.get().clone();
-                let tbox = TextBoxState::new(ebuf);
-
-                Ok(tbox.into())
-            },
+            Entry::Occupied(o) => Ok(EditorWindow::text(o.get().clone(), flags)),
             Entry::Vacant(_) => {
                 let msg = "";
                 let err = UIError::Failure(msg.into());
@@ -435,8 +454,8 @@ impl Window<EditorInfo> for EditorWindow {
         }
     }
 
-    fn unnamed(store: &mut Store<EditorInfo>) -> UIResult<Self, EditorInfo> {
-        Self::open(EditorContentId::Scratch, store)
+    fn unnamed(flags: OpenFlags, store: &mut Store<EditorInfo>) -> UIResult<Self, EditorInfo> {
+        Self::open(EditorContentId::Scratch, flags, store)
     }
 }
 

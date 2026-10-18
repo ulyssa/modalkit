@@ -433,7 +433,7 @@ macro_rules! window_focus {
 
 macro_rules! window_switch {
     ($st: expr) => {
-        window!(WindowAction::Switch($st))
+        window!(WindowAction::Switch($st, OpenFlags::NONE))
     };
 }
 
@@ -441,6 +441,7 @@ macro_rules! window_split {
     ($axis: expr) => {
         window!(WindowAction::Split(
             OpenTarget::Current,
+            OpenFlags::NONE,
             $axis,
             MoveDir1D::Previous,
             Count::Contextual

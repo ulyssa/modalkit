@@ -282,6 +282,7 @@ where
     fn window_split(
         &mut self,
         target: &OpenTarget<I::WindowId>,
+        flags: OpenFlags,
         axis: Axis,
         rel: MoveDir1D,
         count: &Count,
@@ -292,6 +293,7 @@ where
     fn window_open(
         &mut self,
         target: &OpenTarget<I::WindowId>,
+        flags: OpenFlags,
         axis: Axis,
         rel: MoveDir1D,
         count: &Count,
@@ -302,6 +304,7 @@ where
     fn window_switch(
         &mut self,
         target: &OpenTarget<I::WindowId>,
+        flags: OpenFlags,
         ctx: &C,
         store: &mut Store<I>,
     ) -> UIResult<EditInfo, I>;

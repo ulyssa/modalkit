@@ -240,6 +240,7 @@ where
     fn tab_open(
         &mut self,
         target: &OpenTarget<I::WindowId>,
+        flags: OpenFlags,
         change: &FocusChange,
         ctx: &C,
         store: &mut S,
@@ -505,13 +506,14 @@ where
     fn tab_open(
         &mut self,
         target: &OpenTarget<I::WindowId>,
+        flags: OpenFlags,
         change: &FocusChange,
         ctx: &EditContext,
         store: &mut Store<I>,
     ) -> UIResult<EditInfo, I> {
         let (idx, side) =
             self.tabs.target(change, ctx).unwrap_or((self.tabs.pos(), MoveDir1D::Next));
-        let tab = self.current_tab_mut()?.from_target(target, ctx, store)?;
+        let tab = self.current_tab_mut()?.from_target(target, flags, ctx, store)?;
 
         self.tabs.insert(idx, side, tab);
 
@@ -545,7 +547,9 @@ where
             TabAction::Extract(target, side) => self.tab_extract(target, side, ctx, store),
             TabAction::Focus(change) => self.tab_focus(change, ctx, store),
             TabAction::Move(change) => self.tab_move(change, ctx, store),
-            TabAction::Open(target, change) => self.tab_open(target, change, ctx, store),
+            TabAction::Open(target, flags, change) => {
+                self.tab_open(target, *flags, change, ctx, store)
+            },
             act => {
                 let msg = format!("unknown tab action: {act:?}");
                 return Err(UIError::Unimplemented(msg));
