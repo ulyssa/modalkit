@@ -1350,6 +1350,30 @@ impl TryFrom<&[ActionToken<'_>]> for CloseFlags {
     }
 }
 
+impl TryFrom<&[ActionToken<'_>]> for OpenFlags {
+    type Error = anyhow::Error;
+
+    fn try_from(input: &[ActionToken<'_>]) -> anyhow::Result<Self> {
+        if input.is_empty() {
+            bail!("Expected argument to be valid window OpenFlags");
+        }
+
+        let mut flags = OpenFlags::NONE;
+
+        for token in input {
+            flags |= match token {
+                ActionToken::Word("none") => OpenFlags::NONE,
+                ActionToken::Word("force") => OpenFlags::FORCE,
+                ActionToken::Word("create") => OpenFlags::CREATE,
+                ActionToken::Word("ro" | "read-only" | "readonly") => OpenFlags::READONLY,
+                t => bail!("expected `none`, `force`, `create` or `readonly`, found `{t}`"),
+            };
+        }
+
+        Ok(flags)
+    }
+}
+
 impl TryFrom<&[ActionToken<'_>]> for WriteFlags {
     type Error = anyhow::Error;
 

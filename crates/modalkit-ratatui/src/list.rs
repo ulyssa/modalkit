@@ -1572,7 +1572,7 @@ mod tests {
             match act {
                 PromptAction::Submit => {
                     let target = OpenTarget::Name(self.author.clone());
-                    let act = WindowAction::Switch(target);
+                    let act = WindowAction::Switch(target, OpenFlags::NONE);
 
                     return Ok(vec![(act.into(), ctx.clone())]);
                 },
@@ -2250,13 +2250,13 @@ mod tests {
         let acts = list.prompt(&PromptAction::Submit, &ctx, &mut store).unwrap();
         let target = OpenTarget::Name("Haruki Murakami".into());
         assert_eq!(acts.len(), 1);
-        assert_eq!(acts[0].0, WindowAction::Switch(target).into());
+        assert_eq!(acts[0].0, WindowAction::Switch(target, OpenFlags::NONE).into());
 
         list.cursor.position = 4;
 
         let acts = list.prompt(&PromptAction::Submit, &ctx, &mut store).unwrap();
         let target = OpenTarget::Name("Imogen Binnie".into());
         assert_eq!(acts.len(), 1);
-        assert_eq!(acts[0].0, WindowAction::Switch(target).into());
+        assert_eq!(acts[0].0, WindowAction::Switch(target, OpenFlags::NONE).into());
     }
 }

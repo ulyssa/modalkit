@@ -12,6 +12,7 @@ pub const DEFAULT_FILTER: [ActionToken<'static>; 1] = [ActionToken::Word("all")]
 pub const DEFAULT_COMPTYPE: [ActionToken<'static>; 1] = [ActionToken::Word("auto")];
 pub const DEFAULT_COUNT: [ActionToken<'static>; 1] = [ActionToken::Word("ctx")];
 pub const DEFAULT_MARK: [ActionToken<'static>; 1] = [ActionToken::Word("ctx")];
+pub const DEFAULT_NONE_FLAG: [ActionToken<'static>; 1] = [ActionToken::Word("none")];
 pub const DEFAULT_OP: [ActionToken<'static>; 1] = [ActionToken::Word("ctx")];
 pub const DEFAULT_PREV: [ActionToken<'static>; 1] = [ActionToken::Word("previous")];
 pub const DEFAULT_REGISTER: [ActionToken<'static>; 1] = [ActionToken::Word("ctx")];
@@ -99,6 +100,16 @@ pub fn flag_pairs<'a>(
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 #[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub enum Flag {
+    /// A `--flags` or `-F` flag in the input.
+    ///
+    /// In order to encourage common flag initials, `-F` should always take a `*Flags`
+    /// argument, typically made using the `bitflags` crate, and whose values can
+    /// be OR'd together.
+    ///
+    /// The argument should then support combining different flags by listing their names,
+    /// such as `-F (flag1 flag2 flag3)` to achieve `Flag1 | Flag2 | Flag3`.
+    Bitflags,
+
     /// A `--count` or `-c` flag in the input.
     ///
     /// In order to encourage common flag initials, `-c` should always take a `Count`.
@@ -124,6 +135,12 @@ pub enum Flag {
     ///
     /// In order to encourage common flag initials, `-m` should always take an input `Mark`.
     Mark,
+
+    /// A `--matches` or `-M` flag in the input.
+    ///
+    /// The argument should either specify what needs to be matched (i.e., a filter or kind of value
+    /// to select) or what should be done to matching values.
+    Matches,
 
     /// A `--position` or `-p` flag in the input.
     ///
@@ -166,11 +183,13 @@ pub enum Flag {
 impl std::fmt::Display for Flag {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
         match self {
+            Flag::Bitflags => write!(f, "--flags"),
             Flag::Count => write!(f, "--count"),
             Flag::Dir => write!(f, "--dir"),
             Flag::Focus => write!(f, "--focus"),
             Flag::Input => write!(f, "--input"),
             Flag::Mark => write!(f, "--mark"),
+            Flag::Matches => write!(f, "--matches"),
             Flag::Position => write!(f, "--position"),
             Flag::Register => write!(f, "--register"),
             Flag::Style => write!(f, "--style"),
@@ -411,7 +430,12 @@ pub trait ActionParser {
     fn visit_tab_extract(&mut self, fc: &[ActionToken], dir: &[ActionToken]) -> Self::Output;
 
     /// Parse `tab open` and its arguments.
-    fn visit_tab_open(&mut self, target: &[ActionToken], fc: &[ActionToken]) -> Self::Output;
+    fn visit_tab_open(
+        &mut self,
+        target: &[ActionToken],
+        flags: &[ActionToken],
+        fc: &[ActionToken],
+    ) -> Self::Output;
 
     /// Parse `tab focus` and its arguments.
     fn visit_tab_focus(&mut self, fc: &[ActionToken]) -> Self::Output;
@@ -427,6 +451,7 @@ pub trait ActionParser {
     fn visit_window_open(
         &mut self,
         target: &[ActionToken],
+        flags: &[ActionToken],
         axis: &[ActionToken],
         dir: &[ActionToken],
         count: &[ActionToken],
@@ -444,13 +469,15 @@ pub trait ActionParser {
     fn visit_window_split(
         &mut self,
         target: &[ActionToken],
+        flags: &[ActionToken],
         axis: &[ActionToken],
         dir: &[ActionToken],
         count: &[ActionToken],
     ) -> Self::Output;
 
     /// Parse `window switch` and its arguments.
-    fn visit_window_switch(&mut self, input: &[ActionToken]) -> Self::Output;
+    fn visit_window_switch(&mut self, input: &[ActionToken], flags: &[ActionToken])
+    -> Self::Output;
 
     /// Parse `window write` and its arguments.
     fn visit_window_write(
@@ -946,7 +973,7 @@ impl<V: ActionParser> ActionParserExt for V {
             ActionToken::Word("recall") => {
                 match parse_flags(
                     [
-                        (Flag::Short('F'), Some(&DEFAULT_FILTER[..])),
+                        (Flag::Matches, Some(&DEFAULT_FILTER[..])),
                         (Flag::Dir, None),
                         (Flag::Count, Some(&DEFAULT_COUNT[..])),
                     ],
@@ -1031,7 +1058,13 @@ impl<V: ActionParser> ActionParserExt for V {
 
         match cmd {
             ActionToken::Word("close") => {
-                match parse_required_flags([Flag::Target, Flag::Short('F')], rest) {
+                match parse_flags(
+                    [
+                        (Flag::Target, None),
+                        (Flag::Bitflags, Some(&DEFAULT_NONE_FLAG[..])),
+                    ],
+                    rest,
+                ) {
                     Ok([target, flags]) => self.visit_tab_close(target, flags),
                     Err(e) => fail_cmd_flag(self, "tab close", e),
                 }
@@ -1055,8 +1088,15 @@ impl<V: ActionParser> ActionParserExt for V {
                 }
             },
             ActionToken::Word("open") => {
-                match parse_required_flags([Flag::Target, Flag::Focus], rest) {
-                    Ok([target, fc]) => self.visit_tab_open(target, fc),
+                match parse_flags(
+                    [
+                        (Flag::Target, None),
+                        (Flag::Bitflags, Some(&DEFAULT_NONE_FLAG[..])),
+                        (Flag::Focus, None),
+                    ],
+                    rest,
+                ) {
+                    Ok([target, flags, fc]) => self.visit_tab_open(target, flags, fc),
                     Err(e) => fail_cmd_flag(self, "tab open", e),
                 }
             },
@@ -1072,7 +1112,13 @@ impl<V: ActionParser> ActionParserExt for V {
 
         match cmd {
             ActionToken::Word("close") => {
-                match parse_required_flags([Flag::Target, Flag::Short('F')], rest) {
+                match parse_flags(
+                    [
+                        (Flag::Target, None),
+                        (Flag::Bitflags, Some(&DEFAULT_NONE_FLAG[..])),
+                    ],
+                    rest,
+                ) {
                     Ok([target, flags]) => self.visit_window_close(target, flags),
                     Err(e) => fail_cmd_flag(self, "window close", e),
                 }
@@ -1099,14 +1145,15 @@ impl<V: ActionParser> ActionParserExt for V {
                 match parse_flags(
                     [
                         (Flag::Target, None),
+                        (Flag::Bitflags, Some(&DEFAULT_NONE_FLAG[..])),
                         (Flag::Short('x'), None),
                         (Flag::Dir, None),
                         (Flag::Count, Some(&DEFAULT_COUNT[..])),
                     ],
                     rest,
                 ) {
-                    Ok([target, axis, dir, count]) => {
-                        self.visit_window_open(target, axis, dir, count)
+                    Ok([target, flags, axis, dir, count]) => {
+                        self.visit_window_open(target, flags, axis, dir, count)
                     },
                     Err(e) => fail_cmd_flag(self, "window open", e),
                 }
@@ -1121,21 +1168,28 @@ impl<V: ActionParser> ActionParserExt for V {
                 match parse_flags(
                     [
                         (Flag::Target, None),
+                        (Flag::Bitflags, Some(&DEFAULT_NONE_FLAG[..])),
                         (Flag::Short('x'), None),
                         (Flag::Dir, None),
                         (Flag::Count, Some(&DEFAULT_COUNT[..])),
                     ],
                     rest,
                 ) {
-                    Ok([target, axis, dir, count]) => {
-                        self.visit_window_split(target, axis, dir, count)
+                    Ok([target, flags, axis, dir, count]) => {
+                        self.visit_window_split(target, flags, axis, dir, count)
                     },
                     Err(e) => fail_cmd_flag(self, "window split", e),
                 }
             },
             ActionToken::Word("switch") => {
-                match parse_single_flag(Flag::Target, rest) {
-                    Ok(target) => self.visit_window_switch(target),
+                match parse_flags(
+                    [
+                        (Flag::Target, None),
+                        (Flag::Bitflags, Some(&DEFAULT_NONE_FLAG[..])),
+                    ],
+                    rest,
+                ) {
+                    Ok([target, flags]) => self.visit_window_switch(target, flags),
                     Err(e) => fail_cmd_flag(self, "window switch", e),
                 }
             },
@@ -1151,7 +1205,7 @@ impl<V: ActionParser> ActionParserExt for V {
                     [
                         (Flag::Target, None),
                         (Flag::Input, Some(&EMPTY_ACTION[..])),
-                        (Flag::Short('F'), None),
+                        (Flag::Bitflags, Some(&DEFAULT_NONE_FLAG[..])),
                     ],
                     rest,
                 ) {
@@ -1296,7 +1350,7 @@ impl<V: ActionParser> ActionParserExt for V {
                 }
             },
             ActionToken::Word("filter") => {
-                match parse_single_flag(Flag::Short('F'), rest) {
+                match parse_single_flag(Flag::Matches, rest) {
                     Ok(filter) => self.visit_selection_filter(filter),
                     Err(e) => fail_cmd_flag(self, "selection filter", e),
                 }
@@ -1318,7 +1372,7 @@ impl<V: ActionParser> ActionParserExt for V {
                 match parse_flags(
                     [
                         (Flag::Style, None),
-                        (Flag::Short('F'), Some(&DEFAULT_FILTER[..])),
+                        (Flag::Matches, Some(&DEFAULT_FILTER[..])),
                     ],
                     rest,
                 ) {

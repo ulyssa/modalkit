@@ -248,16 +248,16 @@ pub trait Window<I: ApplicationInfo>: WindowOps<I> + Sized {
     }
 
     /// Open a window that displays the content referenced by `id`.
-    fn open(id: I::WindowId, store: &mut Store<I>) -> UIResult<Self, I>;
+    fn open(id: I::WindowId, flags: OpenFlags, store: &mut Store<I>) -> UIResult<Self, I>;
 
     /// Open a window given a name to lookup.
-    fn find(name: String, store: &mut Store<I>) -> UIResult<Self, I>;
+    fn find(name: String, flags: OpenFlags, store: &mut Store<I>) -> UIResult<Self, I>;
 
     /// Open a globally indexed window given a position.
-    fn posn(index: usize, store: &mut Store<I>) -> UIResult<Self, I>;
+    fn posn(index: usize, flags: OpenFlags, store: &mut Store<I>) -> UIResult<Self, I>;
 
     /// Open a default window when no target has been specified.
-    fn unnamed(store: &mut Store<I>) -> UIResult<Self, I>;
+    fn unnamed(flags: OpenFlags, store: &mut Store<I>) -> UIResult<Self, I>;
 }
 
 /// Position and draw a terminal cursor.

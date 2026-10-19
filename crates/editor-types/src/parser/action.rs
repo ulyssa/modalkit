@@ -158,10 +158,16 @@ where
         Ok(Action::Tab(TabAction::Extract(fc, dir)))
     }
 
-    fn visit_tab_open(&mut self, target: &[ActionToken], fc: &[ActionToken]) -> Self::Output {
+    fn visit_tab_open(
+        &mut self,
+        target: &[ActionToken],
+        flags: &[ActionToken],
+        fc: &[ActionToken],
+    ) -> Self::Output {
         let target = OpenTarget::try_from(target)?;
+        let flags = OpenFlags::try_from(flags)?;
         let fc = FocusChange::try_from(fc)?;
-        Ok(Action::Tab(TabAction::Open(target, fc)))
+        Ok(Action::Tab(TabAction::Open(target, flags, fc)))
     }
 
     fn visit_tab_focus(&mut self, fc: &[ActionToken]) -> Self::Output {
@@ -215,15 +221,17 @@ where
     fn visit_window_open(
         &mut self,
         target: &[ActionToken],
+        flags: &[ActionToken],
         axis: &[ActionToken],
         dir: &[ActionToken],
         count: &[ActionToken],
     ) -> Self::Output {
         let target = OpenTarget::try_from(target)?;
+        let flags = OpenFlags::try_from(flags)?;
         let axis = Axis::try_from(axis)?;
         let dir = MoveDir1D::try_from(dir)?;
         let count = Count::try_from(count)?;
-        Ok(Action::Window(WindowAction::Open(target, axis, dir, count)))
+        Ok(Action::Window(WindowAction::Open(target, flags, axis, dir, count)))
     }
 
     fn visit_window_resize(
@@ -241,20 +249,27 @@ where
     fn visit_window_split(
         &mut self,
         target: &[ActionToken],
+        flags: &[ActionToken],
         axis: &[ActionToken],
         dir: &[ActionToken],
         count: &[ActionToken],
     ) -> Self::Output {
         let target = OpenTarget::try_from(target)?;
+        let flags = OpenFlags::try_from(flags)?;
         let axis = Axis::try_from(axis)?;
         let dir = MoveDir1D::try_from(dir)?;
         let count = Count::try_from(count)?;
-        Ok(Action::Window(WindowAction::Split(target, axis, dir, count)))
+        Ok(Action::Window(WindowAction::Split(target, flags, axis, dir, count)))
     }
 
-    fn visit_window_switch(&mut self, target: &[ActionToken]) -> Self::Output {
+    fn visit_window_switch(
+        &mut self,
+        target: &[ActionToken],
+        flags: &[ActionToken],
+    ) -> Self::Output {
         let target = OpenTarget::try_from(target)?;
-        Ok(Action::Window(WindowAction::Switch(target)))
+        let flags = OpenFlags::try_from(flags)?;
+        Ok(Action::Window(WindowAction::Switch(target, flags)))
     }
 
     fn visit_window_write(

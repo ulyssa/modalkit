@@ -300,7 +300,7 @@ impl ToTokens for SelectionAction {
                 vec![
                     ActionToken::Word("selection"),
                     ActionToken::Word("filter"),
-                    ActionToken::Flag(Flag::Short('F')),
+                    ActionToken::Flag(Flag::Matches),
                     ActionToken::from(act),
                 ]
             },
@@ -323,7 +323,7 @@ impl ToTokens for SelectionAction {
                     ActionToken::Word("split"),
                     ActionToken::Flag(Flag::Style),
                     ActionToken::from(style),
-                    ActionToken::Flag(Flag::Short('F')),
+                    ActionToken::Flag(Flag::Matches),
                     ActionToken::from(filter),
                 ]
             },
@@ -449,7 +449,7 @@ impl ToTokens for PromptAction {
                 vec![
                     ActionToken::Word("prompt"),
                     ActionToken::Word("recall"),
-                    ActionToken::Flag(Flag::Short('F')),
+                    ActionToken::Flag(Flag::Matches),
                     ActionToken::from(filter),
                     ActionToken::Flag(Flag::Dir),
                     ActionToken::from(dir),
@@ -476,7 +476,7 @@ where
                     ActionToken::Word("close"),
                     ActionToken::Flag(Flag::Target),
                     ActionToken::from(target),
-                    ActionToken::Flag(Flag::Short('F')),
+                    ActionToken::Flag(Flag::Bitflags),
                     ActionToken::from(flags),
                 ]
             },
@@ -506,12 +506,14 @@ where
                     ActionToken::from(fc),
                 ]
             },
-            TabAction::Open(target, fc) => {
+            TabAction::Open(target, flags, fc) => {
                 vec![
                     ActionToken::Word("tab"),
                     ActionToken::Word("open"),
                     ActionToken::Flag(Flag::Target),
                     ActionToken::from(target),
+                    ActionToken::Flag(Flag::Bitflags),
+                    ActionToken::from(flags),
                     ActionToken::Flag(Flag::Focus),
                     ActionToken::from(fc),
                 ]
@@ -544,7 +546,7 @@ where
                     ActionToken::Word("close"),
                     ActionToken::Flag(Flag::Target),
                     ActionToken::from(target),
-                    ActionToken::Flag(Flag::Short('F')),
+                    ActionToken::Flag(Flag::Bitflags),
                     ActionToken::from(flags),
                 ]
             },
@@ -572,12 +574,14 @@ where
                     ActionToken::from(dir),
                 ]
             },
-            WindowAction::Open(target, axis, dir, count) => {
+            WindowAction::Open(target, flags, axis, dir, count) => {
                 vec![
                     ActionToken::Word("window"),
                     ActionToken::Word("open"),
                     ActionToken::Flag(Flag::Target),
                     ActionToken::from(target),
+                    ActionToken::Flag(Flag::Bitflags),
+                    ActionToken::from(flags),
                     ActionToken::Flag(Flag::Short('x')),
                     ActionToken::from(axis),
                     ActionToken::Flag(Flag::Dir),
@@ -606,12 +610,14 @@ where
                     ActionToken::from(dir),
                 ]
             },
-            WindowAction::Split(target, axis, dir, count) => {
+            WindowAction::Split(target, flags, axis, dir, count) => {
                 vec![
                     ActionToken::Word("window"),
                     ActionToken::Word("split"),
                     ActionToken::Flag(Flag::Target),
                     ActionToken::from(target),
+                    ActionToken::Flag(Flag::Bitflags),
+                    ActionToken::from(flags),
                     ActionToken::Flag(Flag::Short('x')),
                     ActionToken::from(axis),
                     ActionToken::Flag(Flag::Dir),
@@ -620,12 +626,14 @@ where
                     ActionToken::from(count),
                 ]
             },
-            WindowAction::Switch(target) => {
+            WindowAction::Switch(target, flags) => {
                 vec![
                     ActionToken::Word("window"),
                     ActionToken::Word("switch"),
                     ActionToken::Flag(Flag::Target),
                     ActionToken::from(target),
+                    ActionToken::Flag(Flag::Bitflags),
+                    ActionToken::from(flags),
                 ]
             },
             WindowAction::Write(target, name, flags) => {
@@ -641,7 +649,7 @@ where
                     tokens.push(ActionToken::Str(Cow::Borrowed(name.as_str())));
                 }
 
-                tokens.push(ActionToken::Flag(Flag::Short('F')));
+                tokens.push(ActionToken::Flag(Flag::Bitflags));
                 tokens.push(ActionToken::from(flags));
 
                 tokens

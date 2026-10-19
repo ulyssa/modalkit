@@ -746,6 +746,30 @@ impl From<&TabTarget> for ActionToken<'_> {
     }
 }
 
+impl From<&OpenFlags> for ActionToken<'_> {
+    fn from(input: &OpenFlags) -> Self {
+        let mut flags = vec![];
+
+        if input.contains(OpenFlags::FORCE) {
+            flags.push(ActionToken::Word("force"));
+        }
+
+        if input.contains(OpenFlags::CREATE) {
+            flags.push(ActionToken::Word("create"));
+        }
+
+        if input.contains(OpenFlags::READONLY) {
+            flags.push(ActionToken::Word("readonly"));
+        }
+
+        if flags.is_empty() {
+            ActionToken::Word("none")
+        } else {
+            ActionToken::Group(flags)
+        }
+    }
+}
+
 impl From<&CloseFlags> for ActionToken<'_> {
     fn from(input: &CloseFlags) -> Self {
         let mut flags = vec![];

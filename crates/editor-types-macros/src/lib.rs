@@ -848,6 +848,38 @@ impl ActionMacroParser {
         }
     }
 
+    fn parse_open_flags<'a>(&mut self, input: &'a [ActionToken<'a>]) -> TokenStream {
+        if let [ActionToken::Id(i), rest @ ..] = input {
+            return id_match_branch!(self, i, ::editor_types::prelude::OpenFlags, rest);
+        }
+
+        let mut flags = vec![];
+
+        for token in input {
+            flags.push(match token {
+                ActionToken::Word("none") => quote! { ::editor_types::prelude::OpenFlags::NONE },
+                ActionToken::Word("force") => quote! { ::editor_types::prelude::OpenFlags::FORCE },
+                ActionToken::Word("create") => {
+                    quote! { ::editor_types::prelude::OpenFlags::CREATE }
+                },
+                ActionToken::Word("ro" | "read-only" | "readonly") => {
+                    quote! { ::editor_types::prelude::OpenFlags::READONLY }
+                },
+                t => {
+                    let msg =
+                        format!("expected `none`, `force`, `create` or `readonly`, found `{t}`");
+                    return self.fail(msg);
+                },
+            });
+        }
+
+        if flags.is_empty() {
+            return self.fail("Expected argument to be valid window closing flags");
+        }
+
+        quote! { #(#flags)|* }
+    }
+
     fn parse_close_flags<'a>(&mut self, input: &'a [ActionToken<'a>]) -> TokenStream {
         if let [ActionToken::Id(i), rest @ ..] = input {
             return id_match_branch!(self, i, ::editor_types::prelude::CloseFlags, rest);

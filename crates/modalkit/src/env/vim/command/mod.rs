@@ -102,6 +102,7 @@ pub struct CommandContext {
 
     axis_default: Axis,
     rel_default: MoveDir1D,
+    open_flags: OpenFlags,
 }
 
 impl CommandContext {
@@ -109,6 +110,13 @@ impl CommandContext {
     /// `:vertical`).
     pub fn default_axis(&mut self, axis: Axis) -> &mut Self {
         self.axis_default = axis;
+        self
+    }
+
+    /// Indicate the default [OpenFlags] to use when opening windows with methods
+    /// like [CommandContext::switch].
+    pub fn with_open_flags(&mut self, flags: OpenFlags) -> &mut Self {
+        self.open_flags = flags;
         self
     }
 
@@ -138,7 +146,7 @@ impl CommandContext {
         let rel = self.rel.unwrap_or(self.rel_default);
         let axis = self.axis.unwrap_or(self.axis_default);
 
-        WindowAction::Open(target, axis, rel, count).into()
+        WindowAction::Open(target, self.open_flags, axis, rel, count).into()
     }
 
     /// Use the contextual information to create a new [WindowAction::Split] for the given target
@@ -150,7 +158,7 @@ impl CommandContext {
         let rel = self.rel.unwrap_or(self.rel_default);
         let axis = self.axis.unwrap_or(self.axis_default);
 
-        WindowAction::Split(target, axis, rel, count).into()
+        WindowAction::Split(target, self.open_flags, axis, rel, count).into()
     }
 
     /// If no contextual information has been provided, create a new [WindowAction::Switch] for the
@@ -164,11 +172,11 @@ impl CommandContext {
         I: ApplicationInfo,
     {
         if let Some(fc) = &self.tab {
-            TabAction::Open(target, fc.clone()).into()
+            TabAction::Open(target, self.open_flags, fc.clone()).into()
         } else if self.axis.is_some() || self.rel.is_some() {
             self.split(target, 1.into())
         } else {
-            WindowAction::Switch(target).into()
+            WindowAction::Switch(target, self.open_flags).into()
         }
     }
 
@@ -180,7 +188,7 @@ impl CommandContext {
         I: ApplicationInfo,
     {
         if let Some(fc) = &self.tab {
-            TabAction::Open(target, fc.clone()).into()
+            TabAction::Open(target, self.open_flags, fc.clone()).into()
         } else if let Some(size) = size {
             self.open(target, size)
         } else {
@@ -200,6 +208,7 @@ impl From<EditContext> for CommandContext {
 
             axis_default: Axis::Horizontal,
             rel_default: MoveDir1D::Previous,
+            open_flags: OpenFlags::NONE,
         }
     }
 }
@@ -341,20 +350,24 @@ fn window_range_target(
 
 fn open_target<I: ApplicationWindowId>(
     desc: &CommandDescription,
-) -> Result<Option<OpenTarget<I>>, CommandError> {
+) -> Result<(Option<OpenTarget<I>>, OpenFlags), CommandError> {
     let args = desc.arg.filenames()?;
 
     if args.len() > 1 {
         return Err(CommandError::InvalidArgument);
     }
 
-    Ok(args.into_iter().next())
+    let mut flags = OpenFlags::NONE;
+    flags.set(OpenFlags::FORCE, desc.bang);
+
+    Ok((args.into_iter().next(), flags))
 }
 
 fn window_open_target<I: ApplicationWindowId>(
     desc: &CommandDescription,
-) -> Result<OpenTarget<I>, CommandError> {
-    Ok(open_target(desc)?.unwrap_or(OpenTarget::Current))
+) -> Result<(OpenTarget<I>, OpenFlags), CommandError> {
+    let (t, f) = open_target(desc)?;
+    Ok((t.unwrap_or(OpenTarget::Current), f))
 }
 
 /// The `:close` command.
@@ -504,8 +517,8 @@ pub fn vim_cmd_sp<I: ApplicationInfo>(
     ctx: &mut CommandContext,
 ) -> CommandResult<I> {
     let size = window_size(&desc, ctx)?;
-    let target = window_open_target(&desc)?;
-    let action = ctx.window(target, size);
+    let (target, flags) = window_open_target(&desc)?;
+    let action = ctx.with_open_flags(flags).window(target, size);
 
     Ok(CommandStep::Continue(action, ctx.context.clone()))
 }
@@ -524,8 +537,8 @@ pub fn vim_cmd_vs<I: ApplicationInfo>(
     ctx.axis = Some(Axis::Vertical);
 
     let size = window_size(&desc, ctx)?;
-    let target = window_open_target(&desc)?;
-    let action = ctx.window(target, size);
+    let (target, flags) = window_open_target(&desc)?;
+    let action = ctx.with_open_flags(flags).window(target, size);
 
     Ok(CommandStep::Continue(action, ctx.context.clone()))
 }
@@ -666,12 +679,13 @@ pub fn vim_cmd_tabedit<I: ApplicationInfo>(
     desc: CommandDescription,
     ctx: &mut CommandContext,
 ) -> CommandResult<I> {
-    let target = open_target(&desc)?.unwrap_or(OpenTarget::Unnamed);
+    let (target, flags) = open_target(&desc)?;
+    let target = target.unwrap_or(OpenTarget::Unnamed);
     let change = desc
         .range
         .map(|r| range_to_fc(&r, false, &ctx.context))
         .unwrap_or(Ok(FocusChange::Current))?;
-    let action = TabAction::Open(target, change);
+    let action = TabAction::Open(target, flags, change);
 
     Ok(CommandStep::Continue(action.into(), ctx.context.clone()))
 }
@@ -804,6 +818,22 @@ pub fn vim_cmd_vertical<I: ApplicationInfo>(
     ctx.axis = Some(Axis::Vertical);
 
     Ok(CommandStep::Again(desc.arg.text))
+}
+
+/// The `:view` command.
+///
+/// *Aliases:* `vie`
+///
+/// Open the given filename read-only. If no argument is provided, then this defaults to
+/// [OpenTarget::Current].
+pub fn vim_cmd_view<I: ApplicationInfo>(
+    desc: CommandDescription,
+    ctx: &mut CommandContext,
+) -> CommandResult<I> {
+    let (target, flags) = window_open_target(&desc)?;
+    let action = ctx.with_open_flags(flags | OpenFlags::READONLY).switch(target);
+
+    Ok(CommandStep::Continue(action, ctx.context.clone()))
 }
 
 /// The `:write` command.
@@ -957,6 +987,11 @@ fn default_cmds<I: ApplicationInfo>() -> Vec<VimCommand<I>> {
             name: "vsplit".into(),
             aliases: strs!["vs", "vsp"],
             f: vim_cmd_vs,
+        },
+        VimCommand {
+            name: "view".into(),
+            aliases: strs!["vie"],
+            f: vim_cmd_view,
         },
         VimCommand {
             name: "tab".into(),
@@ -1155,7 +1190,14 @@ mod tests {
         let (mut cmds, ctx) = mkcmd();
 
         let exp = vec![(
-            WindowAction::Split(OpenTarget::Current, Horizontal, Previous, 1.into()).into(),
+            WindowAction::Split(
+                OpenTarget::Current,
+                OpenFlags::NONE,
+                Horizontal,
+                Previous,
+                1.into(),
+            )
+            .into(),
             ctx.clone(),
         )];
 
@@ -1181,7 +1223,14 @@ mod tests {
 
         // Unprefixed split command.
         let expect = vec![(
-            WindowAction::Split(OpenTarget::Current, Horizontal, Previous, 1.into()).into(),
+            WindowAction::Split(
+                OpenTarget::Current,
+                OpenFlags::NONE,
+                Horizontal,
+                Previous,
+                1.into(),
+            )
+            .into(),
             ctx.clone(),
         )];
         let res = cmds.input_cmd("split", ctx.clone());
@@ -1189,7 +1238,8 @@ mod tests {
 
         // Prefixed split command should be made vertical.
         let expect = vec![(
-            WindowAction::Split(OpenTarget::Current, Vertical, Previous, 1.into()).into(),
+            WindowAction::Split(OpenTarget::Current, OpenFlags::NONE, Vertical, Previous, 1.into())
+                .into(),
             ctx.clone(),
         )];
         let res = cmds.input_cmd("vertical split", ctx.clone());
@@ -1209,19 +1259,32 @@ mod tests {
         let (mut cmds, ctx) = mkcmd();
 
         // Unprefixed split command.
-        let act = WindowAction::Split(OpenTarget::Current, Horizontal, Previous, 1.into());
+        let act = WindowAction::Split(
+            OpenTarget::Current,
+            OpenFlags::NONE,
+            Horizontal,
+            Previous,
+            1.into(),
+        );
         let expect = vec![(act.into(), ctx.clone())];
         let res = cmds.input_cmd("split", ctx.clone());
         assert_eq!(res.unwrap(), expect);
 
         // Prefixed split command should be MoveDir1D::Next.
-        let act = WindowAction::Split(OpenTarget::Current, Horizontal, Next, 1.into());
+        let act =
+            WindowAction::Split(OpenTarget::Current, OpenFlags::NONE, Horizontal, Next, 1.into());
         let expect = vec![(act.into(), ctx.clone())];
         let res = cmds.input_cmd("bel split", ctx.clone());
         assert_eq!(res.unwrap(), expect);
 
         // Prefixed split command should be MoveDir1D::Previous.
-        let act = WindowAction::Split(OpenTarget::Current, Horizontal, Previous, 1.into());
+        let act = WindowAction::Split(
+            OpenTarget::Current,
+            OpenFlags::NONE,
+            Horizontal,
+            Previous,
+            1.into(),
+        );
         let expect = vec![(act.into(), ctx.clone())];
         let res = cmds.input_cmd("abo split", ctx.clone());
         assert_eq!(res.unwrap(), expect);
@@ -1232,16 +1295,69 @@ mod tests {
         let (mut cmds, ctx) = mkcmd();
 
         // Unprefixed split command.
-        let act = WindowAction::Split(OpenTarget::Current, Horizontal, Previous, 1.into());
+        let act = WindowAction::Split(
+            OpenTarget::Current,
+            OpenFlags::NONE,
+            Horizontal,
+            Previous,
+            1.into(),
+        );
         let expect = vec![(act.into(), ctx.clone())];
         let res = cmds.input_cmd("split", ctx.clone());
         assert_eq!(res.unwrap(), expect);
 
         // Prefixed split command should become TabAction::Open.
-        let act = TabAction::Open(OpenTarget::Current, FocusChange::Offset(5.into(), false));
+        let act = TabAction::Open(
+            OpenTarget::Current,
+            OpenFlags::NONE,
+            FocusChange::Offset(5.into(), false),
+        );
         let expect = vec![(act.into(), ctx.clone())];
         let res = cmds.input_cmd("5tab split", ctx.clone());
         assert_eq!(res.unwrap(), expect);
+    }
+
+    #[test]
+    fn test_view() {
+        let (mut cmds, ctx) = mkcmd();
+
+        // `:view <file>` switches the current window to the file,
+        //  and specifies that it should be opened read-only.
+        let act = WindowAction::Switch(OpenTarget::Name("foo.txt".into()), OpenFlags::READONLY);
+        let expect = vec![(act.into(), ctx.clone())];
+        assert_eq!(cmds.input_cmd("view foo.txt", ctx.clone()).unwrap(), expect);
+
+        // `vie` aliases to it:
+        assert_eq!(cmds.input_cmd("vie foo.txt", ctx.clone()).unwrap(), expect);
+
+        // No argument should default to the current window:
+        let act = WindowAction::Switch(OpenTarget::Current, OpenFlags::READONLY);
+        let expect = vec![(act.into(), ctx.clone())];
+        assert_eq!(cmds.input_cmd("view", ctx.clone()).unwrap(), expect);
+    }
+
+    #[test]
+    fn test_view_prefixed() {
+        let (mut cmds, ctx) = mkcmd();
+
+        // `:view` should honor info set by a prefixed command like `:vertical`:
+        let act = WindowAction::Split(
+            OpenTarget::Name("foo.txt".into()),
+            OpenFlags::READONLY,
+            Vertical,
+            Previous,
+            1.into(),
+        );
+        let expect = vec![(act.into(), ctx.clone())];
+        assert_eq!(cmds.input_cmd("vertical view foo.txt", ctx.clone()).unwrap(), expect);
+
+        let act = TabAction::Open(
+            OpenTarget::Name("foo.txt".into()),
+            OpenFlags::READONLY,
+            FocusChange::Offset(5.into(), false),
+        );
+        let expect = vec![(act.into(), ctx.clone())];
+        assert_eq!(cmds.input_cmd("5tab view foo.txt", ctx.clone()).unwrap(), expect);
     }
 
     #[test]

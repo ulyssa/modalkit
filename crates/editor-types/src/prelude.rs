@@ -4137,7 +4137,7 @@ pub enum OpenTarget<W: ApplicationWindowId> {
     /// use std::str::FromStr;
     ///
     /// let target = OpenTarget::Alternate;
-    /// let switch: Action = WindowAction::Switch(target).into();
+    /// let switch: Action = WindowAction::Switch(target, OpenFlags::NONE).into();
     /// assert_eq!(switch, Action::from_str("window switch -t alternate").unwrap());
     /// ```
     ///
@@ -4148,7 +4148,7 @@ pub enum OpenTarget<W: ApplicationWindowId> {
     /// use editor_types::{action, Action, WindowAction};
     ///
     /// let target = OpenTarget::Alternate;
-    /// let switch: Action = WindowAction::Switch(target).into();
+    /// let switch: Action = WindowAction::Switch(target, OpenFlags::NONE).into();
     /// assert_eq!(switch, action!("window switch -t alternate"));
     /// ```
     Alternate,
@@ -4167,7 +4167,7 @@ pub enum OpenTarget<W: ApplicationWindowId> {
     /// use std::str::FromStr;
     ///
     /// let target = OpenTarget::Current;
-    /// let switch: Action = WindowAction::Switch(target).into();
+    /// let switch: Action = WindowAction::Switch(target, OpenFlags::NONE).into();
     /// assert_eq!(switch, Action::from_str("window switch -t current").unwrap());
     /// ```
     ///
@@ -4178,7 +4178,7 @@ pub enum OpenTarget<W: ApplicationWindowId> {
     /// use editor_types::{action, Action, WindowAction};
     ///
     /// let target = OpenTarget::Current;
-    /// let switch: Action = WindowAction::Switch(target).into();
+    /// let switch: Action = WindowAction::Switch(target, OpenFlags::NONE).into();
     /// assert_eq!(switch, action!("window switch -t current"));
     /// ```
     Current,
@@ -4193,7 +4193,7 @@ pub enum OpenTarget<W: ApplicationWindowId> {
     /// use std::str::FromStr;
     ///
     /// let target = OpenTarget::Cursor(WordStyle::FileName);
-    /// let switch: Action = WindowAction::Switch(target).into();
+    /// let switch: Action = WindowAction::Switch(target, OpenFlags::NONE).into();
     /// assert_eq!(switch, Action::from_str("window switch -t (cursor -s filename)").unwrap());
     /// ```
     ///
@@ -4204,7 +4204,7 @@ pub enum OpenTarget<W: ApplicationWindowId> {
     /// use editor_types::{action, Action, WindowAction};
     ///
     /// let target = OpenTarget::Cursor(WordStyle::FileName);
-    /// let switch: Action = WindowAction::Switch(target).into();
+    /// let switch: Action = WindowAction::Switch(target, OpenFlags::NONE).into();
     /// assert_eq!(switch, action!("window switch -t (cursor -s filename)"));
     /// ```
     ///
@@ -4222,7 +4222,7 @@ pub enum OpenTarget<W: ApplicationWindowId> {
     /// use std::str::FromStr;
     ///
     /// let target = OpenTarget::List(2.into());
-    /// let switch: Action = WindowAction::Switch(target).into();
+    /// let switch: Action = WindowAction::Switch(target, OpenFlags::NONE).into();
     /// assert_eq!(switch, Action::from_str("window switch -t (list -c 2)").unwrap());
     /// ```
     ///
@@ -4233,7 +4233,7 @@ pub enum OpenTarget<W: ApplicationWindowId> {
     /// use editor_types::{action, Action, WindowAction};
     ///
     /// let target = OpenTarget::List(2.into());
-    /// let switch: Action = WindowAction::Switch(target).into();
+    /// let switch: Action = WindowAction::Switch(target, OpenFlags::NONE).into();
     /// assert_eq!(switch, action!("window switch -t (list -c 2)"));
     /// ```
     List(Count),
@@ -4248,7 +4248,7 @@ pub enum OpenTarget<W: ApplicationWindowId> {
     /// use std::str::FromStr;
     ///
     /// let target = OpenTarget::Name("foo bar".into());
-    /// let switch: Action = WindowAction::Switch(target).into();
+    /// let switch: Action = WindowAction::Switch(target, OpenFlags::NONE).into();
     /// assert_eq!(switch, Action::from_str(r#"window switch -t (name -i "foo bar")"#).unwrap());
     /// ```
     ///
@@ -4259,7 +4259,7 @@ pub enum OpenTarget<W: ApplicationWindowId> {
     /// use editor_types::{action, Action, WindowAction};
     ///
     /// let target = OpenTarget::Name("foo bar".into());
-    /// let switch: Action = WindowAction::Switch(target).into();
+    /// let switch: Action = WindowAction::Switch(target, OpenFlags::NONE).into();
     /// assert_eq!(switch, action!(r#"window switch -t (name -i "foo bar")"#));
     /// ```
     Name(String),
@@ -4274,7 +4274,7 @@ pub enum OpenTarget<W: ApplicationWindowId> {
     /// use std::str::FromStr;
     ///
     /// let target = OpenTarget::Offset(MoveDir1D::Next, 5.into());
-    /// let switch: Action = WindowAction::Switch(target).into();
+    /// let switch: Action = WindowAction::Switch(target, OpenFlags::NONE).into();
     /// assert_eq!(switch, Action::from_str("window switch -t (offset -d next -c 5)").unwrap());
     /// ```
     ///
@@ -4285,7 +4285,7 @@ pub enum OpenTarget<W: ApplicationWindowId> {
     /// use editor_types::{action, Action, WindowAction};
     ///
     /// let target = OpenTarget::Offset(MoveDir1D::Next, 5.into());
-    /// let switch: Action = WindowAction::Switch(target).into();
+    /// let switch: Action = WindowAction::Switch(target, OpenFlags::NONE).into();
     /// assert_eq!(switch, action!("window switch -t (offset -d next -c 5)"));
     /// ```
     Offset(MoveDir1D, Count),
@@ -4300,7 +4300,7 @@ pub enum OpenTarget<W: ApplicationWindowId> {
     /// use std::str::FromStr;
     ///
     /// let target = OpenTarget::Selection;
-    /// let switch: Action = WindowAction::Switch(target).into();
+    /// let switch: Action = WindowAction::Switch(target, OpenFlags::NONE).into();
     /// assert_eq!(switch, Action::from_str("window switch -t selection").unwrap());
     /// ```
     ///
@@ -4311,7 +4311,7 @@ pub enum OpenTarget<W: ApplicationWindowId> {
     /// use editor_types::{action, Action, WindowAction};
     ///
     /// let target = OpenTarget::Selection;
-    /// let switch: Action = WindowAction::Switch(target).into();
+    /// let switch: Action = WindowAction::Switch(target, OpenFlags::NONE).into();
     /// assert_eq!(switch, action!("window switch -t selection"));
     /// ```
     Selection,
@@ -4326,7 +4326,7 @@ pub enum OpenTarget<W: ApplicationWindowId> {
     /// use std::str::FromStr;
     ///
     /// let target = OpenTarget::Unnamed;
-    /// let switch: Action = WindowAction::Switch(target).into();
+    /// let switch: Action = WindowAction::Switch(target, OpenFlags::NONE).into();
     /// assert_eq!(switch, Action::from_str("window switch -t unnamed").unwrap());
     /// ```
     ///
@@ -4337,7 +4337,7 @@ pub enum OpenTarget<W: ApplicationWindowId> {
     /// use editor_types::{action, Action, WindowAction};
     ///
     /// let target = OpenTarget::Unnamed;
-    /// let switch: Action = WindowAction::Switch(target).into();
+    /// let switch: Action = WindowAction::Switch(target, OpenFlags::NONE).into();
     /// assert_eq!(switch, action!("window switch -t unnamed"));
     /// ```
     Unnamed,
@@ -5303,6 +5303,7 @@ bitflags! {
         /// let flags = WriteFlags::NONE;
         /// let act: Action = WindowAction::Write(target, None, flags).into();
         /// assert_eq!(act, Action::from_str("window write -t all -F none").unwrap());
+        /// assert_eq!(act, Action::from_str("window write -t all").unwrap());
         /// ```
         ///
         /// ## Example: Using `action!`
@@ -5315,6 +5316,7 @@ bitflags! {
         /// let flags = WriteFlags::NONE;
         /// let act: Action = WindowAction::Write(target, None, flags).into();
         /// assert_eq!(act, action!("window write -t all -F none"));
+        /// assert_eq!(act, action!("window write -t all"));
         /// ```
         const NONE = 0b00000000;
 
@@ -5361,16 +5363,144 @@ impl proptest::arbitrary::Arbitrary for WriteFlags {
 
 bitflags! {
     /// These flags are used to specify the behaviour while opening a window.
+    ///
+    /// ## Example: Using `Action::from_str`
+    ///
+    /// Several flags can be combined by grouping their names together:
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, TabAction};
+    /// use std::str::FromStr;
+    ///
+    /// let flags = OpenFlags::FORCE | OpenFlags::CREATE;
+    /// let act: Action = TabAction::Open(OpenTarget::Unnamed, flags, FocusChange::Current).into();
+    /// assert_eq!(act, Action::from_str("tab open -t unnamed -f current -F (force create)").unwrap());
+    /// ```
+    ///
+    /// ## Example: Using `action!`
+    ///
+    /// Several flags can be combined by grouping their names together:
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, TabAction};
+    ///
+    /// let flags = OpenFlags::FORCE | OpenFlags::CREATE;
+    /// let act: Action = TabAction::Open(OpenTarget::Unnamed, flags, FocusChange::Current).into();
+    /// assert_eq!(act, action!("tab open -t unnamed  -f current -F (force create)"));
+    /// ```
     #[derive(Debug, Clone, Copy, Eq, PartialEq)]
     pub struct OpenFlags: u32 {
         /// No flags set.
+        ///
+        /// ## Example: Using `Action::from_str`
+        ///
+        /// ```
+        /// use editor_types::prelude::*;
+        /// use editor_types::{action, Action, TabAction};
+        /// use std::str::FromStr;
+        ///
+        /// let flags = OpenFlags::NONE;
+        /// let act: Action = TabAction::Open(OpenTarget::Unnamed, flags, FocusChange::Current).into();
+        /// assert_eq!(act, Action::from_str("tab open -t unnamed -f current -F none").unwrap());
+        /// assert_eq!(act, Action::from_str("tab open -t unnamed -f current").unwrap());
+        /// ```
+        ///
+        /// ## Example: Using `action!`
+        ///
+        /// ```
+        /// use editor_types::prelude::*;
+        /// use editor_types::{action, Action, TabAction};
+        ///
+        /// let flags = OpenFlags::NONE;
+        /// let act: Action = TabAction::Open(OpenTarget::Unnamed, flags, FocusChange::Current).into();
+        /// assert_eq!(act, action!("tab open -t unnamed -f current -F none"));
+        /// assert_eq!(act, action!("tab open -t unnamed -f current"));
+        /// ```
         const NONE = 0b00000000;
 
         /// Try to ignore any issues during opening.
+        ///
+        /// ## Example: Using `Action::from_str`
+        ///
+        /// ```
+        /// use editor_types::prelude::*;
+        /// use editor_types::{action, Action, TabAction};
+        /// use std::str::FromStr;
+        ///
+        /// let flags = OpenFlags::FORCE;
+        /// let act: Action = TabAction::Open(OpenTarget::Unnamed, flags, FocusChange::Current).into();
+        /// assert_eq!(act, Action::from_str("tab open -t unnamed -f current -F force").unwrap());
+        /// ```
+        ///
+        /// ## Example: Using `action!`
+        ///
+        /// ```
+        /// use editor_types::prelude::*;
+        /// use editor_types::{action, Action, TabAction};
+        ///
+        /// let flags = OpenFlags::FORCE;
+        /// let act: Action = TabAction::Open(OpenTarget::Unnamed, flags, FocusChange::Current).into();
+        /// assert_eq!(act, action!("tab open -t unnamed -f current -F force"));
+        /// ```
         const FORCE = 0b00000001;
 
-        /// Attemp to create the target content if it doesn't already exist.
+        /// Attempt to create the target content if it doesn't already exist.
+        ///
+        /// ## Example: Using `Action::from_str`
+        ///
+        /// ```
+        /// use editor_types::prelude::*;
+        /// use editor_types::{action, Action, TabAction};
+        /// use std::str::FromStr;
+        ///
+        /// let flags = OpenFlags::CREATE;
+        /// let act: Action = TabAction::Open(OpenTarget::Unnamed, flags, FocusChange::Current).into();
+        /// assert_eq!(act, Action::from_str("tab open -t unnamed -f current -F create").unwrap());
+        /// ```
+        ///
+        /// ## Example: Using `action!`
+        ///
+        /// ```
+        /// use editor_types::prelude::*;
+        /// use editor_types::{action, Action, TabAction};
+        ///
+        /// let flags = OpenFlags::CREATE;
+        /// let act: Action = TabAction::Open(OpenTarget::Unnamed, flags, FocusChange::Current).into();
+        /// assert_eq!(act, action!("tab open -t unnamed -f current -F create"));
+        /// ```
         const CREATE = 0b00000010;
+
+        /// Open the target content in read-only mode if applicable.
+        ///
+        /// ## Example: Using `Action::from_str`
+        ///
+        /// ```
+        /// use editor_types::prelude::*;
+        /// use editor_types::{action, Action, TabAction};
+        /// use std::str::FromStr;
+        ///
+        /// let flags = OpenFlags::READONLY;
+        /// let act: Action = TabAction::Open(OpenTarget::Unnamed, flags, FocusChange::Current).into();
+        /// assert_eq!(act, Action::from_str("tab open -t unnamed -f current -F readonly").unwrap());
+        /// assert_eq!(act, Action::from_str("tab open -t unnamed -f current -F read-only").unwrap());
+        /// assert_eq!(act, Action::from_str("tab open -t unnamed -f current -F ro").unwrap());
+        /// ```
+        ///
+        /// ## Example: Using `action!`
+        ///
+        /// ```
+        /// use editor_types::prelude::*;
+        /// use editor_types::{action, Action, TabAction};
+        ///
+        /// let flags = OpenFlags::READONLY;
+        /// let act: Action = TabAction::Open(OpenTarget::Unnamed, flags, FocusChange::Current).into();
+        /// assert_eq!(act, action!("tab open -t unnamed -f current -F readonly"));
+        /// assert_eq!(act, action!("tab open -t unnamed -f current -F read-only"));
+        /// assert_eq!(act, action!("tab open -t unnamed -f current -F ro"));
+        /// ```
+        const READONLY = 0b00000100;
     }
 }
 
@@ -5388,9 +5518,9 @@ impl proptest::arbitrary::Arbitrary for OpenFlags {
 bitflags! {
     /// These flags are used to specify the behaviour while closing a window.
     ///
-    /// Several flags can be combined by grouping their names together.
-    ///
     /// ## Example: Using `Action::from_str`
+    ///
+    /// Several flags can be combined by grouping their names together:
     ///
     /// ```
     /// use editor_types::prelude::*;
@@ -5403,6 +5533,8 @@ bitflags! {
     /// ```
     ///
     /// ## Example: Using `action!`
+    ///
+    /// Several flags can be combined by grouping their names together:
     ///
     /// ```
     /// use editor_types::prelude::*;
@@ -5427,6 +5559,7 @@ bitflags! {
         /// let flags = CloseFlags::NONE;
         /// let act: Action = TabAction::Close(fc, flags).into();
         /// assert_eq!(act, Action::from_str("tab close -t (single current) -F none").unwrap());
+        /// assert_eq!(act, Action::from_str("tab close -t (single current)").unwrap());
         /// ```
         ///
         /// ## Example: Using `action!`
@@ -5439,6 +5572,7 @@ bitflags! {
         /// let flags = CloseFlags::NONE;
         /// let act: Action = TabAction::Close(fc, flags).into();
         /// assert_eq!(act, action!("tab close -t (single current) -F none"));
+        /// assert_eq!(act, action!("tab close -t (single current)"));
         /// ```
         const NONE = 0b00000000;
 
@@ -6021,7 +6155,7 @@ pub enum RecallFilter {
     ///
     /// let filter = RecallFilter::All;
     /// let act: Action = PromptAction::Recall(filter.clone(), MoveDir1D::Next, Count::Contextual).into();
-    /// assert_eq!(act, Action::from_str("prompt recall -d next -c ctx -F all").unwrap());
+    /// assert_eq!(act, Action::from_str("prompt recall -d next -c ctx -M all").unwrap());
     /// ```
     ///
     /// ## Example: Using `action!`
@@ -6032,8 +6166,8 @@ pub enum RecallFilter {
     ///
     /// let filter = RecallFilter::All;
     /// let act: Action = PromptAction::Recall(filter.clone(), MoveDir1D::Next, Count::Contextual).into();
-    /// assert_eq!(act, action!("prompt recall -d next -c ctx -F all"));
-    /// assert_eq!(act, action!("prompt recall -d next -c ctx -F {filter}"));
+    /// assert_eq!(act, action!("prompt recall -d next -c ctx -M all"));
+    /// assert_eq!(act, action!("prompt recall -d next -c ctx -M {filter}"));
     /// ```
     All,
 
@@ -6050,8 +6184,8 @@ pub enum RecallFilter {
     /// let act: Action = PromptAction::Recall(filter.clone(), MoveDir1D::Next, Count::Contextual).into();
     ///
     /// // All of these are equivalent:
-    /// assert_eq!(act, Action::from_str("prompt recall -d next -c ctx -F prefix-match").unwrap());
-    /// assert_eq!(act, Action::from_str("prompt recall -d next -c ctx -F prefix").unwrap());
+    /// assert_eq!(act, Action::from_str("prompt recall -d next -c ctx -M prefix-match").unwrap());
+    /// assert_eq!(act, Action::from_str("prompt recall -d next -c ctx -M prefix").unwrap());
     /// ```
     ///
     /// ## Example: Using `action!`
@@ -6064,9 +6198,9 @@ pub enum RecallFilter {
     /// let act: Action = PromptAction::Recall(filter.clone(), MoveDir1D::Next, Count::Contextual).into();
     ///
     /// // All of these are equivalent:
-    /// assert_eq!(act, action!("prompt recall -d next -c ctx -F prefix-match"));
-    /// assert_eq!(act, action!("prompt recall -d next -c ctx -F prefix"));
-    /// assert_eq!(act, action!("prompt recall -d next -c ctx -F {filter}"));
+    /// assert_eq!(act, action!("prompt recall -d next -c ctx -M prefix-match"));
+    /// assert_eq!(act, action!("prompt recall -d next -c ctx -M prefix"));
+    /// assert_eq!(act, action!("prompt recall -d next -c ctx -M {filter}"));
     /// ```
     PrefixMatch,
 }
@@ -6906,18 +7040,139 @@ bitflags! {
     #[derive(Debug, Clone, Copy, Eq, PartialEq)]
     pub struct TargetShapeFilter: u32 {
         /// Match no shapes.
+        ///
+        /// ## Example: Using `Action::from_str`
+        ///
+        /// ```
+        /// use editor_types::prelude::*;
+        /// use editor_types::{action, Action, SelectionAction};
+        /// use std::str::FromStr;
+        ///
+        /// let style = SelectionBoundary::Line;
+        /// let split: Action = Action::from_str("selection trim -b line -t none").unwrap();
+        /// assert_eq!(split, SelectionAction::Trim(style, TargetShapeFilter::NONE).into());
+        /// ```
+        ///
+        /// ## Example: Using `action!`
+        ///
+        /// ```
+        /// use editor_types::prelude::*;
+        /// use editor_types::{action, Action, SelectionAction};
+        ///
+        /// let style = SelectionBoundary::Line;
+        /// let split: Action = action!("selection trim -b line -t none");
+        /// assert_eq!(split, SelectionAction::Trim(style, TargetShapeFilter::NONE).into());
+        /// ```
         const NONE = 0b00000000;
 
         /// Match all shapes.
+        ///
+        /// ## Example: Using `Action::from_str`
+        ///
+        /// ```
+        /// use editor_types::prelude::*;
+        /// use editor_types::{action, Action, SelectionAction};
+        /// use std::str::FromStr;
+        ///
+        /// let style = SelectionBoundary::Line;
+        /// let split: Action = Action::from_str("selection trim -b line -t all").unwrap();
+        /// assert_eq!(split, SelectionAction::Trim(style, TargetShapeFilter::ALL).into());
+        /// ```
+        ///
+        /// ## Example: Using `action!`
+        ///
+        /// ```
+        /// use editor_types::prelude::*;
+        /// use editor_types::{action, Action, SelectionAction};
+        ///
+        /// let style = SelectionBoundary::Line;
+        /// let split: Action = action!("selection trim -b line -t all");
+        /// assert_eq!(split, SelectionAction::Trim(style, TargetShapeFilter::ALL).into());
+        /// ```
         const ALL = 0b00000111;
 
         /// Match [TargetShape::CharWise].
+        ///
+        /// ## Example: Using `Action::from_str`
+        ///
+        /// ```
+        /// use editor_types::prelude::*;
+        /// use editor_types::{action, Action, SelectionAction};
+        /// use std::str::FromStr;
+        ///
+        /// let style = SelectionBoundary::Line;
+        /// let split: Action = Action::from_str("selection trim -b line -t char").unwrap();
+        /// let split: Action = Action::from_str("selection trim -b line -t charwise").unwrap();
+        /// assert_eq!(split, SelectionAction::Trim(style, TargetShapeFilter::CHAR).into());
+        /// ```
+        ///
+        /// ## Example: Using `action!`
+        ///
+        /// ```
+        /// use editor_types::prelude::*;
+        /// use editor_types::{action, Action, SelectionAction};
+        ///
+        /// let style = SelectionBoundary::Line;
+        /// let split: Action = action!("selection trim -b line -t char");
+        /// let split: Action = action!("selection trim -b line -t charwise");
+        /// assert_eq!(split, SelectionAction::Trim(style, TargetShapeFilter::CHAR).into());
+        /// ```
         const CHAR = 0b00000001;
 
         /// Match [TargetShape::LineWise].
+        ///
+        /// ## Example: Using `Action::from_str`
+        ///
+        /// ```
+        /// use editor_types::prelude::*;
+        /// use editor_types::{action, Action, SelectionAction};
+        /// use std::str::FromStr;
+        ///
+        /// let style = SelectionBoundary::Line;
+        /// let split: Action = Action::from_str("selection trim -b line -t line").unwrap();
+        /// let split: Action = Action::from_str("selection trim -b line -t linewise").unwrap();
+        /// assert_eq!(split, SelectionAction::Trim(style, TargetShapeFilter::LINE).into());
+        /// ```
+        ///
+        /// ## Example: Using `action!`
+        ///
+        /// ```
+        /// use editor_types::prelude::*;
+        /// use editor_types::{action, Action, SelectionAction};
+        ///
+        /// let style = SelectionBoundary::Line;
+        /// let split: Action = action!("selection trim -b line -t line");
+        /// let split: Action = action!("selection trim -b line -t linewise");
+        /// assert_eq!(split, SelectionAction::Trim(style, TargetShapeFilter::LINE).into());
+        /// ```
         const LINE = 0b00000010;
 
         /// Match [TargetShape::BlockWise].
+        ///
+        /// ## Example: Using `Action::from_str`
+        ///
+        /// ```
+        /// use editor_types::prelude::*;
+        /// use editor_types::{action, Action, SelectionAction};
+        /// use std::str::FromStr;
+        ///
+        /// let style = SelectionBoundary::Line;
+        /// let split: Action = Action::from_str("selection trim -b line -t block").unwrap();
+        /// let split: Action = Action::from_str("selection trim -b line -t blockwise").unwrap();
+        /// assert_eq!(split, SelectionAction::Trim(style, TargetShapeFilter::BLOCK).into());
+        /// ```
+        ///
+        /// ## Example: Using `action!`
+        ///
+        /// ```
+        /// use editor_types::prelude::*;
+        /// use editor_types::{action, Action, SelectionAction};
+        ///
+        /// let style = SelectionBoundary::Line;
+        /// let split: Action = action!("selection trim -b line -t block");
+        /// let split: Action = action!("selection trim -b line -t blockwise");
+        /// assert_eq!(split, SelectionAction::Trim(style, TargetShapeFilter::BLOCK).into());
+        /// ```
         const BLOCK = 0b00000100;
     }
 }
@@ -6968,7 +7223,7 @@ pub enum MatchAction {
     /// use std::str::FromStr;
     ///
     /// let act = SelectionAction::Filter(MatchAction::Keep);
-    /// let split: Action = Action::from_str("selection filter -F keep").unwrap();
+    /// let split: Action = Action::from_str("selection filter -M keep").unwrap();
     /// assert_eq!(split, act.into());
     /// ```
     ///
@@ -6979,7 +7234,7 @@ pub enum MatchAction {
     /// use editor_types::{action, Action, SelectionAction};
     ///
     /// let act = SelectionAction::Filter(MatchAction::Keep);
-    /// let split: Action = action!("selection filter -F keep");
+    /// let split: Action = action!("selection filter -M keep");
     /// assert_eq!(split, act.into());
     /// ```
     Keep,
@@ -6994,7 +7249,7 @@ pub enum MatchAction {
     /// use std::str::FromStr;
     ///
     /// let act = SelectionAction::Filter(MatchAction::Drop);
-    /// let split: Action = Action::from_str("selection filter -F drop").unwrap();
+    /// let split: Action = Action::from_str("selection filter -M drop").unwrap();
     /// assert_eq!(split, act.into());
     /// ```
     ///
@@ -7005,7 +7260,7 @@ pub enum MatchAction {
     /// use editor_types::{action, Action, SelectionAction};
     ///
     /// let act = SelectionAction::Filter(MatchAction::Drop);
-    /// let split: Action = action!("selection filter -F drop");
+    /// let split: Action = action!("selection filter -M drop");
     /// assert_eq!(split, act.into());
     /// ```
     Drop,

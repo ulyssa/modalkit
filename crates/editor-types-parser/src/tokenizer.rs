@@ -105,11 +105,13 @@ fn parse_char<'a>(lex: &mut logos::Lexer<'a, LexToken<'a>>) -> Result<char, Lexi
 fn parse_long_flag<'a>(lex: &mut logos::Lexer<'a, LexToken<'a>>) -> Flag {
     let slice = lex.slice();
     match slice {
+        "--flags" => Flag::Bitflags,
         "--count" => Flag::Count,
         "--dir" => Flag::Dir,
         "--focus" => Flag::Focus,
         "--input" => Flag::Input,
         "--mark" => Flag::Mark,
+        "--matches" => Flag::Matches,
         "--position" => Flag::Position,
         "--register" => Flag::Register,
         "--style" => Flag::Style,
@@ -125,8 +127,10 @@ fn parse_short_flag<'a>(lex: &mut logos::Lexer<'a, LexToken<'a>>) -> Flag {
     match c {
         'c' => Flag::Count,
         'd' => Flag::Dir,
+        'F' => Flag::Bitflags,
         'f' => Flag::Focus,
         'i' => Flag::Input,
+        'M' => Flag::Matches,
         'm' => Flag::Mark,
         'p' => Flag::Position,
         'r' => Flag::Register,
@@ -356,11 +360,18 @@ mod tests {
             ActionToken::Word("leader"),
         ]);
 
-        let tokens = tokenize("cursor close -F").unwrap();
+        let tokens = tokenize("cursor close -Q").unwrap();
         assert_eq!(tokens, vec![
             ActionToken::Word("cursor"),
             ActionToken::Word("close"),
-            ActionToken::Flag(Flag::Short('F')),
+            ActionToken::Flag(Flag::Short('Q')),
+        ]);
+
+        let tokens = tokenize("cursor close -M").unwrap();
+        assert_eq!(tokens, vec![
+            ActionToken::Word("cursor"),
+            ActionToken::Word("close"),
+            ActionToken::Flag(Flag::Matches),
         ]);
     }
 

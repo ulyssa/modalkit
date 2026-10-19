@@ -566,7 +566,7 @@ pub enum SelectionAction {
     /// use std::str::FromStr;
     ///
     /// let act = SelectionAction::Filter(MatchAction::Keep);
-    /// let split: Action = Action::from_str("selection filter -F keep").unwrap();
+    /// let split: Action = Action::from_str("selection filter -M keep").unwrap();
     /// assert_eq!(split, act.into());
     /// ```
     ///
@@ -577,7 +577,7 @@ pub enum SelectionAction {
     /// use editor_types::{action, Action, SelectionAction};
     ///
     /// let act = SelectionAction::Filter(MatchAction::Keep);
-    /// let split: Action = action!("selection filter -F keep");
+    /// let split: Action = action!("selection filter -M keep");
     /// assert_eq!(split, act.into());
     /// ```
     Filter(MatchAction),
@@ -655,7 +655,7 @@ pub enum SelectionAction {
     /// use std::str::FromStr;
     ///
     /// let style = SelectionSplitStyle::Lines;
-    /// let split: Action = Action::from_str("selection split -s lines -F all").unwrap();
+    /// let split: Action = Action::from_str("selection split -s lines -M all").unwrap();
     /// assert_eq!(split, SelectionAction::Split(style, TargetShapeFilter::ALL).into());
     /// ```
     ///
@@ -666,7 +666,7 @@ pub enum SelectionAction {
     /// use editor_types::{action, Action, SelectionAction};
     ///
     /// let style = SelectionSplitStyle::Lines;
-    /// let split: Action = action!("selection split -s lines -F all");
+    /// let split: Action = action!("selection split -s lines -M all");
     /// assert_eq!(split, SelectionAction::Split(style, TargetShapeFilter::ALL).into());
     /// ```
     Split(SelectionSplitStyle, TargetShapeFilter),
@@ -1389,7 +1389,7 @@ pub enum PromptAction {
     /// let act: Action = PromptAction::Recall(filter.clone(), MoveDir1D::Next, Count::Contextual).into();
     ///
     /// // All of these are equivalent:
-    /// assert_eq!(act, Action::from_str("prompt recall -d next -c ctx -F all").unwrap());
+    /// assert_eq!(act, Action::from_str("prompt recall -d next -c ctx -M all").unwrap());
     /// assert_eq!(act, Action::from_str("prompt recall -d next -c ctx").unwrap());
     /// assert_eq!(act, Action::from_str("prompt recall -d next").unwrap());
     /// ```
@@ -1404,8 +1404,8 @@ pub enum PromptAction {
     /// let act: Action = PromptAction::Recall(filter.clone(), MoveDir1D::Next, Count::Contextual).into();
     ///
     /// // All of these are equivalent:
-    /// assert_eq!(act, action!("prompt recall -d next -c ctx -F all"));
-    /// assert_eq!(act, action!("prompt recall -d next -c ctx -F {filter}"));
+    /// assert_eq!(act, action!("prompt recall -d next -c ctx -M all"));
+    /// assert_eq!(act, action!("prompt recall -d next -c ctx -M {filter}"));
     /// assert_eq!(act, action!("prompt recall -d next -c ctx"));
     /// assert_eq!(act, action!("prompt recall -d next"));
     /// ```
@@ -1692,7 +1692,9 @@ pub enum TabAction<I: ApplicationInfo> {
     /// use editor_types::{action, Action, TabAction};
     /// use std::str::FromStr;
     ///
-    /// let extract: Action = TabAction::Open(OpenTarget::Current, FocusChange::PreviouslyFocused).into();
+    /// let flags = OpenFlags::NONE;
+    /// let focus = FocusChange::PreviouslyFocused;
+    /// let extract: Action = TabAction::Open(OpenTarget::Current, flags, focus).into();
     /// assert_eq!(extract, Action::from_str("tab open -t current -f previously-focused").unwrap());
     /// ```
     ///
@@ -1702,13 +1704,27 @@ pub enum TabAction<I: ApplicationInfo> {
     /// use editor_types::prelude::*;
     /// use editor_types::{action, Action, TabAction};
     ///
-    /// let extract: Action = TabAction::Open(OpenTarget::Current, FocusChange::PreviouslyFocused).into();
+    /// let flags = OpenFlags::NONE;
+    /// let focus = FocusChange::PreviouslyFocused;
+    /// let extract: Action = TabAction::Open(OpenTarget::Current, flags, focus).into();
     /// assert_eq!(extract, action!("tab open -t current -f previously-focused"));
+    /// ```
+    ///
+    /// ## Example: Specifying [OpenFlags]
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, TabAction};
+    ///
+    /// let flags = OpenFlags::CREATE | OpenFlags::READONLY;
+    /// let focus = FocusChange::Current;
+    /// let open: Action = TabAction::Open(OpenTarget::Unnamed, flags, focus).into();
+    /// assert_eq!(open, action!("tab open -t unnamed -F (create readonly) -f current"));
     /// ```
     ///
     /// See the documentation for [OpenTarget] and [FocusChange] for how to construct each of their
     /// variants with [action].
-    Open(OpenTarget<WindowIdOf<I>>, FocusChange),
+    Open(OpenTarget<WindowIdOf<I>>, OpenFlags, FocusChange),
 }
 
 /// Actions for manipulating application windows.
@@ -1742,6 +1758,9 @@ pub enum WindowAction<I: ApplicationInfo> {
     /// let flags = CloseFlags::NONE;
     /// let extract: Action = WindowAction::Close(fc, flags).into();
     /// assert_eq!(extract, action!("window close -t (single current) -F none"));
+    ///
+    /// // `-F` defaults to `none` when not specified:
+    /// assert_eq!(extract, action!("window close -t (single current)"));
     /// ```
     Close(WindowTarget, CloseFlags),
 
@@ -1832,10 +1851,11 @@ pub enum WindowAction<I: ApplicationInfo> {
     /// use std::str::FromStr;
     ///
     /// let target = OpenTarget::Unnamed;
+    /// let flags = OpenFlags::NONE;
     /// let axis = Axis::Horizontal;
     /// let dir = MoveDir1D::Next;
     /// let count = Count::Contextual;
-    /// let act: Action = WindowAction::Open(target, axis, dir, count).into();
+    /// let act: Action = WindowAction::Open(target, flags, axis, dir, count).into();
     ///
     /// // All of these are equivalent:
     /// assert_eq!(act, Action::from_str("window open -t unnamed -x horizontal -d next -c ctx").unwrap());
@@ -1849,16 +1869,17 @@ pub enum WindowAction<I: ApplicationInfo> {
     /// use editor_types::{action, Action, WindowAction};
     ///
     /// let target = OpenTarget::Unnamed;
+    /// let flags = OpenFlags::NONE;
     /// let axis = Axis::Horizontal;
     /// let dir = MoveDir1D::Next;
     /// let count = Count::Contextual;
-    /// let act: Action = WindowAction::Open(target, axis, dir, count).into();
+    /// let act: Action = WindowAction::Open(target, flags, axis, dir, count).into();
     ///
     /// // All of these are equivalent:
     /// assert_eq!(act, action!("window open -t unnamed -x horizontal -d next -c ctx"));
     /// assert_eq!(act, action!("window open -t unnamed -x horizontal -d next"));
     /// ```
-    Open(OpenTarget<WindowIdOf<I>>, Axis, MoveDir1D, Count),
+    Open(OpenTarget<WindowIdOf<I>>, OpenFlags, Axis, MoveDir1D, Count),
 
     /// Visually rotate the windows in [MoveDir2D] direction.
     ///
@@ -1895,10 +1916,11 @@ pub enum WindowAction<I: ApplicationInfo> {
     /// use std::str::FromStr;
     ///
     /// let target = OpenTarget::Current;
+    /// let flags = OpenFlags::NONE;
     /// let axis = Axis::Vertical;
     /// let dir = MoveDir1D::Next;
     /// let count = Count::Contextual;
-    /// let act: Action = WindowAction::Split(target, axis, dir, count).into();
+    /// let act: Action = WindowAction::Split(target, flags, axis, dir, count).into();
     ///
     /// // All of these are equivalent:
     /// assert_eq!(act, Action::from_str("window split -t current -x vertical -d next -c ctx").unwrap());
@@ -1912,16 +1934,17 @@ pub enum WindowAction<I: ApplicationInfo> {
     /// use editor_types::{action, Action, WindowAction};
     ///
     /// let target = OpenTarget::Current;
+    /// let flags = OpenFlags::NONE;
     /// let axis = Axis::Vertical;
     /// let dir = MoveDir1D::Next;
     /// let count = Count::Contextual;
-    /// let act: Action = WindowAction::Split(target, axis, dir, count).into();
+    /// let act: Action = WindowAction::Split(target, flags, axis, dir, count).into();
     ///
     /// // All of these are equivalent:
     /// assert_eq!(act, action!("window split -t current -x vertical -d next -c ctx"));
     /// assert_eq!(act, action!("window split -t current -x vertical -d next"));
     /// ```
-    Split(OpenTarget<WindowIdOf<I>>, Axis, MoveDir1D, Count),
+    Split(OpenTarget<WindowIdOf<I>>, OpenFlags, Axis, MoveDir1D, Count),
 
     /// Switch what content the window is currently showing.
     ///
@@ -1936,7 +1959,8 @@ pub enum WindowAction<I: ApplicationInfo> {
     /// use std::str::FromStr;
     ///
     /// let target = OpenTarget::Offset(MoveDir1D::Next, 5.into());
-    /// let switch: Action = WindowAction::Switch(target).into();
+    /// let flags = OpenFlags::NONE;
+    /// let switch: Action = WindowAction::Switch(target, flags).into();
     /// assert_eq!(switch, Action::from_str("window switch -t (offset -d next -c 5)").unwrap());
     /// ```
     ///
@@ -1947,10 +1971,22 @@ pub enum WindowAction<I: ApplicationInfo> {
     /// use editor_types::{action, Action, WindowAction};
     ///
     /// let target = OpenTarget::Offset(MoveDir1D::Next, 5.into());
-    /// let switch: Action = WindowAction::Switch(target).into();
+    /// let flags = OpenFlags::NONE;
+    /// let switch: Action = WindowAction::Switch(target, flags).into();
     /// assert_eq!(switch, action!("window switch -t (offset -d next -c 5)"));
     /// ```
-    Switch(OpenTarget<WindowIdOf<I>>),
+    ///
+    /// ## Example: Opening Read-Only
+    ///
+    /// ```
+    /// use editor_types::prelude::*;
+    /// use editor_types::{action, Action, WindowAction};
+    ///
+    /// let target = OpenTarget::Name("file.txt".into());
+    /// let switch: Action = WindowAction::Switch(target, OpenFlags::READONLY).into();
+    /// assert_eq!(switch, action!(r#"window switch -t (name -i "file.txt") -F readonly"#));
+    /// ```
+    Switch(OpenTarget<WindowIdOf<I>>, OpenFlags),
 
     /// Clear all of the explicitly set window sizes, and instead try to equally distribute
     /// available rows and columns.
