@@ -21,7 +21,7 @@ project's `Cargo.toml`.
 
 ```toml
 [dependencies]
-modalkit = "0.0.31"
+modalkit = "0.0.32"
 ```
 
 ## License

@@ -16,19 +16,19 @@ version = "0.0.4"
 
 [workspace.dependencies.editor-types]
 path = "crates/editor-types"
-version = "0.0.6"
+version = "0.0.7"
 
 [workspace.dependencies.editor-types-parser]
 path = "crates/editor-types-parser"
-version = "0.0.6"
+version = "0.0.7"
 
 [workspace.dependencies.editor-types-macros]
 path = "crates/editor-types-macros"
-version = "0.0.6"
+version = "0.0.7"
 
 [workspace.dependencies.modalkit]
 path = "crates/modalkit"
-version = "0.0.31"
+version = "0.0.32"
 
 [workspace.dependencies]
 anyhow = "1.0.104"
