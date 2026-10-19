@@ -19,7 +19,7 @@ project's `Cargo.toml`.
 
 ```toml
 [dependencies]
-editor-types-macros = "0.0.6"
+editor-types-macros = "0.0.7"
 ```
 
 ## License
